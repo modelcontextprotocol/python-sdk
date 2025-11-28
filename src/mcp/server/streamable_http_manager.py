@@ -51,6 +51,9 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
+        security_settings: Optional transport security settings.
+        retry_interval: Retry interval in milliseconds to suggest to clients in SSE
+                       retry field. Used for SSE polling behavior.
     """
 
     def __init__(
@@ -60,12 +63,14 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+        self.retry_interval = retry_interval
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -226,6 +231,7 @@ class StreamableHTTPSessionManager:
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
+                    retry_interval=self.retry_interval,
                 )
 
                 assert http_transport.mcp_session_id is not None

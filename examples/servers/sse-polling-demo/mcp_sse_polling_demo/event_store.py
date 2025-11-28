@@ -18,13 +18,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EventEntry:
-    """
-    Represents an event entry in the event store.
-    """
+    """Represents an event entry in the event store."""
 
     event_id: EventId
     stream_id: StreamId
-    message: JSONRPCMessage | None
+    message: JSONRPCMessage | None  # None for priming events
 
 
 class InMemoryEventStore(EventStore):
@@ -49,7 +47,12 @@ class InMemoryEventStore(EventStore):
         self.event_index: dict[EventId, EventEntry] = {}
 
     async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
-        """Stores an event with a generated event ID."""
+        """Stores an event with a generated event ID.
+
+        Args:
+            stream_id: ID of the stream the event belongs to
+            message: The message to store, or None for priming events
+        """
         event_id = str(uuid4())
         event_entry = EventEntry(event_id=event_id, stream_id=stream_id, message=message)
 
@@ -88,7 +91,7 @@ class InMemoryEventStore(EventStore):
         found_last = False
         for event in stream_events:
             if found_last:
-                # Skip priming events (None message)
+                # Skip priming events (None messages) during replay
                 if event.message is not None:
                     await send_callback(EventMessage(event.message, event.event_id))
             elif event.event_id == last_event_id:
