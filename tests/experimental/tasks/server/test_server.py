@@ -627,11 +627,11 @@ async def test_build_elicit_request() -> None:
             assert request.params is not None
             assert request.params["message"] == "Test message"
 
-            # Test with task_id (adds related-task metadata)
+            # Test with related_task_id (adds related-task metadata)
             request_with_task = server_session._build_elicit_request(
                 message="Task message",
                 requestedSchema={"type": "object"},
-                task_id="test-task-123",
+                related_task_id="test-task-123",
             )
             assert request_with_task.method == "elicitation/create"
             assert request_with_task.params is not None
@@ -677,11 +677,11 @@ async def test_build_create_message_request() -> None:
             assert request.params is not None
             assert request.params["maxTokens"] == 100
 
-            # Test with task_id (adds related-task metadata)
+            # Test with related_task_id (adds related-task metadata)
             request_with_task = server_session._build_create_message_request(
                 messages=messages,
                 max_tokens=50,
-                task_id="sampling-task-456",
+                related_task_id="sampling-task-456",
             )
             assert request_with_task.method == "sampling/createMessage"
             assert request_with_task.params is not None

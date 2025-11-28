@@ -23,7 +23,10 @@ from mcp.types import (
     TASK_STATUS_INPUT_REQUIRED,
     TASK_STATUS_WORKING,
     ClientCapabilities,
+    ClientTasksCapability,
+    ClientTasksRequestsCapability,
     CreateMessageResult,
+    CreateTaskResult,
     ElicitationCapability,
     ElicitRequestedSchema,
     ElicitResult,
@@ -36,6 +39,11 @@ from mcp.types import (
     SamplingMessage,
     ServerNotification,
     Task,
+    TaskMetadata,
+    TasksCreateElicitationCapability,
+    TasksCreateMessageCapability,
+    TasksElicitationCapability,
+    TasksSamplingCapability,
     TaskStatusNotification,
     TaskStatusNotificationParams,
 )
@@ -190,6 +198,40 @@ class ServerTaskContext:
                 )
             )
 
+    def _check_task_augmented_elicitation_capability(self) -> None:
+        """Check if the client supports task-augmented elicitation."""
+        capability = ClientCapabilities(
+            tasks=ClientTasksCapability(
+                requests=ClientTasksRequestsCapability(
+                    elicitation=TasksElicitationCapability(create=TasksCreateElicitationCapability())
+                )
+            )
+        )
+        if not self._session.check_client_capability(capability):
+            raise McpError(
+                ErrorData(
+                    code=INVALID_REQUEST,
+                    message="Client does not support task-augmented elicitation capability",
+                )
+            )
+
+    def _check_task_augmented_sampling_capability(self) -> None:
+        """Check if the client supports task-augmented sampling."""
+        capability = ClientCapabilities(
+            tasks=ClientTasksCapability(
+                requests=ClientTasksRequestsCapability(
+                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                )
+            )
+        )
+        if not self._session.check_client_capability(capability):
+            raise McpError(
+                ErrorData(
+                    code=INVALID_REQUEST,
+                    message="Client does not support task-augmented sampling capability",
+                )
+            )
+
     async def elicit(
         self,
         message: str,
@@ -228,7 +270,7 @@ class ServerTaskContext:
         request = self._session._build_elicit_request(  # pyright: ignore[reportPrivateUsage]
             message=message,
             requestedSchema=requestedSchema,
-            task_id=self.task_id,
+            related_task_id=self.task_id,
         )
         request_id: RequestId = request.id
 
@@ -314,7 +356,7 @@ class ServerTaskContext:
             stop_sequences=stop_sequences,
             metadata=metadata,
             model_preferences=model_preferences,
-            task_id=self.task_id,
+            related_task_id=self.task_id,
         )
         request_id: RequestId = request.id
 
@@ -340,5 +382,183 @@ class ServerTaskContext:
             # Coverage can't track async exception handlers reliably.
             # This path is tested in test_create_message_restores_status_on_cancellation
             # which verifies status is restored to "working" after cancellation.
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            raise
+
+    async def elicit_as_task(
+        self,
+        message: str,
+        requestedSchema: ElicitRequestedSchema,
+        *,
+        ttl: int = 60000,
+    ) -> ElicitResult:
+        """
+        Send a task-augmented elicitation via the queue, then poll client.
+
+        This is for use inside a task-augmented tool call when you want the client
+        to handle the elicitation as its own task. The elicitation request is queued
+        and delivered when the client calls tasks/result. After the client responds
+        with CreateTaskResult, we poll the client's task until complete.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: Schema defining the expected response structure
+            ttl: Task time-to-live in milliseconds for the client's task
+
+        Returns:
+            The client's elicitation response
+
+        Raises:
+            McpError: If client doesn't support task-augmented elicitation
+            RuntimeError: If handler is not configured
+        """
+        self._check_task_augmented_elicitation_capability()
+
+        if self._handler is None:
+            raise RuntimeError("handler is required for elicit_as_task()")
+
+        # Update status to input_required
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+
+        # Build request WITH task field for task-augmented elicitation
+        request = self._session._build_elicit_request(  # pyright: ignore[reportPrivateUsage]
+            message=message,
+            requestedSchema=requestedSchema,
+            related_task_id=self.task_id,
+            task=TaskMetadata(ttl=ttl),
+        )
+        request_id: RequestId = request.id
+
+        # Create resolver and register with handler for response routing
+        resolver: Resolver[dict[str, Any]] = Resolver()
+        self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
+
+        # Queue the request
+        queued = QueuedMessage(
+            type="request",
+            message=request,
+            resolver=resolver,
+            original_request_id=request_id,
+        )
+        await self._queue.enqueue(self.task_id, queued)
+
+        try:
+            # Wait for initial response (CreateTaskResult from client)
+            response_data = await resolver.wait()
+            create_result = CreateTaskResult.model_validate(response_data)
+            client_task_id = create_result.task.taskId
+
+            # Poll the client's task using session.experimental
+            async for _ in self._session.experimental.poll_task(client_task_id):
+                pass
+
+            # Get final result from client
+            result = await self._session.experimental.get_task_result(
+                client_task_id,
+                ElicitResult,
+            )
+
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            return result
+
+        except anyio.get_cancelled_exc_class():  # pragma: no cover
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            raise
+
+    async def create_message_as_task(
+        self,
+        messages: list[SamplingMessage],
+        *,
+        max_tokens: int,
+        ttl: int = 60000,
+        system_prompt: str | None = None,
+        include_context: IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: ModelPreferences | None = None,
+    ) -> CreateMessageResult:
+        """
+        Send a task-augmented sampling request via the queue, then poll client.
+
+        This is for use inside a task-augmented tool call when you want the client
+        to handle the sampling as its own task. The request is queued and delivered
+        when the client calls tasks/result. After the client responds with
+        CreateTaskResult, we poll the client's task until complete.
+
+        Args:
+            messages: The conversation messages for sampling
+            max_tokens: Maximum tokens in the response
+            ttl: Task time-to-live in milliseconds for the client's task
+            system_prompt: Optional system prompt
+            include_context: Context inclusion strategy
+            temperature: Sampling temperature
+            stop_sequences: Stop sequences
+            metadata: Additional metadata
+            model_preferences: Model selection preferences
+
+        Returns:
+            The sampling result from the client
+
+        Raises:
+            McpError: If client doesn't support task-augmented sampling
+            RuntimeError: If handler is not configured
+        """
+        self._check_task_augmented_sampling_capability()
+
+        if self._handler is None:
+            raise RuntimeError("handler is required for create_message_as_task()")
+
+        # Update status to input_required
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+
+        # Build request WITH task field for task-augmented sampling
+        request = self._session._build_create_message_request(  # pyright: ignore[reportPrivateUsage]
+            messages=messages,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt,
+            include_context=include_context,
+            temperature=temperature,
+            stop_sequences=stop_sequences,
+            metadata=metadata,
+            model_preferences=model_preferences,
+            related_task_id=self.task_id,
+            task=TaskMetadata(ttl=ttl),
+        )
+        request_id: RequestId = request.id
+
+        # Create resolver and register with handler for response routing
+        resolver: Resolver[dict[str, Any]] = Resolver()
+        self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
+
+        # Queue the request
+        queued = QueuedMessage(
+            type="request",
+            message=request,
+            resolver=resolver,
+            original_request_id=request_id,
+        )
+        await self._queue.enqueue(self.task_id, queued)
+
+        try:
+            # Wait for initial response (CreateTaskResult from client)
+            response_data = await resolver.wait()
+            create_result = CreateTaskResult.model_validate(response_data)
+            client_task_id = create_result.task.taskId
+
+            # Poll the client's task using session.experimental
+            async for _ in self._session.experimental.poll_task(client_task_id):
+                pass
+
+            # Get final result from client
+            result = await self._session.experimental.get_task_result(
+                client_task_id,
+                CreateMessageResult,
+            )
+
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            return result
+
+        except anyio.get_cancelled_exc_class():  # pragma: no cover
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             raise

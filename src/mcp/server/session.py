@@ -46,6 +46,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import AnyUrl
 
 import mcp.types as types
+from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -81,6 +82,7 @@ class ServerSession(
 ):
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
+    _experimental_features: ExperimentalServerSessionFeatures | None = None
 
     def __init__(
         self,
@@ -104,15 +106,49 @@ class ServerSession(
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params  # pragma: no cover
 
+    @property
+    def experimental(self) -> ExperimentalServerSessionFeatures:
+        """Experimental APIs for server→client task operations.
+
+        WARNING: These APIs are experimental and may change without notice.
+        """
+        if self._experimental_features is None:
+            self._experimental_features = ExperimentalServerSessionFeatures(self)
+        return self._experimental_features
+
+    def _check_tasks_capability(
+        self,
+        required: types.ClientTasksCapability,
+        client: types.ClientTasksCapability,
+    ) -> bool:  # pragma: no cover
+        """Check if client's tasks capability matches the required capability."""
+        if required.requests is None:
+            return True
+        if client.requests is None:
+            return False
+        # Check elicitation.create
+        if required.requests.elicitation is not None:
+            if client.requests.elicitation is None:
+                return False
+            if required.requests.elicitation.create is not None:
+                if client.requests.elicitation.create is None:
+                    return False
+        # Check sampling.createMessage
+        if required.requests.sampling is not None:
+            if client.requests.sampling is None:
+                return False
+            if required.requests.sampling.createMessage is not None:
+                if client.requests.sampling.createMessage is None:
+                    return False
+        return True
+
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
         """Check if the client supports a specific capability."""
         if self._client_params is None:
             return False
 
-        # Get client capabilities from initialization params
         client_caps = self._client_params.capabilities
 
-        # Check each specified capability in the passed in capability object
         if capability.roots is not None:
             if client_caps.roots is None:
                 return False
@@ -122,24 +158,26 @@ class ServerSession(
         if capability.sampling is not None:
             if client_caps.sampling is None:
                 return False
-            if capability.sampling.context is not None:
-                if client_caps.sampling.context is None:
-                    return False
-            if capability.sampling.tools is not None:
-                if client_caps.sampling.tools is None:
-                    return False
-
-        if capability.elicitation is not None:
-            if client_caps.elicitation is None:
+            if capability.sampling.context is not None and client_caps.sampling.context is None:
                 return False
+            if capability.sampling.tools is not None and client_caps.sampling.tools is None:
+                return False
+
+        if capability.elicitation is not None and client_caps.elicitation is None:
+            return False
 
         if capability.experimental is not None:
             if client_caps.experimental is None:
                 return False
-            # Check each experimental capability
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
+
+        if capability.tasks is not None:
+            if client_caps.tasks is None:
+                return False
+            if not self._check_tasks_capability(capability.tasks, client_caps.tasks):
+                return False
 
         return True
 
@@ -516,14 +554,16 @@ class ServerSession(
         self,
         message: str,
         requestedSchema: types.ElicitRequestedSchema,
-        task_id: str | None = None,
+        related_task_id: str | None = None,
+        task: types.TaskMetadata | None = None,
     ) -> types.JSONRPCRequest:
         """Build an elicitation request without sending it.
 
         Args:
             message: The message to present to the user
             requestedSchema: Schema defining the expected response structure
-            task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+            task: If provided, makes this a task-augmented request
 
         Returns:
             A JSONRPCRequest ready to be sent or queued
@@ -531,19 +571,18 @@ class ServerSession(
         params = types.ElicitRequestFormParams(
             message=message,
             requestedSchema=requestedSchema,
+            task=task,
         )
         params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
 
-        # Add related-task metadata if in task mode
-        if task_id is not None:
-            # Defensive check: _meta can't exist currently since ElicitRequestFormParams
-            # doesn't pass meta to model_dump, but guard against future changes.
-            if "_meta" not in params_data:  # pragma: no cover
+        # Add related-task metadata if associated with a parent task
+        if related_task_id is not None:
+            if "_meta" not in params_data:
                 params_data["_meta"] = {}
-            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": task_id}
+            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
 
-        request_id = f"task-{task_id}-{id(params)}" if task_id else self._request_id
-        if task_id is None:
+        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
+        if related_task_id is None:
             self._request_id += 1
 
         return types.JSONRPCRequest(
@@ -564,7 +603,8 @@ class ServerSession(
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
-        task_id: str | None = None,
+        related_task_id: str | None = None,
+        task: types.TaskMetadata | None = None,
     ) -> types.JSONRPCRequest:
         """Build a sampling/createMessage request without sending it.
 
@@ -577,7 +617,8 @@ class ServerSession(
             stop_sequences: Optional stop sequences
             metadata: Optional metadata to pass through to the LLM provider
             model_preferences: Optional model selection preferences
-            task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+            task: If provided, makes this a task-augmented request
 
         Returns:
             A JSONRPCRequest ready to be sent or queued
@@ -591,19 +632,18 @@ class ServerSession(
             stopSequences=stop_sequences,
             metadata=metadata,
             modelPreferences=model_preferences,
+            task=task,
         )
         params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
 
-        # Add related-task metadata if in task mode
-        if task_id is not None:
-            # Defensive check: _meta can't exist currently since CreateMessageRequestParams
-            # doesn't pass meta to model_dump, but guard against future changes.
-            if "_meta" not in params_data:  # pragma: no cover
+        # Add related-task metadata if associated with a parent task
+        if related_task_id is not None:
+            if "_meta" not in params_data:
                 params_data["_meta"] = {}
-            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": task_id}
+            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
 
-        request_id = f"task-{task_id}-{id(params)}" if task_id else self._request_id
-        if task_id is None:
+        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
+        if related_task_id is None:
             self._request_id += 1
 
         return types.JSONRPCRequest(

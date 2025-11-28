@@ -27,10 +27,8 @@ Example:
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import anyio
-
 import mcp.types as types
-from mcp.shared.experimental.tasks.helpers import is_terminal
+from mcp.shared.experimental.tasks.polling import poll_until_terminal
 
 if TYPE_CHECKING:
     from mcp.client.session import ClientSession
@@ -222,13 +220,5 @@ class ExperimentalClientFeatures:
             # Task is now terminal, get the result
             result = await session.experimental.get_task_result(task_id, CallToolResult)
         """
-        while True:
-            status = await self.get_task(task_id)
+        async for status in poll_until_terminal(self.get_task, task_id):
             yield status
-
-            if is_terminal(status.status):
-                break
-
-            # Respect server's pollInterval hint, default to 500ms if not specified
-            interval_ms = status.pollInterval if status.pollInterval is not None else 500
-            await anyio.sleep(interval_ms / 1000)
