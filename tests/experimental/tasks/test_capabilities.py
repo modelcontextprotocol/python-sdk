@@ -252,7 +252,7 @@ class TestRequireTaskAugmentedElicitation:
                 )
             )
         )
-        require_task_augmented_elicitation(caps)  # Should not raise
+        require_task_augmented_elicitation(caps)
 
 
 class TestRequireTaskAugmentedSampling:
@@ -280,4 +280,4 @@ class TestRequireTaskAugmentedSampling:
                 )
             )
         )
-        require_task_augmented_sampling(caps)  # Should not raise
+        require_task_augmented_sampling(caps)

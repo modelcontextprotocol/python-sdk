@@ -228,7 +228,7 @@ async def test_elicit_raises_without_handler() -> None:
         store=store,
         session=mock_session,
         queue=queue,
-        handler=None,  # No handler
+        handler=None,
     )
 
     with pytest.raises(RuntimeError, match="handler is required"):
@@ -251,7 +251,7 @@ async def test_elicit_url_raises_without_handler() -> None:
         store=store,
         session=mock_session,
         queue=queue,
-        handler=None,  # No handler
+        handler=None,
     )
 
     with pytest.raises(RuntimeError, match="handler is required for elicit_url"):
@@ -278,7 +278,7 @@ async def test_create_message_raises_without_handler() -> None:
         store=store,
         session=mock_session,
         queue=queue,
-        handler=None,  # No handler
+        handler=None,
     )
 
     with pytest.raises(RuntimeError, match="handler is required"):
@@ -662,7 +662,7 @@ async def test_elicit_as_task_raises_without_handler() -> None:
         store=store,
         session=mock_session,
         queue=queue,
-        handler=None,  # No handler
+        handler=None,
     )
 
     with pytest.raises(RuntimeError, match="handler is required for elicit_as_task"):
@@ -697,7 +697,7 @@ async def test_create_message_as_task_raises_without_handler() -> None:
         store=store,
         session=mock_session,
         queue=queue,
-        handler=None,  # No handler
+        handler=None,
     )
 
     with pytest.raises(RuntimeError, match="handler is required for create_message_as_task"):

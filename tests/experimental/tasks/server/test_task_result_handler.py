@@ -151,7 +151,10 @@ async def test_handle_waits_for_task_completion(
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_handle)
-        await anyio.sleep(0.05)
+
+        # Wait for handler to start waiting (event gets created when wait starts)
+        while task.taskId not in store._update_events:
+            await anyio.sleep(0)
 
         await store.store_result(task.taskId, CallToolResult(content=[TextContent(type="text", text="Done")]))
         await store.update_task(task.taskId, status="completed")
@@ -303,7 +306,9 @@ async def test_wait_for_task_update_handles_store_exception(
 
     # Queue a message to unblock the race via the queue path
     async def enqueue_later() -> None:
-        await anyio.sleep(0.01)
+        # Wait for queue to start waiting (event gets created when wait starts)
+        while task.taskId not in queue._events:
+            await anyio.sleep(0)
         await queue.enqueue(
             task.taskId,
             QueuedMessage(
@@ -338,7 +343,9 @@ async def test_wait_for_task_update_handles_queue_exception(
 
     # Update the store to unblock the race via the store path
     async def update_later() -> None:
-        await anyio.sleep(0.01)
+        # Wait for store to start waiting (event gets created when wait starts)
+        while task.taskId not in store._update_events:
+            await anyio.sleep(0)
         await store.update_task(task.taskId, status="completed")
 
     async with anyio.create_task_group() as tg:
