@@ -52,7 +52,6 @@ from mcp.server.validation import validate_sampling_tools, validate_tool_use_res
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
@@ -156,28 +155,6 @@ class ServerSession(
                 return False
 
         return True
-
-    def set_task_result_handler(self, handler: ResponseRouter) -> None:
-        """
-        Set a response router for task-augmented requests.
-
-        This enables response routing for task-augmented requests. When a
-        ServerTaskContext enqueues an elicitation request, the response will be
-        routed back through this handler.
-
-        The handler is automatically registered as a response router.
-
-        Args:
-            handler: The ResponseRouter (typically TaskResultHandler) to use
-
-        Example:
-            from mcp.server.experimental.task_result_handler import TaskResultHandler
-            task_store = InMemoryTaskStore()
-            message_queue = InMemoryTaskMessageQueue()
-            handler = TaskResultHandler(task_store, message_queue)
-            session.set_task_result_handler(handler)
-        """
-        self.add_response_router(handler)
 
     async def _receive_loop(self) -> None:
         async with self._incoming_message_stream_writer:
@@ -482,14 +459,6 @@ class ServerSession(
             ),
             related_request_id,
         )
-
-    # =========================================================================
-    # Request builders for task queueing (internal use)
-    # =========================================================================
-    #
-    # These methods build JSON-RPC requests without sending them. They are used
-    # by TaskContext to construct requests that will be queued instead of sent
-    # directly, avoiding code duplication between ServerSession and TaskContext.
 
     def _build_elicit_form_request(
         self,

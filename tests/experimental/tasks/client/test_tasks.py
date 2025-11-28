@@ -64,7 +64,6 @@ async def test_session_experimental_get_task() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
         ctx = server.request_context
         app = ctx.lifespan_context
-
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -174,7 +173,6 @@ async def test_session_experimental_get_task_result() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
         ctx = server.request_context
         app = ctx.lifespan_context
-
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -283,7 +281,6 @@ async def test_session_experimental_list_tasks() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
         ctx = server.request_context
         app = ctx.lifespan_context
-
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -381,7 +378,6 @@ async def test_session_experimental_cancel_task() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
         ctx = server.request_context
         app = ctx.lifespan_context
-
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None

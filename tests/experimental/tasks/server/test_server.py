@@ -8,13 +8,10 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.server import Server
-from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
-from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
-from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import RequestResponder
@@ -557,38 +554,6 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             assert cancel_result.status == "cancelled"
 
             tg.cancel_scope.cancel()
-
-
-@pytest.mark.anyio
-async def test_set_task_result_handler() -> None:
-    """Test that set_task_result_handler adds the handler as a response router."""
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
-
-    store = InMemoryTaskStore()
-    queue = InMemoryTaskMessageQueue()
-    handler = TaskResultHandler(store, queue)
-
-    try:
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="test-server",
-                server_version="1.0.0",
-                capabilities=ServerCapabilities(),
-            ),
-        ) as server_session:
-            # Use set_task_result_handler (the method we're testing)
-            server_session.set_task_result_handler(handler)
-
-            # Verify handler was added as a response router
-            assert handler in server_session._response_routers
-    finally:  # pragma: no cover
-        await server_to_client_send.aclose()
-        await server_to_client_receive.aclose()
-        await client_to_server_send.aclose()
-        await client_to_server_receive.aclose()
 
 
 @pytest.mark.anyio

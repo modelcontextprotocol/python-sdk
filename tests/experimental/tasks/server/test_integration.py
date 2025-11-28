@@ -93,7 +93,6 @@ async def test_task_lifecycle_with_task_execution() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
         ctx = server.request_context
         app = ctx.lifespan_context
-
         if name == "process_data" and ctx.experimental.is_task:
             # 1. Create task in store
             task_metadata = ctx.experimental.task_metadata
@@ -254,7 +253,6 @@ async def test_task_auto_fails_on_exception() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
         ctx = server.request_context
         app = ctx.lifespan_context
-
         if name == "failing_task" and ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None

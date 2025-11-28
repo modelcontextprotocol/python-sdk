@@ -21,5 +21,9 @@ class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     meta: RequestParams.Meta | None
     session: SessionT
     lifespan_context: LifespanContextT
-    experimental: Any = field(default=None)  # Set to Experimental instance by Server
+    # NOTE: This is typed as Any to avoid circular imports. The actual type is
+    # mcp.server.experimental.request_context.Experimental, but importing it here
+    # triggers mcp.server.__init__ -> fastmcp -> tools -> back to this module.
+    # The Server sets this to an Experimental instance at runtime.
+    experimental: Any = field(default=None)
     request: RequestT | None = None
