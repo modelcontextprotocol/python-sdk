@@ -15,6 +15,7 @@ nav:
   - Installation: installation.md
   - Documentation:
       - Concepts: concepts.md
+      - Server Organization: server_organization.md
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
       - Testing: testing.md
