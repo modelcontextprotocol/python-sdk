@@ -32,8 +32,8 @@ async def list_tools() -> list[types.Tool]:
     ]
 
 
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent] | types.CreateTaskResult:
+async def handle_long_running_task(arguments: dict[str, Any]) -> types.CreateTaskResult:
+    """Handle the long_running_task tool - demonstrates status updates."""
     ctx = server.request_context
     ctx.experimental.validate_task_mode(types.TASK_REQUIRED)
 
@@ -50,6 +50,18 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.T
         return types.CallToolResult(content=[types.TextContent(type="text", text="Task completed!")])
 
     return await ctx.experimental.run_task(work)
+
+
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult | types.CreateTaskResult:
+    """Dispatch tool calls to their handlers."""
+    if name == "long_running_task":
+        return await handle_long_running_task(arguments)
+    else:
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=f"Unknown tool: {name}")],
+            isError=True,
+        )
 
 
 @click.command()
