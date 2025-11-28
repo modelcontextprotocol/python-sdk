@@ -19,14 +19,14 @@ This server exposes two tools:
 
 Asks the user for confirmation before "deleting" a file.
 
-- Uses `TaskSession.elicit()` to request user input
+- Uses `task.elicit()` to request user input
 - Shows the elicitation flow: task -> input_required -> response -> complete
 
 ### `write_haiku` (demonstrates sampling)
 
 Asks the LLM to write a haiku about a topic.
 
-- Uses `TaskSession.create_message()` to request LLM completion
+- Uses `task.create_message()` to request LLM completion
 - Shows the sampling flow: task -> input_required -> response -> complete
 
 ## Usage with the client
@@ -68,7 +68,7 @@ Softly on the quiet pon...
 
 ## Key concepts
 
-1. **TaskSession**: Wraps ServerSession to enqueue elicitation/sampling requests
-2. **TaskResultHandler**: Delivers queued messages and routes responses
-3. **task_execution()**: Context manager for safe task execution with auto-fail
+1. **ServerTaskContext**: Provides `elicit()` and `create_message()` for user interaction
+2. **run_task()**: Spawns background work, auto-completes/fails, returns immediately
+3. **TaskResultHandler**: Delivers queued messages and routes responses
 4. **Response routing**: Responses are routed back to waiting resolvers
