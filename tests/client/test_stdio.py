@@ -251,7 +251,6 @@ class TestChildProcessCleanup:
         Test basic parent-child process cleanup.
         Parent spawns a single child process that writes continuously to a file.
         """
-        return
         # Create a marker file for the child process to write to
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             marker_file = f.name
@@ -346,7 +345,6 @@ class TestChildProcessCleanup:
         Test nested process tree cleanup (parent → child → grandchild).
         Each level writes to a different file to verify all processes are terminated.
         """
-        return
         # Create temporary files for each process level
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f1:
             parent_file = f1.name
@@ -446,7 +444,6 @@ class TestChildProcessCleanup:
         Tests the race condition where parent might die during our termination
         sequence but we can still clean up the children via the process group.
         """
-        return
         # Create a temporary file for the child
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             marker_file = f.name
