@@ -171,7 +171,6 @@ async def test_server_session_initialize_with_older_protocol_version():
             SessionMessage(
                 types.JSONRPCMessage(
                     types.JSONRPCRequest(
-                        jsonrpc="2.0",
                         id=1,
                         method="initialize",
                         params=types.InitializeRequestParams(
@@ -199,7 +198,6 @@ async def test_server_session_initialize_with_older_protocol_version():
             SessionMessage(
                 types.JSONRPCMessage(
                     types.JSONRPCNotification(
-                        jsonrpc="2.0",
                         method="notifications/initialized",
                     )
                 )

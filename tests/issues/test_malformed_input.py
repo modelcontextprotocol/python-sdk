@@ -11,6 +11,7 @@ from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     INVALID_PARAMS,
+    JSON_RPC_VERSION,
     JSONRPCError,
     JSONRPCMessage,
     JSONRPCRequest,
@@ -31,7 +32,6 @@ async def test_malformed_initialize_request_does_not_crash_server():
     try:
         # Create a malformed initialize request (missing required params field)
         malformed_request = JSONRPCRequest(
-            jsonrpc="2.0",
             id="f20fe86132ed4cd197f89a7134de5685",
             method="initialize",
             # params=None  # Missing required params field
@@ -63,7 +63,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
 
                 # Verify it's a proper JSON-RPC error response
                 assert isinstance(response, JSONRPCError)
-                assert response.jsonrpc == "2.0"
+                assert response.jsonrpc == JSON_RPC_VERSION, f"jsonrpc should be set to '{JSON_RPC_VERSION}'"
                 assert response.id == "f20fe86132ed4cd197f89a7134de5685"
                 assert response.error.code == INVALID_PARAMS
                 assert "Invalid request parameters" in response.error.message
@@ -71,7 +71,6 @@ async def test_malformed_initialize_request_does_not_crash_server():
                 # Verify the session is still alive and can handle more requests
                 # Send another malformed request to confirm server stability
                 another_malformed_request = JSONRPCRequest(
-                    jsonrpc="2.0",
                     id="test_id_2",
                     method="tools/call",
                     # params=None  # Missing required params
@@ -123,7 +122,6 @@ async def test_multiple_concurrent_malformed_requests():
             malformed_requests: list[SessionMessage] = []
             for i in range(10):
                 malformed_request = JSONRPCRequest(
-                    jsonrpc="2.0",
                     id=f"malformed_{i}",
                     method="initialize",
                     # params=None  # Missing required params

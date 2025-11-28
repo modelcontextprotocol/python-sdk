@@ -361,7 +361,6 @@ class StreamableHTTPTransport:
     ) -> None:
         """Send a session terminated error response."""
         jsonrpc_error = JSONRPCError(
-            jsonrpc="2.0",
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
         )
