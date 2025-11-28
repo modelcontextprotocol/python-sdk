@@ -11,6 +11,29 @@ from mcp.types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
 
 
 @pytest.mark.anyio
+async def test_server_name_title_description_version():
+    """Test that server title and description are set and retrievable correctly."""
+    mcp = FastMCP(
+        name="TestServer",
+        title="Test Server Title",
+        description="This is a test server description.",
+        version="1.0",
+    )
+
+    assert mcp.title == "Test Server Title"
+    assert mcp.description == "This is a test server description."
+    assert mcp.version == "1.0"
+
+    # Start server and connect client
+    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
+        init_result = await client.initialize()
+        assert init_result.serverInfo.name == "TestServer"
+        assert init_result.serverInfo.title == "Test Server Title"
+        assert init_result.serverInfo.description == "This is a test server description."
+        assert init_result.serverInfo.version == "1.0"
+
+
+@pytest.mark.anyio
 async def test_tool_title_precedence():
     """Test that tool title precedence works correctly: title > annotations.title > name."""
     # Create server with various tool configurations
