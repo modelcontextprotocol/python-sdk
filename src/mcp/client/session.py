@@ -582,7 +582,7 @@ class ClientSession(
                 with responder:
                     return await responder.respond(types.ClientResult(root=types.EmptyResult()))
 
-            case _:
+            case _:  # pragma: no cover
                 pass  # Task requests handled above by _task_handlers
 
         return None
