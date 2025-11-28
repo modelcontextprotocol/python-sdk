@@ -49,6 +49,7 @@ import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.shared.exceptions import McpError
+from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import (
@@ -116,32 +117,6 @@ class ServerSession(
             self._experimental_features = ExperimentalServerSessionFeatures(self)
         return self._experimental_features
 
-    def _check_tasks_capability(
-        self,
-        required: types.ClientTasksCapability,
-        client: types.ClientTasksCapability,
-    ) -> bool:  # pragma: no cover
-        """Check if client's tasks capability matches the required capability."""
-        if required.requests is None:
-            return True
-        if client.requests is None:
-            return False
-        # Check elicitation.create
-        if required.requests.elicitation is not None:
-            if client.requests.elicitation is None:
-                return False
-            if required.requests.elicitation.create is not None:
-                if client.requests.elicitation.create is None:
-                    return False
-        # Check sampling.createMessage
-        if required.requests.sampling is not None:
-            if client.requests.sampling is None:
-                return False
-            if required.requests.sampling.createMessage is not None:
-                if client.requests.sampling.createMessage is None:
-                    return False
-        return True
-
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
         """Check if the client supports a specific capability."""
         if self._client_params is None:
@@ -176,7 +151,7 @@ class ServerSession(
         if capability.tasks is not None:
             if client_caps.tasks is None:
                 return False
-            if not self._check_tasks_capability(capability.tasks, client_caps.tasks):
+            if not check_tasks_capability(capability.tasks, client_caps.tasks):
                 return False
 
         return True

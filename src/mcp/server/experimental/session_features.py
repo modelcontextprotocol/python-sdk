@@ -11,6 +11,10 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import mcp.types as types
+from mcp.shared.experimental.tasks.capabilities import (
+    require_task_augmented_elicitation,
+    require_task_augmented_sampling,
+)
 from mcp.shared.experimental.tasks.polling import poll_until_terminal
 
 if TYPE_CHECKING:
@@ -113,7 +117,13 @@ class ExperimentalServerSessionFeatures:
 
         Returns:
             The client's elicitation response
+
+        Raises:
+            McpError: If client doesn't support task-augmented elicitation
         """
+        client_caps = self._session.client_params.capabilities if self._session.client_params else None
+        require_task_augmented_elicitation(client_caps)
+
         create_result = await self._session.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
@@ -166,7 +176,13 @@ class ExperimentalServerSessionFeatures:
 
         Returns:
             The sampling result from the client
+
+        Raises:
+            McpError: If client doesn't support task-augmented sampling
         """
+        client_caps = self._session.client_params.capabilities if self._session.client_params else None
+        require_task_augmented_sampling(client_caps)
+
         create_result = await self._session.send_request(
             types.ServerRequest(
                 types.CreateMessageRequest(

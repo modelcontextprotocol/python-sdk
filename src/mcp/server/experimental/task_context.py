@@ -14,6 +14,10 @@ import anyio
 from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
+from mcp.shared.experimental.tasks.capabilities import (
+    require_task_augmented_elicitation,
+    require_task_augmented_sampling,
+)
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.message_queue import QueuedMessage, TaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
@@ -23,8 +27,6 @@ from mcp.types import (
     TASK_STATUS_INPUT_REQUIRED,
     TASK_STATUS_WORKING,
     ClientCapabilities,
-    ClientTasksCapability,
-    ClientTasksRequestsCapability,
     CreateMessageResult,
     CreateTaskResult,
     ElicitationCapability,
@@ -40,10 +42,6 @@ from mcp.types import (
     ServerNotification,
     Task,
     TaskMetadata,
-    TasksCreateElicitationCapability,
-    TasksCreateMessageCapability,
-    TasksElicitationCapability,
-    TasksSamplingCapability,
     TaskStatusNotification,
     TaskStatusNotificationParams,
 )
@@ -195,40 +193,6 @@ class ServerTaskContext:
                 ErrorData(
                     code=INVALID_REQUEST,
                     message="Client does not support sampling capability",
-                )
-            )
-
-    def _check_task_augmented_elicitation_capability(self) -> None:
-        """Check if the client supports task-augmented elicitation."""
-        capability = ClientCapabilities(
-            tasks=ClientTasksCapability(
-                requests=ClientTasksRequestsCapability(
-                    elicitation=TasksElicitationCapability(create=TasksCreateElicitationCapability())
-                )
-            )
-        )
-        if not self._session.check_client_capability(capability):
-            raise McpError(
-                ErrorData(
-                    code=INVALID_REQUEST,
-                    message="Client does not support task-augmented elicitation capability",
-                )
-            )
-
-    def _check_task_augmented_sampling_capability(self) -> None:
-        """Check if the client supports task-augmented sampling."""
-        capability = ClientCapabilities(
-            tasks=ClientTasksCapability(
-                requests=ClientTasksRequestsCapability(
-                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
-                )
-            )
-        )
-        if not self._session.check_client_capability(capability):
-            raise McpError(
-                ErrorData(
-                    code=INVALID_REQUEST,
-                    message="Client does not support task-augmented sampling capability",
                 )
             )
 
@@ -412,7 +376,8 @@ class ServerTaskContext:
             McpError: If client doesn't support task-augmented elicitation
             RuntimeError: If handler is not configured
         """
-        self._check_task_augmented_elicitation_capability()
+        client_caps = self._session.client_params.capabilities if self._session.client_params else None
+        require_task_augmented_elicitation(client_caps)
 
         if self._handler is None:
             raise RuntimeError("handler is required for elicit_as_task()")
@@ -504,7 +469,8 @@ class ServerTaskContext:
             McpError: If client doesn't support task-augmented sampling
             RuntimeError: If handler is not configured
         """
-        self._check_task_augmented_sampling_capability()
+        client_caps = self._session.client_params.capabilities if self._session.client_params else None
+        require_task_augmented_sampling(client_caps)
 
         if self._handler is None:
             raise RuntimeError("handler is required for create_message_as_task()")
