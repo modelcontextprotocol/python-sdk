@@ -15,6 +15,8 @@ Use cases:
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
+from pydantic import TypeAdapter
+
 import mcp.types as types
 from mcp.shared.context import RequestContext
 from mcp.shared.session import RequestResponder
@@ -109,11 +111,6 @@ class TaskAugmentedElicitationFnT(Protocol):
         params: types.ElicitRequestParams,
         task_metadata: types.TaskMetadata,
     ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
-
-
-# =============================================================================
-# Default Handlers (return "not supported" errors)
-# =============================================================================
 
 
 async def default_get_task_handler(
@@ -259,8 +256,6 @@ class ExperimentalTaskHandlers:
 
         Call handles_request() first to check if this handler can handle the request.
         """
-        from pydantic import TypeAdapter
-
         client_response_type: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(
             types.ClientResult | types.ErrorData
         )

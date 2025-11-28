@@ -16,8 +16,6 @@ from mcp.types import (
     ToolExecution,
 )
 
-# --- Experimental.is_task ---
-
 
 def test_is_task_true_when_metadata_present() -> None:
     exp = Experimental(task_metadata=TaskMetadata(ttl=60000))
@@ -27,9 +25,6 @@ def test_is_task_true_when_metadata_present() -> None:
 def test_is_task_false_when_no_metadata() -> None:
     exp = Experimental(task_metadata=None)
     assert exp.is_task is False
-
-
-# --- Experimental.client_supports_tasks ---
 
 
 def test_client_supports_tasks_true() -> None:
@@ -45,9 +40,6 @@ def test_client_supports_tasks_false_no_tasks() -> None:
 def test_client_supports_tasks_false_no_capabilities() -> None:
     exp = Experimental(_client_capabilities=None)
     assert exp.client_supports_tasks is False
-
-
-# --- Experimental.validate_task_mode ---
 
 
 def test_validate_task_mode_required_with_task_is_valid() -> None:
@@ -111,9 +103,6 @@ def test_validate_task_mode_optional_without_task_is_valid() -> None:
     assert error is None
 
 
-# --- Experimental.validate_for_tool ---
-
-
 def test_validate_for_tool_with_execution_required() -> None:
     exp = Experimental(task_metadata=None)
     tool = Tool(
@@ -150,9 +139,6 @@ def test_validate_for_tool_optional_with_task() -> None:
     )
     error = exp.validate_for_tool(tool, raise_error=False)
     assert error is None
-
-
-# --- Experimental.can_use_tool ---
 
 
 def test_can_use_tool_required_with_task_support() -> None:

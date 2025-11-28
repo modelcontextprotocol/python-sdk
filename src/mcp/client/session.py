@@ -582,8 +582,9 @@ class ClientSession(
                 with responder:
                     return await responder.respond(types.ClientResult(root=types.EmptyResult()))
 
-            case _:  # pragma: no cover
-                raise NotImplementedError()
+            case _:
+                pass  # Task requests handled above by _task_handlers
+
         return None
 
     async def _handle_incoming(

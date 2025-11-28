@@ -109,7 +109,6 @@ class TaskResultHandler:
         task_id = request.params.taskId
 
         while True:
-            # Get fresh task state each iteration
             task = await self._store.get_task(task_id)
             if task is None:
                 raise McpError(
@@ -119,7 +118,6 @@ class TaskResultHandler:
                     )
                 )
 
-            # Dequeue and send all pending messages
             await self._deliver_queued_messages(task_id, session, request_id)
 
             # If task is terminal, return result
@@ -131,9 +129,7 @@ class TaskResultHandler:
                 related_task = RelatedTaskMetadata(taskId=task_id)
                 related_task_meta: dict[str, Any] = {RELATED_TASK_METADATA_KEY: related_task.model_dump(by_alias=True)}
                 if result is not None:
-                    # Copy result fields and add required metadata
                     result_data = result.model_dump(by_alias=True)
-                    # Merge with existing _meta if present
                     existing_meta: dict[str, Any] = result_data.get("_meta") or {}
                     result_data["_meta"] = {**existing_meta, **related_task_meta}
                     return GetTaskPayloadResult.model_validate(result_data)

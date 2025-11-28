@@ -50,6 +50,7 @@ from mcp.server.experimental.session_features import ExperimentalServerSessionFe
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
+from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import (
@@ -520,7 +521,9 @@ class ServerSession(
             # Defensive: model_dump() never includes _meta, but guard against future changes
             if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
-            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
+            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
+                taskId=related_task_id
+            ).model_dump(by_alias=True)
 
         request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
         if related_task_id is None:
@@ -563,7 +566,9 @@ class ServerSession(
             # Defensive: model_dump() never includes _meta, but guard against future changes
             if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
-            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
+            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
+                taskId=related_task_id
+            ).model_dump(by_alias=True)
 
         request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
         if related_task_id is None:
@@ -631,7 +636,9 @@ class ServerSession(
             # Defensive: model_dump() never includes _meta, but guard against future changes
             if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
-            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
+            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
+                taskId=related_task_id
+            ).model_dump(by_alias=True)
 
         request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
         if related_task_id is None:

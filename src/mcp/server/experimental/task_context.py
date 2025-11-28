@@ -241,11 +241,9 @@ class ServerTaskContext:
         )
         request_id: RequestId = request.id
 
-        # Create resolver and register with handler for response routing
         resolver: Resolver[dict[str, Any]] = Resolver()
         self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
 
-        # Queue the request
         queued = QueuedMessage(
             type="request",
             message=request,
@@ -315,11 +313,9 @@ class ServerTaskContext:
         )
         request_id: RequestId = request.id
 
-        # Create resolver and register with handler for response routing
         resolver: Resolver[dict[str, Any]] = Resolver()
         self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
 
-        # Queue the request
         queued = QueuedMessage(
             type="request",
             message=request,
@@ -408,11 +404,9 @@ class ServerTaskContext:
         )
         request_id: RequestId = request.id
 
-        # Create resolver and register with handler for response routing
         resolver: Resolver[dict[str, Any]] = Resolver()
         self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
 
-        # Queue the request
         queued = QueuedMessage(
             type="request",
             message=request,
@@ -469,7 +463,6 @@ class ServerTaskContext:
         # Update status to input_required
         await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
 
-        # Build request WITH task field for task-augmented elicitation
         request = self._session._build_elicit_form_request(  # pyright: ignore[reportPrivateUsage]
             message=message,
             requestedSchema=requestedSchema,
@@ -478,11 +471,9 @@ class ServerTaskContext:
         )
         request_id: RequestId = request.id
 
-        # Create resolver and register with handler for response routing
         resolver: Resolver[dict[str, Any]] = Resolver()
         self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
 
-        # Queue the request
         queued = QueuedMessage(
             type="request",
             message=request,
@@ -586,11 +577,9 @@ class ServerTaskContext:
         )
         request_id: RequestId = request.id
 
-        # Create resolver and register with handler for response routing
         resolver: Resolver[dict[str, Any]] = Resolver()
         self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
 
-        # Queue the request
         queued = QueuedMessage(
             type="request",
             message=request,

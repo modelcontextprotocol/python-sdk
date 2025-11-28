@@ -210,10 +210,8 @@ class Experimental:
         # Access task_group via TaskSupport - raises if not in run() context
         task_group = support.task_group
 
-        # Create the task
         task = await support.store.create_task(self.task_metadata, task_id)
 
-        # Build ServerTaskContext with full capabilities
         task_ctx = ServerTaskContext(
             task=task,
             store=support.store,
@@ -222,21 +220,17 @@ class Experimental:
             handler=support.handler,
         )
 
-        # Spawn the work
         async def execute() -> None:
             try:
                 result = await work(task_ctx)
-                # Auto-complete if work returns successfully and not already terminal
                 if not is_terminal(task_ctx.task.status):
                     await task_ctx.complete(result)
             except Exception as e:
-                # Auto-fail if not already terminal
                 if not is_terminal(task_ctx.task.status):
                     await task_ctx.fail(str(e))
 
         task_group.start_soon(execute)
 
-        # Build _meta if model_immediate_response is provided
         meta: dict[str, Any] | None = None
         if model_immediate_response is not None:
             meta = {MODEL_IMMEDIATE_RESPONSE_KEY: model_immediate_response}

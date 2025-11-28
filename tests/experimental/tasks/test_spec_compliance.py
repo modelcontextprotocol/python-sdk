@@ -13,24 +13,21 @@ import pytest
 
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
+from mcp.shared.experimental.tasks.helpers import MODEL_IMMEDIATE_RESPONSE_KEY
 from mcp.types import (
     CancelTaskRequest,
     CancelTaskResult,
+    CreateTaskResult,
     GetTaskRequest,
     GetTaskResult,
     ListTasksRequest,
     ListTasksResult,
     ServerCapabilities,
+    Task,
 )
 
 # Shared test datetime
 TEST_DATETIME = datetime(2025, 1, 1, tzinfo=timezone.utc)
-
-# =============================================================================
-# CAPABILITIES DECLARATION
-# =============================================================================
-
-# --- Server Capabilities ---
 
 
 def _get_capabilities(server: Server) -> ServerCapabilities:
@@ -39,9 +36,6 @@ def _get_capabilities(server: Server) -> ServerCapabilities:
         notification_options=NotificationOptions(),
         experimental_capabilities={},
     )
-
-
-# -- Capability declaration tests --
 
 
 def test_server_without_task_handlers_has_no_tasks_capability() -> None:
@@ -146,9 +140,6 @@ def test_server_with_all_task_handlers_has_full_capability() -> None:
     assert caps.tasks.requests.tools is not None
 
 
-# --- Client Capabilities ---
-
-
 class TestClientCapabilities:
     """
     Clients declare:
@@ -161,9 +152,6 @@ class TestClientCapabilities:
     def test_client_declares_tasks_capability(self) -> None:
         """Client can declare tasks capability."""
         pytest.skip("TODO")
-
-
-# --- Tool-Level Negotiation ---
 
 
 class TestToolLevelNegotiation:
@@ -199,9 +187,6 @@ class TestToolLevelNegotiation:
         pytest.skip("TODO")
 
 
-# --- Capability Negotiation ---
-
-
 class TestCapabilityNegotiation:
     """
     Requestors SHOULD only augment requests with a task if the corresponding
@@ -225,11 +210,6 @@ class TestCapabilityNegotiation:
         for non-task-augmented requests, requiring task augmentation.
         """
         pytest.skip("TODO")
-
-
-# =============================================================================
-# TASK STATUS LIFECYCLE
-# =============================================================================
 
 
 class TestTaskStatusLifecycle:
@@ -290,9 +270,6 @@ class TestTaskStatusLifecycle:
         pytest.skip("TODO")
 
 
-# --- Input Required Status ---
-
-
 class TestInputRequiredStatus:
     """
     When a receiver needs information to proceed, it moves the task to input_required.
@@ -310,13 +287,6 @@ class TestInputRequiredStatus:
         in associated requests.
         """
         pytest.skip("TODO")
-
-
-# =============================================================================
-# PROTOCOL MESSAGES
-# =============================================================================
-
-# --- Creating a Task ---
 
 
 class TestCreatingTask:
@@ -371,9 +341,6 @@ class TestCreatingTask:
         Receiver MAY include io.modelcontextprotocol/model-immediate-response
         in _meta to provide immediate response while task executes.
         """
-        from mcp.shared.experimental.tasks.helpers import MODEL_IMMEDIATE_RESPONSE_KEY
-        from mcp.types import CreateTaskResult, Task
-
         # Verify the constant has the correct value per spec
         assert MODEL_IMMEDIATE_RESPONSE_KEY == "io.modelcontextprotocol/model-immediate-response"
 
@@ -404,9 +371,6 @@ class TestCreatingTask:
         assert serialized["_meta"][MODEL_IMMEDIATE_RESPONSE_KEY] == immediate_msg
 
 
-# --- Getting Task Status (tasks/get) ---
-
-
 class TestGettingTaskStatus:
     """
     Request: {"method": "tasks/get", "params": {"taskId": "..."}}
@@ -432,9 +396,6 @@ class TestGettingTaskStatus:
     def test_tasks_get_nonexistent_task_id_returns_error(self) -> None:
         """tasks/get with nonexistent taskId MUST return -32602."""
         pytest.skip("TODO")
-
-
-# --- Retrieving Results (tasks/result) ---
 
 
 class TestRetrievingResults:
@@ -473,9 +434,6 @@ class TestRetrievingResults:
         pytest.skip("TODO")
 
 
-# --- Listing Tasks (tasks/list) ---
-
-
 class TestListingTasks:
     """
     Request: {"method": "tasks/list", "params": {"cursor": "optional"}}
@@ -501,9 +459,6 @@ class TestListingTasks:
     def test_tasks_list_invalid_cursor_returns_error(self) -> None:
         """tasks/list with invalid cursor MUST return -32602."""
         pytest.skip("TODO")
-
-
-# --- Cancelling Tasks (tasks/cancel) ---
 
 
 class TestCancellingTasks:
@@ -537,9 +492,6 @@ class TestCancellingTasks:
         pytest.skip("TODO")
 
 
-# --- Status Notifications ---
-
-
 class TestStatusNotifications:
     """
     Receivers MAY send: {"method": "notifications/tasks/status", "params": {...}}
@@ -557,13 +509,6 @@ class TestStatusNotifications:
     def test_status_notification_contains_status(self) -> None:
         """Status notification MUST contain status."""
         pytest.skip("TODO")
-
-
-# =============================================================================
-# BEHAVIORAL REQUIREMENTS
-# =============================================================================
-
-# --- Task Management ---
 
 
 class TestTaskManagement:
@@ -609,9 +554,6 @@ class TestTaskManagement:
         pytest.skip("TODO")
 
 
-# --- Result Handling ---
-
-
 class TestResultHandling:
     """
     - Receivers must return CreateTaskResult immediately upon accepting task-augmented requests
@@ -632,9 +574,6 @@ class TestResultHandling:
         pytest.skip("TODO")
 
 
-# --- Progress Tracking ---
-
-
 class TestProgressTracking:
     """
     Task-augmented requests support progress notifications using the progressToken
@@ -648,11 +587,6 @@ class TestProgressTracking:
     def test_progress_notifications_sent_during_task_execution(self) -> None:
         """Progress notifications can be sent during task execution."""
         pytest.skip("TODO")
-
-
-# =============================================================================
-# ERROR HANDLING
-# =============================================================================
 
 
 class TestProtocolErrors:
@@ -713,11 +647,6 @@ class TestTaskExecutionErrors:
         pytest.skip("TODO")
 
 
-# =============================================================================
-# DATA TYPES
-# =============================================================================
-
-
 class TestTaskObject:
     """
     Task Object fields:
@@ -767,11 +696,6 @@ class TestRelatedTaskMetadata:
     def test_related_task_metadata_contains_task_id(self) -> None:
         """Related task metadata contains taskId."""
         pytest.skip("TODO")
-
-
-# =============================================================================
-# SECURITY CONSIDERATIONS
-# =============================================================================
 
 
 class TestAccessAndIsolation:
