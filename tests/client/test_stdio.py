@@ -309,7 +309,7 @@ class TestChildProcessCleanup:
                 for _ in range(10):  # pragma: no branch
                     await anyio.sleep(0.2)
                     size_after_wait = os.path.getsize(marker_file)
-                    if size_after_wait > initial_size:
+                    if size_after_wait > initial_size:  # pragma: no branch
                         break
                 assert size_after_wait > initial_size, "Child process should be writing"
                 print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
