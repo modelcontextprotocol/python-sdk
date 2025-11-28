@@ -164,4 +164,3 @@ def test_instrumenter_error_info():
     assert call["error"] is test_error
     assert call["error_type"] == "ValueError"
     assert call["metadata"]["extra_info"] == "additional context"
-

@@ -681,7 +681,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         request_type = type(req).__name__
         log_extra = {"request_id": str(message.request_id)}
         logger.info("Processing request of type %s", request_type, extra=log_extra)
-        
+
         # Start instrumentation
         start_time = time.monotonic()
         try:
@@ -763,7 +763,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 # Reset the global state after we are done
                 if token is not None:  # pragma: no branch
                     request_ctx.reset(token)
-                
+
                 # End instrumentation
                 try:
                     session.instrumenter.on_request_end(

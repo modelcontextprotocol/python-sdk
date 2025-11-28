@@ -122,4 +122,3 @@ _default_instrumenter = NoOpInstrumenter()
 def get_default_instrumenter() -> Instrumenter:
     """Get the default no-op instrumenter instance."""
     return _default_instrumenter
-
