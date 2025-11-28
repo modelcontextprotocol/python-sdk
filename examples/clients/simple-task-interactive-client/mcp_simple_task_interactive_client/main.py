@@ -90,41 +90,41 @@ async def run(url: str) -> None:
             print("\n--- Demo 1: Elicitation ---")
             print("Calling confirm_delete tool...")
 
-            result = await session.experimental.call_tool_as_task("confirm_delete", {"filename": "important.txt"})
-            task_id = result.task.taskId
-            print(f"Task created: {task_id}")
+            elicit_task = await session.experimental.call_tool_as_task("confirm_delete", {"filename": "important.txt"})
+            elicit_task_id = elicit_task.task.taskId
+            print(f"Task created: {elicit_task_id}")
 
             # Poll until terminal, calling tasks/result on input_required
-            async for status in session.experimental.poll_task(task_id):
+            async for status in session.experimental.poll_task(elicit_task_id):
                 print(f"[Poll] Status: {status.status}")
                 if status.status == "input_required":
                     # Server needs input - tasks/result delivers the elicitation request
-                    final = await session.experimental.get_task_result(task_id, CallToolResult)
+                    elicit_result = await session.experimental.get_task_result(elicit_task_id, CallToolResult)
                     break
             else:
                 # poll_task exited due to terminal status
-                final = await session.experimental.get_task_result(task_id, CallToolResult)
+                elicit_result = await session.experimental.get_task_result(elicit_task_id, CallToolResult)
 
-            print(f"Result: {get_text(final)}")
+            print(f"Result: {get_text(elicit_result)}")
 
             # Demo 2: Sampling (write_haiku)
             print("\n--- Demo 2: Sampling ---")
             print("Calling write_haiku tool...")
 
-            result = await session.experimental.call_tool_as_task("write_haiku", {"topic": "autumn leaves"})
-            task_id = result.task.taskId
-            print(f"Task created: {task_id}")
+            sampling_task = await session.experimental.call_tool_as_task("write_haiku", {"topic": "autumn leaves"})
+            sampling_task_id = sampling_task.task.taskId
+            print(f"Task created: {sampling_task_id}")
 
             # Poll until terminal, calling tasks/result on input_required
-            async for status in session.experimental.poll_task(task_id):
+            async for status in session.experimental.poll_task(sampling_task_id):
                 print(f"[Poll] Status: {status.status}")
                 if status.status == "input_required":
-                    final = await session.experimental.get_task_result(task_id, CallToolResult)
+                    sampling_result = await session.experimental.get_task_result(sampling_task_id, CallToolResult)
                     break
             else:
-                final = await session.experimental.get_task_result(task_id, CallToolResult)
+                sampling_result = await session.experimental.get_task_result(sampling_task_id, CallToolResult)
 
-            print(f"Result:\n{get_text(final)}")
+            print(f"Result:\n{get_text(sampling_result)}")
 
 
 @click.command()
