@@ -25,6 +25,7 @@ def remove_request_params(url: str) -> str:
 async def sse_client(
     url: str,
     headers: dict[str, Any] | None = None,
+    extensions: dict[str, str] | None = None,
     timeout: float = 5,
     sse_read_timeout: float = 60 * 5,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
@@ -39,6 +40,7 @@ async def sse_client(
     Args:
         url: The SSE endpoint URL.
         headers: Optional headers to include in requests.
+        extensions: Optional extensions to include in requests (e.g., for SNI hostname).
         timeout: HTTP timeout for regular operations.
         sse_read_timeout: Timeout for SSE read operations.
         auth: Optional HTTPX authentication handler.
@@ -51,6 +53,9 @@ async def sse_client(
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    
+    # Prepare extensions (copy to avoid mutation)
+    request_extensions = extensions.copy() if extensions else {}
 
     async with anyio.create_task_group() as tg:
         try:
@@ -62,6 +67,7 @@ async def sse_client(
                     client,
                     "GET",
                     url,
+                    extensions=request_extensions,
                 ) as event_source:
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
@@ -127,6 +133,7 @@ async def sse_client(
                                             mode="json",
                                             exclude_none=True,
                                         ),
+                                        extensions=request_extensions,
                                     )
                                     response.raise_for_status()
                                     logger.debug(f"Client message sent successfully: {response.status_code}")

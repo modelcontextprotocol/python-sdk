@@ -2,21 +2,30 @@
 """
 Simple MCP streamable private gateway client example without authentication.
 
-This client connects to an MCP server using streamable HTTP or SSE transport.
+This client connects to an MCP server using streamable HTTP or SSE transport
+with custom extensions for private gateway connectivity (SNI hostname support).
 
 """
 
 import asyncio
-import os
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+
 from mcp.client.session import ClientSession
+from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.shared.message import SessionMessage
 
 
 class SimpleStreamablePrivateGateway:
-    """Simple MCP streamable private gateway client without authentication."""
+    """Simple MCP private gateway client supporting StreamableHTTP and SSE transports.
+    
+    This client demonstrates how to use custom extensions (e.g., SNI hostname) for
+    private gateway connectivity with both transport types.
+    """
 
     def __init__(self, server_url: str, server_hostname: str, transport_type: str = "streamable-http"):
         self.server_url = server_url
@@ -29,17 +38,29 @@ class SimpleStreamablePrivateGateway:
         print(f"🔗 Attempting to connect to {self.server_url}...")
 
         try:
-            print("📡 Opening StreamableHTTP transport connection...")
-            # Note: terminate_on_close=False prevents SSL handshake failures during exit
-            # Some servers may not handle session termination gracefully over SSL
-            async with streamablehttp_client(
-                url=self.server_url,
-                headers={"Host": self.server_hostname},
-                extensions={"sni_hostname": self.server_hostname},
-                timeout=timedelta(seconds=60),
-                terminate_on_close=False,  # Skip session termination to avoid SSL errors
-            ) as (read_stream, write_stream, get_session_id):
-                await self._run_session(read_stream, write_stream, get_session_id)
+            # Create transport based on transport type
+            if self.transport_type == "sse":
+                print("📡 Opening SSE transport connection with extensions...")
+                # SSE transport with custom extensions for private gateway
+                async with sse_client(
+                    url=self.server_url,
+                    headers={"Host": self.server_hostname},
+                    extensions={"sni_hostname": self.server_hostname},
+                    timeout=60,
+                ) as (read_stream, write_stream):
+                    await self._run_session(read_stream, write_stream, None)
+            else:
+                print("📡 Opening StreamableHTTP transport connection with extensions...")
+                # Note: terminate_on_close=False prevents SSL handshake failures during exit
+                # Some servers may not handle session termination gracefully over SSL
+                async with streamablehttp_client(
+                    url=self.server_url,
+                    headers={"Host": self.server_hostname},
+                    extensions={"sni_hostname": self.server_hostname},
+                    timeout=timedelta(seconds=60),
+                    terminate_on_close=False,  # Skip session termination to avoid SSL errors
+                ) as (read_stream, write_stream, get_session_id):
+                    await self._run_session(read_stream, write_stream, get_session_id)
 
         except Exception as e:
             print(f"❌ Failed to connect: {e}")
@@ -47,7 +68,12 @@ class SimpleStreamablePrivateGateway:
 
             traceback.print_exc()
 
-    async def _run_session(self, read_stream, write_stream, get_session_id):
+    async def _run_session(
+        self,
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
+        get_session_id: Callable[[], str | None] | None,
+    ):
         """Run the MCP session with the given streams."""
         print("🤝 Initializing MCP session...")
         async with ClientSession(read_stream, write_stream) as session:
@@ -107,7 +133,7 @@ class SimpleStreamablePrivateGateway:
 
     async def interactive_loop(self):
         """Run interactive command loop."""
-        print("\n🎯 Interactive Streamable Private Gateway")
+        print("\n🎯 Interactive MCP Client (Private Gateway)")
         print("Commands:")
         print("  list - List available tools")
         print("  call <tool_name> [args] - Call a tool")
@@ -160,23 +186,57 @@ class SimpleStreamablePrivateGateway:
                 break
 
 
+def get_user_input():
+    """Get server configuration from user input."""
+    print("🚀 Simple Streamable Private Gateway")
+    print("\n📝 Server Configuration")
+    print("=" * 50)
+    
+    # Get server port
+    server_port = input("Server port [8081]: ").strip() or "8081"
+    
+    # Get server hostname
+    server_hostname = input("Server hostname [mcp.deepwiki.com]: ").strip() or "mcp.deepwiki.com"
+    
+    # Get transport type
+    print("\nTransport type:")
+    print("  1. streamable-http (default)")
+    print("  2. sse")
+    transport_choice = input("Select transport [1]: ").strip() or "1"
+    
+    if transport_choice == "2":
+        transport_type = "sse"
+    else:
+        transport_type = "streamable-http"
+    
+    print("=" * 50)
+    
+    return server_port, server_hostname, transport_type
+
+
 async def main():
     """Main entry point."""
-    # Default server URL - can be overridden with environment variable
-    # Most MCP streamable HTTP servers use /mcp as the endpoint
-    server_port = os.getenv("MCP_SERVER_PORT", "8081")
-    server_hostname = os.getenv("MCP_SERVER_HOSTNAME", "mcp.deepwiki.com")
-    transport_type = "streamable-http"
-    server_url = f"https://localhost:{server_port}/mcp"
+    try:
+        # Get configuration from user input
+        server_port, server_hostname, transport_type = get_user_input()
+        
+        # Set URL endpoint based on transport type
+        # StreamableHTTP servers typically use /mcp, SSE servers use /sse
+        endpoint = "/mcp" if transport_type == "streamable-http" else "/sse"
+        server_url = f"https://localhost:{server_port}{endpoint}"
 
-    print("🚀 Simple Streamable Private Gateway")
-    print(f"Connecting to: {server_url}")
-    print(f"Server hostname: {server_hostname}")
-    print(f"Transport type: {transport_type}")
+        print(f"\n🔗 Connecting to: {server_url}")
+        print(f"📡 Server hostname: {server_hostname}")
+        print(f"🚀 Transport type: {transport_type}\n")
 
-    # Start connection flow
-    client = SimpleStreamablePrivateGateway(server_url, server_hostname, transport_type)
-    await client.connect()
+        # Start connection flow
+        client = SimpleStreamablePrivateGateway(server_url, server_hostname, transport_type)
+        await client.connect()
+        
+    except KeyboardInterrupt:
+        print("\n\n👋 Goodbye!")
+    except EOFError:
+        print("\n👋 Goodbye!")
 
 
 def cli():
