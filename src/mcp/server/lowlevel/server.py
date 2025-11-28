@@ -86,10 +86,10 @@ import mcp.types as types
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
-from mcp.shared.instrumentation import Instrumenter
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
+from mcp.shared.instrumentation import Instrumenter
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
