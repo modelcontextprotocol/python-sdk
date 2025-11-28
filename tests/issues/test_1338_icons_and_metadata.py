@@ -1,6 +1,7 @@
 """Test icon and metadata support (SEP-973)."""
 
 import sys
+
 import pytest
 
 from mcp.server.fastmcp import FastMCP
