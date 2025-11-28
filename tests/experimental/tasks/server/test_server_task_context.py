@@ -502,7 +502,7 @@ async def test_create_message_restores_status_on_cancellation() -> None:
     """Test that create_message() restores task status to working when cancelled."""
     import anyio
 
-    from mcp.types import JSONRPCRequest, SamplingMessage, TextContent
+    from mcp.types import JSONRPCRequest, SamplingMessage
 
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
@@ -568,5 +568,100 @@ async def test_create_message_restores_status_on_cancellation() -> None:
     assert final_task is not None
     assert final_task.status == "working"
     assert cancelled_error_raised
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_elicit_as_task_raises_without_handler() -> None:
+    """Test that elicit_as_task() raises when handler is not provided."""
+    from mcp.types import (
+        ClientCapabilities,
+        ClientTasksCapability,
+        ClientTasksRequestsCapability,
+        Implementation,
+        InitializeRequestParams,
+        TasksCreateElicitationCapability,
+        TasksElicitationCapability,
+    )
+
+    store = InMemoryTaskStore()
+    queue = InMemoryTaskMessageQueue()
+    task = await store.create_task(TaskMetadata(ttl=60000))
+
+    # Create mock session with proper client capabilities
+    mock_session = Mock()
+    mock_session.client_params = InitializeRequestParams(
+        protocolVersion="2025-01-01",
+        capabilities=ClientCapabilities(
+            tasks=ClientTasksCapability(
+                requests=ClientTasksRequestsCapability(
+                    elicitation=TasksElicitationCapability(create=TasksCreateElicitationCapability())
+                )
+            )
+        ),
+        clientInfo=Implementation(name="test", version="1.0"),
+    )
+
+    ctx = ServerTaskContext(
+        task=task,
+        store=store,
+        session=mock_session,
+        queue=queue,
+        handler=None,  # No handler
+    )
+
+    with pytest.raises(RuntimeError, match="handler is required for elicit_as_task"):
+        await ctx.elicit_as_task(message="Test?", requestedSchema={"type": "object"})
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_create_message_as_task_raises_without_handler() -> None:
+    """Test that create_message_as_task() raises when handler is not provided."""
+    from mcp.types import (
+        ClientCapabilities,
+        ClientTasksCapability,
+        ClientTasksRequestsCapability,
+        Implementation,
+        InitializeRequestParams,
+        SamplingMessage,
+        TasksCreateMessageCapability,
+        TasksSamplingCapability,
+        TextContent,
+    )
+
+    store = InMemoryTaskStore()
+    queue = InMemoryTaskMessageQueue()
+    task = await store.create_task(TaskMetadata(ttl=60000))
+
+    # Create mock session with proper client capabilities
+    mock_session = Mock()
+    mock_session.client_params = InitializeRequestParams(
+        protocolVersion="2025-01-01",
+        capabilities=ClientCapabilities(
+            tasks=ClientTasksCapability(
+                requests=ClientTasksRequestsCapability(
+                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                )
+            )
+        ),
+        clientInfo=Implementation(name="test", version="1.0"),
+    )
+
+    ctx = ServerTaskContext(
+        task=task,
+        store=store,
+        session=mock_session,
+        queue=queue,
+        handler=None,  # No handler
+    )
+
+    with pytest.raises(RuntimeError, match="handler is required for create_message_as_task"):
+        await ctx.create_message_as_task(
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
+            max_tokens=100,
+        )
 
     store.cleanup()

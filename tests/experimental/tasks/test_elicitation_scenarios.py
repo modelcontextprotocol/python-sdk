@@ -47,12 +47,11 @@ from mcp.types import (
 def create_client_task_handlers(
     client_task_store: InMemoryTaskStore,
     elicit_received: Event,
-    elicit_response: ElicitResult | None = None,
 ) -> ExperimentalTaskHandlers:
     """Create task handlers for client to handle task-augmented elicitation from server."""
 
-    if elicit_response is None:
-        elicit_response = ElicitResult(action="accept", content={"confirm": True})
+    elicit_response = ElicitResult(action="accept", content={"confirm": True})
+    task_complete_events: dict[str, Event] = {}
 
     async def handle_augmented_elicitation(
         context: RequestContext[ClientSession, Any],
@@ -61,19 +60,16 @@ def create_client_task_handlers(
     ) -> CreateTaskResult:
         """Handle task-augmented elicitation by creating a client-side task."""
         elicit_received.set()
-
-        # Create a task on the client
         task = await client_task_store.create_task(task_metadata)
+        task_complete_events[task.taskId] = Event()
 
-        # Simulate async processing - complete the task with the result
         async def complete_task() -> None:
-            await anyio.sleep(0.1)  # Simulate some processing
-            await client_task_store.update_task(task.taskId, status="completed")
+            # Store result before updating status to avoid race condition
             await client_task_store.store_result(task.taskId, elicit_response)
+            await client_task_store.update_task(task.taskId, status="completed")
+            task_complete_events[task.taskId].set()
 
-        # Start the work in background
         context.session._task_group.start_soon(complete_task)  # pyright: ignore[reportPrivateUsage]
-
         return CreateTaskResult(task=task)
 
     async def handle_get_task(
@@ -82,8 +78,7 @@ def create_client_task_handlers(
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
         task = await client_task_store.get_task(params.taskId)
-        if task is None:
-            raise ValueError(f"Task not found: {params.taskId}")
+        assert task is not None, f"Task not found: {params.taskId}"
         return GetTaskResult(
             taskId=task.taskId,
             status=task.status,
@@ -99,14 +94,12 @@ def create_client_task_handlers(
         params: Any,
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
-        # Wait for result to be available
-        for _ in range(50):  # Wait up to 5 seconds
-            result = await client_task_store.get_result(params.taskId)
-            if result is not None:
-                # Wrap in GetTaskPayloadResult
-                return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
-            await anyio.sleep(0.1)
-        raise ValueError(f"Result not found for task: {params.taskId}")
+        event = task_complete_events.get(params.taskId)
+        if event:
+            await event.wait()
+        result = await client_task_store.get_result(params.taskId)
+        assert result is not None, f"Result not found for task: {params.taskId}"
+        return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
 
     return ExperimentalTaskHandlers(
         augmented_elicitation=handle_augmented_elicitation,
@@ -118,16 +111,15 @@ def create_client_task_handlers(
 def create_sampling_task_handlers(
     client_task_store: InMemoryTaskStore,
     sampling_received: Event,
-    sampling_response: CreateMessageResult | None = None,
 ) -> ExperimentalTaskHandlers:
     """Create task handlers for client to handle task-augmented sampling from server."""
 
-    if sampling_response is None:
-        sampling_response = CreateMessageResult(
-            role="assistant",
-            content=TextContent(type="text", text="Hello from the model!"),
-            model="test-model",
-        )
+    sampling_response = CreateMessageResult(
+        role="assistant",
+        content=TextContent(type="text", text="Hello from the model!"),
+        model="test-model",
+    )
+    task_complete_events: dict[str, Event] = {}
 
     async def handle_augmented_sampling(
         context: RequestContext[ClientSession, Any],
@@ -136,19 +128,16 @@ def create_sampling_task_handlers(
     ) -> CreateTaskResult:
         """Handle task-augmented sampling by creating a client-side task."""
         sampling_received.set()
-
-        # Create a task on the client
         task = await client_task_store.create_task(task_metadata)
+        task_complete_events[task.taskId] = Event()
 
-        # Simulate async processing - complete the task with the result
         async def complete_task() -> None:
-            await anyio.sleep(0.1)  # Simulate some processing
-            await client_task_store.update_task(task.taskId, status="completed")
+            # Store result before updating status to avoid race condition
             await client_task_store.store_result(task.taskId, sampling_response)
+            await client_task_store.update_task(task.taskId, status="completed")
+            task_complete_events[task.taskId].set()
 
-        # Start the work in background
         context.session._task_group.start_soon(complete_task)  # pyright: ignore[reportPrivateUsage]
-
         return CreateTaskResult(task=task)
 
     async def handle_get_task(
@@ -157,8 +146,7 @@ def create_sampling_task_handlers(
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
         task = await client_task_store.get_task(params.taskId)
-        if task is None:
-            raise ValueError(f"Task not found: {params.taskId}")
+        assert task is not None, f"Task not found: {params.taskId}"
         return GetTaskResult(
             taskId=task.taskId,
             status=task.status,
@@ -174,14 +162,12 @@ def create_sampling_task_handlers(
         params: Any,
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
-        # Wait for result to be available
-        for _ in range(50):  # Wait up to 5 seconds
-            result = await client_task_store.get_result(params.taskId)
-            if result is not None:
-                # Wrap in GetTaskPayloadResult
-                return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
-            await anyio.sleep(0.1)
-        raise ValueError(f"Result not found for task: {params.taskId}")
+        event = task_complete_events.get(params.taskId)
+        if event:
+            await event.wait()
+        result = await client_task_store.get_result(params.taskId)
+        assert result is not None, f"Result not found for task: {params.taskId}"
+        return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
 
     return ExperimentalTaskHandlers(
         augmented_sampling=handle_augmented_sampling,
@@ -433,12 +419,10 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
             # Poll until input_required, then call tasks/result
             async for status in client_session.experimental.poll_task(task_id):
                 if status.status == "input_required":
-                    # This will deliver the elicitation and get the response
-                    final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
                     break
-            else:
-                # Task completed without needing input (shouldn't happen in this test)
-                final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
+
+            # This will deliver the elicitation and get the response
+            final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
 
             # Verify
             assert elicit_received.is_set()
@@ -538,18 +522,14 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
             task_id = create_result.task.taskId
             assert create_result.task.status == "working"
 
-            # Poll until input_required, then call tasks/result
+            # Poll until input_required or terminal, then call tasks/result
             async for status in client_session.experimental.poll_task(task_id):
-                if status.status == "input_required":
-                    # This will deliver the task-augmented elicitation,
-                    # server will poll client, and eventually return the tool result
-                    final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
+                if status.status == "input_required" or is_terminal(status.status):
                     break
-                if is_terminal(status.status):
-                    final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
-                    break
-            else:
-                final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
+
+            # This will deliver the task-augmented elicitation,
+            # server will poll client, and eventually return the tool result
+            final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
 
             # Verify
             assert elicit_received.is_set()
@@ -646,4 +626,105 @@ async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
         tg.start_soon(run_client)
 
     assert tool_result[0] == "Hello from the model!"
+    client_task_store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() -> None:
+    """
+    Scenario 4 for sampling: Task-augmented tool call with task-augmented sampling.
+
+    Client calls tool as task. Inside the task, server uses task.create_message_as_task()
+    which sends task-augmented sampling. Client creates its own task for the sampling,
+    and server polls the client.
+    """
+    server = Server("test-scenario4-sampling")
+    server.experimental.enable_tasks()
+
+    sampling_received = Event()
+    work_completed = Event()
+
+    # Client-side task store for handling task-augmented sampling
+    client_task_store = InMemoryTaskStore()
+
+    @server.list_tools()
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="generate_text",
+                description="Generate text using sampling",
+                inputSchema={"type": "object"},
+                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+            )
+        ]
+
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CreateTaskResult:
+        ctx = server.request_context
+        ctx.experimental.validate_task_mode(TASK_REQUIRED)
+
+        async def work(task: ServerTaskContext) -> CallToolResult:
+            # Task-augmented sampling within task - server polls client
+            result = await task.create_message_as_task(
+                messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
+                max_tokens=100,
+                ttl=60000,
+            )
+
+            response_text = ""
+            if isinstance(result.content, TextContent):
+                response_text = result.content.text
+
+            work_completed.set()
+            return CallToolResult(content=[TextContent(type="text", text=response_text)])
+
+        return await ctx.experimental.run_task(work)
+
+    task_handlers = create_sampling_task_handlers(client_task_store, sampling_received)
+
+    # Set up streams
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def run_server() -> None:
+        await server.run(
+            client_to_server_receive,
+            server_to_client_send,
+            server.create_initialization_options(
+                notification_options=NotificationOptions(),
+                experimental_capabilities={},
+            ),
+        )
+
+    async def run_client() -> None:
+        async with ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            experimental_task_handlers=task_handlers,
+        ) as client_session:
+            await client_session.initialize()
+
+            # Call tool as task
+            create_result = await client_session.experimental.call_tool_as_task("generate_text", {})
+            task_id = create_result.task.taskId
+            assert create_result.task.status == "working"
+
+            # Poll until input_required or terminal
+            async for status in client_session.experimental.poll_task(task_id):
+                if status.status == "input_required" or is_terminal(status.status):
+                    break
+
+            final_result = await client_session.experimental.get_task_result(task_id, CallToolResult)
+
+            # Verify
+            assert sampling_received.is_set()
+            assert len(final_result.content) > 0
+            assert isinstance(final_result.content[0], TextContent)
+            assert final_result.content[0].text == "Hello from the model!"
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_server)
+        tg.start_soon(run_client)
+
+    assert work_completed.is_set()
     client_task_store.cleanup()
