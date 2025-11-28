@@ -416,9 +416,10 @@ class BaseSession(
                         stream = self._response_streams.pop(message.message.root.id, None)
                         if stream:  # pragma: no cover
                             await stream.send(message.message.root)
-                        else:  # pragma: no cover
-                            await self._handle_incoming(
-                                RuntimeError(f"Received response with an unknown request ID: {message}")
+                        else:
+                            logging.warning(
+                                f"Received response for unknown request ID {message.message.root.id}. "
+                                f"Response was: {message.message.root}"
                             )
 
             except anyio.ClosedResourceError:
