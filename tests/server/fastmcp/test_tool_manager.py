@@ -1034,7 +1034,7 @@ class TestToolTimeout:
             """A tool that raises an error."""
             if should_fail:
                 raise ValueError("Tool failed intentionally")
-            return "success"
+            return "success"  # pragma: no cover
 
         manager = ToolManager(timeout_seconds=1.0)
         manager.add_tool(failing_tool)
