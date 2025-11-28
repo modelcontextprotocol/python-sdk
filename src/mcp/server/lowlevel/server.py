@@ -74,7 +74,6 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
-from importlib.metadata import version as pkg_version
 from typing import Any, Generic, TypeAlias, cast
 
 import anyio
@@ -169,9 +168,11 @@ class Server(Generic[LifespanResultT, RequestT]):
     ) -> InitializationOptions:
         """Create initialization options from this server instance."""
 
-        def get_package_version(package: str) -> str:
+        def pkg_version(package: str) -> str:
             try:
-                return pkg_version(package)
+                from importlib.metadata import version
+
+                return version(package)
             except Exception:  # pragma: no cover
                 pass
 
@@ -179,7 +180,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return InitializationOptions(
             server_name=self.name,
-            server_version=self.version if self.version else get_package_version("mcp"),
+            server_version=self.version if self.version else pkg_version("mcp"),
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},
