@@ -1,18 +1,23 @@
 """Tests for instrumentation interface."""
 
+from typing import Any
+
 import pytest
 
 from mcp.shared.instrumentation import NoOpInstrumenter, get_default_instrumenter
+from mcp.types import RequestId
 
 
 class MockInstrumenter:
     """Track calls to instrumentation hooks for testing."""
 
-    def __init__(self):
-        self.calls = []
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
 
-    def on_request_start(self, request_id, request_type, method=None, **metadata):
-        call = {
+    def on_request_start(
+        self, request_id: RequestId, request_type: str, method: str | None = None, **metadata: Any
+    ) -> dict[str, Any]:
+        call: dict[str, Any] = {
             "hook": "on_request_start",
             "request_id": request_id,
             "request_type": request_type,
@@ -23,7 +28,15 @@ class MockInstrumenter:
         # Return the call itself as a token for testing
         return call
 
-    def on_request_end(self, token, request_id, request_type, success, duration_seconds=None, **metadata):
+    def on_request_end(
+        self,
+        token: Any,
+        request_id: RequestId,
+        request_type: str,
+        success: bool,
+        duration_seconds: float | None = None,
+        **metadata: Any,
+    ) -> None:
         self.calls.append(
             {
                 "hook": "on_request_end",
@@ -36,7 +49,9 @@ class MockInstrumenter:
             }
         )
 
-    def on_error(self, token, request_id, error, error_type, **metadata):
+    def on_error(
+        self, token: Any, request_id: RequestId | None, error: Exception, error_type: str, **metadata: Any
+    ) -> None:
         self.calls.append(
             {
                 "hook": "on_error",
@@ -48,11 +63,11 @@ class MockInstrumenter:
             }
         )
 
-    def get_calls_by_hook(self, hook_name):
+    def get_calls_by_hook(self, hook_name: str) -> list[dict[str, Any]]:
         """Get all calls to a specific hook."""
         return [call for call in self.calls if call["hook"] == hook_name]
 
-    def get_calls_by_request_id(self, request_id):
+    def get_calls_by_request_id(self, request_id: RequestId) -> list[dict[str, Any]]:
         """Get all calls for a specific request_id."""
         return [call for call in self.calls if call.get("request_id") == request_id]
 
