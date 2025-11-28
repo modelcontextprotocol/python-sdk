@@ -985,11 +985,11 @@ class TestToolTimeout:
         reason="Blocking sync operations (time.sleep) don't respect anyio.fail_after() timeouts. "
         "Use anyio.sleep() in async functions for timeout support."
     )
-    async def test_sync_tool_timeout(self):
+    async def test_sync_tool_timeout(self):  # pragma: no cover
         """Test that synchronous tools also respect timeout."""
         import time
 
-        def slow_sync_tool(duration: float) -> str:  # pragma: no cover
+        def slow_sync_tool(duration: float) -> str:
             """A synchronous tool that sleeps."""
             time.sleep(duration)
             return "completed"
