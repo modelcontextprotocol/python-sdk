@@ -244,6 +244,33 @@ async def test_elicit_raises_without_handler() -> None:
 
 
 @pytest.mark.anyio
+async def test_elicit_url_raises_without_handler() -> None:
+    """Test that elicit_url() raises when handler is not provided."""
+    store = InMemoryTaskStore()
+    mock_session = Mock()
+    mock_session.check_client_capability = Mock(return_value=True)
+    queue = InMemoryTaskMessageQueue()
+    task = await store.create_task(TaskMetadata(ttl=60000))
+
+    ctx = ServerTaskContext(
+        task=task,
+        store=store,
+        session=mock_session,
+        queue=queue,
+        handler=None,  # No handler
+    )
+
+    with pytest.raises(RuntimeError, match="handler is required for elicit_url"):
+        await ctx.elicit_url(
+            message="Please authorize",
+            url="https://example.com/oauth",
+            elicitation_id="oauth-123",
+        )
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
 async def test_create_message_raises_without_handler() -> None:
     """Test that create_message() raises when handler is not provided."""
     store = InMemoryTaskStore()
@@ -285,7 +312,7 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
 
     mock_session = Mock()
     mock_session.check_client_capability = Mock(return_value=True)
-    mock_session._build_elicit_request = Mock(
+    mock_session._build_elicit_form_request = Mock(
         return_value=JSONRPCRequest(
             jsonrpc="2.0",
             id="test-req-1",
@@ -436,7 +463,7 @@ async def test_elicit_restores_status_on_cancellation() -> None:
 
     mock_session = Mock()
     mock_session.check_client_capability = Mock(return_value=True)
-    mock_session._build_elicit_request = Mock(
+    mock_session._build_elicit_form_request = Mock(
         return_value=JSONRPCRequest(
             jsonrpc="2.0",
             id="test-req-cancel",

@@ -13,6 +13,7 @@ import anyio
 
 from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.session import ServerSession
+from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.capabilities import (
     require_task_augmented_elicitation,
@@ -44,6 +45,8 @@ from mcp.types import (
     TaskMetadata,
     TaskStatusNotification,
     TaskStatusNotificationParams,
+    Tool,
+    ToolChoice,
 )
 
 
@@ -231,7 +234,7 @@ class ServerTaskContext:
         await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
 
         # Build the request using session's helper
-        request = self._session._build_elicit_request(  # pyright: ignore[reportPrivateUsage]
+        request = self._session._build_elicit_form_request(  # pyright: ignore[reportPrivateUsage]
             message=message,
             requestedSchema=requestedSchema,
             related_task_id=self.task_id,
@@ -263,6 +266,77 @@ class ServerTaskContext:
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             raise
 
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+    ) -> ElicitResult:
+        """
+        Send a URL mode elicitation request via the task message queue.
+
+        This directs the user to an external URL for out-of-band interactions
+        like OAuth flows, credential collection, or payment processing.
+
+        This method:
+        1. Checks client capability
+        2. Updates task status to "input_required"
+        3. Queues the elicitation request
+        4. Waits for the response (delivered via tasks/result round-trip)
+        5. Updates task status back to "working"
+        6. Returns the result
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+
+        Returns:
+            The client's response indicating acceptance, decline, or cancellation
+
+        Raises:
+            McpError: If client doesn't support elicitation capability
+            RuntimeError: If handler is not configured
+        """
+        self._check_elicitation_capability()
+
+        if self._handler is None:
+            raise RuntimeError("handler is required for elicit_url(). Pass handler= to ServerTaskContext.")
+
+        # Update status to input_required
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+
+        # Build the request using session's helper
+        request = self._session._build_elicit_url_request(  # pyright: ignore[reportPrivateUsage]
+            message=message,
+            url=url,
+            elicitation_id=elicitation_id,
+            related_task_id=self.task_id,
+        )
+        request_id: RequestId = request.id
+
+        # Create resolver and register with handler for response routing
+        resolver: Resolver[dict[str, Any]] = Resolver()
+        self._handler._pending_requests[request_id] = resolver  # pyright: ignore[reportPrivateUsage]
+
+        # Queue the request
+        queued = QueuedMessage(
+            type="request",
+            message=request,
+            resolver=resolver,
+            original_request_id=request_id,
+        )
+        await self._queue.enqueue(self.task_id, queued)
+
+        try:
+            # Wait for response (routed back via TaskResultHandler)
+            response_data = await resolver.wait()
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            return ElicitResult.model_validate(response_data)
+        except anyio.get_cancelled_exc_class():  # pragma: no cover
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            raise
+
     async def create_message(
         self,
         messages: list[SamplingMessage],
@@ -274,6 +348,8 @@ class ServerTaskContext:
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: ModelPreferences | None = None,
+        tools: list[Tool] | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> CreateMessageResult:
         """
         Send a sampling request via the task message queue.
@@ -295,14 +371,20 @@ class ServerTaskContext:
             stop_sequences: Stop sequences
             metadata: Additional metadata
             model_preferences: Model selection preferences
+            tools: Optional list of tools the LLM can use during sampling
+            tool_choice: Optional control over tool usage behavior
 
         Returns:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support sampling capability
+            McpError: If client doesn't support sampling capability or tools
+            ValueError: If tool_use or tool_result message structure is invalid
         """
         self._check_sampling_capability()
+        client_caps = self._session.client_params.capabilities if self._session.client_params else None
+        validate_sampling_tools(client_caps, tools, tool_choice)
+        validate_tool_use_result_messages(messages)
 
         if self._handler is None:
             raise RuntimeError("handler is required for create_message(). Pass handler= to ServerTaskContext.")
@@ -320,6 +402,8 @@ class ServerTaskContext:
             stop_sequences=stop_sequences,
             metadata=metadata,
             model_preferences=model_preferences,
+            tools=tools,
+            tool_choice=tool_choice,
             related_task_id=self.task_id,
         )
         request_id: RequestId = request.id
@@ -386,7 +470,7 @@ class ServerTaskContext:
         await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
 
         # Build request WITH task field for task-augmented elicitation
-        request = self._session._build_elicit_request(  # pyright: ignore[reportPrivateUsage]
+        request = self._session._build_elicit_form_request(  # pyright: ignore[reportPrivateUsage]
             message=message,
             requestedSchema=requestedSchema,
             related_task_id=self.task_id,
@@ -442,6 +526,8 @@ class ServerTaskContext:
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: ModelPreferences | None = None,
+        tools: list[Tool] | None = None,
+        tool_choice: ToolChoice | None = None,
     ) -> CreateMessageResult:
         """
         Send a task-augmented sampling request via the queue, then poll client.
@@ -461,16 +547,21 @@ class ServerTaskContext:
             stop_sequences: Stop sequences
             metadata: Additional metadata
             model_preferences: Model selection preferences
+            tools: Optional list of tools the LLM can use during sampling
+            tool_choice: Optional control over tool usage behavior
 
         Returns:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support task-augmented sampling
+            McpError: If client doesn't support task-augmented sampling or tools
+            ValueError: If tool_use or tool_result message structure is invalid
             RuntimeError: If handler is not configured
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
         require_task_augmented_sampling(client_caps)
+        validate_sampling_tools(client_caps, tools, tool_choice)
+        validate_tool_use_result_messages(messages)
 
         if self._handler is None:
             raise RuntimeError("handler is required for create_message_as_task()")
@@ -488,6 +579,8 @@ class ServerTaskContext:
             stop_sequences=stop_sequences,
             metadata=metadata,
             model_preferences=model_preferences,
+            tools=tools,
+            tool_choice=tool_choice,
             related_task_id=self.task_id,
             task=TaskMetadata(ttl=ttl),
         )

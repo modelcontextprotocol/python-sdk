@@ -48,7 +48,7 @@ from pydantic import AnyUrl
 import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
-from mcp.shared.exceptions import McpError
+from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -293,47 +293,12 @@ class ServerSession(
             The sampling result from the client.
 
         Raises:
-            McpError: If tool_use or tool_result blocks are misused when tools are provided.
+            McpError: If tools are provided but client doesn't support them.
+            ValueError: If tool_use or tool_result message structure is invalid.
         """
-
-        if tools is not None or tool_choice is not None:
-            has_tools_cap = self.check_client_capability(
-                types.ClientCapabilities(sampling=types.SamplingCapability(tools=types.SamplingToolsCapability()))
-            )
-            if not has_tools_cap:
-                raise McpError(
-                    types.ErrorData(
-                        code=types.INVALID_PARAMS,
-                        message="Client does not support sampling tools capability",
-                    )
-                )
-
-        # Validate tool_use/tool_result message structure per SEP-1577:
-        # https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1577
-        # This validation runs regardless of whether `tools` is in this request,
-        # since a tool loop continuation may omit `tools` while still containing
-        # tool_result content that must match previous tool_use.
-        if messages:
-            last_content = messages[-1].content_as_list
-            has_tool_results = any(c.type == "tool_result" for c in last_content)
-
-            previous_content = messages[-2].content_as_list if len(messages) >= 2 else None
-            has_previous_tool_use = previous_content and any(c.type == "tool_use" for c in previous_content)
-
-            if has_tool_results:
-                # Per spec: "SamplingMessage with tool result content blocks
-                # MUST NOT contain other content types."
-                if any(c.type != "tool_result" for c in last_content):
-                    raise ValueError("The last message must contain only tool_result content if any is present")
-                if previous_content is None:
-                    raise ValueError("tool_result requires a previous message containing tool_use")
-                if not has_previous_tool_use:
-                    raise ValueError("tool_result blocks do not match any tool_use in the previous message")
-            if has_previous_tool_use and previous_content:
-                tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
-                tool_result_ids = {c.toolUseId for c in last_content if c.type == "tool_result"}
-                if tool_use_ids != tool_result_ids:
-                    raise ValueError("ids of tool_result blocks and tool_use blocks from previous message do not match")
+        client_caps = self._client_params.capabilities if self._client_params else None
+        validate_sampling_tools(client_caps, tools, tool_choice)
+        validate_tool_use_result_messages(messages)
 
         return await self.send_request(
             request=types.ServerRequest(
@@ -525,14 +490,14 @@ class ServerSession(
     # by TaskContext to construct requests that will be queued instead of sent
     # directly, avoiding code duplication between ServerSession and TaskContext.
 
-    def _build_elicit_request(
+    def _build_elicit_form_request(
         self,
         message: str,
         requestedSchema: types.ElicitRequestedSchema,
         related_task_id: str | None = None,
         task: types.TaskMetadata | None = None,
     ) -> types.JSONRPCRequest:
-        """Build an elicitation request without sending it.
+        """Build a form mode elicitation request without sending it.
 
         Args:
             message: The message to present to the user
@@ -567,6 +532,48 @@ class ServerSession(
             params=params_data,
         )
 
+    def _build_elicit_url_request(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+        related_task_id: str | None = None,
+    ) -> types.JSONRPCRequest:
+        """Build a URL mode elicitation request without sending it.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+
+        Returns:
+            A JSONRPCRequest ready to be sent or queued
+        """
+        params = types.ElicitRequestURLParams(
+            message=message,
+            url=url,
+            elicitationId=elicitation_id,
+        )
+        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        # Add related-task metadata if associated with a parent task
+        if related_task_id is not None:
+            if "_meta" not in params_data:
+                params_data["_meta"] = {}
+            params_data["_meta"]["io.modelcontextprotocol/related-task"] = {"taskId": related_task_id}
+
+        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
+        if related_task_id is None:
+            self._request_id += 1
+
+        return types.JSONRPCRequest(
+            jsonrpc="2.0",
+            id=request_id,
+            method="elicitation/create",
+            params=params_data,
+        )
+
     def _build_create_message_request(
         self,
         messages: list[types.SamplingMessage],
@@ -578,6 +585,8 @@ class ServerSession(
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool] | None = None,
+        tool_choice: types.ToolChoice | None = None,
         related_task_id: str | None = None,
         task: types.TaskMetadata | None = None,
     ) -> types.JSONRPCRequest:
@@ -592,6 +601,8 @@ class ServerSession(
             stop_sequences: Optional stop sequences
             metadata: Optional metadata to pass through to the LLM provider
             model_preferences: Optional model selection preferences
+            tools: Optional list of tools the LLM can use during sampling
+            tool_choice: Optional control over tool usage behavior
             related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
             task: If provided, makes this a task-augmented request
 
@@ -607,6 +618,8 @@ class ServerSession(
             stopSequences=stop_sequences,
             metadata=metadata,
             modelPreferences=model_preferences,
+            tools=tools,
+            toolChoice=tool_choice,
             task=task,
         )
         params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)

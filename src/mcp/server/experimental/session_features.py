@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import mcp.types as types
+from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.experimental.tasks.capabilities import (
     require_task_augmented_elicitation,
     require_task_augmented_sampling,
@@ -156,6 +157,8 @@ class ExperimentalServerSessionFeatures:
         stop_sequences: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool] | None = None,
+        tool_choice: types.ToolChoice | None = None,
     ) -> types.CreateMessageResult:
         """
         Send a task-augmented sampling request and poll until complete.
@@ -173,15 +176,20 @@ class ExperimentalServerSessionFeatures:
             stop_sequences: Stop sequences
             metadata: Additional metadata
             model_preferences: Model selection preferences
+            tools: Optional list of tools the LLM can use during sampling
+            tool_choice: Optional control over tool usage behavior
 
         Returns:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support task-augmented sampling
+            McpError: If client doesn't support task-augmented sampling or tools
+            ValueError: If tool_use or tool_result message structure is invalid
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
         require_task_augmented_sampling(client_caps)
+        validate_sampling_tools(client_caps, tools, tool_choice)
+        validate_tool_use_result_messages(messages)
 
         create_result = await self._session.send_request(
             types.ServerRequest(
@@ -195,6 +203,8 @@ class ExperimentalServerSessionFeatures:
                         stopSequences=stop_sequences,
                         metadata=metadata,
                         modelPreferences=model_preferences,
+                        tools=tools,
+                        toolChoice=tool_choice,
                         task=types.TaskMetadata(ttl=ttl),
                     )
                 )

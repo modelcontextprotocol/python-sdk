@@ -603,8 +603,8 @@ async def test_set_task_result_handler() -> None:
 
 
 @pytest.mark.anyio
-async def test_build_elicit_request() -> None:
-    """Test that _build_elicit_request builds a proper elicitation request."""
+async def test_build_elicit_form_request() -> None:
+    """Test that _build_elicit_form_request builds a proper elicitation request."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -619,7 +619,7 @@ async def test_build_elicit_request() -> None:
             ),
         ) as server_session:
             # Test without task_id
-            request = server_session._build_elicit_request(
+            request = server_session._build_elicit_form_request(
                 message="Test message",
                 requestedSchema={"type": "object", "properties": {"answer": {"type": "string"}}},
             )
@@ -628,7 +628,7 @@ async def test_build_elicit_request() -> None:
             assert request.params["message"] == "Test message"
 
             # Test with related_task_id (adds related-task metadata)
-            request_with_task = server_session._build_elicit_request(
+            request_with_task = server_session._build_elicit_form_request(
                 message="Task message",
                 requestedSchema={"type": "object"},
                 related_task_id="test-task-123",
@@ -639,6 +639,56 @@ async def test_build_elicit_request() -> None:
             assert "io.modelcontextprotocol/related-task" in request_with_task.params["_meta"]
             assert (
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-123"
+            )
+    finally:  # pragma: no cover
+        await server_to_client_send.aclose()
+        await server_to_client_receive.aclose()
+        await client_to_server_send.aclose()
+        await client_to_server_receive.aclose()
+
+
+@pytest.mark.anyio
+async def test_build_elicit_url_request() -> None:
+    """Test that _build_elicit_url_request builds a proper URL mode elicitation request."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    try:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            # Test without related_task_id
+            request = server_session._build_elicit_url_request(
+                message="Please authorize with GitHub",
+                url="https://github.com/login/oauth/authorize",
+                elicitation_id="oauth-123",
+            )
+            assert request.method == "elicitation/create"
+            assert request.params is not None
+            assert request.params["message"] == "Please authorize with GitHub"
+            assert request.params["url"] == "https://github.com/login/oauth/authorize"
+            assert request.params["elicitationId"] == "oauth-123"
+            assert request.params["mode"] == "url"
+
+            # Test with related_task_id (adds related-task metadata)
+            request_with_task = server_session._build_elicit_url_request(
+                message="OAuth required",
+                url="https://example.com/oauth",
+                elicitation_id="oauth-456",
+                related_task_id="test-task-789",
+            )
+            assert request_with_task.method == "elicitation/create"
+            assert request_with_task.params is not None
+            assert "_meta" in request_with_task.params
+            assert "io.modelcontextprotocol/related-task" in request_with_task.params["_meta"]
+            assert (
+                request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-789"
             )
     finally:  # pragma: no cover
         await server_to_client_send.aclose()
