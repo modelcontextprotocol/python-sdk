@@ -306,7 +306,7 @@ class TestChildProcessCleanup:
             if os.path.exists(marker_file):  # pragma: no branch
                 initial_size = os.path.getsize(marker_file)
                 size_after_wait = initial_size
-                for _ in range(10):
+                for _ in range(10):  # pragma: no branch
                     await anyio.sleep(0.2)
                     size_after_wait = os.path.getsize(marker_file)
                     if size_after_wait > initial_size:
