@@ -47,9 +47,15 @@ TASK_REQUIRED: Final[Literal["required"]] = "required"
 
 
 class TaskMetadata(BaseModel):
+    """
+    Metadata for augmenting a request with task execution.
+    Include this in the `task` field of the request parameters.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     ttl: Annotated[int, Field(strict=True)] | None = None
+    """Requested duration in milliseconds to retain task from creation."""
 
 
 class RequestParams(BaseModel):
@@ -536,6 +542,7 @@ class RelatedTaskMetadata(BaseModel):
 
     model_config = ConfigDict(extra="allow")
     taskId: str
+    """The task identifier this message is associated with."""
 
 
 class Task(BaseModel):
@@ -568,6 +575,7 @@ class Task(BaseModel):
     """Actual retention duration from creation in milliseconds, null for unlimited."""
 
     pollInterval: Annotated[int, Field(strict=True)] | None = None
+    """Suggested polling interval in milliseconds."""
 
 
 class CreateTaskResult(Result):
@@ -1709,12 +1717,15 @@ class CancelledNotificationParams(NotificationParams):
     """Parameters for cancellation notifications."""
 
     requestId: RequestId | None = None
-    """The ID of the request to cancel."""
+    """
+    The ID of the request to cancel.
+
+    This MUST correspond to the ID of a request previously issued in the same direction.
+    This MUST be provided for cancelling non-task requests.
+    This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead).
+    """
     reason: str | None = None
     """An optional string describing the reason for the cancellation."""
-
-    taskId: str | None = None
-    """Deprecated: Use the `tasks/cancel` request instead of this notification for task cancellation."""
 
     model_config = ConfigDict(extra="allow")
 
