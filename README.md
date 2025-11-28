@@ -364,6 +364,57 @@ async def long_running_task(task_name: str, ctx: Context[ServerSession, None], s
 _Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
 <!-- /snippet-source -->
 
+#### Tool Timeouts
+
+FastMCP provides configurable timeouts for tool execution to prevent long-running tools from blocking indefinitely. By default, tools have a 300-second (5 minute) timeout, but this can be customized:
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Set a custom timeout for all tools (in seconds)
+mcp = FastMCP("My Server", tool_timeout_seconds=60.0)  # 1 minute timeout
+
+# Disable timeout entirely (use with caution)
+mcp = FastMCP("My Server", tool_timeout_seconds=None)
+
+# Use the default 300 second timeout
+mcp = FastMCP("My Server")  # 5 minute default
+```
+
+When a tool exceeds its timeout, an `McpError` with error code `REQUEST_TIMEOUT` (-32001) is raised:
+
+```python
+from mcp.shared.exceptions import McpError
+from mcp.types import REQUEST_TIMEOUT
+
+@mcp.tool()
+async def slow_operation(data: str) -> str:
+    """A potentially slow operation."""
+    # If this takes longer than tool_timeout_seconds, it will be cancelled
+    result = await process_large_dataset(data)
+    return result
+
+# Clients can catch timeout errors
+try:
+    result = await session.call_tool("slow_operation", {"data": "..."})
+except McpError as e:
+    if e.error.code == REQUEST_TIMEOUT:
+        print("Tool execution timed out")
+```
+
+**Configuration via environment variables:**
+
+```bash
+# Set timeout via environment variable
+FASTMCP_TOOL_TIMEOUT_SECONDS=120 python server.py
+```
+
+**Best practices:**
+- Choose timeouts based on expected tool execution time
+- Consider client-side timeouts as well for end-to-end timeout control
+- Log or monitor timeout occurrences to identify problematic tools
+- For truly long-running operations, consider using progress updates or async patterns
+
 #### Structured Output
 
 Tools will return structured results by default, if their return type
@@ -1072,6 +1123,7 @@ The FastMCP server instance accessible via `ctx.fastmcp` provides access to serv
   - `host` and `port` - Server network configuration
   - `mount_path`, `sse_path`, `streamable_http_path` - Transport paths
   - `stateless_http` - Whether the server operates in stateless mode
+  - `tool_timeout_seconds` - Maximum execution time for tools (default: 300 seconds)
   - And other configuration options
 
 ```python

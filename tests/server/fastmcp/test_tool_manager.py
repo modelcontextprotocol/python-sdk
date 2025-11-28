@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -12,7 +13,8 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import TextContent, ToolAnnotations
+from mcp.shared.exceptions import McpError
+from mcp.types import REQUEST_TIMEOUT, TextContent, ToolAnnotations
 
 
 class TestAddTools:
@@ -920,3 +922,159 @@ class TestRemoveTools:
         # Remove with correct case
         manager.remove_tool("test_func")
         assert manager.get_tool("test_func") is None
+
+
+class TestToolTimeout:
+    """Test timeout behavior for tool execution."""
+
+    @pytest.mark.anyio
+    async def test_tool_timeout_exceeded(self):
+        """Test that a slow tool times out and raises McpError with REQUEST_TIMEOUT code."""
+
+        async def slow_tool(duration: float) -> str:  # pragma: no cover
+            """A tool that sleeps for the specified duration."""
+            await asyncio.sleep(duration)
+            return "completed"
+
+        manager = ToolManager(timeout_seconds=0.1)  # 100ms timeout
+        manager.add_tool(slow_tool)
+
+        # Tool should timeout after 100ms
+        with pytest.raises(McpError) as exc_info:
+            await manager.call_tool("slow_tool", {"duration": 1.0})  # Try to sleep for 1 second
+
+        # Verify the error code is REQUEST_TIMEOUT
+        assert exc_info.value.error.code == REQUEST_TIMEOUT
+        assert "slow_tool" in exc_info.value.error.message
+        assert "exceeded timeout" in exc_info.value.error.message
+
+    @pytest.mark.anyio
+    async def test_tool_completes_before_timeout(self):
+        """Test that a fast tool completes successfully before timeout."""
+
+        async def fast_tool(value: str) -> str:
+            """A tool that completes quickly."""
+            await asyncio.sleep(0.01)  # 10ms
+            return f"processed: {value}"
+
+        manager = ToolManager(timeout_seconds=1.0)  # 1 second timeout
+        manager.add_tool(fast_tool)
+
+        # Tool should complete successfully
+        result = await manager.call_tool("fast_tool", {"value": "test"})
+        assert result == "processed: test"
+
+    @pytest.mark.anyio
+    async def test_tool_without_timeout(self):
+        """Test that tools work normally when timeout is None."""
+
+        async def slow_tool(duration: float) -> str:
+            """A tool that can take any amount of time."""
+            await asyncio.sleep(duration)
+            return "completed"
+
+        manager = ToolManager(timeout_seconds=None)  # No timeout
+        manager.add_tool(slow_tool)
+
+        # Tool should complete without timeout even if slow
+        result = await manager.call_tool("slow_tool", {"duration": 0.2})
+        assert result == "completed"
+
+    @pytest.mark.anyio
+    async def test_sync_tool_timeout(self):
+        """Test that synchronous tools also respect timeout."""
+        import time
+
+        def slow_sync_tool(duration: float) -> str:  # pragma: no cover
+            """A synchronous tool that sleeps."""
+            time.sleep(duration)
+            return "completed"
+
+        manager = ToolManager(timeout_seconds=0.1)  # 100ms timeout
+        manager.add_tool(slow_sync_tool)
+
+        # Sync tool should also timeout
+        with pytest.raises(McpError) as exc_info:
+            await manager.call_tool("slow_sync_tool", {"duration": 1.0})
+
+        assert exc_info.value.error.code == REQUEST_TIMEOUT
+
+    @pytest.mark.anyio
+    async def test_timeout_with_context_injection(self):
+        """Test that timeout works correctly with context injection."""
+
+        async def slow_tool_with_context(
+            duration: float, ctx: Context[ServerSessionT, None]
+        ) -> str:  # pragma: no cover
+            """A tool with context that times out."""
+            await asyncio.sleep(duration)
+            return "completed"
+
+        manager = ToolManager(timeout_seconds=0.1)
+        manager.add_tool(slow_tool_with_context)
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+
+        # Tool should timeout even with context injection
+        with pytest.raises(McpError) as exc_info:
+            await manager.call_tool("slow_tool_with_context", {"duration": 1.0}, context=ctx)
+
+        assert exc_info.value.error.code == REQUEST_TIMEOUT
+
+    @pytest.mark.anyio
+    async def test_tool_error_not_confused_with_timeout(self):
+        """Test that regular tool errors are not confused with timeout errors."""
+
+        async def failing_tool(should_fail: bool) -> str:
+            """A tool that raises an error."""
+            if should_fail:
+                raise ValueError("Tool failed intentionally")
+            return "success"
+
+        manager = ToolManager(timeout_seconds=1.0)
+        manager.add_tool(failing_tool)
+
+        # Regular errors should still be ToolError, not timeout
+        with pytest.raises(ToolError, match="Error executing tool failing_tool"):
+            await manager.call_tool("failing_tool", {"should_fail": True})
+
+    @pytest.mark.anyio
+    async def test_fastmcp_timeout_setting(self):
+        """Test that FastMCP passes timeout setting to ToolManager."""
+
+        async def slow_tool() -> str:  # pragma: no cover
+            """A slow tool."""
+            await asyncio.sleep(1.0)
+            return "completed"
+
+        # Create FastMCP with custom timeout
+        app = FastMCP(tool_timeout_seconds=0.1)
+
+        @app.tool()
+        async def test_tool() -> str:  # pragma: no cover
+            """Test tool."""
+            await asyncio.sleep(1.0)
+            return "completed"
+
+        # Tool should timeout based on FastMCP setting
+        with pytest.raises(McpError) as exc_info:
+            await app._tool_manager.call_tool("test_tool", {})
+
+        assert exc_info.value.error.code == REQUEST_TIMEOUT
+
+    @pytest.mark.anyio
+    async def test_fastmcp_no_timeout(self):
+        """Test that FastMCP works with timeout disabled."""
+
+        app = FastMCP(tool_timeout_seconds=None)
+
+        @app.tool()
+        async def slow_tool() -> str:
+            """A slow tool."""
+            await asyncio.sleep(0.2)
+            return "completed"
+
+        # Tool should complete without timeout
+        result = await app._tool_manager.call_tool("slow_tool", {})
+        assert result == "completed"

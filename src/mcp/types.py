@@ -152,7 +152,8 @@ URL_ELICITATION_REQUIRED = -32042
 
 # SDK error codes
 CONNECTION_CLOSED = -32000
-# REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
+REQUEST_TIMEOUT = -32001
+"""Error code indicating that a request exceeded the configured timeout period."""
 
 # Standard JSON-RPC error codes
 PARSE_ERROR = -32700
