@@ -557,7 +557,7 @@ async def test_all_methods_without_extra_headers():
                     from mcp.types import ListToolsResult
 
                     result = ServerResult(ListToolsResult(tools=[]))
-                else:
+                else:  # pragma: no cover
                     continue
 
                 await server_to_client_send.send(
@@ -648,7 +648,7 @@ async def test_per_request_headers_take_precedence_over_connection_headers():
         assert jsonrpc_request.root.method == "logging/setLevel"
 
         # Capture the metadata that was passed with the request
-        if isinstance(session_message.metadata, ClientMessageMetadata):
+        if isinstance(session_message.metadata, ClientMessageMetadata):  # pragma: no branch
             captured_metadata.append(session_message.metadata)
 
         # Send response
