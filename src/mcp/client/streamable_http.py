@@ -225,6 +225,11 @@ class StreamableHTTPTransport:
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
         headers = self._prepare_request_headers(ctx.headers)
+
+        # Merge extra headers from metadata if present
+        if ctx.metadata and ctx.metadata.extra_headers:
+            headers.update(ctx.metadata.extra_headers)
+
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -259,6 +264,11 @@ class StreamableHTTPTransport:
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
         headers = self._prepare_request_headers(ctx.headers)
+
+        # Merge extra headers from metadata if present
+        if ctx.metadata and ctx.metadata.extra_headers:
+            headers.update(ctx.metadata.extra_headers)
+
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 

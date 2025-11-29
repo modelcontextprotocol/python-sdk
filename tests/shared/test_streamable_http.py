@@ -894,6 +894,19 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session:
 
 
 @pytest.mark.anyio
+async def test_streamablehttp_client_tool_invocation_with_extra_headers(initialized_client_session: ClientSession):
+    """Test HTTP POST request with extra headers."""
+    result = await initialized_client_session.call_tool(
+        "test_tool",
+        {},
+        extra_headers={"X-Custom-Header": "test-value"},
+    )
+    assert len(result.content) == 1
+    assert result.content[0].type == "text"
+    assert result.content[0].text == "Called test_tool"
+
+
+@pytest.mark.anyio
 async def test_streamablehttp_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
@@ -1106,26 +1119,27 @@ async def test_streamablehttp_client_session_termination_204(
                 await session.list_tools()
 
 
-@pytest.mark.anyio
-async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventStore, str]):
-    """Test client session resumption using sync primitives for reliable coordination."""
-    _, server_url = event_server
+async def _setup_resumption_test(
+    server_url: str,
+) -> tuple[str | None, str | None, str | int | None, list[types.ServerNotification]]:
+    """Helper function to set up a resumption test by starting a session and capturing resumption state.
 
-    # Variables to track the state
-    captured_session_id = None
-    captured_resumption_token = None
-    captured_notifications: list[types.ServerNotification] = []
-    captured_protocol_version = None
-    first_notification_received = False
+    Returns:
+        Tuple of (session_id, resumption_token, protocol_version, notifications)
+    """
+    captured_session_id = None  # pragma: no cover
+    captured_resumption_token = None  # pragma: no cover
+    captured_notifications: list[types.ServerNotification] = []  # pragma: no cover
+    captured_protocol_version = None  # pragma: no cover
+    first_notification_received = False  # pragma: no cover
 
     async def message_handler(  # pragma: no branch
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
+    ) -> None:  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             captured_notifications.append(message)
-            # Look for our first notification
             if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
-                if message.root.params.data == "First notification before lock":
+                if message.root.params.data == "First notification before lock":  # pragma: no branch
                     nonlocal first_notification_received
                     first_notification_received = True
 
@@ -1181,8 +1195,32 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
     assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)  # pragma: no cover
     assert captured_notifications[0].root.params.data == "First notification before lock"  # pragma: no cover
 
-    # Clear notifications for the second phase
-    captured_notifications = []  # pragma: no cover
+    return (
+        captured_session_id,
+        captured_resumption_token,
+        captured_protocol_version,
+        captured_notifications,
+    )  # pragma: no cover  # noqa: E501
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventStore, str]):
+    """Test client session resumption using sync primitives for reliable coordination."""
+    _, server_url = event_server
+
+    # Set up the initial session and capture resumption state
+    captured_session_id, captured_resumption_token, captured_protocol_version, _ = await _setup_resumption_test(
+        server_url
+    )
+
+    # Track notifications for the resumed session
+    captured_notifications: list[types.ServerNotification] = []  # pragma: no cover
+
+    async def message_handler(  # pragma: no branch
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            captured_notifications.append(message)
 
     # Now resume the session with the same mcp-session-id and protocol version
     headers: dict[str, Any] = {}  # pragma: no cover
@@ -1206,6 +1244,71 @@ async def test_streamablehttp_client_resumption(event_server: tuple[SimpleEventS
             )
             metadata = ClientMessageMetadata(
                 resumption_token=captured_resumption_token,
+            )
+
+            result = await session.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
+                    )
+                ),
+                types.CallToolResult,
+                metadata=metadata,
+            )
+            assert len(result.content) == 1
+            assert result.content[0].type == "text"
+            assert result.content[0].text == "Completed"
+
+            # We should have received the remaining notifications
+            assert len(captured_notifications) == 1
+
+            assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)
+            assert captured_notifications[0].root.params.data == "Second notification after lock"
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_client_resumption_with_extra_headers(event_server: tuple[SimpleEventStore, str]):
+    """Test client session resumption with extra headers."""
+    _, server_url = event_server
+
+    # Set up the initial session and capture resumption state
+    captured_session_id, captured_resumption_token, captured_protocol_version, _ = await _setup_resumption_test(
+        server_url
+    )
+
+    # Track notifications for the resumed session
+    captured_notifications: list[types.ServerNotification] = []  # pragma: no cover
+
+    async def message_handler(  # pragma: no branch
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            captured_notifications.append(message)
+
+    # Now resume the session with the same mcp-session-id and protocol version
+    headers: dict[str, Any] = {}  # pragma: no cover
+    if captured_session_id:  # pragma: no cover
+        headers[MCP_SESSION_ID_HEADER] = captured_session_id
+    if captured_protocol_version:  # pragma: no cover
+        headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
+    async with streamablehttp_client(f"{server_url}/mcp", headers=headers) as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            result = await session.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        params=types.CallToolRequestParams(name="release_lock", arguments={}),
+                    )
+                ),
+                types.CallToolResult,
+            )
+            # Test resumption WITH extra_headers
+            metadata = ClientMessageMetadata(
+                resumption_token=captured_resumption_token,
+                extra_headers={"X-Resumption-Test": "test-value"},
             )
 
             result = await session.send_request(
