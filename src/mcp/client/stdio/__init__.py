@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -46,6 +47,47 @@ DEFAULT_INHERITED_ENV_VARS = (
 
 # Timeout for process termination before falling back to force kill
 PROCESS_TERMINATION_TIMEOUT = 2.0
+
+
+def _is_jupyter_notebook() -> bool:
+    """
+    Detect if running in a Jupyter notebook or IPython environment.
+
+    Returns:
+        bool: True if running in Jupyter/IPython, False otherwise
+    """
+    try:
+        from IPython import get_ipython  # type: ignore[import-not-found]
+
+        ipython = get_ipython()  # type: ignore[no-untyped-call]
+        return ipython is not None and ipython.__class__.__name__ in ("ZMQInteractiveShell", "TerminalInteractiveShell")
+    except ImportError:
+        return False
+
+
+def _print_stderr(line: str, errlog: TextIO) -> None:
+    """
+    Print stderr output, using IPython's display system if in Jupyter notebook.
+
+    Args:
+        line: The line to print
+        errlog: The fallback TextIO stream (used when not in Jupyter)
+    """
+    if _is_jupyter_notebook():
+        try:
+            from IPython.display import HTML, display  # type: ignore[import-not-found]
+
+            # Use IPython's display system with red color for stderr
+            # This ensures proper rendering in Jupyter notebooks
+            display(HTML(f'<pre style="color: red;">{line}</pre>'))  # type: ignore[no-untyped-call]
+        except Exception:
+            # If IPython display fails, fall back to regular print
+            # Log the error but continue (non-critical)
+            logger.debug("Failed to use IPython display for stderr, falling back to print", exc_info=True)
+            print(line, file=errlog)
+    else:
+        # Not in Jupyter, use standard stderr redirection
+        print(line, file=errlog)
 
 
 def get_default_environment() -> dict[str, str]:
@@ -102,11 +144,121 @@ class StdioServerParameters(BaseModel):
     """
 
 
+async def _stdout_reader(
+    process: Process | FallbackProcess,
+    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception],
+    encoding: str,
+    encoding_error_handler: str,
+):
+    """Read stdout from the process and parse JSONRPC messages."""
+    assert process.stdout, "Opened process is missing stdout"
+
+    try:
+        async with read_stream_writer:
+            buffer = ""
+            async for chunk in TextReceiveStream(
+                process.stdout,
+                encoding=encoding,
+                errors=encoding_error_handler,
+            ):
+                lines = (buffer + chunk).split("\n")
+                buffer = lines.pop()
+
+                for line in lines:
+                    try:
+                        message = types.JSONRPCMessage.model_validate_json(line)
+                    except Exception as exc:  # pragma: no cover
+                        logger.exception("Failed to parse JSONRPC message from server")
+                        await read_stream_writer.send(exc)
+                        continue
+
+                    session_message = SessionMessage(message)
+                    await read_stream_writer.send(session_message)
+    except anyio.ClosedResourceError:  # pragma: no cover
+        await anyio.lowlevel.checkpoint()
+
+
+async def _stdin_writer(
+    process: Process | FallbackProcess,
+    write_stream_reader: MemoryObjectReceiveStream[SessionMessage],
+    encoding: str,
+    encoding_error_handler: str,
+):
+    """Write session messages to the process stdin."""
+    assert process.stdin, "Opened process is missing stdin"
+
+    try:
+        async with write_stream_reader:
+            async for session_message in write_stream_reader:
+                json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                await process.stdin.send(
+                    (json + "\n").encode(
+                        encoding=encoding,
+                        errors=encoding_error_handler,
+                    )
+                )
+    except anyio.ClosedResourceError:  # pragma: no cover
+        await anyio.lowlevel.checkpoint()
+
+
+async def _stderr_reader(
+    process: Process | FallbackProcess,
+    errlog: TextIO,
+    encoding: str,
+    encoding_error_handler: str,
+):
+    """Read stderr from the process and display it appropriately."""
+    if not process.stderr:
+        return
+
+    try:
+        buffer = ""
+        async for chunk in TextReceiveStream(
+            process.stderr,
+            encoding=encoding,
+            errors=encoding_error_handler,
+        ):
+            lines = (buffer + chunk).split("\n")
+            buffer = lines.pop()
+
+            for line in lines:
+                if line.strip():  # Only print non-empty lines
+                    try:
+                        _print_stderr(line, errlog)
+                    except Exception:
+                        # Log errors but continue (non-critical)
+                        logger.debug("Failed to print stderr line", exc_info=True)
+
+        # Print any remaining buffer content
+        if buffer.strip():
+            try:
+                _print_stderr(buffer, errlog)
+            except Exception:
+                logger.debug("Failed to print final stderr buffer", exc_info=True)
+    except anyio.ClosedResourceError:  # pragma: no cover
+        await anyio.lowlevel.checkpoint()
+    except Exception:
+        # Log errors but continue (non-critical)
+        logger.debug("Error reading stderr", exc_info=True)
+
+
 @asynccontextmanager
 async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
+
+    This function automatically handles stderr output in a way that is compatible
+    with Jupyter notebook environments. When running in Jupyter, stderr output
+    is displayed using IPython's display system with red color formatting.
+    When not in Jupyter, stderr is redirected to the provided errlog stream
+    (defaults to sys.stderr).
+
+    Args:
+        server: Parameters for the server process to spawn
+        errlog: TextIO stream for stderr output when not in Jupyter (defaults to sys.stderr).
+                This parameter is kept for backward compatibility but may be ignored
+                when running in Jupyter notebook environments.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -136,55 +288,14 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         await write_stream_reader.aclose()
         raise
 
-    async def stdout_reader():
-        assert process.stdout, "Opened process is missing stdout"
-
-        try:
-            async with read_stream_writer:
-                buffer = ""
-                async for chunk in TextReceiveStream(
-                    process.stdout,
-                    encoding=server.encoding,
-                    errors=server.encoding_error_handler,
-                ):
-                    lines = (buffer + chunk).split("\n")
-                    buffer = lines.pop()
-
-                    for line in lines:
-                        try:
-                            message = types.JSONRPCMessage.model_validate_json(line)
-                        except Exception as exc:  # pragma: no cover
-                            logger.exception("Failed to parse JSONRPC message from server")
-                            await read_stream_writer.send(exc)
-                            continue
-
-                        session_message = SessionMessage(message)
-                        await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: no cover
-            await anyio.lowlevel.checkpoint()
-
-    async def stdin_writer():
-        assert process.stdin, "Opened process is missing stdin"
-
-        try:
-            async with write_stream_reader:
-                async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-                    await process.stdin.send(
-                        (json + "\n").encode(
-                            encoding=server.encoding,
-                            errors=server.encoding_error_handler,
-                        )
-                    )
-        except anyio.ClosedResourceError:  # pragma: no cover
-            await anyio.lowlevel.checkpoint()
-
     async with (
         anyio.create_task_group() as tg,
         process,
     ):
-        tg.start_soon(stdout_reader)
-        tg.start_soon(stdin_writer)
+        tg.start_soon(_stdout_reader, process, read_stream_writer, server.encoding, server.encoding_error_handler)
+        tg.start_soon(_stdin_writer, process, write_stream_reader, server.encoding, server.encoding_error_handler)
+        if process.stderr:
+            tg.start_soon(_stderr_reader, process, errlog, server.encoding, server.encoding_error_handler)
         try:
             yield read_stream, write_stream
         finally:
@@ -244,14 +355,19 @@ async def _create_platform_compatible_process(
 
     Unix: Creates process in a new session/process group for killpg support
     Windows: Creates process in a Job Object for reliable child termination
+
+    Note: stderr is piped (not redirected) to allow async reading for Jupyter
+    notebook compatibility. The errlog parameter is kept for backward compatibility
+    but is only used when not in Jupyter environments.
     """
     if sys.platform == "win32":  # pragma: no cover
-        process = await create_windows_process(command, args, env, errlog, cwd)
+        process = await create_windows_process(command, args, env, errlog, cwd, pipe_stderr=True)
     else:
+        # Pipe stderr instead of redirecting to allow async reading
         process = await anyio.open_process(
             [command, *args],
             env=env,
-            stderr=errlog,
+            stderr=subprocess.PIPE,
             cwd=cwd,
             start_new_session=True,
         )  # pragma: no cover

@@ -70,7 +70,7 @@ class FallbackProcess:
     A fallback process wrapper for Windows to handle async I/O
     when using subprocess.Popen, which provides sync-only FileIO objects.
 
-    This wraps stdin and stdout into async-compatible
+    This wraps stdin, stdout, and stderr into async-compatible
     streams (FileReadStream, FileWriteStream),
     so that MCP clients expecting async streams can work properly.
     """
@@ -79,10 +79,12 @@ class FallbackProcess:
         self.popen: subprocess.Popen[bytes] = popen_obj
         self.stdin_raw = popen_obj.stdin  # type: ignore[assignment]
         self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
-        self.stderr = popen_obj.stderr  # type: ignore[assignment]
+        self.stderr_raw = popen_obj.stderr  # type: ignore[assignment]
 
         self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
         self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
+        # Wrap stderr in async stream if it's piped (for Jupyter compatibility)
+        self.stderr = FileReadStream(cast(BinaryIO, self.stderr_raw)) if self.stderr_raw else None
 
     async def __aenter__(self):
         """Support async context manager entry."""
@@ -103,12 +105,14 @@ class FallbackProcess:
             await self.stdin.aclose()
         if self.stdout:
             await self.stdout.aclose()
+        if self.stderr:
+            await self.stderr.aclose()
         if self.stdin_raw:
             self.stdin_raw.close()
         if self.stdout_raw:
             self.stdout_raw.close()
-        if self.stderr:
-            self.stderr.close()
+        if self.stderr_raw:
+            self.stderr_raw.close()
 
     async def wait(self):
         """Async wait for process completion."""
@@ -139,6 +143,7 @@ async def create_windows_process(
     env: dict[str, str] | None = None,
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
+    pipe_stderr: bool = False,
 ) -> Process | FallbackProcess:
     """
     Creates a subprocess in a Windows-compatible way with Job Object support.
@@ -155,14 +160,19 @@ async def create_windows_process(
         command (str): The executable to run
         args (list[str]): List of command line arguments
         env (dict[str, str] | None): Environment variables
-        errlog (TextIO | None): Where to send stderr output (defaults to sys.stderr)
+        errlog (TextIO | None): Where to send stderr output (defaults to sys.stderr).
+                                Only used when pipe_stderr is False.
         cwd (Path | str | None): Working directory for the subprocess
+        pipe_stderr (bool): If True, pipe stderr instead of redirecting to errlog.
+                            This allows async reading of stderr for Jupyter compatibility.
 
     Returns:
         Process | FallbackProcess: Async-compatible subprocess with stdin and stdout streams
     """
     job = _create_job_object()
     process = None
+
+    stderr_target = subprocess.PIPE if pipe_stderr else errlog
 
     try:
         # First try using anyio with Windows-specific flags to hide console window
@@ -173,18 +183,18 @@ async def create_windows_process(
             creationflags=subprocess.CREATE_NO_WINDOW  # type: ignore
             if hasattr(subprocess, "CREATE_NO_WINDOW")
             else 0,
-            stderr=errlog,
+            stderr=stderr_target,
             cwd=cwd,
         )
     except NotImplementedError:
         # If Windows doesn't support async subprocess creation, use fallback
-        process = await _create_windows_fallback_process(command, args, env, errlog, cwd)
+        process = await _create_windows_fallback_process(command, args, env, errlog, cwd, pipe_stderr=pipe_stderr)
     except Exception:
         # Try again without creation flags
         process = await anyio.open_process(
             [command, *args],
             env=env,
-            stderr=errlog,
+            stderr=stderr_target,
             cwd=cwd,
         )
 
@@ -198,19 +208,30 @@ async def _create_windows_fallback_process(
     env: dict[str, str] | None = None,
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
+    pipe_stderr: bool = False,
 ) -> FallbackProcess:
     """
     Create a subprocess using subprocess.Popen as a fallback when anyio fails.
 
     This function wraps the sync subprocess.Popen in an async-compatible interface.
+
+    Args:
+        command: The executable to run
+        args: List of command line arguments
+        env: Environment variables
+        errlog: Where to send stderr output (only used when pipe_stderr is False)
+        cwd: Working directory for the subprocess
+        pipe_stderr: If True, pipe stderr instead of redirecting to errlog
     """
+    stderr_target = subprocess.PIPE if pipe_stderr else errlog
+
     try:
         # Try launching with creationflags to avoid opening a new console window
         popen_obj = subprocess.Popen(
             [command, *args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=errlog,
+            stderr=stderr_target,
             env=env,
             cwd=cwd,
             bufsize=0,  # Unbuffered output
@@ -222,7 +243,7 @@ async def _create_windows_fallback_process(
             [command, *args],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=errlog,
+            stderr=stderr_target,
             env=env,
             cwd=cwd,
             bufsize=0,
