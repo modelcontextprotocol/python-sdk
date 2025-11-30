@@ -715,9 +715,12 @@ def test_is_jupyter_notebook_detection():
     assert isinstance(result, bool)
 
     # Test when IPython is available and returns ZMQInteractiveShell
+    # Store the original import before patching to avoid recursion
+    original_import = __import__
+
     mock_ipython = MagicMock()
     mock_ipython.__class__.__name__ = "ZMQInteractiveShell"
-    
+
     # Mock the import inside the function
     def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "IPython":
@@ -725,9 +728,8 @@ def test_is_jupyter_notebook_detection():
             mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython)
             return mock_ipython_module
         # For other imports, use real import
-        import builtins
-        return builtins.__import__(name, globals, locals, fromlist, level)
-    
+        return original_import(name, globals, locals, fromlist, level)
+
     with patch("builtins.__import__", side_effect=mock_import):
         # Re-import to get fresh function that will use the mocked import
         import importlib
@@ -739,16 +741,15 @@ def test_is_jupyter_notebook_detection():
     # Test when IPython is available and returns TerminalInteractiveShell
     mock_ipython = MagicMock()
     mock_ipython.__class__.__name__ = "TerminalInteractiveShell"
-    
+
     def mock_import2(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "IPython":
             mock_ipython_module = MagicMock()
             mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython)
             return mock_ipython_module
         # For other imports, use real import
-        import builtins
-        return builtins.__import__(name, globals, locals, fromlist, level)
-    
+        return original_import(name, globals, locals, fromlist, level)
+
     with patch("builtins.__import__", side_effect=mock_import2):
         import importlib
         import mcp.client.stdio
