@@ -733,6 +733,7 @@ def test_is_jupyter_notebook_detection():
     with patch("builtins.__import__", side_effect=mock_import):
         # Re-import to get fresh function that will use the mocked import
         import importlib
+
         import mcp.client.stdio
 
         importlib.reload(mcp.client.stdio)
@@ -752,6 +753,7 @@ def test_is_jupyter_notebook_detection():
 
     with patch("builtins.__import__", side_effect=mock_import2):
         import importlib
+
         import mcp.client.stdio
 
         importlib.reload(mcp.client.stdio)
@@ -772,18 +774,18 @@ def test_print_stderr_jupyter():
     # We need to mock the import inside the function since IPython may not be installed
     mock_html_class = MagicMock()
     mock_display_func = MagicMock()
-    
+
     # Create a mock module structure that matches "from IPython.display import HTML, display"
     mock_display_module = MagicMock()
     mock_display_module.HTML = mock_html_class
     mock_display_module.display = mock_display_func
-    
+
     # Create mock IPython module with display submodule
     mock_ipython_module = MagicMock()
     mock_ipython_module.display = mock_display_module
-    
+
     original_import = __import__
-    
+
     def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "IPython.display":
             return mock_display_module
@@ -791,9 +793,10 @@ def test_print_stderr_jupyter():
             return mock_ipython_module
         # For other imports, use real import
         return original_import(name, globals, locals, fromlist, level)
-    
-    with patch("mcp.client.stdio._is_jupyter_notebook", return_value=True), patch(
-        "builtins.__import__", side_effect=mock_import
+
+    with (
+        patch("mcp.client.stdio._is_jupyter_notebook", return_value=True),
+        patch("builtins.__import__", side_effect=mock_import),
     ):
         _print_stderr("test error message", sys.stderr)
 
@@ -805,22 +808,22 @@ def test_print_stderr_jupyter():
 def test_print_stderr_jupyter_fallback():
     """Test stderr printing falls back to regular print if IPython display fails."""
     stderr_capture = io.StringIO()
-    
+
     # Mock IPython import to raise exception on display
     mock_html_class = MagicMock()
     mock_display_func = MagicMock(side_effect=Exception("Display failed"))
-    
+
     # Create a mock module structure that matches "from IPython.display import HTML, display"
     mock_display_module = MagicMock()
     mock_display_module.HTML = mock_html_class
     mock_display_module.display = mock_display_func
-    
+
     # Create mock IPython module with display submodule
     mock_ipython_module = MagicMock()
     mock_ipython_module.display = mock_display_module
-    
+
     original_import = __import__
-    
+
     def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "IPython.display":
             return mock_display_module
@@ -829,8 +832,9 @@ def test_print_stderr_jupyter_fallback():
         # For other imports, use real import
         return original_import(name, globals, locals, fromlist, level)
 
-    with patch("mcp.client.stdio._is_jupyter_notebook", return_value=True), patch(
-        "builtins.__import__", side_effect=mock_import
+    with (
+        patch("mcp.client.stdio._is_jupyter_notebook", return_value=True),
+        patch("builtins.__import__", side_effect=mock_import),
     ):
         _print_stderr("test error message", stderr_capture)
 
