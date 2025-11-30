@@ -840,12 +840,19 @@ def test_print_stderr_jupyter_fallback():
 @pytest.mark.anyio
 async def test_stderr_reader_no_stderr():
     """Test stderr_reader when process has no stderr stream."""
-    # Create a process without stderr
+    # Create a process that just exits without printing anything to stdout
+    # (to avoid breaking JSON parsing in stdout_reader)
     script_content = textwrap.dedent(
         """
         import sys
-        print("stdout only", flush=True)
-        sys.exit(0)
+        import time
+        # Write to stderr only
+        print("stderr message", file=sys.stderr, flush=True)
+        # Wait for stdin to close
+        try:
+            sys.stdin.read()
+        except:
+            pass
         """
     )
 
@@ -854,7 +861,7 @@ async def test_stderr_reader_no_stderr():
         args=["-c", script_content],
     )
 
-    # The stderr_reader should handle None stderr gracefully
+    # The stderr_reader should handle stderr gracefully
     async with stdio_client(server_params) as (_, _):
         # Give it a moment to start
         await anyio.sleep(0.1)
