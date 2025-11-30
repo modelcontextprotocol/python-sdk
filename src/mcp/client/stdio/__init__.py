@@ -144,6 +144,104 @@ class StdioServerParameters(BaseModel):
     """
 
 
+async def _stdout_reader(
+    process: Process | FallbackProcess,
+    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception],
+    encoding: str,
+    encoding_error_handler: str,
+):
+    """Read stdout from the process and parse JSONRPC messages."""
+    assert process.stdout, "Opened process is missing stdout"
+
+    try:
+        async with read_stream_writer:
+            buffer = ""
+            async for chunk in TextReceiveStream(
+                process.stdout,
+                encoding=encoding,
+                errors=encoding_error_handler,
+            ):
+                lines = (buffer + chunk).split("\n")
+                buffer = lines.pop()
+
+                for line in lines:
+                    try:
+                        message = types.JSONRPCMessage.model_validate_json(line)
+                    except Exception as exc:  # pragma: no cover
+                        logger.exception("Failed to parse JSONRPC message from server")
+                        await read_stream_writer.send(exc)
+                        continue
+
+                    session_message = SessionMessage(message)
+                    await read_stream_writer.send(session_message)
+    except anyio.ClosedResourceError:  # pragma: no cover
+        await anyio.lowlevel.checkpoint()
+
+
+async def _stdin_writer(
+    process: Process | FallbackProcess,
+    write_stream_reader: MemoryObjectReceiveStream[SessionMessage],
+    encoding: str,
+    encoding_error_handler: str,
+):
+    """Write session messages to the process stdin."""
+    assert process.stdin, "Opened process is missing stdin"
+
+    try:
+        async with write_stream_reader:
+            async for session_message in write_stream_reader:
+                json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                await process.stdin.send(
+                    (json + "\n").encode(
+                        encoding=encoding,
+                        errors=encoding_error_handler,
+                    )
+                )
+    except anyio.ClosedResourceError:  # pragma: no cover
+        await anyio.lowlevel.checkpoint()
+
+
+async def _stderr_reader(
+    process: Process | FallbackProcess,
+    errlog: TextIO,
+    encoding: str,
+    encoding_error_handler: str,
+):
+    """Read stderr from the process and display it appropriately."""
+    if not process.stderr:
+        return
+
+    try:
+        buffer = ""
+        async for chunk in TextReceiveStream(
+            process.stderr,
+            encoding=encoding,
+            errors=encoding_error_handler,
+        ):
+            lines = (buffer + chunk).split("\n")
+            buffer = lines.pop()
+
+            for line in lines:
+                if line.strip():  # Only print non-empty lines
+                    try:
+                        _print_stderr(line, errlog)
+                    except Exception:
+                        # Log errors but continue (non-critical)
+                        logger.debug("Failed to print stderr line", exc_info=True)
+
+        # Print any remaining buffer content
+        if buffer.strip():
+            try:
+                _print_stderr(buffer, errlog)
+            except Exception:
+                logger.debug("Failed to print final stderr buffer", exc_info=True)
+    except anyio.ClosedResourceError:  # pragma: no cover
+        await anyio.lowlevel.checkpoint()
+    except Exception:
+        # Log errors but continue (non-critical)
+        logger.debug("Error reading stderr", exc_info=True)
+
+
 @asynccontextmanager
 async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """
@@ -190,92 +288,14 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         await write_stream_reader.aclose()
         raise
 
-    async def stdout_reader():
-        assert process.stdout, "Opened process is missing stdout"
-
-        try:
-            async with read_stream_writer:
-                buffer = ""
-                async for chunk in TextReceiveStream(
-                    process.stdout,
-                    encoding=server.encoding,
-                    errors=server.encoding_error_handler,
-                ):
-                    lines = (buffer + chunk).split("\n")
-                    buffer = lines.pop()
-
-                    for line in lines:
-                        try:
-                            message = types.JSONRPCMessage.model_validate_json(line)
-                        except Exception as exc:  # pragma: no cover
-                            logger.exception("Failed to parse JSONRPC message from server")
-                            await read_stream_writer.send(exc)
-                            continue
-
-                        session_message = SessionMessage(message)
-                        await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: no cover
-            await anyio.lowlevel.checkpoint()
-
-    async def stdin_writer():
-        assert process.stdin, "Opened process is missing stdin"
-
-        try:
-            async with write_stream_reader:
-                async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
-                    await process.stdin.send(
-                        (json + "\n").encode(
-                            encoding=server.encoding,
-                            errors=server.encoding_error_handler,
-                        )
-                    )
-        except anyio.ClosedResourceError:  # pragma: no cover
-            await anyio.lowlevel.checkpoint()
-
-    async def stderr_reader():
-        """Read stderr from the process and display it appropriately."""
-        if not process.stderr:
-            return
-
-        try:
-            buffer = ""
-            async for chunk in TextReceiveStream(
-                process.stderr,
-                encoding=server.encoding,
-                errors=server.encoding_error_handler,
-            ):
-                lines = (buffer + chunk).split("\n")
-                buffer = lines.pop()
-
-                for line in lines:
-                    if line.strip():  # Only print non-empty lines
-                        try:
-                            _print_stderr(line, errlog)
-                        except Exception:
-                            # Log errors but continue (non-critical)
-                            logger.debug("Failed to print stderr line", exc_info=True)
-
-            # Print any remaining buffer content
-            if buffer.strip():
-                try:
-                    _print_stderr(buffer, errlog)
-                except Exception:
-                    logger.debug("Failed to print final stderr buffer", exc_info=True)
-        except anyio.ClosedResourceError:  # pragma: no cover
-            await anyio.lowlevel.checkpoint()
-        except Exception:
-            # Log errors but continue (non-critical)
-            logger.debug("Error reading stderr", exc_info=True)
-
     async with (
         anyio.create_task_group() as tg,
         process,
     ):
-        tg.start_soon(stdout_reader)
-        tg.start_soon(stdin_writer)
+        tg.start_soon(_stdout_reader, process, read_stream_writer, server.encoding, server.encoding_error_handler)
+        tg.start_soon(_stdin_writer, process, write_stream_reader, server.encoding, server.encoding_error_handler)
         if process.stderr:
-            tg.start_soon(stderr_reader)
+            tg.start_soon(_stderr_reader, process, errlog, server.encoding, server.encoding_error_handler)
         try:
             yield read_stream, write_stream
         finally:
