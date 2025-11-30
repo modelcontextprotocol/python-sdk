@@ -1,16 +1,24 @@
 import errno
+import io
 import os
 import shutil
 import sys
 import tempfile
 import textwrap
 import time
+from unittest.mock import MagicMock, patch
 
 import anyio
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, _create_platform_compatible_process, stdio_client
+from mcp.client.stdio import (
+    StdioServerParameters,
+    _create_platform_compatible_process,
+    _is_jupyter_notebook,
+    _print_stderr,
+    stdio_client,
+)
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
@@ -630,3 +638,112 @@ async def test_stdio_client_stdin_close_ignored():
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
         f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
     )
+
+
+@pytest.mark.anyio
+async def test_stderr_capture():
+    """Test that stderr output from the server process is captured and displayed."""
+    # Create a Python script that writes to stderr
+    script_content = textwrap.dedent(
+        """
+        import sys
+        import time
+
+        # Write to stderr
+        print("starting echo server", file=sys.stderr, flush=True)
+        time.sleep(0.1)
+        print("another stderr line", file=sys.stderr, flush=True)
+
+        # Keep running to read stdin
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+        except:
+            pass
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    # Capture stderr output
+    stderr_capture = io.StringIO()
+
+    async with stdio_client(server_params, errlog=stderr_capture) as (_, _):
+        # Give the process time to write to stderr
+        await anyio.sleep(0.3)
+
+    # Check that stderr was captured
+    stderr_output = stderr_capture.getvalue()
+    assert "starting echo server" in stderr_output or "another stderr line" in stderr_output
+
+
+@pytest.mark.anyio
+async def test_stderr_piped_in_process():
+    """Test that stderr is piped (not redirected) when creating processes."""
+    # Create a script that writes to stderr
+    script_content = textwrap.dedent(
+        """
+        import sys
+        print("stderr output", file=sys.stderr, flush=True)
+        sys.exit(0)
+        """
+    )
+
+    process = await _create_platform_compatible_process(
+        sys.executable,
+        ["-c", script_content],
+    )
+
+    # Verify stderr is piped (process.stderr should exist)
+    assert process.stderr is not None, "stderr should be piped, not redirected"
+
+    # Clean up
+    await process.wait()
+
+
+def test_is_jupyter_notebook_detection():
+    """Test Jupyter notebook detection."""
+    # When not in Jupyter, should return False
+    # (This test verifies the function doesn't crash when IPython is not available)
+    result = _is_jupyter_notebook()
+    # In test environment, IPython is likely not available, so should be False
+    assert isinstance(result, bool)
+
+
+def test_print_stderr_non_jupyter():
+    """Test stderr printing when not in Jupyter."""
+    stderr_capture = io.StringIO()
+    _print_stderr("test error message", stderr_capture)
+
+    assert "test error message" in stderr_capture.getvalue()
+
+
+def test_print_stderr_jupyter():
+    """Test stderr printing when in Jupyter using IPython display."""
+    # Mock the Jupyter detection and IPython display
+    with patch("mcp.client.stdio._is_jupyter_notebook", return_value=True), patch(
+        "IPython.display.display"
+    ) as mock_display, patch("IPython.display.HTML") as mock_html:
+        _print_stderr("test error message", sys.stderr)
+
+        # Verify IPython display was called
+        mock_html.assert_called_once()
+        mock_display.assert_called_once()
+
+
+def test_print_stderr_jupyter_fallback():
+    """Test stderr printing falls back to regular print if IPython display fails."""
+    stderr_capture = io.StringIO()
+
+    with patch("mcp.client.stdio._is_jupyter_notebook", return_value=True), patch(
+        "IPython.display.display", side_effect=Exception("Display failed")
+    ):
+        _print_stderr("test error message", stderr_capture)
+
+        # Should fall back to regular print
+        assert "test error message" in stderr_capture.getvalue()
