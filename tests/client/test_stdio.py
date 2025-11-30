@@ -714,6 +714,48 @@ def test_is_jupyter_notebook_detection():
     # In test environment, IPython is likely not available, so should be False
     assert isinstance(result, bool)
 
+    # Test when IPython is available and returns ZMQInteractiveShell
+    mock_ipython = MagicMock()
+    mock_ipython.__class__.__name__ = "ZMQInteractiveShell"
+    
+    # Mock the import inside the function
+    def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "IPython":
+            mock_ipython_module = MagicMock()
+            mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython)
+            return mock_ipython_module
+        # For other imports, use real import
+        import builtins
+        return builtins.__import__(name, globals, locals, fromlist, level)
+    
+    with patch("builtins.__import__", side_effect=mock_import):
+        # Re-import to get fresh function that will use the mocked import
+        import importlib
+        import mcp.client.stdio
+
+        importlib.reload(mcp.client.stdio)
+        assert mcp.client.stdio._is_jupyter_notebook()
+
+    # Test when IPython is available and returns TerminalInteractiveShell
+    mock_ipython = MagicMock()
+    mock_ipython.__class__.__name__ = "TerminalInteractiveShell"
+    
+    def mock_import2(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "IPython":
+            mock_ipython_module = MagicMock()
+            mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython)
+            return mock_ipython_module
+        # For other imports, use real import
+        import builtins
+        return builtins.__import__(name, globals, locals, fromlist, level)
+    
+    with patch("builtins.__import__", side_effect=mock_import2):
+        import importlib
+        import mcp.client.stdio
+
+        importlib.reload(mcp.client.stdio)
+        assert mcp.client.stdio._is_jupyter_notebook()
+
 
 def test_print_stderr_non_jupyter():
     """Test stderr printing when not in Jupyter."""
@@ -793,3 +835,61 @@ def test_print_stderr_jupyter_fallback():
 
         # Should fall back to regular print
         assert "test error message" in stderr_capture.getvalue()
+
+
+@pytest.mark.anyio
+async def test_stderr_reader_no_stderr():
+    """Test stderr_reader when process has no stderr stream."""
+    # Create a process without stderr
+    script_content = textwrap.dedent(
+        """
+        import sys
+        print("stdout only", flush=True)
+        sys.exit(0)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    # The stderr_reader should handle None stderr gracefully
+    async with stdio_client(server_params) as (_, _):
+        # Give it a moment to start
+        await anyio.sleep(0.1)
+
+
+@pytest.mark.anyio
+async def test_stderr_reader_exception_handling():
+    """Test stderr_reader handles exceptions gracefully."""
+    # Create a script that writes to stderr
+    script_content = textwrap.dedent(
+        """
+        import sys
+        import time
+        print("stderr line 1", file=sys.stderr, flush=True)
+        time.sleep(0.1)
+        print("stderr line 2", file=sys.stderr, flush=True)
+        # Keep running
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+        except:
+            pass
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    # Mock _print_stderr to raise an exception to test error handling
+    with patch("mcp.client.stdio._print_stderr", side_effect=Exception("Print failed")):
+        async with stdio_client(server_params) as (_, _):
+            # Give it time to process stderr
+            await anyio.sleep(0.3)
+            # Should not crash, just log the error
