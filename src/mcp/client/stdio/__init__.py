@@ -60,7 +60,7 @@ def _is_jupyter_notebook() -> bool:
         from IPython import get_ipython  # type: ignore[import-not-found]
 
         ipython = get_ipython()  # type: ignore[no-untyped-call]
-        return ipython is not None and ipython.__class__.__name__ in ("ZMQInteractiveShell", "TerminalInteractiveShell")
+        return ipython is not None and ipython.__class__.__name__ in ("ZMQInteractiveShell", "TerminalInteractiveShell")  # type: ignore[union-attr]
     except ImportError:
         return False
 
