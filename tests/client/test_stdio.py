@@ -905,3 +905,74 @@ async def test_stderr_reader_exception_handling():
             # Give it time to process stderr
             await anyio.sleep(0.3)
             # Should not crash, just log the error
+
+
+@pytest.mark.anyio
+async def test_stderr_reader_final_buffer_exception():
+    """Test stderr reader handles exception in final buffer flush."""
+    # Write stderr without trailing newline to trigger final buffer path
+    script_content = textwrap.dedent(
+        """
+        import sys
+        sys.stderr.write("no newline")
+        sys.stderr.flush()
+        # Keep running briefly
+        import time
+        time.sleep(0.1)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    # Mock _print_stderr to raise an exception only on final buffer call
+    call_count = 0
+
+    def mock_print_stderr_side_effect(line, errlog):
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:  # Raise on subsequent calls (final buffer)
+            raise Exception("Print failed on final buffer")
+
+    with patch("mcp.client.stdio._print_stderr", side_effect=mock_print_stderr_side_effect):
+        async with stdio_client(server_params) as (_, _):
+            await anyio.sleep(0.3)
+            # Should not crash, just log the error
+
+
+@pytest.mark.anyio
+async def test_stderr_with_empty_lines():
+    """Test that empty stderr lines are skipped."""
+    script_content = textwrap.dedent(
+        """
+        import sys
+        print("line1", file=sys.stderr, flush=True)
+        print("", file=sys.stderr, flush=True)  # Empty line
+        print("  ", file=sys.stderr, flush=True)  # Whitespace only
+        print("line2", file=sys.stderr, flush=True)
+        # Keep running
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+        except:
+            pass
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    stderr_capture = io.StringIO()
+    async with stdio_client(server_params, errlog=stderr_capture) as (_, _):
+        await anyio.sleep(0.3)
+
+    stderr_output = stderr_capture.getvalue()
+    # Should have line1 and line2, but not empty lines
+    assert "line1" in stderr_output
+    assert "line2" in stderr_output
