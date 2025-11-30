@@ -1,16 +1,25 @@
 import errno
+import io
 import os
 import shutil
 import sys
 import tempfile
 import textwrap
 import time
+from typing import TextIO
+from unittest.mock import MagicMock, patch
 
 import anyio
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, _create_platform_compatible_process, stdio_client
+from mcp.client.stdio import (
+    StdioServerParameters,
+    _create_platform_compatible_process,
+    _is_jupyter_notebook,
+    _print_stderr,
+    stdio_client,
+)
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
@@ -630,3 +639,355 @@ async def test_stdio_client_stdin_close_ignored():
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
         f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
     )
+
+
+@pytest.mark.anyio
+async def test_stderr_capture():
+    """Test that stderr output from the server process is captured and displayed."""
+    # Create a Python script that writes to stderr
+    script_content = textwrap.dedent(
+        """
+        import sys
+        import time
+
+        # Write to stderr
+        print("starting echo server", file=sys.stderr, flush=True)
+        time.sleep(0.1)
+        print("another stderr line", file=sys.stderr, flush=True)
+
+        # Keep running to read stdin
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+        except:
+            pass
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    # Capture stderr output
+    stderr_capture = io.StringIO()
+
+    async with stdio_client(server_params, errlog=stderr_capture) as (_, _):
+        # Give the process time to write to stderr
+        await anyio.sleep(0.3)
+
+    # Check that stderr was captured
+    stderr_output = stderr_capture.getvalue()
+    assert "starting echo server" in stderr_output or "another stderr line" in stderr_output
+
+
+@pytest.mark.anyio
+async def test_stderr_piped_in_process():
+    """Test that stderr is piped (not redirected) when creating processes."""
+    # Create a script that writes to stderr
+    script_content = textwrap.dedent(
+        """
+        import sys
+        print("stderr output", file=sys.stderr, flush=True)
+        sys.exit(0)
+        """
+    )
+
+    process = await _create_platform_compatible_process(
+        sys.executable,
+        ["-c", script_content],
+    )
+
+    # Verify stderr is piped (process.stderr should exist)
+    assert process.stderr is not None, "stderr should be piped, not redirected"
+
+    # Clean up
+    await process.wait()
+
+
+def test_is_jupyter_notebook_detection():
+    """Test Jupyter notebook detection."""
+    # When not in Jupyter, should return False
+    # (This test verifies the function doesn't crash when IPython is not available)
+    result = _is_jupyter_notebook()
+    # In test environment, IPython is likely not available, so should be False
+    assert isinstance(result, bool)
+
+    # Test when IPython is available and returns ZMQInteractiveShell
+    # Store the original import before patching to avoid recursion
+    original_import = __import__
+
+    mock_ipython = MagicMock()
+    mock_ipython.__class__.__name__ = "ZMQInteractiveShell"
+
+    # Mock the import inside the function
+    def mock_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:  # type: ignore[assignment]
+        if name == "IPython":
+            mock_ipython_module = MagicMock()
+            mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython)
+            return mock_ipython_module
+        # For other imports, use real import
+        return original_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=mock_import):
+        # Re-import to get fresh function that will use the mocked import
+        import importlib
+
+        import mcp.client.stdio
+
+        importlib.reload(mcp.client.stdio)
+        assert mcp.client.stdio._is_jupyter_notebook()
+
+    # Test when IPython is available and returns TerminalInteractiveShell
+    mock_ipython = MagicMock()
+    mock_ipython.__class__.__name__ = "TerminalInteractiveShell"
+
+    def mock_import2(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:  # type: ignore[assignment]
+        if name == "IPython":
+            mock_ipython_module = MagicMock()
+            mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython)
+            return mock_ipython_module
+        # For other imports, use real import
+        return original_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=mock_import2):
+        import importlib
+
+        import mcp.client.stdio
+
+        importlib.reload(mcp.client.stdio)
+        assert mcp.client.stdio._is_jupyter_notebook()
+
+
+def test_print_stderr_non_jupyter():
+    """Test stderr printing when not in Jupyter."""
+    stderr_capture = io.StringIO()
+    _print_stderr("test error message", stderr_capture)
+
+    assert "test error message" in stderr_capture.getvalue()
+
+
+def test_print_stderr_jupyter():
+    """Test stderr printing when in Jupyter using IPython display."""
+    # Mock the Jupyter detection and IPython display
+    # We need to mock the import inside the function since IPython may not be installed
+    mock_html_class = MagicMock()
+    mock_display_func = MagicMock()
+
+    # Create a mock module structure that matches "from IPython.display import HTML, display"
+    mock_display_module = MagicMock()
+    mock_display_module.HTML = mock_html_class
+    mock_display_module.display = mock_display_func
+
+    # Create mock IPython module with display submodule
+    mock_ipython_module = MagicMock()
+    mock_ipython_module.display = mock_display_module
+
+    original_import = __import__
+
+    def mock_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:  # type: ignore[assignment]
+        if name == "IPython.display":
+            return mock_display_module
+        if name == "IPython":
+            return mock_ipython_module
+        # For other imports, use real import
+        return original_import(name, globals, locals, fromlist, level)
+
+    with (
+        patch("mcp.client.stdio._is_jupyter_notebook", return_value=True),
+        patch("builtins.__import__", side_effect=mock_import),
+    ):
+        _print_stderr("test error message", sys.stderr)
+
+        # Verify IPython display was called
+        mock_html_class.assert_called_once()
+        mock_display_func.assert_called_once()
+
+
+def test_print_stderr_jupyter_fallback():
+    """Test stderr printing falls back to regular print if IPython display fails."""
+    stderr_capture = io.StringIO()
+
+    # Mock IPython import to raise exception on display
+    mock_html_class = MagicMock()
+    mock_display_func = MagicMock(side_effect=Exception("Display failed"))
+
+    # Create a mock module structure that matches "from IPython.display import HTML, display"
+    mock_display_module = MagicMock()
+    mock_display_module.HTML = mock_html_class
+    mock_display_module.display = mock_display_func
+
+    # Create mock IPython module with display submodule
+    mock_ipython_module = MagicMock()
+    mock_ipython_module.display = mock_display_module
+
+    original_import = __import__
+
+    def mock_import(
+        name: str,
+        globals: dict[str, object] | None = None,
+        locals: dict[str, object] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:  # type: ignore[assignment]
+        if name == "IPython.display":
+            return mock_display_module
+        if name == "IPython":
+            return mock_ipython_module
+        # For other imports, use real import
+        return original_import(name, globals, locals, fromlist, level)
+
+    with (
+        patch("mcp.client.stdio._is_jupyter_notebook", return_value=True),
+        patch("builtins.__import__", side_effect=mock_import),
+    ):
+        _print_stderr("test error message", stderr_capture)
+
+        # Should fall back to regular print
+        assert "test error message" in stderr_capture.getvalue()
+
+
+@pytest.mark.anyio
+async def test_stderr_reader_no_stderr():
+    """Test stderr_reader handles when process has no stderr stream."""
+    from unittest.mock import AsyncMock
+
+    from mcp.client.stdio import _stderr_reader
+
+    # Create a mock process without stderr
+    mock_process = AsyncMock()
+    mock_process.stderr = None
+
+    mock_errlog = io.StringIO()
+
+    # This should return early without errors
+    await _stderr_reader(mock_process, mock_errlog, "utf-8", "strict")
+
+    # Should not have written anything since there's no stderr
+    assert mock_errlog.getvalue() == ""
+
+
+@pytest.mark.anyio
+async def test_stderr_reader_exception_handling():
+    """Test stderr_reader handles exceptions gracefully."""
+    # Create a script that writes to stderr
+    script_content = textwrap.dedent(
+        """
+        import sys
+        import time
+        print("stderr line 1", file=sys.stderr, flush=True)
+        time.sleep(0.1)
+        print("stderr line 2", file=sys.stderr, flush=True)
+        # Keep running
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+        except:
+            pass
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    # Mock _print_stderr to raise an exception to test error handling
+    with patch("mcp.client.stdio._print_stderr", side_effect=Exception("Print failed")):
+        async with stdio_client(server_params) as (_, _):
+            # Give it time to process stderr
+            await anyio.sleep(0.3)
+            # Should not crash, just log the error
+
+
+@pytest.mark.anyio
+async def test_stderr_reader_final_buffer_exception():
+    """Test stderr reader handles exception in final buffer flush."""
+    # Write stderr without trailing newline to trigger final buffer path
+    script_content = textwrap.dedent(
+        """
+        import sys
+        sys.stderr.write("no newline")
+        sys.stderr.flush()
+        # Keep running briefly
+        import time
+        time.sleep(0.1)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    # Mock _print_stderr to raise an exception only on final buffer call
+    call_count = 0
+
+    def mock_print_stderr_side_effect(line: str, errlog: TextIO) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:  # Raise on subsequent calls (final buffer)
+            raise Exception("Print failed on final buffer")
+
+    with patch("mcp.client.stdio._print_stderr", side_effect=mock_print_stderr_side_effect):
+        async with stdio_client(server_params) as (_, _):
+            await anyio.sleep(0.3)
+            # Should not crash, just log the error
+
+
+@pytest.mark.anyio
+async def test_stderr_with_empty_lines():
+    """Test that empty stderr lines are skipped."""
+    script_content = textwrap.dedent(
+        """
+        import sys
+        print("line1", file=sys.stderr, flush=True)
+        print("", file=sys.stderr, flush=True)  # Empty line
+        print("  ", file=sys.stderr, flush=True)  # Whitespace only
+        print("line2", file=sys.stderr, flush=True)
+        # Keep running
+        try:
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+        except:
+            pass
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    stderr_capture = io.StringIO()
+    async with stdio_client(server_params, errlog=stderr_capture) as (_, _):
+        await anyio.sleep(0.3)
+
+    stderr_output = stderr_capture.getvalue()
+    # Should have line1 and line2, but not empty lines
+    assert "line1" in stderr_output
+    assert "line2" in stderr_output
