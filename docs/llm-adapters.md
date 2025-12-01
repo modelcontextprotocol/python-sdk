@@ -179,7 +179,7 @@ def convert_to_gemini_schema(property_schema: dict[str, Any]) -> dict[str, Any]:
     return result
 ```
 
-### Usage Example
+### Gemini Usage Example
 
 ```python
 import asyncio
