@@ -61,6 +61,7 @@ npx -y @modelcontextprotocol/inspector
 2. **[Learn concepts](concepts.md)** - understand the three primitives and architecture
 3. **[Explore authorization](authorization.md)** - add security to your servers
 4. **[Use low-level APIs](low-level-server.md)** - for advanced customization
+5. **[Create LLM adapters](llm-adapters.md)** - convert MCP tools to LLM provider formats
 
 ## API Reference
 

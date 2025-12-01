@@ -2487,6 +2487,40 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+### Converting MCP Tools for LLM Providers
+
+When integrating MCP tools with LLM providers (like Gemini, GPT-4, or Claude), you need to convert MCP tool schemas to the provider's format. The SDK makes this easy with comprehensive documentation and examples.
+
+See the [LLM Provider Adapters guide](https://modelcontextprotocol.github.io/python-sdk/llm-adapters/) for:
+
+- Complete adapter implementations for Gemini, OpenAI, and Anthropic Claude
+- Best practices for schema conversion
+- Error handling patterns
+- Advanced conversion techniques
+
+<!-- snippet-source examples/snippets/clients/llm_adapter_example.py -->
+```python
+"""Example: Convert MCP tools to various LLM provider formats."""
+
+from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.stdio import stdio_client
+
+# After connecting to an MCP server and listing tools:
+tools_response = await session.list_tools()
+
+# Convert to Gemini format
+gemini_tools = [to_gemini_function_declaration(tool) for tool in tools_response.tools]
+
+# Convert to OpenAI format
+openai_tools = [to_openai_function(tool) for tool in tools_response.tools]
+
+# Convert to Claude format
+claude_tools = [to_claude_tool(tool) for tool in tools_response.tools]
+```
+
+_Full example: [examples/snippets/clients/llm_adapter_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/llm_adapter_example.py)_
+<!-- /snippet-source -->
+
 ### MCP Primitives
 
 The MCP protocol defines three core primitives that servers can implement:
@@ -2512,6 +2546,7 @@ MCP servers declare capabilities during initialization:
 ## Documentation
 
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
+- [LLM Provider Adapters](https://modelcontextprotocol.github.io/python-sdk/llm-adapters/) - Convert MCP tools to LLM provider formats
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)
