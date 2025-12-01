@@ -61,7 +61,7 @@ def to_provider_tool(mcp_tool: Tool) -> ProviderToolType:
 
 The Google Gemini API uses `FunctionDeclaration` objects with a specific schema format.
 
-### Basic Implementation
+### Gemini Basic Implementation
 
 ```python
 """Adapter for converting MCP tools to Google Gemini format."""
@@ -218,7 +218,7 @@ async def convert_tools_for_gemini():
 
 OpenAI's Chat Completions API uses function definitions with a similar but distinct format.
 
-### Basic Implementation
+### OpenAI Basic Implementation
 
 ```python
 """Adapter for converting MCP tools to OpenAI format."""
@@ -337,7 +337,7 @@ def convert_to_openai_schema(property_schema: dict[str, Any]) -> dict[str, Any]:
     return result
 ```
 
-### Usage Example
+### OpenAI Usage Example
 
 ```python
 async def convert_tools_for_openai():
@@ -374,7 +374,7 @@ async def convert_tools_for_openai():
 
 Anthropic's Claude API uses a structured format for tools that's similar to MCP but with some differences.
 
-### Basic Implementation
+### Claude Basic Implementation
 
 ```python
 """Adapter for converting MCP tools to Anthropic Claude format."""
@@ -490,7 +490,7 @@ def convert_to_claude_schema(property_schema: dict[str, Any]) -> dict[str, Any]:
     return result
 ```
 
-### Usage Example
+### Claude Usage Example
 
 ```python
 async def convert_tools_for_claude():
