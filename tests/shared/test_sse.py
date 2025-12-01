@@ -192,9 +192,7 @@ async def test_sse_client_on_session_created(server: None, server_url: str) -> N
         nonlocal captured_session_id
         captured_session_id = session_id
 
-    async with sse_client(
-        server_url + "/sse", on_session_created=on_session_created
-    ) as streams:
+    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)

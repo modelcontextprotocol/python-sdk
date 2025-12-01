@@ -93,9 +93,7 @@ async def sse_client(
                                             raise ValueError(error_msg)  # pragma: no cover
 
                                         if on_session_created:
-                                            session_id = parse_qs(endpoint_parsed.query).get(
-                                                "sessionId", [None]
-                                            )[0]
+                                            session_id = parse_qs(endpoint_parsed.query).get("sessionId", [None])[0]
                                             if session_id:
                                                 on_session_created(session_id)
 
