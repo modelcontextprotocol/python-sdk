@@ -2547,6 +2547,7 @@ MCP servers declare capabilities during initialization:
 
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
 - [LLM Provider Adapters](https://modelcontextprotocol.github.io/python-sdk/llm-adapters/) - Convert MCP tools to LLM provider formats
+- [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)
