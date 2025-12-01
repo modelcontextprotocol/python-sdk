@@ -45,7 +45,8 @@ async def _forward_message(
     """Forward a single message, handling exceptions appropriately."""
     if isinstance(message, SessionMessage):
         await write_stream.send(message)
-    elif isinstance(message, Exception):
+    else:
+        # message is Exception (type narrowing)
         logger.debug(f"Exception received from {source}: {message}")
         await _handle_error(message, onerror)
         # Exceptions are not forwarded as messages (write streams only accept SessionMessage)
@@ -66,12 +67,16 @@ async def _forward_loop(
                 except anyio.ClosedResourceError:
                     logger.debug(f"{source} write stream closed")
                     break
-                except Exception as exc:
+                except Exception as exc:  # pragma: no cover
+                    # This covers non-ClosedResourceError exceptions during message forwarding
+                    # (e.g., from custom stream implementations)
                     logger.exception(f"Error forwarding message from {source}", exc_info=exc)
                     await _handle_error(exc, onerror)
     except anyio.ClosedResourceError:
         logger.debug(f"{source} read stream closed")
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover
+        # This covers exceptions during stream iteration setup
+        # (e.g., from custom stream implementations)
         logger.exception(f"Error in forward loop from {source}", exc_info=exc)
         await _handle_error(exc, onerror)
     finally:

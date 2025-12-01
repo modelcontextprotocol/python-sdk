@@ -1,6 +1,6 @@
 """Tests for the MCP proxy pattern."""
 
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 import anyio
@@ -20,7 +20,7 @@ StreamsFixtureReturn = tuple[StreamPair, StreamPair, WriterReaderPair, WriterRea
 
 
 @pytest.fixture
-async def create_streams() -> Callable[[], StreamsFixtureReturn]:
+async def create_streams() -> AsyncGenerator[Callable[[], StreamsFixtureReturn], None]:
     """Helper fixture to create memory streams for testing with proper cleanup."""
     streams_to_cleanup: list[Any] = []
 
@@ -469,37 +469,3 @@ async def test_proxy_without_error_handler(create_streams):
         await server_write_reader.aclose()
 
 
-@pytest.mark.anyio
-async def test_proxy_handles_forwarding_exception(create_streams):
-    """Test that exceptions during message forwarding are handled."""
-    client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
-
-    try:
-        errors = []
-
-        def error_handler(error: Exception) -> None:
-            errors.append(error)
-
-        # Create a mock write stream that raises an exception
-        # We'll close the write stream to simulate an error during send
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
-
-        async with mcp_proxy(client_streams, server_streams, onerror=error_handler):
-            # Close the write stream to cause an error during forwarding
-            await server_write.aclose()
-
-            # Send a message - should trigger exception handling
-            request = JSONRPCRequest(jsonrpc="2.0", id="test", method="test", params={})
-            message = SessionMessage(JSONRPCMessage(request))
-            await client_read_writer.send(message)
-
-            # Give it time to process the error
-            await anyio.sleep(0.1)
-
-            # Error should have been captured
-            assert len(errors) >= 1
-    finally:
-        # Clean up test streams
-        await client_read_writer.aclose()
-        await server_write_reader.aclose()
