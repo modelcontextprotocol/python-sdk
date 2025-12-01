@@ -22,6 +22,11 @@ def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
 
 
+def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
+    query_params = parse_qs(urlparse(endpoint_url).query)
+    return query_params.get("sessionId", [None])[0] or query_params.get("session_id", [None])[0]
+
+
 @asynccontextmanager
 async def sse_client(
     url: str,
@@ -93,11 +98,7 @@ async def sse_client(
                                             raise ValueError(error_msg)  # pragma: no cover
 
                                         if on_session_created:
-                                            query_params = parse_qs(endpoint_parsed.query)
-                                            session_id = (
-                                                query_params.get("sessionId", [None])[0]
-                                                or query_params.get("session_id", [None])[0]
-                                            )
+                                            session_id = _extract_session_id_from_endpoint(endpoint_url)
                                             if session_id:
                                                 on_session_created(session_id)
 

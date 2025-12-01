@@ -18,7 +18,7 @@ from starlette.routing import Mount, Route
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
@@ -199,6 +199,43 @@ async def test_sse_client_on_session_created(server: None, server_url: str) -> N
 
     assert captured_session_id is not None
     assert len(captured_session_id) > 0
+
+
+@pytest.mark.parametrize(
+    "endpoint_url,expected",
+    [
+        ("/messages?sessionId=abc123", "abc123"),
+        ("/messages?session_id=def456", "def456"),
+        ("/messages?sessionId=abc&session_id=def", "abc"),
+        ("/messages?other=value", None),
+        ("/messages", None),
+        ("", None),
+    ],
+)
+def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
+    assert _extract_session_id_from_endpoint(endpoint_url) == expected
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created_not_called_when_no_session_id(
+    server: None, server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mcp.client import sse
+
+    callback_called = False
+
+    def on_session_created(session_id: str) -> None:
+        nonlocal callback_called
+        callback_called = True
+
+    monkeypatch.setattr(sse, "_extract_session_id_from_endpoint", lambda url: None)
+
+    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    assert callback_called is False
 
 
 @pytest.fixture
