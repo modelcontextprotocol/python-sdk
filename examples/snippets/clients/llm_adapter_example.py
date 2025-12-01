@@ -15,6 +15,7 @@ Run from the repository root:
 
 import asyncio
 import os
+from collections.abc import Callable
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters, types
@@ -381,8 +382,7 @@ def validate_tool(mcp_tool: types.Tool) -> None:
         raise SchemaConversionError("Tool inputSchema is required")
 
     schema = mcp_tool.inputSchema
-    if not isinstance(schema, dict):
-        raise SchemaConversionError("inputSchema must be a dictionary")
+    # inputSchema is already typed as dict[str, Any] in types.Tool, so no need to check
 
     if schema.get("type") != "object":
         raise SchemaConversionError("inputSchema type must be 'object'")
@@ -390,7 +390,7 @@ def validate_tool(mcp_tool: types.Tool) -> None:
 
 def convert_tools_batch(
     mcp_tools: list[types.Tool],
-    converter_func: callable[[types.Tool], dict[str, Any]],
+    converter_func: Callable[[types.Tool], dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
     """Convert multiple MCP tools to provider format.
 
@@ -401,13 +401,13 @@ def convert_tools_batch(
     Returns:
         Tuple of (converted tools, list of (tool_name, error_message) tuples).
     """
-    converted = []
-    errors = []
+    converted: list[dict[str, Any]] = []
+    errors: list[tuple[str, str]] = []
 
     for tool in mcp_tools:
         try:
             validate_tool(tool)
-            converted_tool = converter_func(tool)
+            converted_tool: dict[str, Any] = converter_func(tool)
             converted.append(converted_tool)
         except Exception as e:
             errors.append((tool.name, str(e)))
