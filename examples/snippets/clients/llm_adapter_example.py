@@ -472,7 +472,7 @@ async def main() -> None:
             # Display example conversions
             if mcp_tools:
                 example_tool = mcp_tools[0]
-                print(f"\n📝 Example conversion for tool '{example_tool.name}':")
+                print(f"\nExample conversion for tool '{example_tool.name}':")
                 print("\n  Original MCP tool schema:")
                 print(f"    Name: {example_tool.name}")
                 print(f"    Description: {example_tool.description or 'N/A'}")
