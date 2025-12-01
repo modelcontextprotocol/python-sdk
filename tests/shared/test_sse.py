@@ -184,6 +184,25 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             assert isinstance(ping_result, EmptyResult)
 
 
+@pytest.mark.anyio
+async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
+    captured_session_id: str | None = None
+
+    def on_session_created(session_id: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = session_id
+
+    async with sse_client(
+        server_url + "/sse", on_session_created=on_session_created
+    ) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    assert captured_session_id is not None
+    assert len(captured_session_id) > 0
+
+
 @pytest.fixture
 async def initialized_sse_client_session(server: None, server_url: str) -> AsyncGenerator[ClientSession, None]:
     async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
