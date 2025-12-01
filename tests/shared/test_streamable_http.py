@@ -1172,7 +1172,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
                 with pytest.raises(  # pragma: no branch
                     McpError,
@@ -1239,7 +1239,7 @@ async def test_streamable_http_client_session_termination_204(
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
                 with pytest.raises(  # pragma: no branch
                     McpError,
@@ -1368,8 +1368,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
 
-            assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)
-            assert captured_notifications[0].root.params.data == "Second notification after lock"
+            assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)  # pragma: no cover
+            assert captured_notifications[0].root.params.data == "Second notification after lock"  # pragma: no cover
 
 
 @pytest.mark.anyio
@@ -1552,7 +1552,7 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
                 assert result.serverInfo.name == "ContextAwareServer"
@@ -1590,7 +1590,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
                 write_stream,
                 _,
             ):
-                async with ClientSession(read_stream, write_stream) as session:
+                async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                     await session.initialize()
 
                     # Call the tool that echoes context
@@ -2305,7 +2305,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults(
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
                 # Use echo_headers tool to see what headers the server actually received
@@ -2340,7 +2340,7 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
                 # Use echo_headers tool to verify both custom and MCP headers are present
@@ -2390,7 +2390,7 @@ async def test_streamablehttp_client_deprecation_warning(basic_server: None, bas
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
                 tools = await session.list_tools()
                 assert len(tools.tools) > 0

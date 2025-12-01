@@ -23,8 +23,6 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from typing_extensions import deprecated
 
 from mcp.shared._httpx_utils import (
-    MCP_DEFAULT_SSE_READ_TIMEOUT,
-    MCP_DEFAULT_TIMEOUT,
     McpHttpClientFactory,
     create_mcp_http_client,
 )
@@ -79,7 +77,6 @@ class RequestContext:
     """Context for a request operation."""
 
     client: httpx.AsyncClient
-    headers: dict[str, str]
     session_id: str | None
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
@@ -645,16 +642,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    # Extract configuration from the client to pass to transport
-    headers_dict = dict(client.headers) if client.headers else None
-    timeout = client.timeout.connect if (client.timeout and client.timeout.connect is not None) else MCP_DEFAULT_TIMEOUT
-    sse_read_timeout = (
-        client.timeout.read if (client.timeout and client.timeout.read is not None) else MCP_DEFAULT_SSE_READ_TIMEOUT
-    )
-    auth = client.auth
-
-    # Create transport with extracted configuration
-    transport = StreamableHTTPTransport(url, headers_dict, timeout, sse_read_timeout, auth)
+    transport = StreamableHTTPTransport(url)
 
     async with anyio.create_task_group() as tg:
         try:
