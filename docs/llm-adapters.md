@@ -697,6 +697,3 @@ See [`examples/snippets/clients/llm_adapter_example.py`](../../examples/snippets
 - Check your LLM provider's documentation for their exact tool format requirements
 - Consider creating reusable adapter libraries for your organization
 - Share your adapters with the community!
-
- 
- 
