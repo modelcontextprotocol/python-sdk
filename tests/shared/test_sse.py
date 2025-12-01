@@ -4,6 +4,7 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from unittest.mock import Mock
 
 import anyio
 import httpx
@@ -16,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+import mcp.client.sse
 import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
@@ -220,22 +222,19 @@ def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | Non
 async def test_sse_client_on_session_created_not_called_when_no_session_id(
     server: None, server_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from mcp.client import sse
+    callback_mock = Mock()
 
-    callback_called = False
+    def mock_extract(url: str) -> None:
+        return None
 
-    def on_session_created(session_id: str) -> None:
-        nonlocal callback_called
-        callback_called = True
+    monkeypatch.setattr(mcp.client.sse, "_extract_session_id_from_endpoint", mock_extract)
 
-    monkeypatch.setattr(sse, "_extract_session_id_from_endpoint", lambda url: None)
-
-    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+    async with sse_client(server_url + "/sse", on_session_created=callback_mock) as streams:
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
 
-    assert callback_called is False
+    callback_mock.assert_not_called()
 
 
 @pytest.fixture
