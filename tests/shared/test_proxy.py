@@ -374,6 +374,7 @@ async def test_proxy_error_in_callback(create_streams):
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
+
         def failing_error_handler(error: Exception) -> None:
             """Error handler that raises an exception."""
             raise RuntimeError("Callback error")
@@ -408,6 +409,7 @@ async def test_proxy_async_error_in_callback(create_streams):
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
+
         async def failing_async_error_handler(error: Exception) -> None:
             """Async error handler that raises an exception."""
             await anyio.sleep(0.01)
@@ -431,6 +433,72 @@ async def test_proxy_async_error_in_callback(create_streams):
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
                 assert received.message.root.id == "after_async_callback_error"
+    finally:
+        # Clean up test streams
+        await client_read_writer.aclose()
+        await server_write_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_proxy_without_error_handler(create_streams):
+    """Test that proxy works without an error handler (covers onerror=None branch)."""
+    client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
+
+    try:
+        # Send an exception without an error handler
+        test_exception = ValueError("Test error without handler")
+
+        async with mcp_proxy(client_streams, server_streams, onerror=None):
+            await client_read_writer.send(test_exception)
+
+            # Give it time to process
+            await anyio.sleep(0.1)
+
+            # Send a valid message - should still work
+            request = JSONRPCRequest(jsonrpc="2.0", id="after_exception_no_handler", method="test", params={})
+            message = SessionMessage(JSONRPCMessage(request))
+            await client_read_writer.send(message)
+
+            # Valid message should still be forwarded
+            with anyio.fail_after(1):
+                received = await server_write_reader.receive()
+                assert received.message.root.id == "after_exception_no_handler"
+    finally:
+        # Clean up test streams
+        await client_read_writer.aclose()
+        await server_write_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_proxy_handles_forwarding_exception(create_streams):
+    """Test that exceptions during message forwarding are handled."""
+    client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
+
+    try:
+        errors = []
+
+        def error_handler(error: Exception) -> None:
+            errors.append(error)
+
+        # Create a mock write stream that raises an exception
+        # We'll close the write stream to simulate an error during send
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with mcp_proxy(client_streams, server_streams, onerror=error_handler):
+            # Close the write stream to cause an error during forwarding
+            await server_write.aclose()
+
+            # Send a message - should trigger exception handling
+            request = JSONRPCRequest(jsonrpc="2.0", id="test", method="test", params={})
+            message = SessionMessage(JSONRPCMessage(request))
+            await client_read_writer.send(message)
+
+            # Give it time to process the error
+            await anyio.sleep(0.1)
+
+            # Error should have been captured
+            assert len(errors) >= 1
     finally:
         # Clean up test streams
         await client_read_writer.aclose()
