@@ -20,3 +20,4 @@ class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     lifespan_context: LifespanContextT
     request: RequestT | None = None
     close_sse_stream: CloseSSEStreamCallback | None = None
+    close_standalone_sse_stream: CloseSSEStreamCallback | None = None

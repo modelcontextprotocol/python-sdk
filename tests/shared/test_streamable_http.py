@@ -190,6 +190,11 @@ class ServerTest(Server):  # pragma: no cover
                         },
                     },
                 ),
+                Tool(
+                    name="tool_with_standalone_stream_close",
+                    description="Tool that closes standalone GET stream mid-operation",
+                    inputSchema={"type": "object", "properties": {}},
+                ),
             ]
 
         @self.call_tool()
@@ -347,6 +352,26 @@ class ServerTest(Server):  # pragma: no cover
                     await anyio.sleep(sleep_time)
 
                 return [TextContent(type="text", text=f"Completed {num_checkpoints} checkpoints")]
+
+            elif name == "tool_with_standalone_stream_close":
+                # Test for GET stream reconnection
+                # 1. Send unsolicited notification via GET stream (no related_request_id)
+                await ctx.session.send_resource_updated(uri=AnyUrl("http://notification_1"))
+
+                # Small delay to ensure notification is flushed before closing
+                await anyio.sleep(0.1)
+
+                # 2. Close the standalone GET stream
+                if ctx.close_standalone_sse_stream:
+                    await ctx.close_standalone_sse_stream()
+
+                # 3. Wait for client to reconnect (uses retry_interval from server, default 1000ms)
+                await anyio.sleep(1.5)
+
+                # 4. Send another notification on the new GET stream connection
+                await ctx.session.send_resource_updated(uri=AnyUrl("http://notification_2"))
+
+                return [TextContent(type="text", text="Standalone stream close test done")]
 
             return [TextContent(type="text", text=f"Called {name}")]
 
@@ -984,7 +1009,7 @@ async def test_streamablehttp_client_tool_invocation(initialized_client_session:
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
-    assert len(tools.tools) == 9
+    assert len(tools.tools) == 10
     assert tools.tools[0].name == "test_tool"
 
     # Call the tool
@@ -1021,7 +1046,7 @@ async def test_streamablehttp_client_session_persistence(basic_server: None, bas
 
             # Make multiple requests to verify session persistence
             tools = await session.list_tools()
-            assert len(tools.tools) == 9
+            assert len(tools.tools) == 10
 
             # Read a resource
             resource = await session.read_resource(uri=AnyUrl("foobar://test-persist"))
@@ -1050,7 +1075,7 @@ async def test_streamablehttp_client_json_response(json_response_server: None, j
 
             # Check tool listing
             tools = await session.list_tools()
-            assert len(tools.tools) == 9
+            assert len(tools.tools) == 10
 
             # Call a tool and verify JSON response handling
             result = await session.call_tool("test_tool", {})
@@ -1120,7 +1145,7 @@ async def test_streamablehttp_client_session_termination(basic_server: None, bas
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 9
+            assert len(tools.tools) == 10
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -1186,7 +1211,7 @@ async def test_streamablehttp_client_session_termination_204(
 
             # Make a request to confirm session is working
             tools = await session.list_tools()
-            assert len(tools.tools) == 9
+            assert len(tools.tools) == 10
 
     headers: dict[str, str] = {}  # pragma: no cover
     if captured_session_id:  # pragma: no cover
@@ -2031,3 +2056,59 @@ async def test_streamablehttp_multiple_reconnections(
         f"Expected 8 resumption tokens (4 priming + 3 notifs + 1 response), "
         f"got {len(resumption_tokens)}: {resumption_tokens}"
     )
+
+
+@pytest.mark.anyio
+async def test_standalone_get_stream_reconnection(basic_server: None, basic_server_url: str) -> None:
+    """
+    Test that standalone GET stream automatically reconnects after server closes it.
+
+    Verifies:
+    1. Client receives notification 1 via GET stream
+    2. Server closes GET stream
+    3. Client reconnects with Last-Event-ID
+    4. Client receives notification 2 on new connection
+    """
+    server_url = basic_server_url
+    received_notifications: list[str] = []
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            return  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message.root, types.ResourceUpdatedNotification):  # pragma: no branch
+                received_notifications.append(str(message.root.params.uri))
+
+    async with streamablehttp_client(f"{server_url}/mcp") as (
+        read_stream,
+        write_stream,
+        _,
+    ):
+        async with ClientSession(
+            read_stream,
+            write_stream,
+            message_handler=message_handler,
+        ) as session:
+            await session.initialize()
+
+            # Call tool that:
+            # 1. Sends notification_1 via GET stream
+            # 2. Closes standalone GET stream
+            # 3. Sends notification_2 (stored in event_store)
+            # 4. Returns response
+            result = await session.call_tool("tool_with_standalone_stream_close", {})
+
+            # Verify the tool completed
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Standalone stream close test done"
+
+            # Verify both notifications were received
+            assert "http://notification_1/" in received_notifications, (
+                f"Should receive notification 1 (sent before GET stream close), got: {received_notifications}"
+            )
+            assert "http://notification_2/" in received_notifications, (
+                f"Should receive notification 2 after reconnect, got: {received_notifications}"
+            )

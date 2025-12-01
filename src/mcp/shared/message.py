@@ -33,8 +33,10 @@ class ServerMessageMetadata:
     related_request_id: RequestId | None = None
     # Request-specific context (e.g., headers, auth info)
     request_context: object | None = None
-    # Callback to close SSE stream without terminating
+    # Callback to close SSE stream for the current request without terminating
     close_sse_stream: CloseSSEStreamCallback | None = None
+    # Callback to close the standalone GET SSE stream (for unsolicited notifications)
+    close_standalone_sse_stream: CloseSSEStreamCallback | None = None
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None

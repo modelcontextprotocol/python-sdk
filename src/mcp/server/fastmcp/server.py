@@ -1302,6 +1302,21 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
             await self._request_context.close_sse_stream()
 
+    async def close_standalone_sse_stream(self) -> None:
+        """Close the standalone GET SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the standalone GET stream used
+        for unsolicited server-to-client notifications. The client SHOULD reconnect
+        with Last-Event-ID to resume receiving notifications.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            Currently, client reconnection for standalone GET streams is NOT
+            implemented - this is a known gap.
+        """
+        if self._request_context and self._request_context.close_standalone_sse_stream:  # pragma: no cover
+            await self._request_context.close_standalone_sse_stream()
+
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:
         """Send a debug log message."""

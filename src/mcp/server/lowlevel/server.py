@@ -683,11 +683,13 @@ class Server(Generic[LifespanResultT, RequestT]):
                 # Extract request context and close_sse_stream from message metadata
                 request_data = None
                 close_sse_stream_cb = None
+                close_standalone_sse_stream_cb = None
                 if message.message_metadata is not None and isinstance(
                     message.message_metadata, ServerMessageMetadata
                 ):  # pragma: no cover
                     request_data = message.message_metadata.request_context
                     close_sse_stream_cb = message.message_metadata.close_sse_stream
+                    close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
@@ -699,6 +701,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         lifespan_context,
                         request=request_data,
                         close_sse_stream=close_sse_stream_cb,
+                        close_standalone_sse_stream=close_standalone_sse_stream_cb,
                     )
                 )
                 response = await handler(req)

@@ -206,28 +206,55 @@ class StreamableHTTPTransport:
         client: httpx.AsyncClient,
         read_stream_writer: StreamWriter,
     ) -> None:
-        """Handle GET stream for server-initiated messages."""
-        try:
-            if not self.session_id:
+        """Handle GET stream for server-initiated messages with auto-reconnect."""
+        last_event_id: str | None = None
+        retry_interval_ms: int | None = None
+        attempt: int = 0
+
+        while attempt < MAX_RECONNECTION_ATTEMPTS:  # pragma: no branch
+            try:
+                if not self.session_id:
+                    return
+
+                headers = self._prepare_request_headers(self.request_headers)
+                if last_event_id:
+                    headers[LAST_EVENT_ID] = last_event_id  # pragma: no cover
+
+                async with aconnect_sse(
+                    client,
+                    "GET",
+                    self.url,
+                    headers=headers,
+                    timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
+                ) as event_source:
+                    event_source.response.raise_for_status()
+                    logger.debug("GET SSE connection established")
+
+                    async for sse in event_source.aiter_sse():
+                        # Track last event ID for reconnection
+                        if sse.id:
+                            last_event_id = sse.id  # pragma: no cover
+                        # Track retry interval from server
+                        if sse.retry is not None:
+                            retry_interval_ms = sse.retry  # pragma: no cover
+
+                        await self._handle_sse_event(sse, read_stream_writer)
+
+                    # Stream ended normally (server closed) - reset attempt counter
+                    attempt = 0
+
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"GET stream error: {exc}")
+                attempt += 1
+
+            if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+                logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
                 return
 
-            headers = self._prepare_request_headers(self.request_headers)
-
-            async with aconnect_sse(
-                client,
-                "GET",
-                self.url,
-                headers=headers,
-                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
-            ) as event_source:
-                event_source.response.raise_for_status()
-                logger.debug("GET SSE connection established")
-
-                async for sse in event_source.aiter_sse():
-                    await self._handle_sse_event(sse, read_stream_writer)
-
-        except Exception as exc:
-            logger.debug(f"GET stream error (non-fatal): {exc}")  # pragma: no cover
+            # Wait before reconnecting
+            delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+            logger.info(f"GET stream disconnected, reconnecting in {delay_ms}ms...")
+            await anyio.sleep(delay_ms / 1000.0)
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""

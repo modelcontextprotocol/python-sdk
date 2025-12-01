@@ -214,6 +214,25 @@ class StreamableHTTPServerTransport:
             send_stream.close()
             receive_stream.close()
 
+    def close_standalone_sse_stream(self) -> None:  # pragma: no cover
+        """Close the standalone GET SSE stream, triggering client reconnection.
+
+        This method closes the HTTP connection for the standalone GET stream used
+        for unsolicited server-to-client notifications. The client SHOULD reconnect
+        with Last-Event-ID to resume receiving notifications.
+
+        Use this to implement polling behavior for the notification stream -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Note:
+            This is a no-op if there is no active standalone SSE stream.
+            Requires event_store to be configured for events to be stored during
+            the disconnect.
+            Currently, client reconnection for standalone GET streams is NOT
+            implemented - this is a known gap (see test_standalone_get_stream_reconnection).
+        """
+        self.close_sse_stream(GET_STREAM_KEY)
+
     def _create_session_message(  # pragma: no cover
         self,
         message: JSONRPCMessage,
@@ -225,9 +244,13 @@ class StreamableHTTPServerTransport:
         async def close_stream_callback() -> None:
             self.close_sse_stream(request_id)
 
+        async def close_standalone_stream_callback() -> None:
+            self.close_standalone_sse_stream()
+
         metadata = ServerMessageMetadata(
             request_context=request,
             close_sse_stream=close_stream_callback,
+            close_standalone_sse_stream=close_standalone_stream_callback,
         )
         return SessionMessage(message, metadata=metadata)
 
