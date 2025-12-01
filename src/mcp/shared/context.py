@@ -1,4 +1,8 @@
-from dataclasses import dataclass
+"""
+Request context for MCP handlers.
+"""
+
+from dataclasses import dataclass, field
 from typing import Any, Generic
 
 from typing_extensions import TypeVar
@@ -18,6 +22,11 @@ class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     meta: RequestParams.Meta | None
     session: SessionT
     lifespan_context: LifespanContextT
+    # NOTE: This is typed as Any to avoid circular imports. The actual type is
+    # mcp.server.experimental.request_context.Experimental, but importing it here
+    # triggers mcp.server.__init__ -> fastmcp -> tools -> back to this module.
+    # The Server sets this to an Experimental instance at runtime.
+    experimental: Any = field(default=None)
     request: RequestT | None = None
     close_sse_stream: CloseSSEStreamCallback | None = None
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
