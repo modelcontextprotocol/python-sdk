@@ -2498,27 +2498,9 @@ See the [LLM Provider Adapters guide](https://modelcontextprotocol.github.io/pyt
 - Error handling patterns
 - Advanced conversion techniques
 
+See the [LLM Provider Adapters guide](https://modelcontextprotocol.github.io/python-sdk/llm-adapters/) for complete adapter implementations.
+
 <!-- snippet-source examples/snippets/clients/llm_adapter_example.py -->
-```python
-"""Example: Convert MCP tools to various LLM provider formats."""
-
-from mcp import ClientSession, StdioServerParameters, types
-from mcp.client.stdio import stdio_client
-
-# After connecting to an MCP server and listing tools:
-tools_response = await session.list_tools()
-
-# Convert to Gemini format
-gemini_tools = [to_gemini_function_declaration(tool) for tool in tools_response.tools]
-
-# Convert to OpenAI format
-openai_tools = [to_openai_function(tool) for tool in tools_response.tools]
-
-# Convert to Claude format
-claude_tools = [to_claude_tool(tool) for tool in tools_response.tools]
-```
-
-_Full example: [examples/snippets/clients/llm_adapter_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/llm_adapter_example.py)_
 <!-- /snippet-source -->
 
 ### MCP Primitives

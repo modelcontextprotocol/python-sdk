@@ -698,3 +698,5 @@ See [`examples/snippets/clients/llm_adapter_example.py`](../../examples/snippets
 - Consider creating reusable adapter libraries for your organization
 - Share your adapters with the community!
 
+ 
+ 

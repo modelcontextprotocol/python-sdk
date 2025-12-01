@@ -438,34 +438,34 @@ async def main() -> None:
             tools_response = await session.list_tools()
             mcp_tools = tools_response.tools
 
-            print(f"\n📋 Found {len(mcp_tools)} tools from MCP server:")
+            print(f"\nFound {len(mcp_tools)} tools from MCP server:")
             for tool in mcp_tools:
                 print(f"  - {tool.name}: {tool.description or 'No description'}")
 
             # Convert to Gemini format
-            print("\n🔷 Converting to Gemini format...")
+            print("\nConverting to Gemini format...")
             gemini_tools, gemini_errors = convert_tools_batch(mcp_tools, to_gemini_function_declaration)
-            print(f"  ✅ Converted {len(gemini_tools)} tools successfully")
+            print(f"  Converted {len(gemini_tools)} tools successfully")
             if gemini_errors:
-                print(f"  ⚠️  {len(gemini_errors)} conversion errors:")
+                print(f"  {len(gemini_errors)} conversion errors:")
                 for tool_name, error in gemini_errors:
                     print(f"     - {tool_name}: {error}")
 
             # Convert to OpenAI format
-            print("\n🔵 Converting to OpenAI format...")
+            print("\nConverting to OpenAI format...")
             openai_tools, openai_errors = convert_tools_batch(mcp_tools, to_openai_function)
-            print(f"  ✅ Converted {len(openai_tools)} tools successfully")
+            print(f"  Converted {len(openai_tools)} tools successfully")
             if openai_errors:
-                print(f"  ⚠️  {len(openai_errors)} conversion errors:")
+                print(f"  {len(openai_errors)} conversion errors:")
                 for tool_name, error in openai_errors:
                     print(f"     - {tool_name}: {error}")
 
             # Convert to Claude format
-            print("\n🟣 Converting to Claude format...")
+            print("\nConverting to Claude format...")
             claude_tools, claude_errors = convert_tools_batch(mcp_tools, to_claude_tool)
-            print(f"  ✅ Converted {len(claude_tools)} tools successfully")
+            print(f"  Converted {len(claude_tools)} tools successfully")
             if claude_errors:
-                print(f"  ⚠️  {len(claude_errors)} conversion errors:")
+                print(f"  {len(claude_errors)} conversion errors:")
                 for tool_name, error in claude_errors:
                     print(f"     - {tool_name}: {error}")
 
@@ -496,8 +496,8 @@ async def main() -> None:
 
                     print(f"    {json.dumps(claude_tools[0], indent=6)}")
 
-            print("\n✨ Conversion complete!")
-            print("\n💡 Next steps:")
+            print("\nConversion complete!")
+            print("\nNext steps:")
             print("  - Use the converted tools with your LLM provider's API")
             print("  - See docs/llm-adapters.md for more details and best practices")
 
@@ -510,3 +510,6 @@ def run() -> None:
 if __name__ == "__main__":
     run()
 
+
+ 
+ 
