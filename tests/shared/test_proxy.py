@@ -366,3 +366,72 @@ async def test_proxy_closes_other_stream_on_close(create_streams):
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_proxy_error_in_callback(create_streams):
+    """Test that errors in the error callback are handled gracefully."""
+    client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
+
+    try:
+        def failing_error_handler(error: Exception) -> None:
+            """Error handler that raises an exception."""
+            raise RuntimeError("Callback error")
+
+        # Send an exception through the stream
+        test_exception = ValueError("Test error")
+
+        async with mcp_proxy(client_streams, server_streams, onerror=failing_error_handler):
+            await client_read_writer.send(test_exception)
+
+            # Give it time to process
+            await anyio.sleep(0.1)
+
+            # Proxy should continue working despite callback error
+            request = JSONRPCRequest(jsonrpc="2.0", id="after_callback_error", method="test", params={})
+            message = SessionMessage(JSONRPCMessage(request))
+            await client_read_writer.send(message)
+
+            # Valid message should still be forwarded
+            with anyio.fail_after(1):
+                received = await server_write_reader.receive()
+                assert received.message.root.id == "after_callback_error"
+    finally:
+        # Clean up test streams
+        await client_read_writer.aclose()
+        await server_write_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_proxy_async_error_in_callback(create_streams):
+    """Test that async errors in the error callback are handled gracefully."""
+    client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
+
+    try:
+        async def failing_async_error_handler(error: Exception) -> None:
+            """Async error handler that raises an exception."""
+            await anyio.sleep(0.01)
+            raise RuntimeError("Async callback error")
+
+        # Send an exception through the stream
+        test_exception = ValueError("Test error")
+
+        async with mcp_proxy(client_streams, server_streams, onerror=failing_async_error_handler):
+            await client_read_writer.send(test_exception)
+
+            # Give it time to process
+            await anyio.sleep(0.1)
+
+            # Proxy should continue working despite callback error
+            request = JSONRPCRequest(jsonrpc="2.0", id="after_async_callback_error", method="test", params={})
+            message = SessionMessage(JSONRPCMessage(request))
+            await client_read_writer.send(message)
+
+            # Valid message should still be forwarded
+            with anyio.fail_after(1):
+                received = await server_write_reader.receive()
+                assert received.message.root.id == "after_async_callback_error"
+    finally:
+        # Clean up test streams
+        await client_read_writer.aclose()
+        await server_write_reader.aclose()
