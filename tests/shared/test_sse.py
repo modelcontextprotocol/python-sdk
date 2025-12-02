@@ -4,6 +4,7 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from unittest.mock import Mock
 
 import anyio
 import httpx
@@ -16,9 +17,10 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+import mcp.client.sse
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
@@ -182,6 +184,57 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             # Test ping
             ping_result = await session.send_ping()
             assert isinstance(ping_result, EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
+    captured_session_id: str | None = None
+
+    def on_session_created(session_id: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = session_id
+
+    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    assert captured_session_id is not None
+    assert len(captured_session_id) > 0
+
+
+@pytest.mark.parametrize(
+    "endpoint_url,expected",
+    [
+        ("/messages?sessionId=abc123", "abc123"),
+        ("/messages?session_id=def456", "def456"),
+        ("/messages?sessionId=abc&session_id=def", "abc"),
+        ("/messages?other=value", None),
+        ("/messages", None),
+        ("", None),
+    ],
+)
+def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
+    assert _extract_session_id_from_endpoint(endpoint_url) == expected
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created_not_called_when_no_session_id(
+    server: None, server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    callback_mock = Mock()
+
+    def mock_extract(url: str) -> None:
+        return None
+
+    monkeypatch.setattr(mcp.client.sse, "_extract_session_id_from_endpoint", mock_extract)
+
+    async with sse_client(server_url + "/sse", on_session_created=callback_mock) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    callback_mock.assert_not_called()
 
 
 @pytest.fixture
