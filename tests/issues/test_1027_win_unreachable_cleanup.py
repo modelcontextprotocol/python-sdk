@@ -95,7 +95,7 @@ async def test_lifespan_cleanup_executed():
             async with ClientSession(read, write) as session:
                 # Initialize the session
                 result = await session.initialize()
-                assert result.protocolVersion in ["2024-11-05", "2025-06-18"]
+                assert result.protocolVersion in ["2024-11-05", "2025-06-18", "2025-11-25"]
 
                 # Verify startup marker was created
                 assert Path(startup_marker).exists(), "Server startup marker not created"
