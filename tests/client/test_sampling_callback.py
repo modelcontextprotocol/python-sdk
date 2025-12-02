@@ -100,6 +100,7 @@ async def test_create_message_backwards_compat_single_content():
     async with create_session(server._mcp_server, sampling_callback=sampling_callback) as client_session:
         result = await client_session.call_tool("test_backwards_compat", {"message": "Test"})
         assert result.isError is False
+        assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
 
