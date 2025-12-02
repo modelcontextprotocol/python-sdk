@@ -42,6 +42,10 @@ GetSessionIdCallback = Callable[[], str | None]
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 LAST_EVENT_ID = "last-event-id"
+
+# Reconnection defaults
+DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
+MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
 CONTENT_TYPE = "content-type"
 ACCEPT = "accept"
 
@@ -160,8 +164,11 @@ class StreamableHTTPTransport:
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
-            # Skip empty data (keep-alive pings)
+            # Handle priming events (empty data with ID) for resumability
             if not sse.data:
+                # Call resumption callback for priming events that have an ID
+                if sse.id and resumption_callback:
+                    await resumption_callback(sse.id)
                 return False
             try:
                 message = JSONRPCMessage.model_validate_json(sse.data)
@@ -199,28 +206,55 @@ class StreamableHTTPTransport:
         client: httpx.AsyncClient,
         read_stream_writer: StreamWriter,
     ) -> None:
-        """Handle GET stream for server-initiated messages."""
-        try:
-            if not self.session_id:
+        """Handle GET stream for server-initiated messages with auto-reconnect."""
+        last_event_id: str | None = None
+        retry_interval_ms: int | None = None
+        attempt: int = 0
+
+        while attempt < MAX_RECONNECTION_ATTEMPTS:  # pragma: no branch
+            try:
+                if not self.session_id:
+                    return
+
+                headers = self._prepare_request_headers(self.request_headers)
+                if last_event_id:
+                    headers[LAST_EVENT_ID] = last_event_id  # pragma: no cover
+
+                async with aconnect_sse(
+                    client,
+                    "GET",
+                    self.url,
+                    headers=headers,
+                    timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
+                ) as event_source:
+                    event_source.response.raise_for_status()
+                    logger.debug("GET SSE connection established")
+
+                    async for sse in event_source.aiter_sse():
+                        # Track last event ID for reconnection
+                        if sse.id:
+                            last_event_id = sse.id  # pragma: no cover
+                        # Track retry interval from server
+                        if sse.retry is not None:
+                            retry_interval_ms = sse.retry  # pragma: no cover
+
+                        await self._handle_sse_event(sse, read_stream_writer)
+
+                    # Stream ended normally (server closed) - reset attempt counter
+                    attempt = 0
+
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"GET stream error: {exc}")
+                attempt += 1
+
+            if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+                logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
                 return
 
-            headers = self._prepare_request_headers(self.request_headers)
-
-            async with aconnect_sse(
-                client,
-                "GET",
-                self.url,
-                headers=headers,
-                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
-            ) as event_source:
-                event_source.response.raise_for_status()
-                logger.debug("GET SSE connection established")
-
-                async for sse in event_source.aiter_sse():
-                    await self._handle_sse_event(sse, read_stream_writer)
-
-        except Exception as exc:
-            logger.debug(f"GET stream error (non-fatal): {exc}")  # pragma: no cover
+            # Wait before reconnecting
+            delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+            logger.info(f"GET stream disconnected, reconnecting in {delay_ms}ms...")
+            await anyio.sleep(delay_ms / 1000.0)
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
@@ -326,9 +360,20 @@ class StreamableHTTPTransport:
         is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
+        last_event_id: str | None = None
+        retry_interval_ms: int | None = None
+
         try:
             event_source = EventSource(response)
             async for sse in event_source.aiter_sse():  # pragma: no branch
+                # Track last event ID for potential reconnection
+                if sse.id:
+                    last_event_id = sse.id
+
+                # Track retry interval from server
+                if sse.retry is not None:
+                    retry_interval_ms = sse.retry
+
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -339,10 +384,78 @@ class StreamableHTTPTransport:
                 # break the loop
                 if is_complete:
                     await response.aclose()
-                    break
-        except Exception as e:
-            logger.exception("Error reading SSE stream:")  # pragma: no cover
-            await ctx.read_stream_writer.send(e)  # pragma: no cover
+                    return  # Normal completion, no reconnect needed
+        except Exception as e:  # pragma: no cover
+            logger.debug(f"SSE stream ended: {e}")
+
+        # Stream ended without response - reconnect if we received an event with ID
+        if last_event_id is not None:  # pragma: no branch
+            logger.info("SSE stream disconnected, reconnecting...")
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+
+    async def _handle_reconnection(
+        self,
+        ctx: RequestContext,
+        last_event_id: str,
+        retry_interval_ms: int | None = None,
+        attempt: int = 0,
+    ) -> None:
+        """Reconnect with Last-Event-ID to resume stream after server disconnect."""
+        # Bail if max retries exceeded
+        if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+            logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+            return
+
+        # Always wait - use server value or default
+        delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        await anyio.sleep(delay_ms / 1000.0)
+
+        headers = self._prepare_request_headers(ctx.headers)
+        headers[LAST_EVENT_ID] = last_event_id
+
+        # Extract original request ID to map responses
+        original_request_id = None
+        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
+            original_request_id = ctx.session_message.message.root.id
+
+        try:
+            async with aconnect_sse(
+                ctx.client,
+                "GET",
+                self.url,
+                headers=headers,
+                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
+            ) as event_source:
+                event_source.response.raise_for_status()
+                logger.info("Reconnected to SSE stream")
+
+                # Track for potential further reconnection
+                reconnect_last_event_id: str = last_event_id
+                reconnect_retry_ms = retry_interval_ms
+
+                async for sse in event_source.aiter_sse():
+                    if sse.id:  # pragma: no branch
+                        reconnect_last_event_id = sse.id
+                    if sse.retry is not None:
+                        reconnect_retry_ms = sse.retry
+
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        await event_source.response.aclose()
+                        return
+
+                # Stream ended again without response - reconnect again (reset attempt counter)
+                logger.info("SSE stream disconnected, reconnecting...")
+                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+        except Exception as e:  # pragma: no cover
+            logger.debug(f"Reconnection failed: {e}")
+            # Try to reconnect again if we still have an event ID
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
 
     async def _handle_unexpected_content_type(
         self,
