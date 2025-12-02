@@ -4,9 +4,9 @@ requires-python = ">=3.10"
 
 [manifest]
 members = [
-    "mcp",
     "mcp-conformance-auth-client",
     "mcp-everything-server",
+    "mcp-python-sdk",
     "mcp-simple-auth",
     "mcp-simple-auth-client",
     "mcp-simple-chatbot",
@@ -758,7 +758,74 @@ wheels = [
 ]
 
 [[package]]
-name = "mcp"
+name = "mcp-conformance-auth-client"
+version = "0.1.0"
+source = { editable = "examples/clients/conformance-auth-client" }
+dependencies = [
+    { name = "httpx" },
+    { name = "mcp-python-sdk" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "mcp-python-sdk", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.379" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-everything-server"
+version = "0.1.0"
+source = { editable = "examples/servers/everything-server" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "mcp-python-sdk" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.2.0" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "mcp-python-sdk", editable = "." },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-python-sdk"
+version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -778,15 +845,8 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-cli = [
-    { name = "python-dotenv" },
-    { name = "typer" },
-]
 rich = [
     { name = "rich" },
-]
-ws = [
-    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -796,12 +856,16 @@ dev = [
     { name = "inline-snapshot" },
     { name = "pyright" },
     { name = "pytest" },
+    { name = "pytest-cov" },
     { name = "pytest-examples" },
     { name = "pytest-flakefinder" },
     { name = "pytest-pretty" },
     { name = "pytest-xdist" },
+    { name = "python-dotenv" },
     { name = "ruff" },
     { name = "trio" },
+    { name = "typer" },
+    { name = "websockets" },
 ]
 docs = [
     { name = "mkdocs" },
@@ -819,19 +883,16 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.11.0,<3.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
-    { name = "python-dotenv", marker = "extra == 'cli'", specifier = ">=1.0.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=310" },
     { name = "rich", marker = "extra == 'rich'", specifier = ">=13.9.4" },
     { name = "sse-starlette", specifier = ">=1.6.1" },
     { name = "starlette", specifier = ">=0.27" },
-    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16.0" },
     { name = "typing-extensions", specifier = ">=4.9.0" },
     { name = "typing-inspection", specifier = ">=0.4.1" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.31.1" },
-    { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["cli", "rich", "ws"]
+provides-extras = ["rich"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -840,84 +901,22 @@ dev = [
     { name = "inline-snapshot", specifier = ">=0.23.0" },
     { name = "pyright", specifier = ">=1.1.400" },
     { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-cov", specifier = ">=6.2.1" },
     { name = "pytest-examples", specifier = ">=0.0.14" },
     { name = "pytest-flakefinder", specifier = ">=1.1.0" },
     { name = "pytest-pretty", specifier = ">=1.2.0" },
     { name = "pytest-xdist", specifier = ">=3.6.1" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", specifier = ">=0.8.5" },
     { name = "trio", specifier = ">=0.26.2" },
+    { name = "typer", specifier = ">=0.16.0" },
+    { name = "websockets", specifier = ">=15.0.1" },
 ]
 docs = [
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-glightbox", specifier = ">=0.4.0" },
     { name = "mkdocs-material", extras = ["imaging"], specifier = ">=9.5.45" },
     { name = "mkdocstrings-python", specifier = ">=1.12.2" },
-]
-
-[[package]]
-name = "mcp-conformance-auth-client"
-version = "0.1.0"
-source = { editable = "examples/clients/conformance-auth-client" }
-dependencies = [
-    { name = "httpx" },
-    { name = "mcp" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "mcp", editable = "." },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pyright", specifier = ">=1.1.379" },
-    { name = "pytest", specifier = ">=8.3.3" },
-    { name = "ruff", specifier = ">=0.6.9" },
-]
-
-[[package]]
-name = "mcp-everything-server"
-version = "0.1.0"
-source = { editable = "examples/servers/everything-server" }
-dependencies = [
-    { name = "anyio" },
-    { name = "click" },
-    { name = "httpx" },
-    { name = "mcp" },
-    { name = "starlette" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anyio", specifier = ">=4.5" },
-    { name = "click", specifier = ">=8.2.0" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
-    { name = "starlette" },
-    { name = "uvicorn" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pyright", specifier = ">=1.1.378" },
-    { name = "pytest", specifier = ">=8.3.3" },
-    { name = "ruff", specifier = ">=0.6.9" },
 ]
 
 [[package]]
@@ -928,7 +927,7 @@ dependencies = [
     { name = "anyio" },
     { name = "click" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "sse-starlette" },
@@ -947,7 +946,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
     { name = "sse-starlette", specifier = ">=1.6.1" },
@@ -967,7 +966,7 @@ version = "0.1.0"
 source = { editable = "examples/clients/simple-auth-client" }
 dependencies = [
     { name = "click" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -980,7 +979,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
 ]
 
 [package.metadata.requires-dev]
@@ -995,7 +994,7 @@ name = "mcp-simple-chatbot"
 version = "0.1.0"
 source = { editable = "examples/clients/simple-chatbot" }
 dependencies = [
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "uvicorn" },
@@ -1010,7 +1009,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "uvicorn", specifier = ">=0.32.1" },
@@ -1031,7 +1030,7 @@ dependencies = [
     { name = "anyio" },
     { name = "click" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -1046,7 +1045,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
 ]
 
 [package.metadata.requires-dev]
@@ -1064,7 +1063,7 @@ dependencies = [
     { name = "anyio" },
     { name = "click" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -1079,7 +1078,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
 ]
 
 [package.metadata.requires-dev]
@@ -1097,7 +1096,7 @@ dependencies = [
     { name = "anyio" },
     { name = "click" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -1112,7 +1111,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
 ]
 
 [package.metadata.requires-dev]
@@ -1130,7 +1129,7 @@ dependencies = [
     { name = "anyio" },
     { name = "click" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1147,7 +1146,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1167,7 +1166,7 @@ dependencies = [
     { name = "anyio" },
     { name = "click" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1184,7 +1183,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
@@ -1204,7 +1203,7 @@ dependencies = [
     { name = "anyio" },
     { name = "click" },
     { name = "httpx" },
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -1219,7 +1218,7 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.5" },
     { name = "click", specifier = ">=8.2.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", editable = "." },
+    { name = "mcp-python-sdk", editable = "." },
 ]
 
 [package.metadata.requires-dev]
@@ -1234,22 +1233,22 @@ name = "mcp-snippets"
 version = "0.1.0"
 source = { editable = "examples/snippets" }
 dependencies = [
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", editable = "." }]
+requires-dist = [{ name = "mcp-python-sdk", editable = "." }]
 
 [[package]]
 name = "mcp-structured-output-lowlevel"
 version = "0.1.0"
 source = { virtual = "examples/servers/structured-output-lowlevel" }
 dependencies = [
-    { name = "mcp" },
+    { name = "mcp-python-sdk" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", editable = "." }]
+requires-dist = [{ name = "mcp-python-sdk", editable = "." }]
 
 [[package]]
 name = "mdurl"
@@ -1770,6 +1769,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a3/5c/00a0e072241553e1a7496d638deababa67c5058571567b92a7eaa258397c/pytest-8.4.2.tar.gz", hash = "sha256:86c0d0b93306b961d58d62a4db4879f27fe25513d4b969df351abdddb3c30e01", size = 1519618, upload-time = "2025-09-04T14:34:22.711Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/a4/20da314d277121d6534b3a980b29035dcd51e6744bd79075a6ce8fa4eb8d/pytest-8.4.2-py3-none-any.whl", hash = "sha256:872f880de3fc3a5bdc88a11b39c9710c3497a547cfa9320bc3c5e62fbf272e79", size = 365750, upload-time = "2025-09-04T14:34:20.226Z" },
+]
+
+[[package]]
+name = "pytest-cov"
+version = "7.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "coverage", extra = ["toml"] },
+    { name = "pluggy" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5e/f7/c933acc76f5208b3b00089573cf6a2bc26dc80a8aece8f52bb7d6b1855ca/pytest_cov-7.0.0.tar.gz", hash = "sha256:33c97eda2e049a0c5298e91f519302a1334c26ac65c1a483d6206fd458361af1", size = 54328, upload-time = "2025-09-09T10:57:02.113Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/49/1377b49de7d0c1ce41292161ea0f721913fa8722c19fb9c1e3aa0367eecb/pytest_cov-7.0.0-py3-none-any.whl", hash = "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861", size = 22424, upload-time = "2025-09-09T10:57:00.695Z" },
 ]
 
 [[package]]

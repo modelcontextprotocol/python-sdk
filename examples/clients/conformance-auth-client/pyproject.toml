@@ -14,7 +14,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
 ]
-dependencies = ["mcp", "httpx>=0.28.1"]
+dependencies = ["mcp-python-sdk", "httpx>=0.28.1"]
 
 [project.scripts]
 mcp-conformance-auth-client = "mcp_conformance_auth_client:main"

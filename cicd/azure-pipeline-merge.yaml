@@ -1,0 +1,38 @@
+﻿trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - src
+      - tests
+      - cicd
+      - scripts
+      - .github
+
+pool:
+  vmImage: "ubuntu-22.04"
+
+pr: none
+
+variables:
+  - group: SDLC-SM-HighCode-CI
+
+resources:
+  repositories:
+    - repository: rd-ai-azure-pipeline-templates
+      type: github
+      ref: refs/tags/v6.5.1
+      name: OutSystems/rd-ai-azure-pipeline-templates
+      endpoint: OutSystems
+
+jobs:
+  - template: python/packages/new-azure-pipeline.yml@rd-ai-azure-pipeline-templates
+    parameters:
+      PackageName: "mcp-python-sdk"
+      SonarCloudProject: "OutSystems_mcp-python-sdk"
+      SonarCloudExclusionList: "tests/**/*,examples/**/*,scripts/*"
+      SonarCloudCoverageExclusionList: "tests/**/*,examples/**/*,scripts/*"
+      SkipIntegrationTests: true
+      PythonVersion: 3.12
+      PackageManager: "uv"

@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Anthropic, PBC." }]
 keywords = ["mcp", "llm", "automation", "conformance", "testing"]
 license = { text = "MIT" }
-dependencies = ["anyio>=4.5", "click>=8.2.0", "httpx>=0.27", "mcp", "starlette", "uvicorn"]
+dependencies = ["anyio>=4.5", "click>=8.2.0", "httpx>=0.27", "mcp-python-sdk", "starlette", "uvicorn"]
 
 [project.scripts]
 mcp-everything-server = "mcp_everything_server.server:main"

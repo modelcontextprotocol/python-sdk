@@ -3,4 +3,4 @@ name = "mcp-structured-output-lowlevel"
 version = "0.1.0"
 description = "Example of structured output with low-level MCP server"
 requires-python = ">=3.10"
-dependencies = ["mcp"]
+dependencies = ["mcp-python-sdk"]

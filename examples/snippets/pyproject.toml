@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "MCP Example Snippets"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp",
+    "mcp-python-sdk",
 ]
 
 [build-system]

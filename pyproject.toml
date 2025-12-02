@@ -1,6 +1,6 @@
 [project]
-name = "mcp"
-dynamic = ["version"]
+name = "mcp-python-sdk"
+version = "0.0.0"
 description = "Model Context Protocol SDK"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -40,20 +40,19 @@ dependencies = [
 
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
-cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
-ws = ["websockets>=15.0.1"]
 
 [project.scripts]
-mcp = "mcp.cli:app [cli]"
+mcp = "mcp.cli:app"
 
 [tool.uv]
 default-groups = ["dev", "docs"]
-required-version = ">=0.9.5"
+required-version = ">=0.8.4"
 
 [dependency-groups]
 dev = [
     "pyright>=1.1.400",
     "pytest>=8.3.4",
+    "pytest-cov>=6.2.1",
     "ruff>=0.8.5",
     "trio>=0.26.2",
     "pytest-flakefinder>=1.1.0",
@@ -63,6 +62,9 @@ dev = [
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
     "coverage[toml]==7.10.7",
+    "typer>=0.16.0",
+    "python-dotenv>=1.0.0",
+    "websockets>=15.0.1",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -141,15 +143,19 @@ max-statements = 102                                       # Default is 50
 members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
-mcp = { workspace = true }
+mcp-python-sdk = { workspace = true }
 
 [tool.pytest.ini_options]
 log_cli = true
+testpaths = ["tests/"]
 xfail_strict = true
 addopts = """
     --color=yes
     --capture=fd
     --numprocesses auto
+    --cov=src/mcp
+    --cov-report=xml
+    --cov-report=term
 """
 filterwarnings = [
     "error",
@@ -208,3 +214,10 @@ source = [
     "/home/runner/work/python-sdk/python-sdk/src/",
     'D:\a\python-sdk\python-sdk\src',
 ]
+
+[[tool.uv.index]]
+name = "rd-ai-common-artifacts"
+url = "https://pkgs.dev.azure.com/OutSystemsRD/d3b98e14-22a9-4c84-96ca-89f05dd57f01/_packaging/rd-ai-common-artifacts/pypi/simple/"
+publish-url = "https://pkgs.dev.azure.com/OutSystemsRD/d3b98e14-22a9-4c84-96ca-89f05dd57f01/_packaging/rd-ai-common-artifacts/pypi/upload/"
+explicit = true
+authenticate = "always"

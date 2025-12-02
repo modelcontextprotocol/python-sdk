@@ -18,7 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
 ]
-dependencies = ["anyio>=4.5", "click>=8.2.0", "httpx>=0.27", "mcp"]
+dependencies = ["anyio>=4.5", "click>=8.2.0", "httpx>=0.27", "mcp-python-sdk"]
 
 [project.scripts]
 mcp-simple-prompt = "mcp_simple_prompt.server:main"
