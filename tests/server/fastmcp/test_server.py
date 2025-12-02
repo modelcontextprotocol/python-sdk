@@ -12,6 +12,7 @@ from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
@@ -181,6 +182,52 @@ class TestServer:
             @mcp.resource  # Missing parentheses #type: ignore
             def get_data(x: str) -> str:  # pragma: no cover
                 return f"Data: {x}"
+
+
+class TestDnsRebindingProtection:
+    """Tests for automatic DNS rebinding protection on localhost."""
+
+    def test_auto_enabled_for_127_0_0_1(self):
+        """DNS rebinding protection should auto-enable for host=127.0.0.1."""
+        mcp = FastMCP(host="127.0.0.1")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "127.0.0.1:*" in mcp.settings.transport_security.allowed_hosts
+        assert "localhost:*" in mcp.settings.transport_security.allowed_hosts
+        assert "http://127.0.0.1:*" in mcp.settings.transport_security.allowed_origins
+        assert "http://localhost:*" in mcp.settings.transport_security.allowed_origins
+
+    def test_auto_enabled_for_localhost(self):
+        """DNS rebinding protection should auto-enable for host=localhost."""
+        mcp = FastMCP(host="localhost")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "127.0.0.1:*" in mcp.settings.transport_security.allowed_hosts
+        assert "localhost:*" in mcp.settings.transport_security.allowed_hosts
+
+    def test_auto_enabled_for_ipv6_localhost(self):
+        """DNS rebinding protection should auto-enable for host=::1 (IPv6 localhost)."""
+        mcp = FastMCP(host="::1")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "[::1]:*" in mcp.settings.transport_security.allowed_hosts
+        assert "http://[::1]:*" in mcp.settings.transport_security.allowed_origins
+
+    def test_not_auto_enabled_for_other_hosts(self):
+        """DNS rebinding protection should NOT auto-enable for other hosts."""
+        mcp = FastMCP(host="0.0.0.0")
+        assert mcp.settings.transport_security is None
+
+    def test_explicit_settings_not_overridden(self):
+        """Explicit transport_security settings should not be overridden."""
+        custom_settings = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
+        mcp = FastMCP(host="127.0.0.1", transport_security=custom_settings)
+        # Settings are copied by pydantic, so check values not identity
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is False
+        assert mcp.settings.transport_security.allowed_hosts == []
 
 
 def tool_fn(x: int, y: int) -> int:

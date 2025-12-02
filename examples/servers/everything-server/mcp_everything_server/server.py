@@ -14,6 +14,7 @@ import click
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import UserMessage
 from mcp.server.session import ServerSession
+from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.types import (
     AudioContent,
     Completion,
@@ -21,6 +22,7 @@ from mcp.types import (
     CompletionContext,
     EmbeddedResource,
     ImageContent,
+    JSONRPCMessage,
     PromptReference,
     ResourceTemplateReference,
     SamplingMessage,
@@ -31,6 +33,43 @@ from pydantic import AnyUrl, BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+# Type aliases for event store
+StreamId = str
+EventId = str
+
+
+class InMemoryEventStore(EventStore):
+    """Simple in-memory event store for SSE resumability testing."""
+
+    def __init__(self) -> None:
+        self._events: list[tuple[StreamId, EventId, JSONRPCMessage | None]] = []
+        self._event_id_counter = 0
+
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+        """Store an event and return its ID."""
+        self._event_id_counter += 1
+        event_id = str(self._event_id_counter)
+        self._events.append((stream_id, event_id, message))
+        return event_id
+
+    async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+        """Replay events after the specified ID."""
+        target_stream_id = None
+        for stream_id, event_id, _ in self._events:
+            if event_id == last_event_id:
+                target_stream_id = stream_id
+                break
+        if target_stream_id is None:
+            return None
+        last_event_id_int = int(last_event_id)
+        for stream_id, event_id, message in self._events:
+            if stream_id == target_stream_id and int(event_id) > last_event_id_int:
+                # Skip priming events (None message)
+                if message is not None:
+                    await send_callback(EventMessage(message, event_id))
+        return target_stream_id
+
+
 # Test data
 TEST_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
 TEST_AUDIO_BASE64 = "UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA="
@@ -39,8 +78,13 @@ TEST_AUDIO_BASE64 = "UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA
 resource_subscriptions: set[str] = set()
 watched_resource_content = "Watched resource content"
 
+# Create event store for SSE resumability (SEP-1699)
+event_store = InMemoryEventStore()
+
 mcp = FastMCP(
     name="mcp-conformance-test-server",
+    event_store=event_store,
+    retry_interval=100,  # 100ms retry interval for SSE polling
 )
 
 
@@ -134,8 +178,9 @@ async def test_sampling(prompt: str, ctx: Context[ServerSession, None]) -> str:
             max_tokens=100,
         )
 
-        if any(c.type == "text" for c in result.content_as_list):
-            model_response = "\n".join(c.text for c in result.content_as_list if c.type == "text")
+        # Since we're not passing tools param, result.content is single content
+        if result.content.type == "text":
+            model_response = result.content.text
         else:
             model_response = "No response"
 
@@ -261,6 +306,19 @@ async def test_elicitation_sep1330_enums(ctx: Context[ServerSession, None]) -> s
 def test_error_handling() -> str:
     """Tests error response handling"""
     raise RuntimeError("This tool intentionally returns an error for testing")
+
+
+@mcp.tool()
+async def test_reconnection(ctx: Context[ServerSession, None]) -> str:
+    """Tests SSE polling by closing stream mid-call (SEP-1699)"""
+    await ctx.info("Before disconnect")
+
+    await ctx.close_sse_stream()
+
+    await asyncio.sleep(0.2)  # Wait for client to reconnect
+
+    await ctx.info("After reconnect")
+    return "Reconnection test completed"
 
 
 # Resources
