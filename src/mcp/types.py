@@ -24,7 +24,7 @@ for reference.
   not separate types in the schema.
 """
 
-LATEST_PROTOCOL_VERSION = "2025-06-18"
+LATEST_PROTOCOL_VERSION = "2025-11-25"
 
 """
 The default negotiated version of the Model Context Protocol when no version is specified.
