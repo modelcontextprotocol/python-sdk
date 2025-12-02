@@ -11,7 +11,6 @@ from mcp.types import (
     CreateMessageResultWithTools,
     SamplingMessage,
     TextContent,
-    Tool,
     ToolUseContent,
 )
 
