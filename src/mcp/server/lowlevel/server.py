@@ -67,6 +67,7 @@ messages from the client.
 
 from __future__ import annotations as _annotations
 
+import base64
 import contextvars
 import json
 import logging
@@ -82,6 +83,8 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.experimental.request_context import Experimental
+from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
@@ -155,6 +158,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
+        self._experimental_handlers: ExperimentalHandlers | None = None
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -220,7 +224,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         if types.CompleteRequest in self.request_handlers:
             completions_capability = types.CompletionsCapability()
 
-        return types.ServerCapabilities(
+        capabilities = types.ServerCapabilities(
             prompts=prompts_capability,
             resources=resources_capability,
             tools=tools_capability,
@@ -228,6 +232,9 @@ class Server(Generic[LifespanResultT, RequestT]):
             experimental=experimental_capabilities,
             completions=completions_capability,
         )
+        if self._experimental_handlers:
+            self._experimental_handlers.update_capabilities(capabilities)
+        return capabilities
 
     @property
     def request_context(
@@ -235,6 +242,18 @@ class Server(Generic[LifespanResultT, RequestT]):
     ) -> RequestContext[ServerSession, LifespanResultT, RequestT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
+
+    @property
+    def experimental(self) -> ExperimentalHandlers:
+        """Experimental APIs for tasks and other features.
+
+        WARNING: These APIs are experimental and may change without notice.
+        """
+
+        # We create this inline so we only add these capabilities _if_ they're actually used
+        if self._experimental_handlers is None:
+            self._experimental_handlers = ExperimentalHandlers(self, self.request_handlers, self.notification_handlers)
+        return self._experimental_handlers
 
     def list_prompts(self):
         def decorator(
@@ -328,8 +347,6 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 mimeType=mime_type or "text/plain",
                             )
                         case bytes() as data:  # pragma: no cover
-                            import base64
-
                             return types.BlobResourceContents(
                                 uri=req.params.uri,
                                 blob=base64.b64encode(data).decode(),
@@ -483,7 +500,13 @@ class Server(Generic[LifespanResultT, RequestT]):
         def decorator(
             func: Callable[
                 ...,
-                Awaitable[UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult],
+                Awaitable[
+                    UnstructuredContent
+                    | StructuredContent
+                    | CombinationContent
+                    | types.CallToolResult
+                    | types.CreateTaskResult
+                ],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -508,6 +531,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
                     if isinstance(results, types.CallToolResult):
+                        return types.ServerResult(results)
+                    elif isinstance(results, types.CreateTaskResult):
+                        # Task-augmented execution returns task info instead of result
                         return types.ServerResult(results)
                     elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
@@ -627,6 +653,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
             )
 
+            # Configure task support for this session if enabled
+            task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+            if task_support is not None:
+                task_support.configure_session(session)
+                await stack.enter_async_context(task_support.run())
+
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
                     logger.debug("Received message: %s", message)
@@ -669,33 +701,52 @@ class Server(Generic[LifespanResultT, RequestT]):
     async def _handle_request(
         self,
         message: RequestResponder[types.ClientRequest, types.ServerResult],
-        req: Any,
+        req: types.ClientRequestType,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
         logger.info("Processing request of type %s", type(req).__name__)
-        if handler := self.request_handlers.get(type(req)):  # type: ignore
+
+        if handler := self.request_handlers.get(type(req)):
             logger.debug("Dispatching request of type %s", type(req).__name__)
 
             token = None
             try:
-                # Extract request context from message metadata
+                # Extract request context and close_sse_stream from message metadata
                 request_data = None
+                close_sse_stream_cb = None
+                close_standalone_sse_stream_cb = None
                 if message.message_metadata is not None and isinstance(
                     message.message_metadata, ServerMessageMetadata
                 ):  # pragma: no cover
                     request_data = message.message_metadata.request_context
+                    close_sse_stream_cb = message.message_metadata.close_sse_stream
+                    close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
+                client_capabilities = session.client_params.capabilities if session.client_params else None
+                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                # Get task metadata from request params if present
+                task_metadata = None
+                if hasattr(req, "params") and req.params is not None:
+                    task_metadata = getattr(req.params, "task", None)
                 token = request_ctx.set(
                     RequestContext(
                         message.request_id,
                         message.request_meta,
                         session,
                         lifespan_context,
+                        Experimental(
+                            task_metadata=task_metadata,
+                            _client_capabilities=client_capabilities,
+                            _session=session,
+                            _task_support=task_support,
+                        ),
                         request=request_data,
+                        close_sse_stream=close_sse_stream_cb,
+                        close_standalone_sse_stream=close_standalone_sse_stream_cb,
                     )
                 )
                 response = await handler(req)

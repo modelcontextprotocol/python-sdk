@@ -8,6 +8,7 @@ from mcp.types import (
     ClientRequest,
     CreateMessageRequestParams,
     CreateMessageResult,
+    CreateMessageResultWithTools,
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
@@ -239,7 +240,7 @@ async def test_create_message_request_params_with_tools():
 
 @pytest.mark.anyio
 async def test_create_message_result_with_tool_use():
-    """Test CreateMessageResult with tool use content for SEP-1577."""
+    """Test CreateMessageResultWithTools with tool use content for SEP-1577."""
     result_data = {
         "role": "assistant",
         "content": {"type": "tool_use", "name": "search", "id": "call_123", "input": {"query": "test"}},
@@ -247,7 +248,8 @@ async def test_create_message_result_with_tool_use():
         "stopReason": "toolUse",
     }
 
-    result = CreateMessageResult.model_validate(result_data)
+    # Tool use content uses CreateMessageResultWithTools
+    result = CreateMessageResultWithTools.model_validate(result_data)
     assert result.role == "assistant"
     assert isinstance(result.content, ToolUseContent)
     assert result.stopReason == "toolUse"
@@ -257,6 +259,25 @@ async def test_create_message_result_with_tool_use():
     content_list = result.content_as_list
     assert len(content_list) == 1
     assert content_list[0] == result.content
+
+
+@pytest.mark.anyio
+async def test_create_message_result_basic():
+    """Test CreateMessageResult with basic text content (backwards compatible)."""
+    result_data = {
+        "role": "assistant",
+        "content": {"type": "text", "text": "Hello!"},
+        "model": "claude-3",
+        "stopReason": "endTurn",
+    }
+
+    # Basic content uses CreateMessageResult (single content, no arrays)
+    result = CreateMessageResult.model_validate(result_data)
+    assert result.role == "assistant"
+    assert isinstance(result.content, TextContent)
+    assert result.content.text == "Hello!"
+    assert result.stopReason == "endTurn"
+    assert result.model == "claude-3"
 
 
 @pytest.mark.anyio
