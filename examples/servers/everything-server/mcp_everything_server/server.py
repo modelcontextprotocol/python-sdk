@@ -134,8 +134,9 @@ async def test_sampling(prompt: str, ctx: Context[ServerSession, None]) -> str:
             max_tokens=100,
         )
 
-        if any(c.type == "text" for c in result.content_as_list):
-            model_response = "\n".join(c.text for c in result.content_as_list if c.type == "text")
+        # Since we're not passing tools param, result.content is single content
+        if result.content.type == "text":
+            model_response = result.content.text
         else:
             model_response = "No response"
 

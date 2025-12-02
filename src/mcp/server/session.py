@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, overload
 
 import anyio
 import anyio.lowlevel
@@ -233,6 +233,44 @@ class ServerSession(
             )
         )
 
+    @overload
+    async def create_message(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        tools: None = None,
+        tool_choice: types.ToolChoice | None = None,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.CreateMessageResult:
+        """Overload: Without tools, returns single content."""
+        ...
+
+    @overload
+    async def create_message(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool],
+        tool_choice: types.ToolChoice | None = None,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.CreateMessageResultWithTools:
+        """Overload: With tools, returns array-capable content."""
+        ...
+
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -247,7 +285,7 @@ class ServerSession(
         tools: list[types.Tool] | None = None,
         tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
-    ) -> types.CreateMessageResult:
+    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools:
         """Send a sampling/create_message request.
 
         Args:
@@ -278,27 +316,35 @@ class ServerSession(
         validate_sampling_tools(client_caps, tools, tool_choice)
         validate_tool_use_result_messages(messages)
 
+        request = types.ServerRequest(
+            types.CreateMessageRequest(
+                params=types.CreateMessageRequestParams(
+                    messages=messages,
+                    systemPrompt=system_prompt,
+                    includeContext=include_context,
+                    temperature=temperature,
+                    maxTokens=max_tokens,
+                    stopSequences=stop_sequences,
+                    metadata=metadata,
+                    modelPreferences=model_preferences,
+                    tools=tools,
+                    toolChoice=tool_choice,
+                ),
+            )
+        )
+        metadata_obj = ServerMessageMetadata(related_request_id=related_request_id)
+
+        # Use different result types based on whether tools are provided
+        if tools is not None:
+            return await self.send_request(
+                request=request,
+                result_type=types.CreateMessageResultWithTools,
+                metadata=metadata_obj,
+            )
         return await self.send_request(
-            request=types.ServerRequest(
-                types.CreateMessageRequest(
-                    params=types.CreateMessageRequestParams(
-                        messages=messages,
-                        systemPrompt=system_prompt,
-                        includeContext=include_context,
-                        temperature=temperature,
-                        maxTokens=max_tokens,
-                        stopSequences=stop_sequences,
-                        metadata=metadata,
-                        modelPreferences=model_preferences,
-                        tools=tools,
-                        toolChoice=tool_choice,
-                    ),
-                )
-            ),
+            request=request,
             result_type=types.CreateMessageResult,
-            metadata=ServerMessageMetadata(
-                related_request_id=related_request_id,
-            ),
+            metadata=metadata_obj,
         )
 
     async def list_roots(self) -> types.ListRootsResult:
