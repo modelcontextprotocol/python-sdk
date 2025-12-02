@@ -1146,10 +1146,6 @@ class ToolResultContent(BaseModel):
 SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 """Content block types allowed in sampling messages."""
 
-SamplingContent: TypeAlias = TextContent | ImageContent | AudioContent
-"""Basic content types for sampling responses (without tool use).
-Used for backwards-compatible CreateMessageResult when tools are not used."""
-
 
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
@@ -1547,27 +1543,7 @@ StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
 
 
 class CreateMessageResult(Result):
-    """The client's response to a sampling/create_message request from the server.
-
-    This is the backwards-compatible version that returns single content (no arrays).
-    Used when the request does not include tools.
-    """
-
-    role: Role
-    """The role of the message sender (typically 'assistant' for LLM responses)."""
-    content: SamplingContent
-    """Response content. Single content block (text, image, or audio)."""
-    model: str
-    """The name of the model that generated the message."""
-    stopReason: StopReason | None = None
-    """The reason why sampling stopped, if known."""
-
-
-class CreateMessageResultWithTools(Result):
-    """The client's response to a sampling/create_message request when tools were provided.
-
-    This version supports array content for tool use flows.
-    """
+    """The client's response to a sampling/create_message request from the server."""
 
     role: Role
     """The role of the message sender (typically 'assistant' for LLM responses)."""
@@ -1996,3 +1972,67 @@ ServerResultType: TypeAlias = (
 
 class ServerResult(RootModel[ServerResultType]):
     pass
+
+
+# --- Checkpoint protocol extensions -----------------------------------------
+
+class CheckpointHandle(BaseModel):
+    """Opaque checkpoint handle returned by servers."""
+    handle: str
+    digest: str
+    ttlSeconds: int
+
+
+class CheckpointCreateParams(BaseModel):
+    """Params for checkpoint/create.
+
+    For v1 you can keep this empty – the server infers the session
+    from transport/session context – but we define it for forward compat.
+    """
+    # Optional: allow tools to tag a logical name
+    label: str | None = None
+
+
+class CheckpointCreateResult(BaseModel):
+    """Result of checkpoint/create."""
+    handle: str
+    digest: str
+    ttlSeconds: int
+
+
+class CheckpointValidateParams(BaseModel):
+    """Params for checkpoint/validate."""
+    handle: str
+    expectedDigest: str | None = None
+
+
+class CheckpointValidateResult(BaseModel):
+    """Result of checkpoint/validate."""
+    valid: bool
+    remainingTtlSeconds: int
+    digestMatch: bool
+
+
+class CheckpointResumeParams(BaseModel):
+    """Params for checkpoint/resume."""
+    handle: str
+
+
+class CheckpointResumeResult(BaseModel):
+    """Result of checkpoint/resume.
+
+    You can expand this later if you want to
+    surface metadata to the client.
+    """
+    resumed: bool
+    handle: str
+
+
+class CheckpointDeleteParams(BaseModel):
+    """Params for checkpoint/delete."""
+    handle: str
+
+
+class CheckpointDeleteResult(BaseModel):
+    """Result of checkpoint/delete."""
+    deleted: bool
