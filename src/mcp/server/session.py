@@ -38,7 +38,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, overload
 
 import anyio
 import anyio.lowlevel
@@ -46,8 +46,11 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import AnyUrl
 
 import mcp.types as types
+from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
-from mcp.shared.exceptions import McpError
+from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
+from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
+from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
@@ -80,6 +83,7 @@ class ServerSession(
 ):
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
+    _experimental_features: ExperimentalServerSessionFeatures | None = None
 
     def __init__(
         self,
@@ -103,15 +107,23 @@ class ServerSession(
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params  # pragma: no cover
 
+    @property
+    def experimental(self) -> ExperimentalServerSessionFeatures:
+        """Experimental APIs for server→client task operations.
+
+        WARNING: These APIs are experimental and may change without notice.
+        """
+        if self._experimental_features is None:
+            self._experimental_features = ExperimentalServerSessionFeatures(self)
+        return self._experimental_features
+
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
         """Check if the client supports a specific capability."""
         if self._client_params is None:
             return False
 
-        # Get client capabilities from initialization params
         client_caps = self._client_params.capabilities
 
-        # Check each specified capability in the passed in capability object
         if capability.roots is not None:
             if client_caps.roots is None:
                 return False
@@ -121,24 +133,26 @@ class ServerSession(
         if capability.sampling is not None:
             if client_caps.sampling is None:
                 return False
-            if capability.sampling.context is not None:
-                if client_caps.sampling.context is None:
-                    return False
-            if capability.sampling.tools is not None:
-                if client_caps.sampling.tools is None:
-                    return False
-
-        if capability.elicitation is not None:
-            if client_caps.elicitation is None:
+            if capability.sampling.context is not None and client_caps.sampling.context is None:
                 return False
+            if capability.sampling.tools is not None and client_caps.sampling.tools is None:
+                return False
+
+        if capability.elicitation is not None and client_caps.elicitation is None:
+            return False
 
         if capability.experimental is not None:
             if client_caps.experimental is None:
                 return False
-            # Check each experimental capability
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
+
+        if capability.tasks is not None:
+            if client_caps.tasks is None:
+                return False
+            if not check_tasks_capability(capability.tasks, client_caps.tasks):
+                return False
 
         return True
 
@@ -219,6 +233,44 @@ class ServerSession(
             )
         )
 
+    @overload
+    async def create_message(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        tools: None = None,
+        tool_choice: types.ToolChoice | None = None,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.CreateMessageResult:
+        """Overload: Without tools, returns single content."""
+        ...
+
+    @overload
+    async def create_message(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool],
+        tool_choice: types.ToolChoice | None = None,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.CreateMessageResultWithTools:
+        """Overload: With tools, returns array-capable content."""
+        ...
+
     async def create_message(
         self,
         messages: list[types.SamplingMessage],
@@ -233,7 +285,7 @@ class ServerSession(
         tools: list[types.Tool] | None = None,
         tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
-    ) -> types.CreateMessageResult:
+    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools:
         """Send a sampling/create_message request.
 
         Args:
@@ -257,69 +309,42 @@ class ServerSession(
             The sampling result from the client.
 
         Raises:
-            McpError: If tool_use or tool_result blocks are misused when tools are provided.
+            McpError: If tools are provided but client doesn't support them.
+            ValueError: If tool_use or tool_result message structure is invalid.
         """
+        client_caps = self._client_params.capabilities if self._client_params else None
+        validate_sampling_tools(client_caps, tools, tool_choice)
+        validate_tool_use_result_messages(messages)
 
-        if tools is not None or tool_choice is not None:
-            has_tools_cap = self.check_client_capability(
-                types.ClientCapabilities(sampling=types.SamplingCapability(tools=types.SamplingToolsCapability()))
+        request = types.ServerRequest(
+            types.CreateMessageRequest(
+                params=types.CreateMessageRequestParams(
+                    messages=messages,
+                    systemPrompt=system_prompt,
+                    includeContext=include_context,
+                    temperature=temperature,
+                    maxTokens=max_tokens,
+                    stopSequences=stop_sequences,
+                    metadata=metadata,
+                    modelPreferences=model_preferences,
+                    tools=tools,
+                    toolChoice=tool_choice,
+                ),
             )
-            if not has_tools_cap:
-                raise McpError(
-                    types.ErrorData(
-                        code=types.INVALID_PARAMS,
-                        message="Client does not support sampling tools capability",
-                    )
-                )
+        )
+        metadata_obj = ServerMessageMetadata(related_request_id=related_request_id)
 
-        # Validate tool_use/tool_result message structure per SEP-1577:
-        # https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1577
-        # This validation runs regardless of whether `tools` is in this request,
-        # since a tool loop continuation may omit `tools` while still containing
-        # tool_result content that must match previous tool_use.
-        if messages:
-            last_content = messages[-1].content_as_list
-            has_tool_results = any(c.type == "tool_result" for c in last_content)
-
-            previous_content = messages[-2].content_as_list if len(messages) >= 2 else None
-            has_previous_tool_use = previous_content and any(c.type == "tool_use" for c in previous_content)
-
-            if has_tool_results:
-                # Per spec: "SamplingMessage with tool result content blocks
-                # MUST NOT contain other content types."
-                if any(c.type != "tool_result" for c in last_content):
-                    raise ValueError("The last message must contain only tool_result content if any is present")
-                if previous_content is None:
-                    raise ValueError("tool_result requires a previous message containing tool_use")
-                if not has_previous_tool_use:
-                    raise ValueError("tool_result blocks do not match any tool_use in the previous message")
-            if has_previous_tool_use and previous_content:
-                tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
-                tool_result_ids = {c.toolUseId for c in last_content if c.type == "tool_result"}
-                if tool_use_ids != tool_result_ids:
-                    raise ValueError("ids of tool_result blocks and tool_use blocks from previous message do not match")
-
+        # Use different result types based on whether tools are provided
+        if tools is not None:
+            return await self.send_request(
+                request=request,
+                result_type=types.CreateMessageResultWithTools,
+                metadata=metadata_obj,
+            )
         return await self.send_request(
-            request=types.ServerRequest(
-                types.CreateMessageRequest(
-                    params=types.CreateMessageRequestParams(
-                        messages=messages,
-                        systemPrompt=system_prompt,
-                        includeContext=include_context,
-                        temperature=temperature,
-                        maxTokens=max_tokens,
-                        stopSequences=stop_sequences,
-                        metadata=metadata,
-                        modelPreferences=model_preferences,
-                        tools=tools,
-                        toolChoice=tool_choice,
-                    ),
-                )
-            ),
+            request=request,
             result_type=types.CreateMessageResult,
-            metadata=ServerMessageMetadata(
-                related_request_id=related_request_id,
-            ),
+            metadata=metadata_obj,
         )
 
     async def list_roots(self) -> types.ListRootsResult:
@@ -480,6 +505,181 @@ class ServerSession(
             ),
             related_request_id,
         )
+
+    def _build_elicit_form_request(
+        self,
+        message: str,
+        requestedSchema: types.ElicitRequestedSchema,
+        related_task_id: str | None = None,
+        task: types.TaskMetadata | None = None,
+    ) -> types.JSONRPCRequest:
+        """Build a form mode elicitation request without sending it.
+
+        Args:
+            message: The message to present to the user
+            requestedSchema: Schema defining the expected response structure
+            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+            task: If provided, makes this a task-augmented request
+
+        Returns:
+            A JSONRPCRequest ready to be sent or queued
+        """
+        params = types.ElicitRequestFormParams(
+            message=message,
+            requestedSchema=requestedSchema,
+            task=task,
+        )
+        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        # Add related-task metadata if associated with a parent task
+        if related_task_id is not None:
+            # Defensive: model_dump() never includes _meta, but guard against future changes
+            if "_meta" not in params_data:  # pragma: no cover
+                params_data["_meta"] = {}
+            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
+                taskId=related_task_id
+            ).model_dump(by_alias=True)
+
+        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
+        if related_task_id is None:
+            self._request_id += 1
+
+        return types.JSONRPCRequest(
+            jsonrpc="2.0",
+            id=request_id,
+            method="elicitation/create",
+            params=params_data,
+        )
+
+    def _build_elicit_url_request(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+        related_task_id: str | None = None,
+    ) -> types.JSONRPCRequest:
+        """Build a URL mode elicitation request without sending it.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+
+        Returns:
+            A JSONRPCRequest ready to be sent or queued
+        """
+        params = types.ElicitRequestURLParams(
+            message=message,
+            url=url,
+            elicitationId=elicitation_id,
+        )
+        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        # Add related-task metadata if associated with a parent task
+        if related_task_id is not None:
+            # Defensive: model_dump() never includes _meta, but guard against future changes
+            if "_meta" not in params_data:  # pragma: no cover
+                params_data["_meta"] = {}
+            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
+                taskId=related_task_id
+            ).model_dump(by_alias=True)
+
+        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
+        if related_task_id is None:
+            self._request_id += 1
+
+        return types.JSONRPCRequest(
+            jsonrpc="2.0",
+            id=request_id,
+            method="elicitation/create",
+            params=params_data,
+        )
+
+    def _build_create_message_request(
+        self,
+        messages: list[types.SamplingMessage],
+        *,
+        max_tokens: int,
+        system_prompt: str | None = None,
+        include_context: types.IncludeContext | None = None,
+        temperature: float | None = None,
+        stop_sequences: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        model_preferences: types.ModelPreferences | None = None,
+        tools: list[types.Tool] | None = None,
+        tool_choice: types.ToolChoice | None = None,
+        related_task_id: str | None = None,
+        task: types.TaskMetadata | None = None,
+    ) -> types.JSONRPCRequest:
+        """Build a sampling/createMessage request without sending it.
+
+        Args:
+            messages: The conversation messages to send
+            max_tokens: Maximum number of tokens to generate
+            system_prompt: Optional system prompt
+            include_context: Optional context inclusion setting
+            temperature: Optional sampling temperature
+            stop_sequences: Optional stop sequences
+            metadata: Optional metadata to pass through to the LLM provider
+            model_preferences: Optional model selection preferences
+            tools: Optional list of tools the LLM can use during sampling
+            tool_choice: Optional control over tool usage behavior
+            related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
+            task: If provided, makes this a task-augmented request
+
+        Returns:
+            A JSONRPCRequest ready to be sent or queued
+        """
+        params = types.CreateMessageRequestParams(
+            messages=messages,
+            systemPrompt=system_prompt,
+            includeContext=include_context,
+            temperature=temperature,
+            maxTokens=max_tokens,
+            stopSequences=stop_sequences,
+            metadata=metadata,
+            modelPreferences=model_preferences,
+            tools=tools,
+            toolChoice=tool_choice,
+            task=task,
+        )
+        params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        # Add related-task metadata if associated with a parent task
+        if related_task_id is not None:
+            # Defensive: model_dump() never includes _meta, but guard against future changes
+            if "_meta" not in params_data:  # pragma: no cover
+                params_data["_meta"] = {}
+            params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
+                taskId=related_task_id
+            ).model_dump(by_alias=True)
+
+        request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
+        if related_task_id is None:
+            self._request_id += 1
+
+        return types.JSONRPCRequest(
+            jsonrpc="2.0",
+            id=request_id,
+            method="sampling/createMessage",
+            params=params_data,
+        )
+
+    async def send_message(self, message: SessionMessage) -> None:
+        """Send a raw session message.
+
+        This is primarily used by TaskResultHandler to deliver queued messages
+        (elicitation/sampling requests) to the client during task execution.
+
+        WARNING: This is a low-level experimental method that may change without
+        notice. Prefer using higher-level methods like send_notification() or
+        send_request() for normal operations.
+
+        Args:
+            message: The session message to send
+        """
+        await self._write_stream.send(message)
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)

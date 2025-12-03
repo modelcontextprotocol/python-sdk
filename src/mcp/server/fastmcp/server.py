@@ -153,6 +153,7 @@ class FastMCP(Generic[LifespanResultT]):
         auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
+        retry_interval: int | None = None,
         *,
         tools: list[Tool] | None = None,
         debug: bool = False,
@@ -173,6 +174,14 @@ class FastMCP(Generic[LifespanResultT]):
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
+
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -221,6 +230,7 @@ class FastMCP(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
+        self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -940,6 +950,7 @@ class FastMCP(Generic[LifespanResultT]):
             self._session_manager = StreamableHTTPSessionManager(
                 app=self._mcp_server,
                 event_store=self._event_store,
+                retry_interval=self._retry_interval,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
@@ -1281,6 +1292,38 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     def session(self):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
+
+    async def close_sse_stream(self) -> None:
+        """Close the SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the current request, triggering
+        client reconnection. Events continue to be stored in the event store and will
+        be replayed when the client reconnects with Last-Event-ID.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            The callback is only available when event_store is configured.
+        """
+        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
+            await self._request_context.close_sse_stream()
+
+    async def close_standalone_sse_stream(self) -> None:
+        """Close the standalone GET SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the standalone GET stream used
+        for unsolicited server-to-client notifications. The client SHOULD reconnect
+        with Last-Event-ID to resume receiving notifications.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            Currently, client reconnection for standalone GET streams is NOT
+            implemented - this is a known gap.
+        """
+        if self._request_context and self._request_context.close_standalone_sse_stream:  # pragma: no cover
+            await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:

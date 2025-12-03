@@ -15,8 +15,14 @@ members = [
     "mcp-simple-resource",
     "mcp-simple-streamablehttp",
     "mcp-simple-streamablehttp-stateless",
+    "mcp-simple-task",
+    "mcp-simple-task-client",
+    "mcp-simple-task-interactive",
+    "mcp-simple-task-interactive-client",
     "mcp-simple-tool",
     "mcp-snippets",
+    "mcp-sse-polling-client",
+    "mcp-sse-polling-demo",
     "mcp-structured-output-lowlevel",
 ]
 
@@ -1197,6 +1203,126 @@ dev = [
 ]
 
 [[package]]
+name = "mcp-simple-task"
+version = "0.1.0"
+source = { editable = "examples/servers/simple-task" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.0" },
+    { name = "mcp", editable = "." },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-simple-task-client"
+version = "0.1.0"
+source = { editable = "examples/clients/simple-task-client" }
+dependencies = [
+    { name = "click" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "mcp", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-simple-task-interactive"
+version = "0.1.0"
+source = { editable = "examples/servers/simple-task-interactive" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.0" },
+    { name = "mcp", editable = "." },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-simple-task-interactive-client"
+version = "0.1.0"
+source = { editable = "examples/clients/simple-task-interactive-client" }
+dependencies = [
+    { name = "click" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "mcp", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
 name = "mcp-simple-tool"
 version = "0.1.0"
 source = { editable = "examples/servers/simple-tool" }
@@ -1239,6 +1365,72 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "mcp", editable = "." }]
+
+[[package]]
+name = "mcp-sse-polling-client"
+version = "0.1.0"
+source = { editable = "examples/clients/sse-polling-client" }
+dependencies = [
+    { name = "click" },
+    { name = "mcp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.2.0" },
+    { name = "mcp", editable = "." },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
+
+[[package]]
+name = "mcp-sse-polling-demo"
+version = "0.1.0"
+source = { editable = "examples/servers/sse-polling-demo" }
+dependencies = [
+    { name = "anyio" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.5" },
+    { name = "click", specifier = ">=8.2.0" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "mcp", editable = "." },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.378" },
+    { name = "pytest", specifier = ">=8.3.3" },
+    { name = "ruff", specifier = ">=0.6.9" },
+]
 
 [[package]]
 name = "mcp-structured-output-lowlevel"
