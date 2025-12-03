@@ -242,8 +242,9 @@ class ServerTest(Server):  # pragma: no cover
                 )
 
                 # Return the sampling result in the tool response
-                if all(c.type == "text" for c in sampling_result.content_as_list):
-                    response = "\n".join(c.text for c in sampling_result.content_as_list if c.type == "text")
+                # Since we're not passing tools param, result.content is single content
+                if sampling_result.content.type == "text":
+                    response = sampling_result.content.text
                 else:
                     response = str(sampling_result.content)
                 return [

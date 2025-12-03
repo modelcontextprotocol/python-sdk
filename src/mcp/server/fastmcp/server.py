@@ -174,6 +174,14 @@ class FastMCP(Generic[LifespanResultT]):
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
+
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
