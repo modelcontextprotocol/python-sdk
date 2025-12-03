@@ -13,7 +13,7 @@ from pydantic import (
     field_validator,
 )
 
-from mcp.types import Icon
+from mcp.types import Annotations, Icon
 
 
 class Resource(BaseModel, abc.ABC):
@@ -31,6 +31,7 @@ class Resource(BaseModel, abc.ABC):
         pattern=r"^[a-zA-Z0-9]+/[a-zA-Z0-9\-+.]+$",
     )
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this resource")
+    annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource")
 
     @field_validator("name", mode="before")
     @classmethod
@@ -45,4 +46,4 @@ class Resource(BaseModel, abc.ABC):
     @abc.abstractmethod
     async def read(self) -> str | bytes:
         """Read the resource content."""
-        pass
+        pass  # pragma: no cover

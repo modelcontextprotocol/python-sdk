@@ -4,6 +4,7 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from unittest.mock import Mock
 
 import anyio
 import httpx
@@ -16,9 +17,10 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+import mcp.client.sse
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
@@ -32,6 +34,7 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_server_for_SSE"
 
@@ -49,7 +52,7 @@ def server_url(server_port: int) -> str:
 
 
 # Test server implementation
-class ServerTest(Server):
+class ServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
 
@@ -80,7 +83,7 @@ class ServerTest(Server):
 
 
 # Test fixtures
-def make_server_app() -> Starlette:
+def make_server_app() -> Starlette:  # pragma: no cover
     """Create test Starlette app with SSE transport"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
@@ -104,7 +107,7 @@ def make_server_app() -> Starlette:
     return app
 
 
-def run_server(server_port: int) -> None:
+def run_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
@@ -123,19 +126,8 @@ def server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
@@ -143,7 +135,7 @@ def server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 
@@ -166,7 +158,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
                 assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
 
                 line_number = 0
-                async for line in response.aiter_lines():
+                async for line in response.aiter_lines():  # pragma: no branch
                     if line_number == 0:
                         assert line == "event: endpoint"
                     elif line_number == 1:
@@ -192,6 +184,57 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             # Test ping
             ping_result = await session.send_ping()
             assert isinstance(ping_result, EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
+    captured_session_id: str | None = None
+
+    def on_session_created(session_id: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = session_id
+
+    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    assert captured_session_id is not None
+    assert len(captured_session_id) > 0
+
+
+@pytest.mark.parametrize(
+    "endpoint_url,expected",
+    [
+        ("/messages?sessionId=abc123", "abc123"),
+        ("/messages?session_id=def456", "def456"),
+        ("/messages?sessionId=abc&session_id=def", "abc"),
+        ("/messages?other=value", None),
+        ("/messages", None),
+        ("", None),
+    ],
+)
+def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
+    assert _extract_session_id_from_endpoint(endpoint_url) == expected
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created_not_called_when_no_session_id(
+    server: None, server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    callback_mock = Mock()
+
+    def mock_extract(url: str) -> None:
+        return None
+
+    monkeypatch.setattr(mcp.client.sse, "_extract_session_id_from_endpoint", mock_extract)
+
+    async with sse_client(server_url + "/sse", on_session_created=callback_mock) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    callback_mock.assert_not_called()
 
 
 @pytest.fixture
@@ -224,7 +267,7 @@ async def test_sse_client_exception_handling(
 
 @pytest.mark.anyio
 @pytest.mark.skip("this test highlights a possible bug in SSE read timeout exception handling")
-async def test_sse_client_timeout(
+async def test_sse_client_timeout(  # pragma: no cover
     initialized_sse_client_session: ClientSession,
 ) -> None:
     session = initialized_sse_client_session
@@ -242,7 +285,7 @@ async def test_sse_client_timeout(
     pytest.fail("the client should have timed out and returned an error already")
 
 
-def run_mounted_server(server_port: int) -> None:
+def run_mounted_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     main_app = Starlette(routes=[Mount("/mounted_app", app=app)])
     server = uvicorn.Server(config=uvicorn.Config(app=main_app, host="127.0.0.1", port=server_port, log_level="error"))
@@ -262,19 +305,8 @@ def mounted_server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
@@ -282,7 +314,7 @@ def mounted_server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 
@@ -301,7 +333,7 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
 
 
 # Test server with request context that returns headers in the response
-class RequestContextServer(Server[object, Request]):
+class RequestContextServer(Server[object, Request]):  # pragma: no cover
     def __init__(self):
         super().__init__("request_context_server")
 
@@ -343,7 +375,7 @@ class RequestContextServer(Server[object, Request]):
             ]
 
 
-def run_context_server(server_port: int) -> None:
+def run_context_server(server_port: int) -> None:  # pragma: no cover
     """Run a server that captures request context"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
@@ -377,26 +409,15 @@ def context_server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for context server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Context server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
     print("killing context server")
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("context server process failed to terminate")
 
 

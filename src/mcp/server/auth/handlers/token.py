@@ -92,9 +92,25 @@ class TokenHandler:
 
     async def handle(self, request: Request):
         try:
+            client_info = await self.client_authenticator.authenticate_request(request)
+        except AuthenticationError as e:
+            # Authentication failures should return 401
+            return PydanticJSONResponse(
+                content=TokenErrorResponse(
+                    error="unauthorized_client",
+                    error_description=e.message,
+                ),
+                status_code=401,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Pragma": "no-cache",
+                },
+            )
+
+        try:
             form_data = await request.form()
             token_request = TokenRequest.model_validate(dict(form_data)).root
-        except ValidationError as validation_error:
+        except ValidationError as validation_error:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
                     error="invalid_request",
@@ -102,20 +118,7 @@ class TokenHandler:
                 )
             )
 
-        try:
-            client_info = await self.client_authenticator.authenticate(
-                client_id=token_request.client_id,
-                client_secret=token_request.client_secret,
-            )
-        except AuthenticationError as e:
-            return self.response(
-                TokenErrorResponse(
-                    error="unauthorized_client",
-                    error_description=e.message,
-                )
-            )
-
-        if token_request.grant_type not in client_info.grant_types:
+        if token_request.grant_type not in client_info.grant_types:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
                     error="unsupported_grant_type",
@@ -151,7 +154,7 @@ class TokenHandler:
                 # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.6
                 if auth_code.redirect_uri_provided_explicitly:
                     authorize_request_redirect_uri = auth_code.redirect_uri
-                else:
+                else:  # pragma: no cover
                     authorize_request_redirect_uri = None
 
                 # Convert both sides to strings for comparison to handle AnyUrl vs string issues
@@ -192,7 +195,7 @@ class TokenHandler:
                         )
                     )
 
-            case RefreshTokenRequest():
+            case RefreshTokenRequest():  # pragma: no cover
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
                 if refresh_token is None or refresh_token.client_id != token_request.client_id:
                     # if token belongs to different client, pretend it doesn't exist

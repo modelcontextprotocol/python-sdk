@@ -2,6 +2,8 @@
 In-memory transports
 """
 
+from __future__ import annotations
+
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -11,15 +13,9 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.types as types
-from mcp.client.session import (
-    ClientSession,
-    ElicitationFnT,
-    ListRootsFnT,
-    LoggingFnT,
-    MessageHandlerFnT,
-    SamplingFnT,
-)
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.server import Server
+from mcp.server.fastmcp import FastMCP
 from mcp.shared.message import SessionMessage
 
 MessageStream = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
@@ -52,7 +48,7 @@ async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageS
 
 @asynccontextmanager
 async def create_connected_server_and_client_session(
-    server: Server[Any],
+    server: Server[Any] | FastMCP,
     read_timeout_seconds: timedelta | None = None,
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
@@ -63,10 +59,13 @@ async def create_connected_server_and_client_session(
     elicitation_callback: ElicitationFnT | None = None,
 ) -> AsyncGenerator[ClientSession, None]:
     """Creates a ClientSession that is connected to a running MCP server."""
-    async with create_client_server_memory_streams() as (
-        client_streams,
-        server_streams,
-    ):
+
+    # TODO(Marcelo): we should have a proper `Client` that can use this "in-memory transport",
+    # and we should expose a method in the `FastMCP` so we don't access a private attribute.
+    if isinstance(server, FastMCP):  # pragma: no cover
+        server = server._mcp_server  # type: ignore[reportPrivateUsage]
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
         server_read, server_write = server_streams
 
@@ -95,5 +94,5 @@ async def create_connected_server_and_client_session(
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session
-            finally:
+            finally:  # pragma: no cover
                 tg.cancel_scope.cancel()

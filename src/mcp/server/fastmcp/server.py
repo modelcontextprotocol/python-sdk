@@ -4,7 +4,14 @@ from __future__ import annotations as _annotations
 
 import inspect
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+    Sequence,
+)
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal
 
@@ -22,10 +29,25 @@ from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
-from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
+from mcp.server.auth.middleware.bearer_auth import (
+    BearerAuthBackend,
+    RequireAuthMiddleware,
+)
+from mcp.server.auth.provider import (
+    OAuthAuthorizationServerProvider,
+    ProviderTokenVerifier,
+    TokenVerifier,
+)
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, elicit_with_validation
+from mcp.server.elicitation import (
+    ElicitationResult,
+    ElicitSchemaModelT,
+    UrlElicitationResult,
+    elicit_with_validation,
+)
+from mcp.server.elicitation import (
+    elicit_url as _elicit_url,
+)
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -43,7 +65,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -112,7 +134,9 @@ def lifespan_wrapper(
     lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[MCPServer[LifespanResultT, Request]], AbstractAsyncContextManager[LifespanResultT]]:
     @asynccontextmanager
-    async def wrap(_: MCPServer[LifespanResultT, Request]) -> AsyncIterator[LifespanResultT]:
+    async def wrap(
+        _: MCPServer[LifespanResultT, Request],
+    ) -> AsyncIterator[LifespanResultT]:
         async with lifespan(app) as context:
             yield context
 
@@ -126,9 +150,10 @@ class FastMCP(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
+        retry_interval: int | None = None,
         *,
         tools: list[Tool] | None = None,
         debug: bool = False,
@@ -145,10 +170,18 @@ class FastMCP(Generic[LifespanResultT]):
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
         dependencies: Collection[str] = (),
-        lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
+        lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
+
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -183,20 +216,21 @@ class FastMCP(Generic[LifespanResultT]):
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # Validate auth configuration
         if self.settings.auth is not None:
-            if auth_server_provider and token_verifier:
+            if auth_server_provider and token_verifier:  # pragma: no cover
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
-            if not auth_server_provider and not token_verifier:
+            if not auth_server_provider and not token_verifier:  # pragma: no cover
                 raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
-        elif auth_server_provider or token_verifier:
+        elif auth_server_provider or token_verifier:  # pragma: no cover
             raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
 
         # Create token verifier from provider if needed (backwards compatibility)
-        if auth_server_provider and not token_verifier:
+        if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
+        self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -233,14 +267,14 @@ class FastMCP(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:
+        if self._session_manager is None:  # pragma: no cover
             raise RuntimeError(
                 "Session manager can only be accessed after"
                 "calling streamable_http_app()."
                 "The session manager is created lazily"
                 "to avoid unnecessary initialization."
             )
-        return self._session_manager
+        return self._session_manager  # pragma: no cover
 
     def run(
         self,
@@ -254,15 +288,15 @@ class FastMCP(Generic[LifespanResultT]):
             mount_path: Optional mount path for SSE transport
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
-        if transport not in TRANSPORTS.__args__:  # type: ignore
+        if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
 
         match transport:
             case "stdio":
                 anyio.run(self.run_stdio_async)
-            case "sse":
+            case "sse":  # pragma: no cover
                 anyio.run(lambda: self.run_sse_async(mount_path))
-            case "streamable-http":
+            case "streamable-http":  # pragma: no cover
                 anyio.run(self.run_streamable_http_async)
 
     def _setup_handlers(self) -> None:
@@ -290,6 +324,7 @@ class FastMCP(Generic[LifespanResultT]):
                 outputSchema=info.output_schema,
                 annotations=info.annotations,
                 icons=info.icons,
+                _meta=info.meta,
             )
             for info in tools
         ]
@@ -322,6 +357,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=resource.description,
                 mimeType=resource.mime_type,
                 icons=resource.icons,
+                annotations=resource.annotations,
             )
             for resource in resources
         ]
@@ -335,6 +371,8 @@ class FastMCP(Generic[LifespanResultT]):
                 title=template.title,
                 description=template.description,
                 mimeType=template.mime_type,
+                icons=template.icons,
+                annotations=template.annotations,
             )
             for template in templates
         ]
@@ -344,13 +382,13 @@ class FastMCP(Generic[LifespanResultT]):
 
         context = self.get_context()
         resource = await self._resource_manager.get_resource(uri, context=context)
-        if not resource:
+        if not resource:  # pragma: no cover
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
 
@@ -362,6 +400,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> None:
         """Add a tool to the server.
@@ -387,8 +426,20 @@ class FastMCP(Generic[LifespanResultT]):
             description=description,
             annotations=annotations,
             icons=icons,
+            meta=meta,
             structured_output=structured_output,
         )
+
+    def remove_tool(self, name: str) -> None:
+        """Remove a tool from the server by name.
+
+        Args:
+            name: The name of the tool to remove
+
+        Raises:
+            ToolError: If the tool does not exist
+        """
+        self._tool_manager.remove_tool(name)
 
     def tool(
         self,
@@ -397,6 +448,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         annotations: ToolAnnotations | None = None,
         icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a tool.
@@ -444,6 +496,7 @@ class FastMCP(Generic[LifespanResultT]):
                 description=description,
                 annotations=annotations,
                 icons=icons,
+                meta=meta,
                 structured_output=structured_output,
             )
             return fn
@@ -485,6 +538,7 @@ class FastMCP(Generic[LifespanResultT]):
         description: str | None = None,
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
+        annotations: Annotations | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -559,7 +613,8 @@ class FastMCP(Generic[LifespanResultT]):
                     title=title,
                     description=description,
                     mime_type=mime_type,
-                    # Note: Resource templates don't support icons
+                    icons=icons,
+                    annotations=annotations,
                 )
             else:
                 # Register as regular resource
@@ -571,6 +626,7 @@ class FastMCP(Generic[LifespanResultT]):
                     description=description,
                     mime_type=mime_type,
                     icons=icons,
+                    annotations=annotations,
                 )
                 self.add_resource(resource)
             return fn
@@ -655,6 +711,10 @@ class FastMCP(Generic[LifespanResultT]):
         The handler function must be an async function that accepts a Starlette
         Request and returns a Response.
 
+        Routes using this decorator will not require authorization. It is intended
+        for uses that are either a part of authorization flows or intended to be
+        public such as health check endpoints.
+
         Args:
             path: URL path for the route (e.g., "/oauth/callback")
             methods: List of HTTP methods to support (e.g., ["GET", "POST"])
@@ -668,7 +728,7 @@ class FastMCP(Generic[LifespanResultT]):
                 return JSONResponse({"status": "ok"})
         """
 
-        def decorator(
+        def decorator(  # pragma: no cover
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
             self._custom_starlette_routes.append(
@@ -682,7 +742,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
             return func
 
-        return decorator
+        return decorator  # pragma: no cover
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
@@ -693,7 +753,7 @@ class FastMCP(Generic[LifespanResultT]):
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self, mount_path: str | None = None) -> None:
+    async def run_sse_async(self, mount_path: str | None = None) -> None:  # pragma: no cover
         """Run the server using SSE transport."""
         import uvicorn
 
@@ -708,7 +768,7 @@ class FastMCP(Generic[LifespanResultT]):
         server = uvicorn.Server(config)
         await server.serve()
 
-    async def run_streamable_http_async(self) -> None:
+    async def run_streamable_http_async(self) -> None:  # pragma: no cover
         """Run the server using StreamableHTTP transport."""
         import uvicorn
 
@@ -768,7 +828,7 @@ class FastMCP(Generic[LifespanResultT]):
             security_settings=self.settings.transport_security,
         )
 
-        async def handle_sse(scope: Scope, receive: Receive, send: Send):
+        async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(
@@ -789,7 +849,7 @@ class FastMCP(Generic[LifespanResultT]):
         required_scopes = []
 
         # Set up auth if configured
-        if self.settings.auth:
+        if self.settings.auth:  # pragma: no cover
             required_scopes = self.settings.auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -820,15 +880,14 @@ class FastMCP(Generic[LifespanResultT]):
                 )
 
         # When auth is configured, require authentication
-        if self._token_verifier:
+        if self._token_verifier:  # pragma: no cover
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
-                from pydantic import AnyHttpUrl
+                from mcp.server.auth.routes import build_resource_metadata_url
 
-                resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
-                )
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
@@ -844,7 +903,7 @@ class FastMCP(Generic[LifespanResultT]):
                     app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
-        else:
+        else:  # pragma: no cover
             # Auth is disabled, no need for RequireAuthMiddleware
             # Since handle_sse is an ASGI app, we need to create a compatible endpoint
             async def sse_endpoint(request: Request) -> Response:
@@ -865,7 +924,7 @@ class FastMCP(Generic[LifespanResultT]):
                 )
             )
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:
+        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
             from mcp.server.auth.routes import create_protected_resource_routes
 
             routes.extend(
@@ -887,10 +946,11 @@ class FastMCP(Generic[LifespanResultT]):
         from starlette.middleware import Middleware
 
         # Create session manager on first call (lazy initialization)
-        if self._session_manager is None:
+        if self._session_manager is None:  # pragma: no branch
             self._session_manager = StreamableHTTPSessionManager(
                 app=self._mcp_server,
                 event_store=self._event_store,
+                retry_interval=self._retry_interval,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
@@ -905,7 +965,7 @@ class FastMCP(Generic[LifespanResultT]):
         required_scopes = []
 
         # Set up auth if configured
-        if self.settings.auth:
+        if self.settings.auth:  # pragma: no cover
             required_scopes = self.settings.auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -933,15 +993,14 @@ class FastMCP(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if self._token_verifier:
+        if self._token_verifier:  # pragma: no cover
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
-                from pydantic import AnyHttpUrl
+                from mcp.server.auth.routes import build_resource_metadata_url
 
-                resource_metadata_url = AnyHttpUrl(
-                    str(self.settings.auth.resource_server_url).rstrip("/") + "/.well-known/oauth-protected-resource"
-                )
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
             routes.append(
                 Route(
@@ -959,24 +1018,14 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:
-            from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
-            from mcp.server.auth.routes import cors_middleware
-            from mcp.shared.auth import ProtectedResourceMetadata
+        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
+            from mcp.server.auth.routes import create_protected_resource_routes
 
-            protected_resource_metadata = ProtectedResourceMetadata(
-                resource=self.settings.auth.resource_server_url,
-                authorization_servers=[self.settings.auth.issuer_url],
-                scopes_supported=self.settings.auth.required_scopes,
-            )
-            routes.append(
-                Route(
-                    "/.well-known/oauth-protected-resource",
-                    endpoint=cors_middleware(
-                        ProtectedResourceMetadataHandler(protected_resource_metadata).handle,
-                        ["GET", "OPTIONS"],
-                    ),
-                    methods=["GET", "OPTIONS"],
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=self.settings.auth.resource_server_url,
+                    authorization_servers=[self.settings.auth.issuer_url],
+                    scopes_supported=self.settings.auth.required_scopes,
                 )
             )
 
@@ -1036,7 +1085,7 @@ class StreamableHTTPASGIApp:
     def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
         await self.session_manager.handle_request(scope, receive, send)
 
 
@@ -1091,16 +1140,16 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def fastmcp(self) -> FastMCP:
         """Access to the FastMCP server."""
-        if self._fastmcp is None:
+        if self._fastmcp is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")
-        return self._fastmcp
+        return self._fastmcp  # pragma: no cover
 
     @property
     def request_context(
         self,
     ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
         """Access to the underlying request context."""
-        if self._request_context is None:
+        if self._request_context is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
@@ -1114,7 +1163,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
         progress_token = self.request_context.meta.progressToken if self.request_context.meta else None
 
-        if progress_token is None:
+        if progress_token is None:  # pragma: no cover
             return
 
         await self.request_context.session.send_progress_notification(
@@ -1164,7 +1213,45 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
 
         return await elicit_with_validation(
-            session=self.request_context.session, message=message, schema=schema, related_request_id=self.request_id
+            session=self.request_context.session,
+            message=message,
+            schema=schema,
+            related_request_id=self.request_id,
+        )
+
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+    ) -> UrlElicitationResult:
+        """Request URL mode elicitation from the client.
+
+        This directs the user to an external URL for out-of-band interactions
+        that must not pass through the MCP client. Use this for:
+        - Collecting sensitive credentials (API keys, passwords)
+        - OAuth authorization flows with third-party services
+        - Payment and subscription flows
+        - Any interaction where data should not pass through the LLM context
+
+        The response indicates whether the user consented to navigate to the URL.
+        The actual interaction happens out-of-band. When the elicitation completes,
+        call `self.session.send_elicit_complete(elicitation_id)` to notify the client.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+
+        Returns:
+            UrlElicitationResult indicating accept, decline, or cancel
+        """
+        return await _elicit_url(
+            session=self.request_context.session,
+            message=message,
+            url=url,
+            elicitation_id=elicitation_id,
+            related_request_id=self.request_id,
         )
 
     async def log(
@@ -1192,7 +1279,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def client_id(self) -> str | None:
         """Get the client ID if available."""
-        return getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        return (
+            getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        )  # pragma: no cover
 
     @property
     def request_id(self) -> str:
@@ -1203,6 +1292,38 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     def session(self):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
+
+    async def close_sse_stream(self) -> None:
+        """Close the SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the current request, triggering
+        client reconnection. Events continue to be stored in the event store and will
+        be replayed when the client reconnects with Last-Event-ID.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            The callback is only available when event_store is configured.
+        """
+        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
+            await self._request_context.close_sse_stream()
+
+    async def close_standalone_sse_stream(self) -> None:
+        """Close the standalone GET SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the standalone GET stream used
+        for unsolicited server-to-client notifications. The client SHOULD reconnect
+        with Last-Event-ID to resume receiving notifications.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            Currently, client reconnection for standalone GET streams is NOT
+            implemented - this is a known gap.
+        """
+        if self._request_context and self._request_context.close_standalone_sse_stream:  # pragma: no cover
+            await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
     async def debug(self, message: str, **extra: Any) -> None:

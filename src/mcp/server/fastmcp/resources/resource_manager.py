@@ -10,6 +10,7 @@ from pydantic import AnyUrl
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.server.fastmcp.resources.templates import ResourceTemplate
 from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -61,6 +62,8 @@ class ResourceManager:
         title: str | None = None,
         description: str | None = None,
         mime_type: str | None = None,
+        icons: list[Icon] | None = None,
+        annotations: Annotations | None = None,
     ) -> ResourceTemplate:
         """Add a template from a function."""
         template = ResourceTemplate.from_function(
@@ -70,6 +73,8 @@ class ResourceManager:
             title=title,
             description=description,
             mime_type=mime_type,
+            icons=icons,
+            annotations=annotations,
         )
         self._templates[template.uri_template] = template
         return template
@@ -92,7 +97,7 @@ class ResourceManager:
             if params := template.matches(uri_str):
                 try:
                     return await template.create_resource(uri_str, params, context=context)
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise ValueError(f"Error creating resource from template: {e}")
 
         raise ValueError(f"Unknown resource: {uri}")

@@ -13,7 +13,6 @@ single-feature servers across different transports (SSE and StreamableHTTP).
 import json
 import multiprocessing
 import socket
-import time
 from collections.abc import Generator
 
 import pytest
@@ -60,6 +59,7 @@ from mcp.types import (
     TextResourceContents,
     ToolListChangedNotification,
 )
+from tests.test_helpers import wait_for_server
 
 
 class NotificationCollector:
@@ -75,14 +75,14 @@ class NotificationCollector:
         self, message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
     ) -> None:
         """Handle any server notification and route to appropriate handler."""
-        if isinstance(message, ServerNotification):
+        if isinstance(message, ServerNotification):  # pragma: no branch
             if isinstance(message.root, ProgressNotification):
                 self.progress_notifications.append(message.root.params)
             elif isinstance(message.root, LoggingMessageNotification):
                 self.log_messages.append(message.root.params)
             elif isinstance(message.root, ResourceListChangedNotification):
                 self.resource_notifications.append(message.root.params)
-            elif isinstance(message.root, ToolListChangedNotification):
+            elif isinstance(message.root, ToolListChangedNotification):  # pragma: no cover
                 self.tool_notifications.append(message.root.params)
 
 
@@ -101,7 +101,7 @@ def server_url(server_port: int) -> str:
     return f"http://127.0.0.1:{server_port}"
 
 
-def run_server_with_transport(module_name: str, port: int, transport: str) -> None:
+def run_server_with_transport(module_name: str, port: int, transport: str) -> None:  # pragma: no cover
     """Run server with specified transport."""
     # Get the MCP instance based on module name
     if module_name == "basic_tool":
@@ -160,25 +160,14 @@ def server_transport(request: pytest.FixtureRequest, server_port: int) -> Genera
     )
     proc.start()
 
-    # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    # Wait for server to be ready
+    wait_for_server(server_port)
 
     yield transport
 
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("Server process failed to terminate")
 
 
@@ -191,7 +180,7 @@ def create_client_for_transport(transport: str, server_url: str):
     elif transport == "streamable-http":
         endpoint = f"{server_url}/mcp"
         return streamablehttp_client(endpoint)
-    else:
+    else:  # pragma: no cover
         raise ValueError(f"Invalid transport: {transport}")
 
 
@@ -244,7 +233,7 @@ async def elicitation_callback(context: RequestContext[ClientSession, None], par
             action="accept",
             content={"checkAlternative": True, "alternativeDate": "2024-12-26"},
         )
-    else:
+    else:  # pragma: no cover
         return ElicitResult(action="decline")
 
 
@@ -396,7 +385,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
 
     async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     client_cm = create_client_for_transport(transport, server_url)
@@ -537,7 +526,7 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
 
     async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     client_cm = create_client_for_transport(transport, server_url)

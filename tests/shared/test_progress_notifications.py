@@ -1,4 +1,5 @@
 from typing import Any, cast
+from unittest.mock import patch
 
 import anyio
 import pytest
@@ -10,6 +11,7 @@ from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
+from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.shared.progress import progress
 from mcp.shared.session import BaseSession, RequestResponder, SessionMessage
 
@@ -39,7 +41,7 @@ async def test_bidirectional_progress_notifications():
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise e
 
     # Track progress updates
@@ -89,10 +91,10 @@ async def test_bidirectional_progress_notifications():
             if arguments and "_meta" in arguments:
                 progressToken = arguments["_meta"]["progressToken"]
 
-                if not progressToken:
+                if not progressToken:  # pragma: no cover
                     raise ValueError("Empty progress token received")
 
-                if progressToken != client_progress_token:
+                if progressToken != client_progress_token:  # pragma: no cover
                     raise ValueError("Server sending back incorrect progressToken")
 
                 # Send progress notifications
@@ -117,22 +119,22 @@ async def test_bidirectional_progress_notifications():
                     message="Server progress 100%",
                 )
 
-            else:
+            else:  # pragma: no cover
                 raise ValueError("Progress token not sent.")
 
             return [types.TextContent(type="text", text="Tool executed successfully")]
 
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
     # Client message handler to store progress notifications
     async def handle_client_message(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-        if isinstance(message, types.ServerNotification):
-            if isinstance(message.root, types.ProgressNotification):
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message.root, types.ProgressNotification):  # pragma: no branch
                 params = message.root.params
                 client_progress_updates.append(
                     {
@@ -246,14 +248,14 @@ async def test_progress_context_manager():
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise e
 
     # Client message handler
     async def handle_client_message(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     # run client session
@@ -320,3 +322,71 @@ async def test_progress_context_manager():
     assert server_progress_updates[3]["progress"] == 100
     assert server_progress_updates[3]["total"] == 100
     assert server_progress_updates[3]["message"] == "Processing results..."
+
+
+@pytest.mark.anyio
+async def test_progress_callback_exception_logging():
+    """Test that exceptions in progress callbacks are logged and \
+        don't crash the session."""
+    # Track logged warnings
+    logged_errors: list[str] = []
+
+    def mock_log_error(msg: str, *args: Any) -> None:
+        logged_errors.append(msg % args if args else msg)
+
+    # Create a progress callback that raises an exception
+    async def failing_progress_callback(
+        progress: float, total: float | None, message: str | None
+    ) -> None:  # pragma: no cover
+        raise ValueError("Progress callback failed!")
+
+    # Create a server with a tool that sends progress notifications
+    server = Server(name="TestProgressServer")
+
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: Any) -> list[types.TextContent]:
+        if name == "progress_tool":
+            # Send a progress notification
+            await server.request_context.session.send_progress_notification(
+                progress_token=server.request_context.request_id,
+                progress=50.0,
+                total=100.0,
+                message="Halfway done",
+            )
+            return [types.TextContent(type="text", text="progress_result")]
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+
+    @server.list_tools()
+    async def handle_list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(
+                name="progress_tool",
+                description="A tool that sends progress notifications",
+                inputSchema={},
+            )
+        ]
+
+    # Test with mocked logging
+    with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
+        async with create_connected_server_and_client_session(server) as client_session:
+            # Send a request with a failing progress callback
+            result = await client_session.send_request(
+                types.ClientRequest(
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(name="progress_tool", arguments={}),
+                    )
+                ),
+                types.CallToolResult,
+                progress_callback=failing_progress_callback,
+            )
+
+            # Verify the request completed successfully despite the callback failure
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, types.TextContent)
+            assert content.text == "progress_result"
+
+            # Check that a warning was logged for the progress callback exception
+            assert len(logged_errors) > 0
+            assert any("Progress callback raised an exception" in warning for warning in logged_errors)
