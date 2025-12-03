@@ -34,6 +34,12 @@ https://modelcontextprotocol.io/specification
 """
 DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
 
+"""
+The JSON-RPC version (fixed at "2.0") to use for MCP messages.
+"""
+JSONRPCVersionType: TypeAlias = Literal["2.0"]
+JSON_RPC_VERSION: JSONRPCVersionType = "2.0"
+
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
@@ -152,7 +158,7 @@ class PaginatedResult(Result):
 class JSONRPCRequest(Request[dict[str, Any] | None, str]):
     """A request that expects a response."""
 
-    jsonrpc: Literal["2.0"]
+    jsonrpc: JSONRPCVersionType = JSON_RPC_VERSION
     id: RequestId
     method: str
     params: dict[str, Any] | None = None
@@ -161,14 +167,14 @@ class JSONRPCRequest(Request[dict[str, Any] | None, str]):
 class JSONRPCNotification(Notification[dict[str, Any] | None, str]):
     """A notification which does not expect a response."""
 
-    jsonrpc: Literal["2.0"]
+    jsonrpc: JSONRPCVersionType = JSON_RPC_VERSION
     params: dict[str, Any] | None = None
 
 
 class JSONRPCResponse(BaseModel):
     """A successful (non-error) response to a request."""
 
-    jsonrpc: Literal["2.0"]
+    jsonrpc: JSONRPCVersionType = JSON_RPC_VERSION
     id: RequestId
     result: dict[str, Any]
     model_config = ConfigDict(extra="allow")
@@ -214,7 +220,7 @@ class ErrorData(BaseModel):
 class JSONRPCError(BaseModel):
     """A response to a request that indicates an error occurred."""
 
-    jsonrpc: Literal["2.0"]
+    jsonrpc: JSONRPCVersionType = JSON_RPC_VERSION
     id: str | int
     error: ErrorData
     model_config = ConfigDict(extra="allow")
