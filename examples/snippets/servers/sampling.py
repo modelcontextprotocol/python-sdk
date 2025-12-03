@@ -20,6 +20,7 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
         max_tokens=100,
     )
 
-    if all(c.type == "text" for c in result.content_as_list):
-        return "\n".join(c.text for c in result.content_as_list if c.type == "text")
+    # Since we're not passing tools param, result.content is single content
+    if result.content.type == "text":
+        return result.content.text
     return str(result.content)

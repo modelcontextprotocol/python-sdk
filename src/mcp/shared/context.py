@@ -7,6 +7,7 @@ from typing import Any, Generic
 
 from typing_extensions import TypeVar
 
+from mcp.shared.message import CloseSSEStreamCallback
 from mcp.shared.session import BaseSession
 from mcp.types import RequestId, RequestParams
 
@@ -27,3 +28,5 @@ class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
     # The Server sets this to an Experimental instance at runtime.
     experimental: Any = field(default=None)
     request: RequestT | None = None
+    close_sse_stream: CloseSSEStreamCallback | None = None
+    close_standalone_sse_stream: CloseSSEStreamCallback | None = None
