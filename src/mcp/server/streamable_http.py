@@ -238,29 +238,49 @@ class StreamableHTTPServerTransport:
         message: JSONRPCMessage,
         request: Request,
         request_id: RequestId,
+        protocol_version: str,
     ) -> SessionMessage:
-        """Create a session message with metadata including close_sse_stream callback."""
+        """Create a session message with metadata including close_sse_stream callback.
 
-        async def close_stream_callback() -> None:
-            self.close_sse_stream(request_id)
+        The close_sse_stream callbacks are only provided when the client supports
+        resumability (protocol version >= 2025-11-25). Old clients can't resume if
+        the stream is closed early because they didn't receive a priming event.
+        """
+        # Only provide close callbacks when client supports resumability
+        if self._event_store and protocol_version >= "2025-11-25":
 
-        async def close_standalone_stream_callback() -> None:
-            self.close_standalone_sse_stream()
+            async def close_stream_callback() -> None:
+                self.close_sse_stream(request_id)
 
-        metadata = ServerMessageMetadata(
-            request_context=request,
-            close_sse_stream=close_stream_callback,
-            close_standalone_sse_stream=close_standalone_stream_callback,
-        )
+            async def close_standalone_stream_callback() -> None:
+                self.close_standalone_sse_stream()
+
+            metadata = ServerMessageMetadata(
+                request_context=request,
+                close_sse_stream=close_stream_callback,
+                close_standalone_sse_stream=close_standalone_stream_callback,
+            )
+        else:
+            metadata = ServerMessageMetadata(request_context=request)
+
         return SessionMessage(message, metadata=metadata)
 
-    async def _send_priming_event(  # pragma: no cover
+    async def _maybe_send_priming_event(
         self,
         request_id: RequestId,
         sse_stream_writer: MemoryObjectSendStream[dict[str, Any]],
+        protocol_version: str,
     ) -> None:
-        """Send priming event for SSE resumability if event_store is configured."""
+        """Send priming event for SSE resumability if event_store is configured.
+
+        Only sends priming events to clients with protocol version >= 2025-11-25,
+        which includes the fix for handling empty SSE data. Older clients would
+        crash trying to parse empty data as JSON.
+        """
         if not self._event_store:
+            return
+        # Priming events have empty data which older clients cannot handle.
+        if protocol_version < "2025-11-25":
             return
         priming_event_id = await self._event_store.store_event(
             str(request_id),  # Convert RequestId to StreamId (str)
@@ -499,6 +519,15 @@ class StreamableHTTPServerTransport:
 
                 return
 
+            # Extract protocol version for priming event decision.
+            # For initialize requests, get from request params.
+            # For other requests, get from header (already validated).
+            protocol_version = (
+                str(message.root.params.get("protocolVersion", DEFAULT_NEGOTIATED_VERSION))
+                if is_initialization_request and message.root.params
+                else request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
+            )
+
             # Extract the request ID outside the try block for proper scope
             request_id = str(message.root.id)  # pragma: no cover
             # Register this stream for the request ID
@@ -560,7 +589,7 @@ class StreamableHTTPServerTransport:
                     try:
                         async with sse_stream_writer, request_stream_reader:
                             # Send priming event for SSE resumability
-                            await self._send_priming_event(request_id, sse_stream_writer)
+                            await self._maybe_send_priming_event(request_id, sse_stream_writer, protocol_version)
 
                             # Process messages from the request-specific stream
                             async for event_message in request_stream_reader:
@@ -605,7 +634,7 @@ class StreamableHTTPServerTransport:
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
-                        session_message = self._create_session_message(message, request, request_id)
+                        session_message = self._create_session_message(message, request, request_id, protocol_version)
                         await writer.send(session_message)
                 except Exception:
                     logger.exception("SSE response error")
@@ -864,6 +893,9 @@ class StreamableHTTPServerTransport:
             if self.mcp_session_id:
                 headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
+            # Get protocol version from header (already validated in _validate_protocol_version)
+            replay_protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
+
             # Create SSE stream for replay
             sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
 
@@ -884,7 +916,7 @@ class StreamableHTTPServerTransport:
                             self._sse_stream_writers[stream_id] = sse_stream_writer
 
                             # Send priming event for this new connection
-                            await self._send_priming_event(stream_id, sse_stream_writer)
+                            await self._maybe_send_priming_event(stream_id, sse_stream_writer, replay_protocol_version)
 
                             # Create new request streams for this connection
                             self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](0)

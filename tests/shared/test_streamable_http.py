@@ -10,6 +10,7 @@ import socket
 import time
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import MagicMock
 
 import anyio
 import httpx
@@ -41,9 +42,16 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError
-from mcp.shared.message import ClientMessageMetadata, SessionMessage
+from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import InitializeResult, TextContent, TextResourceContents, Tool
+from mcp.types import (
+    InitializeResult,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 from tests.test_helpers import wait_for_server
 
 # Test constants
@@ -1762,6 +1770,116 @@ async def test_handle_sse_event_skips_empty_data():
 
 
 @pytest.mark.anyio
+async def test_priming_event_not_sent_for_old_protocol_version():
+    """Test that _maybe_send_priming_event skips for old protocol versions (backwards compat)."""
+    # Create a transport with an event store
+    transport = StreamableHTTPServerTransport(
+        "/mcp",
+        event_store=SimpleEventStore(),
+    )
+
+    # Create a mock stream writer
+    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
+
+    try:
+        # Call _maybe_send_priming_event with OLD protocol version - should NOT send
+        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-06-18")
+
+        # Nothing should have been written to the stream
+        assert write_stream.statistics().current_buffer_used == 0
+
+        # Now test with NEW protocol version - should send
+        await transport._maybe_send_priming_event("test-request-id-2", write_stream, "2025-11-25")
+
+        # Should have written a priming event
+        assert write_stream.statistics().current_buffer_used == 1
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_priming_event_not_sent_without_event_store():
+    """Test that _maybe_send_priming_event returns early when no event_store is configured."""
+    # Create a transport WITHOUT an event store
+    transport = StreamableHTTPServerTransport("/mcp")
+
+    # Create a mock stream writer
+    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
+
+    try:
+        # Call _maybe_send_priming_event - should return early without sending
+        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-11-25")
+
+        # Nothing should have been written to the stream
+        assert write_stream.statistics().current_buffer_used == 0
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_priming_event_includes_retry_interval():
+    """Test that _maybe_send_priming_event includes retry field when retry_interval is set."""
+    # Create a transport with an event store AND retry_interval
+    transport = StreamableHTTPServerTransport(
+        "/mcp",
+        event_store=SimpleEventStore(),
+        retry_interval=5000,
+    )
+
+    # Create a mock stream writer
+    write_stream, read_stream = anyio.create_memory_object_stream[dict[str, Any]](1)
+
+    try:
+        # Call _maybe_send_priming_event with new protocol version
+        await transport._maybe_send_priming_event("test-request-id", write_stream, "2025-11-25")
+
+        # Should have written a priming event with retry field
+        assert write_stream.statistics().current_buffer_used == 1
+
+        # Read the event and verify it has retry field
+        event = await read_stream.receive()
+        assert "retry" in event
+        assert event["retry"] == 5000
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_close_sse_stream_callback_not_provided_for_old_protocol_version():
+    """Test that close_sse_stream callbacks are NOT provided for old protocol versions."""
+    # Create a transport with an event store
+    transport = StreamableHTTPServerTransport(
+        "/mcp",
+        event_store=SimpleEventStore(),
+    )
+
+    # Create a mock message and request
+    mock_message = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list"))
+    mock_request = MagicMock()
+
+    # Call _create_session_message with OLD protocol version
+    session_msg = transport._create_session_message(mock_message, mock_request, "test-request-id", "2025-06-18")
+
+    # Callbacks should NOT be provided for old protocol version
+    assert session_msg.metadata is not None
+    assert isinstance(session_msg.metadata, ServerMessageMetadata)
+    assert session_msg.metadata.close_sse_stream is None
+    assert session_msg.metadata.close_standalone_sse_stream is None
+
+    # Now test with NEW protocol version - should provide callbacks
+    session_msg_new = transport._create_session_message(mock_message, mock_request, "test-request-id-2", "2025-11-25")
+
+    # Callbacks SHOULD be provided for new protocol version
+    assert session_msg_new.metadata is not None
+    assert isinstance(session_msg_new.metadata, ServerMessageMetadata)
+    assert session_msg_new.metadata.close_sse_stream is not None
+    assert session_msg_new.metadata.close_standalone_sse_stream is not None
+
+
+@pytest.mark.anyio
 async def test_streamablehttp_client_receives_priming_event(
     event_server: tuple[SimpleEventStore, str],
 ) -> None:
@@ -2060,7 +2178,9 @@ async def test_streamablehttp_multiple_reconnections(
 
 
 @pytest.mark.anyio
-async def test_standalone_get_stream_reconnection(basic_server: None, basic_server_url: str) -> None:
+async def test_standalone_get_stream_reconnection(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
     """
     Test that standalone GET stream automatically reconnects after server closes it.
 
@@ -2069,8 +2189,11 @@ async def test_standalone_get_stream_reconnection(basic_server: None, basic_serv
     2. Server closes GET stream
     3. Client reconnects with Last-Event-ID
     4. Client receives notification 2 on new connection
+
+    Note: Requires event_server fixture (with event store) because close_standalone_sse_stream
+    callback is only provided when event_store is configured and protocol version >= 2025-11-25.
     """
-    server_url = basic_server_url
+    _, server_url = event_server
     received_notifications: list[str] = []
 
     async def message_handler(
