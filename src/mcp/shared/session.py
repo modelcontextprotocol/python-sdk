@@ -455,6 +455,46 @@ class BaseSession(
                         pass
                 self._response_streams.clear()
 
+    def _pop_response_stream(
+        self, response_id: RequestId
+    ) -> MemoryObjectSendStream[JSONRPCResponse | JSONRPCError] | None:
+        """
+        Pop a response stream by ID, trying alternative type representations.
+
+        JSON-RPC allows request IDs to be strings or integers. Some servers may
+        return a string ID (e.g., "0") even when the client sent an integer ID
+        (e.g., 0). Since Python dict lookups are type-sensitive (0 != "0"),
+        this method tries both representations to handle such mismatches.
+
+        Args:
+            response_id: The response ID from the incoming message.
+
+        Returns:
+            The response stream if found, None otherwise.
+        """
+        # Try exact match first
+        stream = self._response_streams.pop(response_id, None)
+        if stream is not None:
+            return stream
+
+        # Try alternative type representation
+        if isinstance(response_id, str):
+            # Response ID is string, try integer lookup
+            try:
+                int_id = int(response_id)
+                stream = self._response_streams.pop(int_id, None)
+                if stream is not None:
+                    return stream
+            except ValueError:
+                pass
+        else:
+            # Response ID is integer, try string lookup
+            stream = self._response_streams.pop(str(response_id), None)
+            if stream is not None:
+                return stream
+
+        return None
+
     async def _handle_response(self, message: SessionMessage) -> None:
         """
         Handle an incoming response or error message.
@@ -486,8 +526,8 @@ class BaseSession(
                 if router.route_response(response_id, response_data):
                     return  # Handled
 
-        # Fall back to normal response streams
-        stream = self._response_streams.pop(response_id, None)
+        # Fall back to normal response streams, with ID type normalization
+        stream = self._pop_response_stream(response_id)
         if stream:  # pragma: no cover
             await stream.send(root)
         else:  # pragma: no cover

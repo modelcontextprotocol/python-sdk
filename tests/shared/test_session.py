@@ -9,12 +9,18 @@ from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     CancelledNotification,
     CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     EmptyResult,
+    ErrorData,
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    JSONRPCResponse,
     TextContent,
 )
 
@@ -120,6 +126,171 @@ async def test_request_cancellation():
             # Give cancellation time to process
             with anyio.fail_after(1):
                 await ev_cancelled.wait()
+
+
+@pytest.mark.anyio
+async def test_response_id_type_mismatch_string_to_int():
+    """
+    Test that responses with string IDs are correctly matched to requests sent with
+    integer IDs.
+
+    This handles the case where a server returns "id": "0" (string) but the client
+    sent "id": 0 (integer). Without ID type normalization, this would cause a timeout.
+    """
+    ev_response_received = anyio.Event()
+    result_holder: list[types.EmptyResult] = []
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def mock_server():
+            """Receive a request and respond with a string ID instead of integer."""
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+            root = message.message.root
+            assert isinstance(root, JSONRPCRequest)
+            # Get the original request ID (which is an integer)
+            request_id = root.id
+            assert isinstance(request_id, int), f"Expected int, got {type(request_id)}"
+
+            # Respond with the ID as a string (simulating a buggy server)
+            response = JSONRPCResponse(
+                jsonrpc="2.0",
+                id=str(request_id),  # Convert to string to simulate mismatch
+                result={},
+            )
+            await server_write.send(SessionMessage(message=JSONRPCMessage(response)))
+
+        async def make_request(client_session: ClientSession):
+            nonlocal result_holder
+            # Send a ping request (uses integer ID internally)
+            result = await client_session.send_ping()
+            result_holder.append(result)
+            ev_response_received.set()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(read_stream=client_read, write_stream=client_write) as client_session,
+        ):
+            tg.start_soon(mock_server)
+            tg.start_soon(make_request, client_session)
+
+            with anyio.fail_after(2):
+                await ev_response_received.wait()
+
+    assert len(result_holder) == 1
+    assert isinstance(result_holder[0], EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_error_response_id_type_mismatch_string_to_int():
+    """
+    Test that error responses with string IDs are correctly matched to requests
+    sent with integer IDs.
+
+    This handles the case where a server returns an error with "id": "0" (string)
+    but the client sent "id": 0 (integer).
+    """
+    ev_error_received = anyio.Event()
+    error_holder: list[McpError] = []
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def mock_server():
+            """Receive a request and respond with an error using a string ID."""
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+            root = message.message.root
+            assert isinstance(root, JSONRPCRequest)
+            request_id = root.id
+            assert isinstance(request_id, int)
+
+            # Respond with an error, using the ID as a string
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id=str(request_id),  # Convert to string to simulate mismatch
+                error=ErrorData(code=-32600, message="Test error"),
+            )
+            await server_write.send(SessionMessage(message=JSONRPCMessage(error_response)))
+
+        async def make_request(client_session: ClientSession):
+            nonlocal error_holder
+            try:
+                await client_session.send_ping()
+                pytest.fail("Expected McpError to be raised")  # pragma: no cover
+            except McpError as e:
+                error_holder.append(e)
+                ev_error_received.set()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(read_stream=client_read, write_stream=client_write) as client_session,
+        ):
+            tg.start_soon(mock_server)
+            tg.start_soon(make_request, client_session)
+
+            with anyio.fail_after(2):
+                await ev_error_received.wait()
+
+    assert len(error_holder) == 1
+    assert "Test error" in str(error_holder[0])
+
+
+@pytest.mark.anyio
+async def test_response_id_non_numeric_string_no_match():
+    """
+    Test that responses with non-numeric string IDs don't incorrectly match
+    integer request IDs.
+
+    If a server returns "id": "abc" (non-numeric string), it should not match
+    a request sent with "id": 0 (integer).
+    """
+    ev_timeout = anyio.Event()
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def mock_server():
+            """Receive a request and respond with a non-numeric string ID."""
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+
+            # Respond with a non-numeric string ID (should not match)
+            response = JSONRPCResponse(
+                jsonrpc="2.0",
+                id="not_a_number",  # Non-numeric string
+                result={},
+            )
+            await server_write.send(SessionMessage(message=JSONRPCMessage(response)))
+
+        async def make_request(client_session: ClientSession):
+            try:
+                # Use a short timeout since we expect this to fail
+                from datetime import timedelta
+
+                await client_session.send_request(
+                    ClientRequest(types.PingRequest()),
+                    types.EmptyResult,
+                    request_read_timeout_seconds=timedelta(seconds=0.5),
+                )
+                pytest.fail("Expected timeout")  # pragma: no cover
+            except McpError as e:
+                assert "Timed out" in str(e)
+                ev_timeout.set()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(read_stream=client_read, write_stream=client_write) as client_session,
+        ):
+            tg.start_soon(mock_server)
+            tg.start_soon(make_request, client_session)
+
+            with anyio.fail_after(2):
+                await ev_timeout.wait()
 
 
 @pytest.mark.anyio
