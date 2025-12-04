@@ -1928,6 +1928,7 @@ class ElicitationRequiredErrorData(BaseModel):
 ClientResultType: TypeAlias = (
     EmptyResult
     | CreateMessageResult
+    | CreateMessageResultWithTools
     | ListRootsResult
     | ElicitResult
     | GetTaskResult

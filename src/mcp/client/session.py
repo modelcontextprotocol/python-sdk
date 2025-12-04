@@ -25,7 +25,7 @@ class SamplingFnT(Protocol):
         self,
         context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult | types.ErrorData: ...  # pragma: no branch
+    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
 
 class ElicitationFnT(Protocol):
@@ -65,7 +65,7 @@ async def _default_message_handler(
 async def _default_sampling_callback(
     context: RequestContext["ClientSession", Any],
     params: types.CreateMessageRequestParams,
-) -> types.CreateMessageResult | types.ErrorData:
+) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Sampling not supported",
