@@ -733,7 +733,7 @@ class TestServerResources:
         def get_text():
             return "Hello, world!"
 
-        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text)
+        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text, context_kwarg=None)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
@@ -1132,7 +1132,7 @@ class TestContextInjection:
         templates = mcp._resource_manager.list_templates()
         assert len(templates) == 1
         template = templates[0]
-        assert template.context_kwarg is None
+        assert not template.context_kwarg
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
@@ -1166,6 +1166,33 @@ class TestContextInjection:
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
             assert "Resource 123 with context" in content.text
+
+    @pytest.mark.anyio
+    async def test_resource_only_context(self):
+        """Test that resources without template args can receive context."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://only_context", name="resource_with_context_no_args")
+        def resource_only_context(ctx: Context[ServerSession, None]) -> str:
+            """Resource that only receives context."""
+            assert ctx is not None
+            return "Resource with only context injected"
+
+        # Test via client
+        async with client_session(mcp._mcp_server) as client:
+            # Verify resource is registered via client
+            resources = await client.list_resources()
+            assert len(resources.resources) == 1
+            resource = resources.resources[0]
+            assert resource.uri == AnyUrl("resource://only_context")
+            assert resource.name == "resource_with_context_no_args"
+
+            # Test reading the resource
+            result = await client.read_resource(AnyUrl("resource://only_context"))
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert content.text == "Resource with only context injected"
 
     @pytest.mark.anyio
     async def test_prompt_with_context(self):
