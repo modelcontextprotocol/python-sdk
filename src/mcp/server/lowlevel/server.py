@@ -579,19 +579,56 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def progress_notification(self):
         def decorator(
-            func: Callable[[str | int, float, float | None, str | None], Awaitable[None]],
+            func: Callable[
+                [str | int, float, float | None, str | None, ServerSession | None],
+                Awaitable[None],
+            ],
         ):
             logger.debug("Registering handler for ProgressNotification")
 
-            async def handler(req: types.ProgressNotification):
+            async def handler(
+                req: types.ProgressNotification,
+                session: ServerSession | None = None,
+            ):
                 await func(
                     req.params.progressToken,
                     req.params.progress,
                     req.params.total,
                     req.params.message,
+                    session,
                 )
 
             self.notification_handlers[types.ProgressNotification] = handler
+            return func
+
+        return decorator
+
+    def initialized_notification(self):
+        """Decorator to register a handler for InitializedNotification."""
+
+        def decorator(
+            func: Callable[
+                [types.InitializedNotification, ServerSession | None],
+                Awaitable[None],
+            ],
+        ):
+            logger.debug("Registering handler for InitializedNotification")
+            self.notification_handlers[types.InitializedNotification] = func
+            return func
+
+        return decorator
+
+    def roots_list_changed_notification(self):
+        """Decorator to register a handler for RootsListChangedNotification."""
+
+        def decorator(
+            func: Callable[
+                [types.RootsListChangedNotification, ServerSession | None],
+                Awaitable[None],
+            ],
+        ):
+            logger.debug("Registering handler for RootsListChangedNotification")
+            self.notification_handlers[types.RootsListChangedNotification] = func
             return func
 
         return decorator
@@ -673,7 +710,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     async def _handle_message(
         self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception,
+        message: (RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception),
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
@@ -684,7 +721,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     with responder:
                         await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
                 case types.ClientNotification(root=notify):
-                    await self._handle_notification(notify)
+                    await self._handle_notification(notify, session)
                 case Exception():  # pragma: no cover
                     logger.error(f"Received exception from stream: {message}")
                     await session.send_log_message(
@@ -695,8 +732,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                     if raise_exceptions:
                         raise message
 
-            for warning in w:  # pragma: no cover
-                logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
+        for warning in w:  # pragma: no cover
+            logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
 
     async def _handle_request(
         self,
@@ -778,12 +815,15 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         logger.debug("Response sent")
 
-    async def _handle_notification(self, notify: Any):
+    async def _handle_notification(self, notify: Any, session: ServerSession):
         if handler := self.notification_handlers.get(type(notify)):  # type: ignore
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
-                await handler(notify)
+                try:
+                    await handler(notify, session)
+                except TypeError:
+                    await handler(notify)
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
