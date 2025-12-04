@@ -28,7 +28,6 @@ from starlette.routing import Mount
 
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import Tool
 
 SERVER_NAME = "test_race_condition_server"
 
@@ -36,9 +35,6 @@ SERVER_NAME = "test_race_condition_server"
 class RaceConditionTestServer(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
-
-    async def on_list_tools(self) -> list[Tool]:
-        return []
 
 
 def create_app(json_response: bool = False) -> Starlette:
@@ -78,15 +74,11 @@ class ServerThread(threading.Thread):
 
         # Create a new event loop for this thread
         async def run_lifespan():
-            # Use the lifespan context if it exists
+            # Use the lifespan context (always present in our tests)
             lifespan_context = getattr(self.app.router, "lifespan_context", None)
-            if lifespan_context is not None:
-                async with lifespan_context(self.app):
-                    # Wait until stop is requested
-                    while not self._stop_event.is_set():
-                        await anyio.sleep(0.1)
-            else:
-                # If no lifespan, just wait
+            assert lifespan_context is not None  # Tests always create apps with lifespan
+            async with lifespan_context(self.app):
+                # Wait until stop is requested
                 while not self._stop_event.is_set():
                     await anyio.sleep(0.1)
 
@@ -108,7 +100,7 @@ def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_
     # Check for specific race condition errors in logs
     errors_found: list[str] = []
 
-    for record in caplog.records:
+    for record in caplog.records:  # pragma: no cover
         message = record.getMessage()
         if "ClosedResourceError" in message:
             errors_found.append("ClosedResourceError")
@@ -118,7 +110,7 @@ def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_
             errors_found.append("anyio.ClosedResourceError")
 
     # Assert no race condition errors occurred
-    if errors_found:
+    if errors_found:  # pragma: no cover
         error_msg = f"Test '{test_name}' found race condition errors in logs: {', '.join(set(errors_found))}\n"
         error_msg += "Log records:\n"
         for record in caplog.records:
