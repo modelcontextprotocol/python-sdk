@@ -115,6 +115,7 @@ class ClientSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
+        sampling_capabilities: types.SamplingCapability | None = None,
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
@@ -132,6 +133,7 @@ class ClientSession(
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
+        self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
@@ -144,7 +146,11 @@ class ClientSession(
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
+        sampling = (
+            (self._sampling_capabilities or types.SamplingCapability())
+            if self._sampling_callback is not _default_sampling_callback
+            else None
+        )
         elicitation = (
             types.ElicitationCapability(
                 form=types.FormElicitationCapability(),
