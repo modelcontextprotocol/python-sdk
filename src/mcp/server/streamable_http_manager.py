@@ -279,7 +279,7 @@ class StreamableHTTPSessionManager:
         else:  # pragma: no cover
             # Invalid session ID
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                "Not Found: Unknown session ID",
+                status_code=HTTPStatus.NOT_FOUND,
             )
             await response(scope, receive, send)
