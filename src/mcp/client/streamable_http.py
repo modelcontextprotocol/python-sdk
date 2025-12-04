@@ -14,7 +14,7 @@ from datetime import timedelta
 
 import anyio
 import httpx
-from anyio.abc import TaskGroup
+from anyio.abc import TaskGroup, TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
@@ -489,10 +489,14 @@ class StreamableHTTPTransport:
         write_stream: MemoryObjectSendStream[SessionMessage],
         start_get_stream: Callable[[], None],
         tg: TaskGroup,
+        *,
+        task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
         """Handle writing requests to the server."""
         try:
             async with write_stream_reader:
+                # Signal that we're ready to receive messages
+                task_status.started(None)
                 async for session_message in write_stream_reader:
                     message = session_message.message
                     metadata = (
@@ -606,7 +610,10 @@ async def streamablehttp_client(
                 def start_get_stream() -> None:
                     tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
 
-                tg.start_soon(
+                # Use tg.start() to ensure post_writer is ready before yielding.
+                # This prevents a race condition where the client might try to send
+                # a message before the writer task is ready to receive it.
+                await tg.start(
                     transport.post_writer,
                     client,
                     write_stream_reader,
