@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import anyio
 import pytest
@@ -9,12 +10,18 @@ from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
+from mcp.shared.session import BaseSession
 from mcp.types import (
+    CONNECTION_CLOSED,
+    INTERNAL_ERROR,
     CancelledNotification,
     CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     EmptyResult,
+    ErrorData,
+    JSONRPCError,
+    JSONRPCResponse,
     TextContent,
 )
 
@@ -168,3 +175,111 @@ async def test_connection_closed():
                 await ev_closed.wait()
             with anyio.fail_after(1):
                 await ev_response.wait()
+
+
+class TestProcessResponse:
+    """Tests for BaseSession._process_response static method."""
+
+    def test_process_response_with_valid_response(self):
+        """Test that a valid JSONRPCResponse is processed correctly."""
+        response = JSONRPCResponse(
+            jsonrpc="2.0",
+            id=1,
+            result={},
+        )
+
+        result = BaseSession._process_response(response, EmptyResult)
+
+        assert isinstance(result, EmptyResult)
+
+    def test_process_response_with_error(self):
+        """Test that a JSONRPCError raises McpError."""
+        error = JSONRPCError(
+            jsonrpc="2.0",
+            id=1,
+            error=ErrorData(code=-32600, message="Invalid request"),
+        )
+
+        with pytest.raises(McpError) as exc_info:
+            BaseSession._process_response(error, EmptyResult)
+
+        assert exc_info.value.error.code == -32600
+        assert exc_info.value.error.message == "Invalid request"
+
+    def test_process_response_with_none(self):
+        """
+        Test defensive check for anyio fail_after race condition (#1717).
+
+        If anyio's CancelScope incorrectly suppresses an exception during
+        receive(), the response variable may never be assigned. This test
+        verifies we handle this gracefully instead of raising UnboundLocalError.
+
+        See: https://github.com/agronholm/anyio/issues/589
+        """
+        with pytest.raises(McpError) as exc_info:
+            BaseSession._process_response(None, EmptyResult)
+
+        assert exc_info.value.error.code == INTERNAL_ERROR
+        assert "no response received" in exc_info.value.error.message
+
+
+@pytest.mark.anyio
+async def test_send_request_handles_end_of_stream():
+    """Test that EndOfStream from response stream raises McpError with CONNECTION_CLOSED."""
+
+    async with create_client_server_memory_streams() as (client_streams, _):
+        client_read, client_write = client_streams
+
+        async with ClientSession(read_stream=client_read, write_stream=client_write) as client_session:
+            # Mock create_memory_object_stream to return a stream that raises EndOfStream
+            mock_reader = AsyncMock()
+            mock_reader.receive = AsyncMock(side_effect=anyio.EndOfStream)
+            mock_reader.aclose = AsyncMock()
+
+            mock_sender = AsyncMock()
+            mock_sender.aclose = AsyncMock()
+
+            # The subscripted form returns a callable that returns the tuple
+            with patch("mcp.shared.session.anyio.create_memory_object_stream") as mock_create:
+                # pyright: ignore[reportUnknownLambdaType]
+                mock_create.__getitem__ = lambda _s, _k: lambda _z: (mock_sender, mock_reader)  # type: ignore
+
+                with pytest.raises(McpError) as exc_info:
+                    await client_session.send_request(
+                        ClientRequest(types.PingRequest()),
+                        EmptyResult,
+                    )
+
+                assert exc_info.value.error.code == CONNECTION_CLOSED
+                assert "stream ended unexpectedly" in exc_info.value.error.message
+
+
+@pytest.mark.anyio
+async def test_send_request_handles_closed_resource_error():
+    """Test that ClosedResourceError from response stream raises McpError with CONNECTION_CLOSED."""
+
+    async with create_client_server_memory_streams() as (client_streams, _):
+        client_read, client_write = client_streams
+
+        async with ClientSession(read_stream=client_read, write_stream=client_write) as client_session:
+            # Mock create_memory_object_stream to return a stream that raises ClosedResourceError
+            mock_reader = AsyncMock()
+            mock_reader.receive = AsyncMock(side_effect=anyio.ClosedResourceError)
+            mock_reader.aclose = AsyncMock()
+
+            mock_sender = AsyncMock()
+            mock_sender.aclose = AsyncMock()
+
+            # The subscripted form returns a callable that returns the tuple
+            with patch("mcp.shared.session.anyio.create_memory_object_stream") as mock_create:
+                # pyright: ignore[reportUnknownLambdaType]
+                mock_create.__getitem__ = lambda _s, _k: lambda _z: (mock_sender, mock_reader)  # type: ignore
+
+                with pytest.raises(McpError) as exc_info:
+                    await client_session.send_request(
+                        ClientRequest(types.PingRequest()),
+                        EmptyResult,
+                    )
+
+                assert exc_info.value.error.code == CONNECTION_CLOSED
+                assert "Connection closed" in exc_info.value.error.message
