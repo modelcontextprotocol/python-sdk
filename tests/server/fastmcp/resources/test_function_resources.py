@@ -1,7 +1,9 @@
 import pytest
 from pydantic import AnyUrl, BaseModel
 
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
+from mcp.server.session import ServerSession
 
 
 class TestFunctionResource:
@@ -155,3 +157,79 @@ class TestFunctionResource:
         assert resource.mime_type == "text/plain"
         assert resource.name == "test"
         assert resource.uri == AnyUrl("function://test")
+
+
+class TestFunctionResourceContextHandling:
+    """Test context injection in FunctionResource."""
+
+    def test_context_kwarg_detection(self):
+        """Test that from_function() correctly detects context parameters."""
+
+        def func_with_context(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
+            return "test"
+
+        resource = FunctionResource.from_function(fn=func_with_context, uri="test://uri")
+        assert resource.context_kwarg == "ctx"
+
+    def test_context_kwarg_custom_name(self):
+        """Test detection of context with custom parameter names."""
+
+        def func_with_custom_ctx(my_context: Context[ServerSession, None]) -> str:  # pragma: no cover
+            return "test"
+
+        resource = FunctionResource.from_function(fn=func_with_custom_ctx, uri="test://uri")
+        assert resource.context_kwarg == "my_context"
+
+    def test_no_context_kwarg(self):
+        """Test that functions without context have context_kwarg=None."""
+
+        def func_without_context() -> str:  # pragma: no cover
+            return "test"
+
+        resource = FunctionResource.from_function(fn=func_without_context, uri="test://uri")
+        assert resource.context_kwarg is None
+
+    @pytest.mark.anyio
+    async def test_read_with_context_injection(self):
+        """Test that read(context=ctx) injects context into function."""
+        received_context = None
+
+        def func_with_context(ctx: Context[ServerSession, None]) -> str:
+            nonlocal received_context
+            received_context = ctx
+            return "result"
+
+        resource = FunctionResource.from_function(fn=func_with_context, uri="test://uri")
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+        result = await resource.read(context=ctx)
+        assert received_context is ctx
+        assert result == "result"
+
+    @pytest.mark.anyio
+    async def test_read_without_context_when_not_needed(self):
+        """Test that functions without context work normally."""
+
+        def func_without_context() -> str:
+            return "no context needed"
+
+        resource = FunctionResource.from_function(fn=func_without_context, uri="test://uri")
+        result = await resource.read()
+        assert result == "no context needed"
+
+    @pytest.mark.anyio
+    async def test_read_async_with_context(self):
+        """Test async functions with context injection."""
+        received_context = None
+
+        async def async_func_with_context(ctx: Context[ServerSession, None]) -> str:
+            nonlocal received_context
+            received_context = ctx
+            return "async result"
+
+        resource = FunctionResource.from_function(fn=async_func_with_context, uri="test://uri")
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+        result = await resource.read(context=ctx)
+        assert received_context is ctx
+        assert result == "async result"
