@@ -5,7 +5,6 @@ from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
-from typing import Any
 
 """
 Model Context Protocol bindings for Python
@@ -1147,6 +1146,10 @@ class ToolResultContent(BaseModel):
 SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
 """Content block types allowed in sampling messages."""
 
+SamplingContent: TypeAlias = TextContent | ImageContent | AudioContent
+"""Basic content types for sampling responses (without tool use).
+Used for backwards-compatible CreateMessageResult when tools are not used."""
+
 
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
@@ -1544,7 +1547,27 @@ StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
 
 
 class CreateMessageResult(Result):
-    """The client's response to a sampling/create_message request from the server."""
+    """The client's response to a sampling/create_message request from the server.
+
+    This is the backwards-compatible version that returns single content (no arrays).
+    Used when the request does not include tools.
+    """
+
+    role: Role
+    """The role of the message sender (typically 'assistant' for LLM responses)."""
+    content: SamplingContent
+    """Response content. Single content block (text, image, or audio)."""
+    model: str
+    """The name of the model that generated the message."""
+    stopReason: StopReason | None = None
+    """The reason why sampling stopped, if known."""
+
+
+class CreateMessageResultWithTools(Result):
+    """The client's response to a sampling/create_message request when tools were provided.
+
+    This version supports array content for tool use flows.
+    """
 
     role: Role
     """The role of the message sender (typically 'assistant' for LLM responses)."""
