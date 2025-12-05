@@ -204,6 +204,7 @@ class FastMCP(Generic[LifespanResultT]):
             transport_security=transport_security,
         )
 
+        self._checkpoint_backend = checkpoint_backend
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
             instructions=instructions,
@@ -212,6 +213,7 @@ class FastMCP(Generic[LifespanResultT]):
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
+            checkpoint_backend=self._checkpoint_backend,
         )
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
@@ -232,7 +234,6 @@ class FastMCP(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
-        self._checkpoint_backend = checkpoint_backend
         self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
@@ -278,11 +279,6 @@ class FastMCP(Generic[LifespanResultT]):
                 "to avoid unnecessary initialization."
             )
         return self._session_manager  # pragma: no cover
-    
-    @property
-    def checkpoint_backend(self) -> CheckpointBackend | None:
-        """Return the checkpoint backend (if any) attached to this server."""
-        return self._checkpoint_backend
 
     def run(
         self,
