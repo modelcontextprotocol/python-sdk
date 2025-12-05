@@ -90,6 +90,8 @@ class ServerSession(
         # NEW: optional checkpoint backend for servers that support
         # checkpoint/create, checkpoint/validate, checkpoint/resume,
         # checkpoint/delete at a higher level (e.g., FastMCP).
+        *,
+        stateless: bool = False,
         checkpoint_backend: "CheckpointBackend | None" = None,
     ) -> None:
         super().__init__(
@@ -109,6 +111,9 @@ class ServerSession(
         self._exit_stack.push_async_callback(
             lambda: self._incoming_message_stream_writer.aclose()
         )
+
+        # Preserve original stateless behaviour (if anything uses it)
+        self._stateless = stateless
 
         # Store optional checkpoint backend. This does not itself handle any
         # checkpoint RPCs; it just makes the backend available to higher-level

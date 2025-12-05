@@ -64,6 +64,7 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.checkpoint import CheckpointBackend
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
@@ -173,6 +174,7 @@ class FastMCP(Generic[LifespanResultT]):
         lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
+        checkpoint_backend: CheckpointBackend | None = None,
     ):
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
@@ -230,6 +232,7 @@ class FastMCP(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
+        self._checkpoint_backend = checkpoint_backend
         self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
@@ -275,6 +278,11 @@ class FastMCP(Generic[LifespanResultT]):
                 "to avoid unnecessary initialization."
             )
         return self._session_manager  # pragma: no cover
+    
+    @property
+    def checkpoint_backend(self) -> CheckpointBackend | None:
+        """Return the checkpoint backend (if any) attached to this server."""
+        return self._checkpoint_backend
 
     def run(
         self,

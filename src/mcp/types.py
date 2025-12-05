@@ -5,6 +5,7 @@ from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
+from typing import Any
 
 """
 Model Context Protocol bindings for Python

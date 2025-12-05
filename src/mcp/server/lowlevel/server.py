@@ -94,6 +94,7 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
+from mcp.server.checkpoint import CheckpointBackend
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,9 @@ class Server(Generic[LifespanResultT, RequestT]):
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        *,
+        stateless: bool = False,
+        checkpoint_backend: CheckpointBackend | None = None,
     ):
         self.name = name
         self.version = version
@@ -159,6 +163,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
         self._experimental_handlers: ExperimentalHandlers | None = None
+        self._stateless = stateless
+        self._checkpoint_backend = checkpoint_backend
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -650,6 +656,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    checkpoint_backend=self._checkpoint_backend,
                 )
             )
 
