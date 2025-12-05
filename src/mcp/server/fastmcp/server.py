@@ -539,6 +539,7 @@ class FastMCP(Generic[LifespanResultT]):
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        include_in_context: bool = False,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -557,6 +558,9 @@ class FastMCP(Generic[LifespanResultT]):
             title: Optional human-readable title for the resource
             description: Optional description of the resource
             mime_type: Optional MIME type for the resource
+            icons: Optional list of icons for the resource
+            annotations: Optional annotations for the resource (audience, priority)
+            include_in_context: If True, automatically sets priority to 1.0 for context inclusion
 
         Example:
             @server.resource("resource://my-resource")
@@ -585,6 +589,15 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         def decorator(fn: AnyFunction) -> AnyFunction:
+            # Handle include_in_context parameter
+            processed_annotations = annotations
+            if include_in_context:
+                if processed_annotations is None:
+                    processed_annotations = Annotations(priority=1.0)
+                else:
+                    # Override priority to 1.0, preserving other fields
+                    processed_annotations = Annotations(audience=processed_annotations.audience, priority=1.0)
+
             # Check if this should be a template
             sig = inspect.signature(fn)
             has_uri_params = "{" in uri and "}" in uri
@@ -614,7 +627,7 @@ class FastMCP(Generic[LifespanResultT]):
                     description=description,
                     mime_type=mime_type,
                     icons=icons,
-                    annotations=annotations,
+                    annotations=processed_annotations,
                 )
             else:
                 # Register as regular resource
@@ -626,7 +639,7 @@ class FastMCP(Generic[LifespanResultT]):
                     description=description,
                     mime_type=mime_type,
                     icons=icons,
-                    annotations=annotations,
+                    annotations=processed_annotations,
                 )
                 self.add_resource(resource)
             return fn

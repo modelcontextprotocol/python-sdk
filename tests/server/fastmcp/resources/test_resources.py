@@ -193,3 +193,95 @@ class TestAnnotationsValidation:
         # Invalid roles should raise validation error
         with pytest.raises(Exception):  # Pydantic validation error
             Annotations(audience=["invalid_role"])  # type: ignore
+
+
+class TestIncludeInContext:
+    """Test the include_in_context parameter."""
+
+    @pytest.mark.anyio
+    async def test_include_in_context_sets_priority(self):
+        """Test that include_in_context=True sets priority to 1.0."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://important", include_in_context=True)
+        def get_important() -> str:  # pragma: no cover
+            return "important data"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].annotations is not None
+        assert resources[0].annotations.priority == 1.0
+
+    @pytest.mark.anyio
+    async def test_include_in_context_false_no_priority(self):
+        """Test that include_in_context=False doesn't set priority."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://normal", include_in_context=False)
+        def get_normal() -> str:  # pragma: no cover
+            return "normal data"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].annotations is None
+
+    @pytest.mark.anyio
+    async def test_include_in_context_overrides_explicit_priority(self):
+        """Test that include_in_context=True overrides explicit priority."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://override", include_in_context=True, annotations=Annotations(priority=0.3))
+        def get_override() -> str:  # pragma: no cover
+            return "overridden"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].annotations is not None
+        assert resources[0].annotations.priority == 1.0
+
+    @pytest.mark.anyio
+    async def test_include_in_context_preserves_audience(self):
+        """Test that include_in_context preserves existing audience."""
+        mcp = FastMCP()
+
+        @mcp.resource(
+            "resource://preserve",
+            include_in_context=True,
+            annotations=Annotations(audience=["user"], priority=0.5),
+        )
+        def get_preserve() -> str:  # pragma: no cover
+            return "preserved audience"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].annotations is not None
+        assert resources[0].annotations.priority == 1.0
+        assert resources[0].annotations.audience == ["user"]
+
+    @pytest.mark.anyio
+    async def test_include_in_context_with_template_resource(self):
+        """Test that include_in_context works with template resources."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{id}/data", include_in_context=True)
+        def get_template_data(id: str) -> str:  # pragma: no cover
+            return f"data for {id}"
+
+        templates = await mcp.list_resource_templates()
+        assert len(templates) == 1
+        assert templates[0].annotations is not None
+        assert templates[0].annotations.priority == 1.0
+
+    @pytest.mark.anyio
+    async def test_include_in_context_with_async_function(self):
+        """Test that include_in_context works with async functions."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://async", include_in_context=True)
+        async def get_async() -> str:  # pragma: no cover
+            return "async data"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].annotations is not None
+        assert resources[0].annotations.priority == 1.0
