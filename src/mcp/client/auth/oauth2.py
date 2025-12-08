@@ -19,7 +19,7 @@ import anyio
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -298,44 +298,6 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError(
                 f"Protected Resource Metadata request failed: {response.status_code}"
             )  # pragma: no cover
-
-    async def _register_client(self) -> httpx.Request | None:
-        """Build registration request or skip if already registered."""
-        if self.context.client_info:
-            return None
-
-        if self.context.oauth_metadata and self.context.oauth_metadata.registration_endpoint:
-            registration_url = str(self.context.oauth_metadata.registration_endpoint)  # pragma: no cover
-        else:
-            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-            registration_url = urljoin(auth_base_url, "/register")
-
-        registration_data = self.context.client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
-
-        # If token_endpoint_auth_method is None, auto-select based on server support
-        if self.context.client_metadata.token_endpoint_auth_method is None:
-            preference_order = ["client_secret_basic", "client_secret_post", "none"]
-
-            if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint_auth_methods_supported:
-                supported = self.context.oauth_metadata.token_endpoint_auth_methods_supported
-                for method in preference_order:
-                    if method in supported:
-                        registration_data["token_endpoint_auth_method"] = method
-                        break
-                else:
-                    # No compatible methods between client and server
-                    raise OAuthRegistrationError(
-                        f"No compatible authentication methods. "
-                        f"Server supports: {supported}, "
-                        f"Client supports: {preference_order}"
-                    )
-            else:
-                # No server metadata available, use our default preference
-                registration_data["token_endpoint_auth_method"] = preference_order[0]
-
-        return httpx.Request(
-            "POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"}
-        )
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform the authorization flow."""
