@@ -219,6 +219,7 @@ class BaseSession(
         self._response_routers.append(router)
 
     async def __aenter__(self) -> Self:
+        self._entered = True
         self._task_group = anyio.create_task_group()
         await self._task_group.__aenter__()
         self._task_group.start_soon(self._receive_loop)

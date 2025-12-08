@@ -155,11 +155,17 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             message = types.JSONRPCMessage.model_validate_json(line)
                         except Exception as exc:  # pragma: no cover
                             logger.exception("Failed to parse JSONRPC message from server")
-                            await read_stream_writer.send(exc)
+                            try:
+                                await read_stream_writer.send(exc)
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                                return
                             continue
 
                         session_message = SessionMessage(message)
-                        await read_stream_writer.send(session_message)
+                        try:
+                            await read_stream_writer.send(session_message)
+                        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                            return
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 

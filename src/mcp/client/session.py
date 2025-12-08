@@ -144,6 +144,11 @@ class ClientSession(
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
 
     async def initialize(self) -> types.InitializeResult:
+        if not getattr(self, "_entered", False):
+            raise RuntimeError(
+                "ClientSession must be used inside `async with` before calling initialize()"
+                )
+
         sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
         elicitation = (
             types.ElicitationCapability(
