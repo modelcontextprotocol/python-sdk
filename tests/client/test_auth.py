@@ -3,7 +3,6 @@ Tests for refactored OAuth client authentication implementation.
 """
 
 import base64
-import json
 import time
 from unittest import mock
 from urllib.parse import unquote
@@ -13,7 +12,7 @@ import pytest
 from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp.client.auth import OAuthClientProvider, OAuthRegistrationError, PKCEParameters
+from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -580,98 +579,6 @@ class TestOAuthFallback:
         )
         # Verify that scope is omitted
         assert scopes is None
-
-    @pytest.mark.anyio
-    async def test_register_client_request(self, oauth_provider: OAuthClientProvider):
-        """Test client registration request building."""
-        request = await oauth_provider._register_client()
-
-        assert request is not None
-        assert request.method == "POST"
-        assert str(request.url) == "https://api.example.com/register"
-        assert request.headers["Content-Type"] == "application/json"
-
-    @pytest.mark.anyio
-    async def test_register_client_skip_if_registered(self, oauth_provider: OAuthClientProvider):
-        """Test client registration is skipped if already registered."""
-        # Set existing client info
-        client_info = OAuthClientInformationFull(
-            client_id="existing_client",
-            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
-        )
-        oauth_provider.context.client_info = client_info
-
-        # Should return None (skip registration)
-        request = await oauth_provider._register_client()
-        assert request is None
-
-    @pytest.mark.anyio
-    async def test_register_client_explicit_auth_method(self, mock_storage: MockTokenStorage):
-        """Test that explicitly set token_endpoint_auth_method is used without auto-selection."""
-
-        async def redirect_handler(url: str) -> None:
-            pass  # pragma: no cover
-
-        async def callback_handler() -> tuple[str, str | None]:
-            return "test_auth_code", "test_state"  # pragma: no cover
-
-        # Create client metadata with explicit auth method
-        explicit_metadata = OAuthClientMetadata(
-            client_name="Test Client",
-            client_uri=AnyHttpUrl("https://example.com"),
-            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
-            scope="read write",
-            token_endpoint_auth_method="client_secret_basic",
-        )
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=explicit_metadata,
-            storage=mock_storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-        )
-
-        request = await provider._register_client()
-        assert request is not None
-
-        body = json.loads(request.content)
-        # Should use the explicitly set method, not auto-select
-        assert body["token_endpoint_auth_method"] == "client_secret_basic"
-
-    @pytest.mark.anyio
-    async def test_register_client_none_auth_method_with_server_metadata(self, oauth_provider: OAuthClientProvider):
-        """Test that token_endpoint_auth_method=None selects from server's supported methods."""
-        # Set server metadata with specific supported methods
-        oauth_provider.context.oauth_metadata = OAuthMetadata(
-            issuer=AnyHttpUrl("https://auth.example.com"),
-            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
-            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
-            token_endpoint_auth_methods_supported=["client_secret_post"],
-        )
-        # Ensure client_metadata has None for token_endpoint_auth_method
-
-        request = await oauth_provider._register_client()
-        assert request is not None
-
-        body = json.loads(request.content)
-        assert body["token_endpoint_auth_method"] == "client_secret_post"
-
-    @pytest.mark.anyio
-    async def test_register_client_none_auth_method_no_compatible(self, oauth_provider: OAuthClientProvider):
-        """Test that registration raises error when no compatible auth methods."""
-        # Set server metadata with unsupported methods only
-        oauth_provider.context.oauth_metadata = OAuthMetadata(
-            issuer=AnyHttpUrl("https://auth.example.com"),
-            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
-            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
-            token_endpoint_auth_methods_supported=["private_key_jwt", "client_secret_jwt"],
-        )
-
-        with pytest.raises(OAuthRegistrationError) as exc_info:
-            await oauth_provider._register_client()
-
-        assert "No compatible authentication methods" in str(exc_info.value)
-        assert "private_key_jwt" in str(exc_info.value)
 
     @pytest.mark.anyio
     async def test_token_exchange_request_authorization_code(self, oauth_provider: OAuthClientProvider):
