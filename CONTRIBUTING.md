@@ -2,6 +2,29 @@
 
 Thank you for your interest in contributing to the MCP Python SDK! This document provides guidelines and instructions for contributing.
 
+## Before You Start
+
+### Bug Fixes
+
+Bug fixes are welcome! For straightforward bugs, feel free to open a PR directly. For complex bugs that require significant changes, consider opening an issue first to discuss the approach.
+
+### New Features and Enhancements
+
+**Please open an issue before starting work on new features or significant enhancements.** We will often close pull requests for new features that were not previously discussed. This isn't because we don't appreciate the contribution—it's because adding features creates long-term maintenance burden and requires alignment with the SDK's direction.
+
+What counts as "significant"?
+
+- New public APIs or decorators
+- Architectural changes or refactoring
+- Changes that touch multiple modules
+- Features that might require spec changes (these need a [SEP](https://github.com/modelcontextprotocol/modelcontextprotocol) first)
+
+### Good Candidates for Contribution
+
+Issues labeled [`good first issue`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) or [`help wanted`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22) are great places to start. Issues labeled [`ready for work`](https://github.com/modelcontextprotocol/python-sdk/issues?q=is%3Aopen+is%3Aissue+label%3A%22ready+for+work%22) have been triaged and are ready for implementation.
+
+Issues labeled `needs confirmation` or `needs maintainer action` are **not** good candidates—please wait for maintainer input before starting work on these.
+
 ## Development Setup
 
 1. Make sure you have Python 3.10+ installed
