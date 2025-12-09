@@ -16,6 +16,7 @@ from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMe
 from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     CancelledNotification,
     ClientNotification,
@@ -237,6 +238,34 @@ class BaseSession(
         self._task_group.cancel_scope.cancel()
         return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
 
+    @staticmethod
+    def _process_response(
+        response_or_error: JSONRPCResponse | JSONRPCError | None,
+        result_type: type[ReceiveResultT],
+    ) -> ReceiveResultT:
+        """
+        Process a JSON-RPC response, validating and returning the result.
+
+        Raises McpError if the response is an error or if response_or_error is None.
+        The None check is a defensive guard against anyio race conditions - see #1717.
+        """
+        if response_or_error is None:
+            # Defensive check for anyio fail_after race condition (#1717).
+            # If anyio's CancelScope incorrectly suppresses an exception,
+            # the response variable may never be assigned. See:
+            # https://github.com/agronholm/anyio/issues/589
+            raise McpError(
+                ErrorData(
+                    code=INTERNAL_ERROR,
+                    message="Internal error: no response received",
+                )
+            )
+
+        if isinstance(response_or_error, JSONRPCError):
+            raise McpError(response_or_error.error)
+
+        return result_type.model_validate(response_or_error.result)
+
     async def send_request(
         self,
         request: SendRequestT,
@@ -287,6 +316,10 @@ class BaseSession(
             elif self._session_read_timeout_seconds is not None:  # pragma: no cover
                 timeout = self._session_read_timeout_seconds.total_seconds()
 
+            # Initialize to None as a defensive guard against anyio race conditions
+            # where fail_after may incorrectly suppress exceptions (#1717)
+            response_or_error: JSONRPCResponse | JSONRPCError | None = None
+
             try:
                 with anyio.fail_after(timeout):
                     response_or_error = await response_stream_reader.receive()
@@ -301,12 +334,22 @@ class BaseSession(
                         ),
                     )
                 )
-
-            if isinstance(response_or_error, JSONRPCError):
-                raise McpError(response_or_error.error)
+            except anyio.EndOfStream:
+                raise McpError(
+                    ErrorData(
+                        code=CONNECTION_CLOSED,
+                        message="Connection closed: stream ended unexpectedly",
+                    )
+                )
+            except anyio.ClosedResourceError:
+                raise McpError(
+                    ErrorData(
+                        code=CONNECTION_CLOSED,
+                        message="Connection closed",
+                    )
+                )
             else:
-                return result_type.model_validate(response_or_error.result)
-
+                return self._process_response(response_or_error, result_type)
         finally:
             self._response_streams.pop(request_id, None)
             self._progress_callbacks.pop(request_id, None)
