@@ -532,3 +532,21 @@ def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result
         sse = SseServerTransport(endpoint)
         assert sse._endpoint == expected_result
         assert sse._endpoint.startswith("/")
+
+
+@pytest.mark.anyio
+async def test_sse_client_handles_empty_keepalive_pings(server: None, server_url: str) -> None:
+    """Test that SSE client properly handles empty data lines (keep-alive pings)."""
+    async with sse_client(server_url + "/sse") as streams:
+        async with ClientSession(*streams) as session:
+            # Initialize the session
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == SERVER_NAME
+
+            # Test that we can still make requests after receiving keep-alive pings
+            # The server may send empty data lines between actual messages
+            response = await session.read_resource(uri=AnyUrl("foobar://test"))
+            assert len(response.contents) == 1
+            assert isinstance(response.contents[0], TextResourceContents)
+            assert response.contents[0].text == "Read test"
