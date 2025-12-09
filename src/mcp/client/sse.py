@@ -105,6 +105,9 @@ async def sse_client(
                                         task_status.started(endpoint_url)
 
                                     case "message":
+                                        if not sse.data:
+                                            logger.debug("Skipping empty data (keep-alive pings)")
+                                            continue
                                         try:
                                             message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
                                                 sse.data
