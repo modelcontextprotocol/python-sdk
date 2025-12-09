@@ -22,7 +22,7 @@ async def test_mime_type_with_parameters():
     # This should NOT raise a validation error
     @mcp.resource("ui://widget", mime_type="text/html;profile=mcp-app")
     def widget() -> str:
-        return "<html>widget</html>"
+        raise NotImplementedError()
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
@@ -35,7 +35,7 @@ async def test_mime_type_with_parameters_and_space():
 
     @mcp.resource("data://json", mime_type="application/json; charset=utf-8")
     def data() -> str:
-        return "{}"
+        raise NotImplementedError()
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
@@ -48,7 +48,7 @@ async def test_mime_type_with_multiple_parameters():
 
     @mcp.resource("data://multi", mime_type="text/plain; charset=utf-8; format=fixed")
     def data() -> str:
-        return "data"
+        raise NotImplementedError()
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
