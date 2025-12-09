@@ -115,13 +115,13 @@ class ClientSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         read_timeout_seconds: timedelta | None = None,
         sampling_callback: SamplingFnT | None = None,
-        sampling_capabilities: types.SamplingCapability | None = None,
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
+        sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
         super().__init__(
