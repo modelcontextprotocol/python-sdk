@@ -15,4 +15,4 @@ jobs:
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           comment-template: |
-            :rocket: This PR is included in version [{release_tag}]({release_link})
+            This PR is included in version [{release_tag}]({release_link})
