@@ -1,5 +1,18 @@
 # Issue #262 Investigation Notes
 
+## *** REPRODUCTION CONFIRMED! ***
+
+We have successfully reproduced the race condition that causes issue #262!
+
+**Key finding:** The combination of zero-capacity memory streams + `start_soon()` creates
+a race condition where `send()` blocks forever if the receiver task hasn't started yet.
+
+See `tests/issues/test_262_minimal_reproduction.py` for the simplest reproduction:
+```
+REPRODUCED: Send blocked because receiver wasn't ready!
+Receiver started: False
+```
+
 ## Problem Statement
 `session.call_tool()` hangs indefinitely while `session.list_tools()` works fine.
 The server executes successfully and produces results, but the client cannot receive them.
@@ -113,13 +126,49 @@ Based on issue #1764, the most likely cause is the **zero-buffer memory stream +
 3. In certain environments (WSL), the timing allows responses to arrive before the receive loop is ready
 4. This causes the send to block indefinitely (deadlock)
 
-### Potential Fixes (to be verified on WSL)
+### Confirmed Fixes (tested in reproduction)
 1. **Increase stream buffer size** - Change from `anyio.create_memory_object_stream(0)` to `anyio.create_memory_object_stream(1)` or higher
+   - CONFIRMED: `test_demonstrate_fix_with_buffer` shows this works
+   - Buffer allows send to complete without blocking on receiver
+
 2. **Use `await tg.start()`** - Ensure receive loop is ready before returning from context manager
+   - CONFIRMED: `test_demonstrate_fix_with_start` shows this works
+   - start() waits for task to call task_status.started() before continuing
+
 3. **Add synchronization** - Use an Event to signal when receive loop is ready
+   - Similar to #2, ensures receiver is ready before sender proceeds
+
+### Where to Apply Fixes
+The fix should be applied in `src/mcp/client/stdio/__init__.py`:
+
+**Option 1: Change buffer size from 0 to 1 (simplest)**
+```python
+# Line 117-118: Change from:
+read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
+write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+
+# To:
+read_stream_writer, read_stream = anyio.create_memory_object_stream(1)
+write_stream, write_stream_reader = anyio.create_memory_object_stream(1)
+```
+
+**Option 2: Use start() instead of start_soon() (more robust)**
+```python
+# Lines 186-187: Change from:
+tg.start_soon(stdout_reader)
+tg.start_soon(stdin_writer)
+
+# To tasks that signal when ready:
+await tg.start(stdout_reader)
+await tg.start(stdin_writer)
+# (requires modifying stdout_reader and stdin_writer to call task_status.started())
+```
 
 ## Files Created
 - `tests/issues/test_262_tool_call_hang.py` - Comprehensive test suite (34 tests)
+- `tests/issues/test_262_aggressive.py` - Aggressive tests with SDK patches
+- `tests/issues/test_262_standalone_race.py` - Standalone reproduction of SDK patterns
+- `tests/issues/test_262_minimal_reproduction.py` - **Minimal reproduction that CONFIRMS the bug**
 - `tests/issues/reproduce_262_standalone.py` - Standalone reproduction script
 - `ISSUE_262_INVESTIGATION.md` - This investigation document
 
