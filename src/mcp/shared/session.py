@@ -349,6 +349,24 @@ class BaseSession(
             await self._write_stream.send(session_message)
 
     async def _receive_loop(self) -> None:
+        # DEBUG: Inject delay to reproduce issue #262 race condition
+        # This prevents _receive_loop from entering its receive loop, simulating
+        # the scenario where the task isn't ready when responses arrive.
+        # Set MCP_DEBUG_RACE_DELAY_SESSION=<seconds> to enable (e.g., "0.1").
+        # Set MCP_DEBUG_RACE_DELAY_SESSION=forever to wait indefinitely (guaranteed hang).
+        import os
+
+        _race_delay = os.environ.get("MCP_DEBUG_RACE_DELAY_SESSION")
+        if _race_delay:
+            if _race_delay.lower() == "forever":
+                # Wait forever - guarantees responses are never processed
+                never_ready = anyio.Event()
+                await never_ready.wait()
+            else:
+                # Wait for specified duration - creates a window where responses
+                # might not be processed in time
+                await anyio.sleep(float(_race_delay))
+
         async with (
             self._read_stream,
             self._write_stream,

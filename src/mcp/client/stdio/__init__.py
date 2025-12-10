@@ -166,6 +166,23 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     async def stdin_writer():
         assert process.stdin, "Opened process is missing stdin"
 
+        # DEBUG: Inject delay to reproduce issue #262 race condition
+        # This prevents stdin_writer from entering its receive loop, simulating
+        # the scenario where the task isn't ready when send_request() is called.
+        # Set MCP_DEBUG_RACE_DELAY_STDIO=<seconds> to enable (e.g., "0.1").
+        # Set MCP_DEBUG_RACE_DELAY_STDIO=forever to wait indefinitely (guaranteed hang).
+        _race_delay = os.environ.get("MCP_DEBUG_RACE_DELAY_STDIO")
+        if _race_delay:
+            if _race_delay.lower() == "forever":
+                # Wait forever - guarantees the race condition manifests
+                never_ready = anyio.Event()
+                await never_ready.wait()
+            else:
+                # Wait for specified duration - creates a race window
+                # During this time, stdin_writer isn't ready to receive,
+                # so any send() to write_stream will block
+                await anyio.sleep(float(_race_delay))
+
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
@@ -185,6 +202,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     ):
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+
         try:
             yield read_stream, write_stream
         finally:
