@@ -59,7 +59,7 @@ async def create_streams() -> AsyncGenerator[Callable[[], StreamsFixtureReturn],
     for stream in streams_to_cleanup:
         try:
             await stream.aclose()
-        except Exception:
+        except Exception:  # pragma: no cover
             pass  # Already closed
 
 
@@ -318,12 +318,7 @@ async def test_proxy_handles_closed_resource_error(create_streams: CreateStreams
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
-        errors: list[Exception] = []
-
-        def error_handler(error: Exception) -> None:
-            errors.append(error)
-
-        async with mcp_proxy(client_streams, server_streams, onerror=error_handler):
+        async with mcp_proxy(client_streams, server_streams):
             # Close the read stream to trigger ClosedResourceError
             client_read, _ = client_streams
             await client_read.aclose()
@@ -332,11 +327,47 @@ async def test_proxy_handles_closed_resource_error(create_streams: CreateStreams
             await anyio.sleep(0.1)
 
             # Proxy should handle this gracefully without crashing
-            # The ClosedResourceError is caught and logged, but not passed to onerror
-            # (it's expected during shutdown)
+            # The ClosedResourceError is caught and logged internally
     finally:
         # Clean up test streams
         await client_read_writer.aclose()
+        await server_write_reader.aclose()
+
+
+@pytest.mark.anyio
+async def test_proxy_handles_write_stream_closed_during_forward(
+    create_streams: CreateStreamsFixture,
+) -> None:
+    """Test that proxy handles write stream closing during message forwarding."""
+    (
+        client_streams,
+        server_streams,
+        (client_read_writer, _),
+        (server_read_writer, server_write_reader),
+    ) = create_streams()
+
+    try:
+        _client_read, client_write = client_streams
+
+        async with mcp_proxy(client_streams, server_streams):
+            # Close the client write stream (which receives messages from server)
+            await client_write.aclose()
+
+            # Now send a message from server that would need to be forwarded to client
+            # This will trigger ClosedResourceError in the forward loop when trying
+            # to write to the closed client_write stream
+            request = JSONRPCRequest(jsonrpc="2.0", id="test", method="test", params={})
+            message = SessionMessage(JSONRPCMessage(request))
+            await server_read_writer.send(message)
+
+            # Give it time to process
+            await anyio.sleep(0.1)
+
+            # Proxy should handle this gracefully without crashing
+    finally:
+        # Clean up test streams
+        await client_read_writer.aclose()
+        await server_read_writer.aclose()
         await server_write_reader.aclose()
 
 
