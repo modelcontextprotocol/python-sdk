@@ -82,7 +82,7 @@ async def test_proxy_forwards_client_to_server(create_streams: CreateStreamsFixt
                 received = await server_write_reader.receive()
                 assert received.message.root.id == "1"  # type: ignore[attr-defined]
                 assert received.message.root.method == "test_method"  # type: ignore[attr-defined]
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -107,7 +107,7 @@ async def test_proxy_forwards_server_to_client(create_streams: CreateStreamsFixt
                 received = await client_write_reader.receive()
                 assert received.message.root.id == "2"  # type: ignore[attr-defined]
                 assert received.message.root.method == "server_method"  # type: ignore[attr-defined]
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await server_read_writer.aclose()
         await client_write_reader.aclose()
@@ -152,7 +152,7 @@ async def test_proxy_bidirectional_forwarding(create_streams: CreateStreamsFixtu
                 # Server message should arrive at client
                 received_at_client = await client_write_reader.receive()
                 assert received_at_client.message.root.id == "server_1"  # type: ignore[attr-defined]
-    finally:
+    finally:  # pragma: no cover
         # Clean up ALL 8 streams
         await client_read_writer.aclose()
         await client_write_reader.aclose()
@@ -189,7 +189,7 @@ async def test_proxy_error_handling(create_streams: CreateStreamsFixture) -> Non
             assert len(errors) == 1
             assert isinstance(errors[0], ValueError)
             assert str(errors[0]) == "Test error"
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -220,7 +220,7 @@ async def test_proxy_async_error_handler(create_streams: CreateStreamsFixture) -
             assert len(errors) == 1
             assert isinstance(errors[0], ValueError)
             assert str(errors[0]) == "Async test error"
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -253,7 +253,7 @@ async def test_proxy_continues_after_error(create_streams: CreateStreamsFixture)
 
             # Error should have been captured
             assert len(errors) == 1
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -279,7 +279,7 @@ async def test_proxy_cleans_up_streams(create_streams: CreateStreamsFixture) -> 
 
         # The proxy has exited cleanly. The streams are owned by the caller
         # (transport context managers in real usage), and can be closed normally.
-    finally:
+    finally:  # pragma: no cover
         # Verify streams can be closed normally (proxy doesn't prevent cleanup)
         await client_read_writer.aclose()
         await client_write_reader.aclose()
@@ -306,7 +306,7 @@ async def test_proxy_multiple_messages(create_streams: CreateStreamsFixture) -> 
                     received = await server_write_reader.receive()
                     assert received.message.root.id == str(i)  # type: ignore[attr-defined]
                     assert received.message.root.method == f"method_{i}"  # type: ignore[attr-defined]
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -328,7 +328,7 @@ async def test_proxy_handles_closed_resource_error(create_streams: CreateStreams
 
             # Proxy should handle this gracefully without crashing
             # The ClosedResourceError is caught and logged internally
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -364,7 +364,7 @@ async def test_proxy_handles_write_stream_closed_during_forward(
             await anyio.sleep(0.1)
 
             # Proxy should handle this gracefully without crashing
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_read_writer.aclose()
@@ -394,7 +394,7 @@ async def test_proxy_closes_other_stream_on_close(create_streams: CreateStreamsF
                 request = JSONRPCRequest(jsonrpc="2.0", id="test", method="test", params={})
                 message = SessionMessage(JSONRPCMessage(request))
                 await server_write.send(message)
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -429,7 +429,7 @@ async def test_proxy_error_in_callback(create_streams: CreateStreamsFixture) -> 
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
                 assert received.message.root.id == "after_callback_error"  # type: ignore[attr-defined]
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -465,7 +465,7 @@ async def test_proxy_async_error_in_callback(create_streams: CreateStreamsFixtur
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
                 assert received.message.root.id == "after_async_callback_error"  # type: ignore[attr-defined]
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
@@ -495,7 +495,7 @@ async def test_proxy_without_error_handler(create_streams: CreateStreamsFixture)
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
                 assert received.message.root.id == "after_exception_no_handler"  # type: ignore[attr-defined]
-    finally:
+    finally:  # pragma: no cover
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
