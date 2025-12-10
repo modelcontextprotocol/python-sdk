@@ -1,7 +1,6 @@
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
-from datetime import timedelta
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -189,7 +188,7 @@ class BaseSession(
         receive_request_type: type[ReceiveRequestT],
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -241,7 +240,7 @@ class BaseSession(
         self,
         request: SendRequestT,
         result_type: type[ReceiveResultT],
-        request_read_timeout_seconds: timedelta | None = None,
+        request_read_timeout_seconds: float | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
@@ -283,9 +282,9 @@ class BaseSession(
             # request read timeout takes precedence over session read timeout
             timeout = None
             if request_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = request_read_timeout_seconds.total_seconds()
+                timeout = request_read_timeout_seconds
             elif self._session_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = self._session_read_timeout_seconds.total_seconds()
+                timeout = self._session_read_timeout_seconds
 
             try:
                 with anyio.fail_after(timeout):

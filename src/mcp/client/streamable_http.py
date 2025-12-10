@@ -10,7 +10,6 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import timedelta
 
 import anyio
 import httpx
@@ -82,8 +81,8 @@ class StreamableHTTPTransport:
         self,
         url: str,
         headers: dict[str, str] | None = None,
-        timeout: float | timedelta = 30,
-        sse_read_timeout: float | timedelta = 60 * 5,
+        timeout: float = 30.0,
+        sse_read_timeout: float = 300.0,
         auth: httpx.Auth | None = None,
     ) -> None:
         """Initialize the StreamableHTTP transport.
@@ -91,16 +90,14 @@ class StreamableHTTPTransport:
         Args:
             url: The endpoint URL.
             headers: Optional headers to include in requests.
-            timeout: HTTP timeout for regular operations.
-            sse_read_timeout: Timeout for SSE read operations.
+            timeout: HTTP timeout for regular operations (in seconds).
+            sse_read_timeout: Timeout for SSE read operations (in seconds).
             auth: Optional HTTPX authentication handler.
         """
         self.url = url
         self.headers = headers or {}
-        self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
-        self.sse_read_timeout = (
-            sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout
-        )
+        self.timeout = timeout
+        self.sse_read_timeout = sse_read_timeout
         self.auth = auth
         self.session_id = None
         self.protocol_version = None
@@ -563,8 +560,8 @@ class StreamableHTTPTransport:
 async def streamablehttp_client(
     url: str,
     headers: dict[str, str] | None = None,
-    timeout: float | timedelta = 30,
-    sse_read_timeout: float | timedelta = 60 * 5,
+    timeout: float = 30.0,
+    sse_read_timeout: float = 300.0,
     terminate_on_close: bool = True,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
