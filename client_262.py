@@ -10,17 +10,11 @@ USAGE:
   Normal run (should work):
     python client_262.py
 
-  Reproduce the bug with GUARANTEED hang (use 'forever'):
-    MCP_DEBUG_RACE_DELAY_STDIO=forever python client_262.py
+  With delay to observe the race window:
+    MCP_DEBUG_RACE_DELAY_STDIO=2.0 python client_262.py
 
-  Or with a timed delay (may or may not hang depending on timing):
-    MCP_DEBUG_RACE_DELAY_STDIO=0.5 python client_262.py
-
-  You can also delay the session receive loop:
-    MCP_DEBUG_RACE_DELAY_SESSION=forever python client_262.py
-
-  Or both for maximum effect:
-    MCP_DEBUG_RACE_DELAY_STDIO=forever MCP_DEBUG_RACE_DELAY_SESSION=forever python client_262.py
+  With delay in session receive loop:
+    MCP_DEBUG_RACE_DELAY_SESSION=2.0 python client_262.py
 
 EXPLANATION:
 
@@ -29,10 +23,19 @@ The bug is caused by a race condition in the MCP client:
 1. stdio_client creates zero-capacity memory streams (capacity=0)
 2. stdio_client starts stdin_writer task with start_soon() (not awaited)
 3. When client calls send_request(), it sends to the write_stream
-4. If stdin_writer hasn't reached its receive loop yet, send() blocks forever
+4. If stdin_writer hasn't reached its receive loop yet, send() blocks
 
-The environment variables inject delays at the start of the background tasks,
-widening the race window to make the bug reliably reproducible.
+IMPORTANT: Due to Python's cooperative multitasking, when send() blocks on a
+zero-capacity stream, it yields control to the event loop, which then runs
+the delayed task. So with simple delays, the client will be SLOW but won't
+hang permanently.
+
+The REAL issue #262 manifests under specific timing conditions (often in WSL)
+where the event loop scheduling behaves differently. The delays here demonstrate
+that the race WINDOW exists, even if cooperative multitasking prevents a
+permanent hang in most cases.
+
+For a true reproduction showing the blocking behavior, see: reproduce_262.py
 
 See: https://github.com/modelcontextprotocol/python-sdk/issues/262
 """
@@ -63,13 +66,14 @@ async def main() -> None:
         if session_delay:
             print(f"  MCP_DEBUG_RACE_DELAY_SESSION = {session_delay}s")
         print()
-        print("This should cause a hang/timeout due to the race condition!")
+        print("Operations will be SLOW due to delays in background tasks.")
+        print("(Won't hang permanently due to cooperative multitasking)")
         print()
     else:
         print("No debug delays - this should work normally.")
         print()
-        print("To reproduce the bug, run with:")
-        print("  MCP_DEBUG_RACE_DELAY_STDIO=forever python client_262.py")
+        print("To observe the race window, run with:")
+        print("  MCP_DEBUG_RACE_DELAY_STDIO=2.0 python client_262.py")
         print()
 
     # Server parameters - run server_262.py
@@ -115,17 +119,18 @@ async def main() -> None:
     except TimeoutError:
         print()
         print("=" * 70)
-        print("TIMEOUT! The client hung - race condition reproduced!")
+        print("TIMEOUT! Operations took too long.")
         print("=" * 70)
         print()
-        print("This is issue #262: The race condition caused a deadlock.")
-        print()
-        print("Root cause:")
+        print("This demonstrates the race window in issue #262:")
         print("  - Zero-capacity streams require sender and receiver to rendezvous")
         print("  - Background tasks (stdin_writer) are started with start_soon()")
-        print("  - If send_request() runs before stdin_writer is ready, it blocks forever")
+        print("  - Delays in task startup cause send() to block")
         print()
-        print("The injected delays widen this race window to make it reproducible.")
+        print("In the real bug, specific timing/scheduling conditions cause")
+        print("tasks to never become ready, resulting in a permanent hang.")
+        print()
+        print("See reproduce_262.py for a minimal reproduction with timeouts.")
         sys.exit(1)
 
     except Exception as e:
