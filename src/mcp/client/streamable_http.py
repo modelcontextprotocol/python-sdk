@@ -100,8 +100,8 @@ class StreamableHTTPTransport:
         self,
         url: str,
         headers: dict[str, str] | None = None,
-        timeout: float | timedelta = 30,
-        sse_read_timeout: float | timedelta = 60 * 5,
+        timeout: float = 30.0,
+        sse_read_timeout: float = 300.0,
         auth: httpx.Auth | None = None,
     ) -> None: ...
 
@@ -118,8 +118,8 @@ class StreamableHTTPTransport:
         Args:
             url: The endpoint URL.
             headers: Optional headers to include in requests.
-            timeout: HTTP timeout for regular operations.
-            sse_read_timeout: Timeout for SSE read operations.
+            timeout: HTTP timeout for regular operations (in seconds).
+            sse_read_timeout: Timeout for SSE read operations (in seconds).
             auth: Optional HTTPX authentication handler.
         """
         # Check for deprecated parameters and issue runtime warning

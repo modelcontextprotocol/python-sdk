@@ -1,7 +1,6 @@
 """Test to reproduce issue #88: Random error thrown on response."""
 
 from collections.abc import Sequence
-from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -93,10 +92,10 @@ async def test_notification_validation_error(tmp_path: Path):
             assert not slow_request_lock.is_set()
 
             # Second call should timeout (slow operation with minimal timeout)
-            # Use 10ms timeout to trigger quickly without waiting
+            # Use very small timeout to trigger quickly without waiting
             with pytest.raises(McpError) as exc_info:
                 await session.call_tool(
-                    "slow", read_timeout_seconds=timedelta(microseconds=1)
+                    "slow", read_timeout_seconds=0.000001
                 )  # artificial timeout that always fails
             assert "Timed out while waiting" in str(exc_info.value)
 

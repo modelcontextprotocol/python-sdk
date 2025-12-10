@@ -12,7 +12,6 @@ import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from types import TracebackType
 from typing import Any, TypeAlias, overload
 
@@ -41,11 +40,11 @@ class SseServerParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: float = 5
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 5.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: float = 60 * 5
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
 
 class StreamableHttpParameters(BaseModel):
@@ -57,11 +56,11 @@ class StreamableHttpParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: timedelta = timedelta(seconds=30)
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 30.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: timedelta = timedelta(seconds=60 * 5)
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
@@ -76,7 +75,7 @@ ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | Stre
 class ClientSessionParameters:
     """Parameters for establishing a client session to an MCP server."""
 
-    read_timeout_seconds: timedelta | None = None
+    read_timeout_seconds: float | None = None
     sampling_callback: SamplingFnT | None = None
     elicitation_callback: ElicitationFnT | None = None
     list_roots_callback: ListRootsFnT | None = None
@@ -197,7 +196,7 @@ class ClientSessionGroup:
         self,
         name: str,
         arguments: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
@@ -210,7 +209,7 @@ class ClientSessionGroup:
         name: str,
         *,
         args: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         meta: dict[str, Any] | None = None,
     ) -> types.CallToolResult: ...
@@ -219,7 +218,7 @@ class ClientSessionGroup:
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
