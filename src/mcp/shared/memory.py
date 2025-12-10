@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from typing import Any
 
 import anyio
@@ -49,7 +48,7 @@ async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageS
 @asynccontextmanager
 async def create_connected_server_and_client_session(
     server: Server[Any] | FastMCP,
-    read_timeout_seconds: timedelta | None = None,
+    read_timeout_seconds: float | None = None,
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,

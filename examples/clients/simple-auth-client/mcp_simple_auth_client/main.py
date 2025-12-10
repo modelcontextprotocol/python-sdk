@@ -11,7 +11,6 @@ import os
 import threading
 import time
 import webbrowser
-from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -215,7 +214,7 @@ class SimpleAuthClient:
                 async with streamablehttp_client(
                     url=self.server_url,
                     auth=oauth_auth,
-                    timeout=timedelta(seconds=60),
+                    timeout=60.0,
                 ) as (read_stream, write_stream, get_session_id):
                     await self._run_session(read_stream, write_stream, get_session_id)
 
