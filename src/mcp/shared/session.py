@@ -473,7 +473,7 @@ class BaseSession(
             try:
                 return int(response_id)
             except ValueError:
-                pass
+                logging.warning(f"Response ID {response_id!r} cannot be normalized to match pending requests")
         return response_id
 
     async def _handle_response(self, message: SessionMessage) -> None:
