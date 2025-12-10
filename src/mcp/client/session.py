@@ -25,7 +25,7 @@ class SamplingFnT(Protocol):
         self,
         context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult | types.ErrorData: ...  # pragma: no branch
+    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
 
 class ElicitationFnT(Protocol):
@@ -65,7 +65,7 @@ async def _default_message_handler(
 async def _default_sampling_callback(
     context: RequestContext["ClientSession", Any],
     params: types.CreateMessageRequestParams,
-) -> types.CreateMessageResult | types.ErrorData:
+) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Sampling not supported",
@@ -121,6 +121,7 @@ class ClientSession(
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
+        sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
         super().__init__(
@@ -132,6 +133,7 @@ class ClientSession(
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
+        self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
@@ -144,7 +146,11 @@ class ClientSession(
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
+        sampling = (
+            (self._sampling_capabilities or types.SamplingCapability())
+            if self._sampling_callback is not _default_sampling_callback
+            else None
+        )
         elicitation = (
             types.ElicitationCapability(
                 form=types.FormElicitationCapability(),
