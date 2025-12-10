@@ -676,7 +676,7 @@ The Context object provides the following capabilities:
 - `ctx.session` - Access to the underlying session for advanced communication (see [Session Properties and Methods](#session-properties-and-methods))
 - `ctx.request_context` - Access to request-specific data and lifespan resources (see [Request Context Properties](#request-context-properties))
 - `await ctx.debug(message)` - Send debug log message
-- `await ctx.info(message)` - Send info log message  
+- `await ctx.info(message)` - Send info log message
 - `await ctx.warning(message)` - Send warning log message
 - `await ctx.error(message)` - Send error log message
 - `await ctx.log(level, message, logger_name=None)` - Send log with custom level
@@ -1107,13 +1107,13 @@ The session object accessible via `ctx.session` provides advanced control over c
 async def notify_data_update(resource_uri: str, ctx: Context) -> str:
     """Update data and notify clients of the change."""
     # Perform data update logic here
-    
+
     # Notify clients that this specific resource changed
     await ctx.session.send_resource_updated(AnyUrl(resource_uri))
-    
+
     # If this affects the overall resource list, notify about that too
     await ctx.session.send_resource_list_changed()
-    
+
     return f"Updated {resource_uri} and notified clients"
 ```
 
@@ -1142,11 +1142,11 @@ def query_with_config(query: str, ctx: Context) -> str:
     """Execute a query using shared database and configuration."""
     # Access typed lifespan context
     app_ctx: AppContext = ctx.request_context.lifespan_context
-    
+
     # Use shared resources
     connection = app_ctx.db
     settings = app_ctx.config
-    
+
     # Execute query with configuration
     result = connection.execute(query, timeout=settings.query_timeout)
     return str(result)
@@ -2545,7 +2545,9 @@ MCP servers declare capabilities during initialization:
 
 ## Documentation
 
-- [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
+- [Current Release Documentation](https://modelcontextprotocol.github.io/python-sdk/)
+- [Current Release API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
+- [Versioned Documentation](https://mcp-python-sdk.readthedocs.io/)
 - [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
