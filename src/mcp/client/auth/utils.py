@@ -71,6 +71,7 @@ def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, s
     Per SEP-985, the client MUST:
     1. Try resource_metadata from WWW-Authenticate header (if present)
     2. Fall back to path-based well-known URI: /.well-known/oauth-protected-resource/{path}
+        or /{mount path}/.well-known/oauth-protected-resource for starlete mounted servers
     3. Fall back to root-based well-known URI: /.well-known/oauth-protected-resource
 
     Args:
@@ -90,9 +91,17 @@ def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, s
     parsed = urlparse(server_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Priority 2: Path-based well-known URI (if server has a path component)
+    # Priority 2: Path-based well-known URI (if server has a path component or mounted app)
     if parsed.path and parsed.path != "/":
         path_based_url = urljoin(base_url, f"/.well-known/oauth-protected-resource{parsed.path}")
+        # Mounted app base path at 0 index
+        root_path_based_url = urljoin(
+            base_url,
+            f"""/{
+                parsed.path.strip("/").rpartition("/")[0] or parsed.path.strip("/")
+            }/.well-known/oauth-protected-resource""",
+        )
+        urls.append(root_path_based_url)
         urls.append(path_based_url)
 
     # Priority 3: Root-based well-known URI

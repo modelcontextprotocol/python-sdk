@@ -1299,20 +1299,27 @@ class TestLegacyServerFallback:
 
         # Should try path-based PRM first
         prm_request_1 = await auth_flow.asend(response)
-        assert str(prm_request_1.url) == "https://mcp.linear.app/.well-known/oauth-protected-resource/sse"
+        assert str(prm_request_1.url) == "https://mcp.linear.app/sse/.well-known/oauth-protected-resource"
 
         # PRM returns 404
         prm_response_1 = httpx.Response(404, request=prm_request_1)
 
-        # Should try root-based PRM
+        # Should try path-based PRM first
         prm_request_2 = await auth_flow.asend(prm_response_1)
-        assert str(prm_request_2.url) == "https://mcp.linear.app/.well-known/oauth-protected-resource"
+        assert str(prm_request_2.url) == "https://mcp.linear.app/.well-known/oauth-protected-resource/sse"
 
-        # PRM returns 404 again - all PRM URLs failed
+        # PRM returns 404
         prm_response_2 = httpx.Response(404, request=prm_request_2)
 
+        # Should try root-based PRM
+        prm_request_3 = await auth_flow.asend(prm_response_2)
+        assert str(prm_request_3.url) == "https://mcp.linear.app/.well-known/oauth-protected-resource"
+
+        # PRM returns 404 again - all PRM URLs failed
+        prm_response_3 = httpx.Response(404, request=prm_request_3)
+
         # Should fall back to root OAuth discovery (March 2025 spec behavior)
-        oauth_metadata_request = await auth_flow.asend(prm_response_2)
+        oauth_metadata_request = await auth_flow.asend(prm_response_3)
         assert str(oauth_metadata_request.url) == "https://mcp.linear.app/.well-known/oauth-authorization-server"
         assert oauth_metadata_request.method == "GET"
 
@@ -1407,20 +1414,27 @@ class TestLegacyServerFallback:
 
         # Try path-based fallback
         prm_request_2 = await auth_flow.asend(prm_response_1)
-        assert str(prm_request_2.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert str(prm_request_2.url) == "https://api.example.com/v1/.well-known/oauth-protected-resource"
 
         # Returns 404
         prm_response_2 = httpx.Response(404, request=prm_request_2)
 
-        # Try root fallback
+        # Try path-based fallback
         prm_request_3 = await auth_flow.asend(prm_response_2)
-        assert str(prm_request_3.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+        assert str(prm_request_3.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
 
-        # Also returns 404 - all PRM URLs failed
+        # Returns 404
         prm_response_3 = httpx.Response(404, request=prm_request_3)
 
+        # Try root fallback
+        prm_request_4 = await auth_flow.asend(prm_response_3)
+        assert str(prm_request_4.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+        # Also returns 404 - all PRM URLs failed
+        prm_response_4 = httpx.Response(404, request=prm_request_4)
+
         # Should fall back to root OAuth discovery
-        oauth_metadata_request = await auth_flow.asend(prm_response_3)
+        oauth_metadata_request = await auth_flow.asend(prm_response_4)
         assert str(oauth_metadata_request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
 
         # Complete the flow
@@ -1491,9 +1505,10 @@ class TestSEP985Discovery:
         )
 
         # Should have path-based URL first, then root-based URL
-        assert len(discovery_urls) == 2
-        assert discovery_urls[0] == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
-        assert discovery_urls[1] == "https://api.example.com/.well-known/oauth-protected-resource"
+        assert len(discovery_urls) == 3
+        assert discovery_urls[0] == "https://api.example.com/v1/.well-known/oauth-protected-resource"
+        assert discovery_urls[1] == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert discovery_urls[2] == "https://api.example.com/.well-known/oauth-protected-resource"
 
     @pytest.mark.anyio
     async def test_root_based_fallback_after_path_based_404(
@@ -1539,33 +1554,41 @@ class TestSEP985Discovery:
         # Send a 401 response without WWW-Authenticate header
         response = httpx.Response(401, headers={}, request=test_request)
 
-        # Next request should be to discover protected resource metadata (path-based)
+        # Next request should be to discover protected resource metadata (mounted path-based)
         discovery_request_1 = await auth_flow.asend(response)
-        assert str(discovery_request_1.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert str(discovery_request_1.url) == "https://api.example.com/v1/.well-known/oauth-protected-resource"
         assert discovery_request_1.method == "GET"
 
         # Send 404 response for path-based discovery
         discovery_response_1 = httpx.Response(404, request=discovery_request_1)
 
-        # Next request should be to root-based well-known URI
+        # Next request should be to discover protected resource metadata (path-based)
         discovery_request_2 = await auth_flow.asend(discovery_response_1)
-        assert str(discovery_request_2.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+        assert str(discovery_request_2.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
         assert discovery_request_2.method == "GET"
 
+        # Send 404 response for path-based discovery
+        discovery_response_2 = httpx.Response(404, request=discovery_request_2)
+
+        # Next request should be to root-based well-known URI
+        discovery_request_3 = await auth_flow.asend(discovery_response_2)
+        assert str(discovery_request_3.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+        assert discovery_request_3.method == "GET"
+
         # Send successful discovery response
-        discovery_response_2 = httpx.Response(
+        discovery_response_3 = httpx.Response(
             200,
             content=(
                 b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
             ),
-            request=discovery_request_2,
+            request=discovery_request_3,
         )
 
         # Mock the rest of the OAuth flow
         provider._perform_authorization = mock.AsyncMock(return_value=("test_auth_code", "test_code_verifier"))
 
         # Next should be OAuth metadata discovery
-        oauth_metadata_request = await auth_flow.asend(discovery_response_2)
+        oauth_metadata_request = await auth_flow.asend(discovery_response_3)
         assert oauth_metadata_request.method == "GET"
 
         # Complete the flow
@@ -1631,10 +1654,11 @@ class TestSEP985Discovery:
         )
 
         # Should have WWW-Authenticate URL first, then fallback URLs
-        assert len(discovery_urls) == 3
+        assert len(discovery_urls) == 4
         assert discovery_urls[0] == "https://custom.example.com/.well-known/oauth-protected-resource"
-        assert discovery_urls[1] == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
-        assert discovery_urls[2] == "https://api.example.com/.well-known/oauth-protected-resource"
+        assert discovery_urls[1] == "https://api.example.com/v1/.well-known/oauth-protected-resource"
+        assert discovery_urls[2] == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert discovery_urls[3] == "https://api.example.com/.well-known/oauth-protected-resource"
 
 
 class TestWWWAuthenticate:
