@@ -270,12 +270,10 @@ async def test_response_id_non_numeric_string_no_match():
         async def make_request(client_session: ClientSession):
             try:
                 # Use a short timeout since we expect this to fail
-                from datetime import timedelta
-
                 await client_session.send_request(
                     ClientRequest(types.PingRequest()),
                     types.EmptyResult,
-                    request_read_timeout_seconds=timedelta(seconds=0.5),
+                    request_read_timeout_seconds=0.5,
                 )
                 pytest.fail("Expected timeout")  # pragma: no cover
             except McpError as e:
