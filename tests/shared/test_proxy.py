@@ -17,6 +17,7 @@ WriteStream = MemoryObjectSendStream[SessionMessage]
 StreamPair = tuple[ReadStream, WriteStream]
 WriterReaderPair = tuple[MemoryObjectSendStream[SessionMessage | Exception], MemoryObjectReceiveStream[SessionMessage]]
 StreamsFixtureReturn = tuple[StreamPair, StreamPair, WriterReaderPair, WriterReaderPair]
+CreateStreamsFixture = Callable[[], StreamsFixtureReturn]
 
 
 @pytest.fixture
@@ -63,7 +64,7 @@ async def create_streams() -> AsyncGenerator[Callable[[], StreamsFixtureReturn],
 
 
 @pytest.mark.anyio
-async def test_proxy_forwards_client_to_server(create_streams):
+async def test_proxy_forwards_client_to_server(create_streams: CreateStreamsFixture) -> None:
     """Test that messages from client are forwarded to server."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
@@ -79,8 +80,8 @@ async def test_proxy_forwards_client_to_server(create_streams):
             # Verify it arrives at server
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
-                assert received.message.root.id == "1"
-                assert received.message.root.method == "test_method"
+                assert received.message.root.id == "1"  # type: ignore[attr-defined]
+                assert received.message.root.method == "test_method"  # type: ignore[attr-defined]
     finally:
         # Clean up test streams
         await client_read_writer.aclose()
@@ -88,7 +89,7 @@ async def test_proxy_forwards_client_to_server(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_forwards_server_to_client(create_streams):
+async def test_proxy_forwards_server_to_client(create_streams: CreateStreamsFixture) -> None:
     """Test that messages from server are forwarded to client."""
     client_streams, server_streams, (_, client_write_reader), (server_read_writer, _) = create_streams()
 
@@ -104,8 +105,8 @@ async def test_proxy_forwards_server_to_client(create_streams):
             # Verify it arrives at client
             with anyio.fail_after(1):
                 received = await client_write_reader.receive()
-                assert received.message.root.id == "2"
-                assert received.message.root.method == "server_method"
+                assert received.message.root.id == "2"  # type: ignore[attr-defined]
+                assert received.message.root.method == "server_method"  # type: ignore[attr-defined]
     finally:
         # Clean up test streams
         await server_read_writer.aclose()
@@ -113,7 +114,7 @@ async def test_proxy_forwards_server_to_client(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_bidirectional_forwarding(create_streams):
+async def test_proxy_bidirectional_forwarding(create_streams: CreateStreamsFixture) -> None:
     """Test that proxy forwards messages in both directions simultaneously."""
     (
         client_streams,
@@ -146,11 +147,11 @@ async def test_proxy_bidirectional_forwarding(create_streams):
             with anyio.fail_after(1):
                 # Client message should arrive at server
                 received_at_server = await server_write_reader.receive()
-                assert received_at_server.message.root.id == "client_1"
+                assert received_at_server.message.root.id == "client_1"  # type: ignore[attr-defined]
 
                 # Server message should arrive at client
                 received_at_client = await client_write_reader.receive()
-                assert received_at_client.message.root.id == "server_1"
+                assert received_at_client.message.root.id == "server_1"  # type: ignore[attr-defined]
     finally:
         # Clean up ALL 8 streams
         await client_read_writer.aclose()
@@ -164,12 +165,12 @@ async def test_proxy_bidirectional_forwarding(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_error_handling(create_streams):
+async def test_proxy_error_handling(create_streams: CreateStreamsFixture) -> None:
     """Test that errors are caught and onerror callback is invoked."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
-        errors = []
+        errors: list[Exception] = []
 
         def error_handler(error: Exception) -> None:
             """Collect errors."""
@@ -195,12 +196,12 @@ async def test_proxy_error_handling(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_async_error_handler(create_streams):
+async def test_proxy_async_error_handler(create_streams: CreateStreamsFixture) -> None:
     """Test that async error handlers work."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
-        errors = []
+        errors: list[Exception] = []
 
         async def async_error_handler(error: Exception) -> None:
             """Collect errors asynchronously."""
@@ -226,12 +227,12 @@ async def test_proxy_async_error_handler(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_continues_after_error(create_streams):
+async def test_proxy_continues_after_error(create_streams: CreateStreamsFixture) -> None:
     """Test that proxy continues forwarding after an error."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
-        errors = []
+        errors: list[Exception] = []
 
         def error_handler(error: Exception) -> None:
             errors.append(error)
@@ -248,7 +249,7 @@ async def test_proxy_continues_after_error(create_streams):
             # Valid message should still be forwarded
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
-                assert received.message.root.id == "after_error"
+                assert received.message.root.id == "after_error"  # type: ignore[attr-defined]
 
             # Error should have been captured
             assert len(errors) == 1
@@ -259,7 +260,7 @@ async def test_proxy_continues_after_error(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_cleans_up_streams(create_streams):
+async def test_proxy_cleans_up_streams(create_streams: CreateStreamsFixture) -> None:
     """Test that proxy exits cleanly and doesn't interfere with stream lifecycle."""
     (
         client_streams,
@@ -287,7 +288,7 @@ async def test_proxy_cleans_up_streams(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_multiple_messages(create_streams):
+async def test_proxy_multiple_messages(create_streams: CreateStreamsFixture) -> None:
     """Test that proxy can forward multiple messages."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
@@ -303,8 +304,8 @@ async def test_proxy_multiple_messages(create_streams):
             with anyio.fail_after(1):
                 for i in range(5):
                     received = await server_write_reader.receive()
-                    assert received.message.root.id == str(i)
-                    assert received.message.root.method == f"method_{i}"
+                    assert received.message.root.id == str(i)  # type: ignore[attr-defined]
+                    assert received.message.root.method == f"method_{i}"  # type: ignore[attr-defined]
     finally:
         # Clean up test streams
         await client_read_writer.aclose()
@@ -312,12 +313,12 @@ async def test_proxy_multiple_messages(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_handles_closed_resource_error(create_streams):
+async def test_proxy_handles_closed_resource_error(create_streams: CreateStreamsFixture) -> None:
     """Test that proxy handles ClosedResourceError gracefully."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
-        errors = []
+        errors: list[Exception] = []
 
         def error_handler(error: Exception) -> None:
             errors.append(error)
@@ -340,13 +341,13 @@ async def test_proxy_handles_closed_resource_error(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_closes_other_stream_on_close(create_streams):
+async def test_proxy_closes_other_stream_on_close(create_streams: CreateStreamsFixture) -> None:
     """Test that when one stream closes, the other is also closed."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
     try:
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
+        client_read, _client_write = client_streams
+        _server_read, server_write = server_streams
 
         async with mcp_proxy(client_streams, server_streams):
             # Close the client read stream
@@ -369,7 +370,7 @@ async def test_proxy_closes_other_stream_on_close(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_error_in_callback(create_streams):
+async def test_proxy_error_in_callback(create_streams: CreateStreamsFixture) -> None:
     """Test that errors in the error callback are handled gracefully."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
@@ -396,7 +397,7 @@ async def test_proxy_error_in_callback(create_streams):
             # Valid message should still be forwarded
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
-                assert received.message.root.id == "after_callback_error"
+                assert received.message.root.id == "after_callback_error"  # type: ignore[attr-defined]
     finally:
         # Clean up test streams
         await client_read_writer.aclose()
@@ -404,7 +405,7 @@ async def test_proxy_error_in_callback(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_async_error_in_callback(create_streams):
+async def test_proxy_async_error_in_callback(create_streams: CreateStreamsFixture) -> None:
     """Test that async errors in the error callback are handled gracefully."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
@@ -432,7 +433,7 @@ async def test_proxy_async_error_in_callback(create_streams):
             # Valid message should still be forwarded
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
-                assert received.message.root.id == "after_async_callback_error"
+                assert received.message.root.id == "after_async_callback_error"  # type: ignore[attr-defined]
     finally:
         # Clean up test streams
         await client_read_writer.aclose()
@@ -440,7 +441,7 @@ async def test_proxy_async_error_in_callback(create_streams):
 
 
 @pytest.mark.anyio
-async def test_proxy_without_error_handler(create_streams):
+async def test_proxy_without_error_handler(create_streams: CreateStreamsFixture) -> None:
     """Test that proxy works without an error handler (covers onerror=None branch)."""
     client_streams, server_streams, (client_read_writer, _), (_, server_write_reader) = create_streams()
 
@@ -462,10 +463,8 @@ async def test_proxy_without_error_handler(create_streams):
             # Valid message should still be forwarded
             with anyio.fail_after(1):
                 received = await server_write_reader.receive()
-                assert received.message.root.id == "after_exception_no_handler"
+                assert received.message.root.id == "after_exception_no_handler"  # type: ignore[attr-defined]
     finally:
         # Clean up test streams
         await client_read_writer.aclose()
         await server_write_reader.aclose()
-
-
