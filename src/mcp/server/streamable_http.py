@@ -20,7 +20,6 @@ from typing import Any
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
-from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
@@ -613,6 +612,8 @@ class StreamableHTTPServerTransport:
                         self._sse_stream_writers.pop(request_id, None)
                         await self._clean_up_memory_streams(request_id)
 
+                from sse_starlette import EventSourceResponse
+
                 # Create and start EventSourceResponse
                 # SSE stream mode (original behavior)
                 # Set up headers
@@ -729,6 +730,8 @@ class StreamableHTTPServerTransport:
             finally:
                 logger.debug("Closing standalone SSE writer")
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
+
+        from sse_starlette import EventSourceResponse
 
         # Create and start EventSourceResponse
         response = EventSourceResponse(
@@ -933,6 +936,8 @@ class StreamableHTTPServerTransport:
                     logger.debug("Replay SSE stream closed by close_sse_stream()")
                 except Exception:
                     logger.exception("Error in replay sender")
+
+            from sse_starlette import EventSourceResponse
 
             # Create and start EventSourceResponse
             response = EventSourceResponse(

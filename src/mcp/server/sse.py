@@ -46,7 +46,6 @@ from uuid import UUID, uuid4
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
-from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
@@ -185,6 +184,8 @@ class SseServerTransport:
                 In this case we close our side of the streams to signal the client that
                 the connection has been closed.
                 """
+                from sse_starlette import EventSourceResponse
+
                 await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
                     scope, receive, send
                 )
