@@ -23,12 +23,12 @@ jobs:
           # Get all tags sorted by version
           CURRENT_TAG="${{ github.event.release.tag_name }}"
           PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
-          
+
           # If there's no previous tag, use the first commit
           if [ -z "$PREVIOUS_TAG" ] || [ "$PREVIOUS_TAG" = "$CURRENT_TAG" ]; then
             PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
           fi
-          
+
           echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
           echo "Found previous tag/commit: ${PREVIOUS_TAG}"
 
@@ -39,9 +39,9 @@ jobs:
           script: |
             const currentTag = '${{ github.event.release.tag_name }}';
             const previousTag = '${{ steps.previous_tag.outputs.previous_tag }}';
-            
+
             console.log(`Finding PRs between ${previousTag} and ${currentTag}`);
-            
+
             // Get commits between previous and current release
             const comparison = await github.rest.repos.compareCommits({
               owner: context.repo.owner,
@@ -49,14 +49,14 @@ jobs:
               base: previousTag,
               head: currentTag
             });
-            
+
             const commits = comparison.data.commits;
             console.log(`Found ${commits.length} commits`);
-            
+
             // Extract PR numbers from commit messages
             const prNumbers = new Set();
             const prPattern = /#(\d+)/g;
-            
+
             for (const commit of commits) {
               const message = commit.commit.message;
               const matches = message.matchAll(prPattern);
@@ -74,10 +74,10 @@ jobs:
                 }
               }
             }
-            
+
             // Verify these are actually PRs (not issues)
             const validPRs = [];
-            
+
             for (const prNumber of prNumbers) {
               try {
                 const { data: pr } = await github.rest.pulls.get({
@@ -95,7 +95,7 @@ jobs:
                 console.log(`#${prNumber} is not a valid PR or was not found`);
               }
             }
-            
+
             console.log(`Found ${validPRs.length} valid merged PRs`);
             return validPRs;
 
@@ -106,9 +106,9 @@ jobs:
             const prNumbers = ${{ steps.get_prs.outputs.result }};
             const releaseTag = '${{ github.event.release.tag_name }}';
             const releaseUrl = '${{ github.event.release.html_url }}';
-            
+
             const comment = `🎉 This pull request is included in [${releaseTag}](${releaseUrl})!`;
-            
+
             for (const prNumber of prNumbers) {
               try {
                 await github.rest.issues.createComment({
@@ -122,5 +122,5 @@ jobs:
                 console.error(`Failed to comment on PR #${prNumber}:`, error.message);
               }
             }
-            
+
             console.log(`Commented on ${prNumbers.length} PRs`);
