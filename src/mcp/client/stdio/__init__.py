@@ -166,14 +166,9 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     async def stdin_writer():
         assert process.stdin, "Opened process is missing stdin"
 
-        # DEBUG: Inject delay to reproduce issue #262 race condition
-        # This delays stdin_writer from entering its receive loop, widening
-        # the race window where send_request() might be called before the
-        # task is ready. Set MCP_DEBUG_RACE_DELAY_STDIO=<seconds> to enable.
-        #
-        # NOTE: Due to cooperative multitasking, this delay won't cause a
-        # permanent hang - when send() blocks, the event loop will eventually
-        # run this task. But it demonstrates the race window exists.
+        # DEBUG: Delay for investigating issue #262.
+        # Set MCP_DEBUG_RACE_DELAY_STDIO=<seconds> to add delay before
+        # this task enters its receive loop.
         _race_delay = os.environ.get("MCP_DEBUG_RACE_DELAY_STDIO")
         if _race_delay:
             await anyio.sleep(float(_race_delay))

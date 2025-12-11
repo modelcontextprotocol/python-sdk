@@ -349,12 +349,9 @@ class BaseSession(
             await self._write_stream.send(session_message)
 
     async def _receive_loop(self) -> None:
-        # DEBUG: Inject delay to reproduce issue #262 race condition
-        # This delays _receive_loop from entering its receive loop, widening
-        # the race window. Set MCP_DEBUG_RACE_DELAY_SESSION=<seconds> to enable.
-        #
-        # NOTE: Due to cooperative multitasking, this delay won't cause a
-        # permanent hang - it just demonstrates the race window exists.
+        # DEBUG: Delay for investigating issue #262.
+        # Set MCP_DEBUG_RACE_DELAY_SESSION=<seconds> to add delay before
+        # this task enters its receive loop.
         import os
 
         _race_delay = os.environ.get("MCP_DEBUG_RACE_DELAY_SESSION")
