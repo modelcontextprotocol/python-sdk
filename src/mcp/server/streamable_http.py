@@ -440,7 +440,7 @@ class StreamableHTTPServerTransport:
             return False
         return True
 
-    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
+    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:  # noqa: PLR0915
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
