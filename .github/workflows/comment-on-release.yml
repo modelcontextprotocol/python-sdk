@@ -17,20 +17,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get previous release tag
-        id: previous_tag
-        run: |
-          # Get all tags sorted by version
-          CURRENT_TAG="${{ github.event.release.tag_name }}"
-          PREVIOUS_TAG=$(git tag --sort=-version:refname | grep -A 1 "^${CURRENT_TAG}$" | tail -n 1)
-
-          # If there's no previous tag, use the first commit
-          if [ -z "$PREVIOUS_TAG" ] || [ "$PREVIOUS_TAG" = "$CURRENT_TAG" ]; then
-            PREVIOUS_TAG=$(git rev-list --max-parents=0 HEAD)
-          fi
-
-          echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
-          echo "Found previous tag/commit: ${PREVIOUS_TAG}"
+      - name: Get previous release
+        id: previous_release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const currentTag = '${{ github.event.release.tag_name }}';
+            
+            // Get all releases
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            
+            // Find current release index
+            const currentIndex = releases.findIndex(r => r.tag_name === currentTag);
+            
+            if (currentIndex === -1) {
+              console.log('Current release not found in list');
+              return null;
+            }
+            
+            // Get previous release (next in the list since they're sorted by date desc)
+            const previousRelease = releases[currentIndex + 1];
+            
+            if (!previousRelease) {
+              console.log('No previous release found, this might be the first release');
+              return null;
+            }
+            
+            console.log(`Found previous release: ${previousRelease.tag_name}`);
+            return previousRelease.tag_name;
 
       - name: Get merged PRs between releases
         id: get_prs
@@ -38,7 +56,12 @@ jobs:
         with:
           script: |
             const currentTag = '${{ github.event.release.tag_name }}';
-            const previousTag = '${{ steps.previous_tag.outputs.previous_tag }}';
+            const previousTag = ${{ steps.previous_release.outputs.result }};
+            
+            if (!previousTag) {
+              console.log('No previous release found, skipping');
+              return [];
+            }
 
             console.log(`Finding PRs between ${previousTag} and ${currentTag}`);
 
@@ -53,51 +76,30 @@ jobs:
             const commits = comparison.data.commits;
             console.log(`Found ${commits.length} commits`);
 
-            // Extract PR numbers from commit messages
+            // Get PRs associated with each commit using GitHub API
             const prNumbers = new Set();
-            const prPattern = /#(\d+)/g;
 
             for (const commit of commits) {
-              const message = commit.commit.message;
-              const matches = message.matchAll(prPattern);
-              
-              for (const match of matches) {
-                const prNumber = parseInt(match[1]);
-                prNumbers.add(prNumber);
-              }
-              
-              // Also check if the commit is associated with a PR
-              if (commit.commit.message.includes('Merge pull request #')) {
-                const match = commit.commit.message.match(/Merge pull request #(\d+)/);
-                if (match) {
-                  prNumbers.add(parseInt(match[1]));
-                }
-              }
-            }
-
-            // Verify these are actually PRs (not issues)
-            const validPRs = [];
-
-            for (const prNumber of prNumbers) {
               try {
-                const { data: pr } = await github.rest.pulls.get({
+                const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  pull_number: prNumber
+                  commit_sha: commit.sha
                 });
-                
-                // Only include merged PRs
-                if (pr.merged_at) {
-                  validPRs.push(prNumber);
-                  console.log(`Found valid merged PR: #${prNumber}`);
+
+                for (const pr of prs) {
+                  if (pr.merged_at) {
+                    prNumbers.add(pr.number);
+                    console.log(`Found merged PR: #${pr.number}`);
+                  }
                 }
               } catch (error) {
-                console.log(`#${prNumber} is not a valid PR or was not found`);
+                console.log(`Failed to get PRs for commit ${commit.sha}: ${error.message}`);
               }
             }
 
-            console.log(`Found ${validPRs.length} valid merged PRs`);
-            return validPRs;
+            console.log(`Found ${prNumbers.size} merged PRs`);
+            return Array.from(prNumbers);
 
       - name: Comment on PRs
         uses: actions/github-script@v7
@@ -107,20 +109,40 @@ jobs:
             const releaseTag = '${{ github.event.release.tag_name }}';
             const releaseUrl = '${{ github.event.release.html_url }}';
 
-            const comment = `🎉 This pull request is included in [${releaseTag}](${releaseUrl})!`;
+            const comment = `This pull request is included in [${releaseTag}](${releaseUrl})`;
+
+            let commentedCount = 0;
 
             for (const prNumber of prNumbers) {
               try {
+                // Check if we've already commented on this PR for this release
+                const { data: comments } = await github.rest.issues.listComments({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  per_page: 100
+                });
+
+                const alreadyCommented = comments.some(c =>
+                  c.user.type === 'Bot' && c.body.includes(releaseTag)
+                );
+
+                if (alreadyCommented) {
+                  console.log(`Skipping PR #${prNumber} - already commented for ${releaseTag}`);
+                  continue;
+                }
+
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: prNumber,
                   body: comment
                 });
+                commentedCount++;
                 console.log(`Successfully commented on PR #${prNumber}`);
               } catch (error) {
                 console.error(`Failed to comment on PR #${prNumber}:`, error.message);
               }
             }
 
-            console.log(`Commented on ${prNumbers.length} PRs`);
+            console.log(`Commented on ${commentedCount} of ${prNumbers.length} PRs`);
