@@ -569,7 +569,6 @@ The **permanent** hang requires WSL's scheduler quirk that we cannot simulate wi
 | File | Purpose |
 |------|---------|
 | `reproduce_262.py` | **Minimal standalone reproduction** - proves race with timeouts |
-| `reproduce_262_hang.py` | Shows race + optional "simulated" hang mode |
 | `client_262.py` | Real MCP client using the SDK |
 | `server_262.py` | Real MCP server for testing |
 | `src/mcp/client/stdio/__init__.py` | Added debug delay (gated by env var) |
