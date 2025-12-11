@@ -23,31 +23,32 @@ jobs:
         with:
           script: |
             const currentTag = '${{ github.event.release.tag_name }}';
-            
+
             // Get all releases
             const { data: releases } = await github.rest.repos.listReleases({
               owner: context.repo.owner,
               repo: context.repo.repo,
               per_page: 100
             });
-            
+
             // Find current release index
             const currentIndex = releases.findIndex(r => r.tag_name === currentTag);
-            
+
             if (currentIndex === -1) {
               console.log('Current release not found in list');
               return null;
             }
-            
+
             // Get previous release (next in the list since they're sorted by date desc)
             const previousRelease = releases[currentIndex + 1];
-            
+
             if (!previousRelease) {
               console.log('No previous release found, this might be the first release');
               return null;
             }
-            
+
             console.log(`Found previous release: ${previousRelease.tag_name}`);
+
             return previousRelease.tag_name;
 
       - name: Get merged PRs between releases
@@ -57,7 +58,7 @@ jobs:
           script: |
             const currentTag = '${{ github.event.release.tag_name }}';
             const previousTag = ${{ steps.previous_release.outputs.result }};
-            
+
             if (!previousTag) {
               console.log('No previous release found, skipping');
               return [];
