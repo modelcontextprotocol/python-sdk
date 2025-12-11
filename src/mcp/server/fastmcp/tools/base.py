@@ -4,13 +4,15 @@ import functools
 import inspect
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, get_origin
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.types import ToolAnnotations
+from mcp.shared.tool_name_validation import validate_and_warn_tool_name
+from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -32,6 +34,8 @@ class Tool(BaseModel):
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
+    meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -46,12 +50,14 @@ class Tool(BaseModel):
         description: str | None = None,
         context_kwarg: str | None = None,
         annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
-        from mcp.server.fastmcp.server import Context
-
         func_name = name or fn.__name__
+
+        validate_and_warn_tool_name(func_name)
 
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
@@ -59,14 +65,8 @@ class Tool(BaseModel):
         func_doc = description or fn.__doc__ or ""
         is_async = _is_async_callable(fn)
 
-        if context_kwarg is None:
-            sig = inspect.signature(fn)
-            for param_name, param in sig.parameters.items():
-                if get_origin(param.annotation) is not None:
-                    continue
-                if issubclass(param.annotation, Context):
-                    context_kwarg = param_name
-                    break
+        if context_kwarg is None:  # pragma: no branch
+            context_kwarg = find_context_parameter(fn)
 
         func_arg_metadata = func_metadata(
             fn,
@@ -85,6 +85,8 @@ class Tool(BaseModel):
             is_async=is_async,
             context_kwarg=context_kwarg,
             annotations=annotations,
+            icons=icons,
+            meta=meta,
         )
 
     async def run(
@@ -111,7 +113,7 @@ class Tool(BaseModel):
 
 
 def _is_async_callable(obj: Any) -> bool:
-    while isinstance(obj, functools.partial):
+    while isinstance(obj, functools.partial):  # pragma: no cover
         obj = obj.func
 
     return inspect.iscoroutinefunction(obj) or (

@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl
 from starlette.middleware.cors import CORSMiddleware
@@ -37,13 +38,13 @@ def validate_issuer_url(url: AnyHttpUrl):
         and url.host != "localhost"
         and (url.host is not None and not url.host.startswith("127.0.0.1"))
     ):
-        raise ValueError("Issuer URL must be HTTPS")
+        raise ValueError("Issuer URL must be HTTPS")  # pragma: no cover
 
     # No fragments or query parameters allowed
     if url.fragment:
-        raise ValueError("Issuer URL must not have a fragment")
+        raise ValueError("Issuer URL must not have a fragment")  # pragma: no cover
     if url.query:
-        raise ValueError("Issuer URL must not have a query string")
+        raise ValueError("Issuer URL must not have a query string")  # pragma: no cover
 
 
 AUTHORIZATION_PATH = "/authorize"
@@ -114,7 +115,7 @@ def create_auth_routes(
         ),
     ]
 
-    if client_registration_options.enabled:
+    if client_registration_options.enabled:  # pragma: no branch
         registration_handler = RegistrationHandler(
             provider,
             options=client_registration_options,
@@ -130,7 +131,7 @@ def create_auth_routes(
             )
         )
 
-    if revocation_options.enabled:
+    if revocation_options.enabled:  # pragma: no branch
         revocation_handler = RevocationHandler(provider, client_authenticator)
         routes.append(
             Route(
@@ -164,7 +165,7 @@ def build_metadata(
         response_types_supported=["code"],
         response_modes_supported=None,
         grant_types_supported=["authorization_code", "refresh_token"],
-        token_endpoint_auth_methods_supported=["client_secret_post"],
+        token_endpoint_auth_methods_supported=["client_secret_post", "client_secret_basic"],
         token_endpoint_auth_signing_alg_values_supported=None,
         service_documentation=service_documentation_url,
         ui_locales_supported=None,
@@ -175,15 +176,34 @@ def build_metadata(
     )
 
     # Add registration endpoint if supported
-    if client_registration_options.enabled:
+    if client_registration_options.enabled:  # pragma: no branch
         metadata.registration_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REGISTRATION_PATH)
 
     # Add revocation endpoint if supported
-    if revocation_options.enabled:
+    if revocation_options.enabled:  # pragma: no branch
         metadata.revocation_endpoint = AnyHttpUrl(str(issuer_url).rstrip("/") + REVOCATION_PATH)
-        metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post"]
+        metadata.revocation_endpoint_auth_methods_supported = ["client_secret_post", "client_secret_basic"]
 
     return metadata
+
+
+def build_resource_metadata_url(resource_server_url: AnyHttpUrl) -> AnyHttpUrl:
+    """
+    Build RFC 9728 compliant protected resource metadata URL.
+
+    Inserts /.well-known/oauth-protected-resource between host and resource path
+    as specified in RFC 9728 §3.1.
+
+    Args:
+        resource_server_url: The resource server URL (e.g., https://example.com/mcp)
+
+    Returns:
+        The metadata URL (e.g., https://example.com/.well-known/oauth-protected-resource/mcp)
+    """
+    parsed = urlparse(str(resource_server_url))
+    # Handle trailing slash: if path is just "/", treat as empty
+    resource_path = parsed.path if parsed.path != "/" else ""
+    return AnyHttpUrl(f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-protected-resource{resource_path}")
 
 
 def create_protected_resource_routes(
@@ -218,9 +238,15 @@ def create_protected_resource_routes(
 
     handler = ProtectedResourceMetadataHandler(metadata)
 
+    # RFC 9728 §3.1: Register route at /.well-known/oauth-protected-resource + resource path
+    metadata_url = build_resource_metadata_url(resource_url)
+    # Extract just the path part for route registration
+    parsed = urlparse(str(metadata_url))
+    well_known_path = parsed.path
+
     return [
         Route(
-            "/.well-known/oauth-protected-resource",
+            well_known_path,
             endpoint=cors_middleware(handler.handle, ["GET", "OPTIONS"]),
             methods=["GET", "OPTIONS"],
         )

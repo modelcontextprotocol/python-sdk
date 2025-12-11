@@ -12,7 +12,11 @@ from mcp.server.fastmcp import FastMCP
 
 # Configure streamable_http_path during initialization
 # This server will mount at the root of wherever it's mounted
-mcp_at_root = FastMCP("My Server", streamable_http_path="/")
+mcp_at_root = FastMCP(
+    "My Server",
+    json_response=True,
+    streamable_http_path="/",
+)
 
 
 @mcp_at_root.tool()

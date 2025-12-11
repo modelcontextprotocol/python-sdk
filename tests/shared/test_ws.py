@@ -26,6 +26,7 @@ from mcp.types import (
     TextResourceContents,
     Tool,
 )
+from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_server_for_WS"
 
@@ -43,7 +44,7 @@ def server_url(server_port: int) -> str:
 
 
 # Test server implementation
-class ServerTest(Server):
+class ServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
 
@@ -74,7 +75,7 @@ class ServerTest(Server):
 
 
 # Test fixtures
-def make_server_app() -> Starlette:
+def make_server_app() -> Starlette:  # pragma: no cover
     """Create test Starlette app with WebSocket transport"""
     server = ServerTest()
 
@@ -91,7 +92,7 @@ def make_server_app() -> Starlette:
     return app
 
 
-def run_server(server_port: int) -> None:
+def run_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
@@ -103,26 +104,15 @@ def run_server(server_port: int) -> None:
         time.sleep(0.5)
 
 
-@pytest.fixture()
+@pytest.fixture()  # pragma: no cover
 def server(server_port: int) -> Generator[None, None, None]:
     proc = multiprocessing.Process(target=run_server, kwargs={"server_port": server_port}, daemon=True)
     print("starting process")
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
@@ -130,7 +120,7 @@ def server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 

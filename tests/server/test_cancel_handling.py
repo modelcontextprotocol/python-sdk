@@ -52,7 +52,7 @@ async def test_server_remains_functional_after_cancel():
                 ev_first_call.set()
                 await anyio.sleep(5)  # First call is slow
             return [types.TextContent(type="text", text=f"Call number: {call_count}")]
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
     async with create_connected_server_and_client_session(server) as client:
         # First request (will be cancelled)
@@ -61,13 +61,12 @@ async def test_server_remains_functional_after_cancel():
                 await client.send_request(
                     ClientRequest(
                         CallToolRequest(
-                            method="tools/call",
                             params=CallToolRequestParams(name="test_tool", arguments={}),
                         )
                     ),
                     CallToolResult,
                 )
-                pytest.fail("First request should have been cancelled")
+                pytest.fail("First request should have been cancelled")  # pragma: no cover
             except McpError:
                 pass  # Expected
 
@@ -83,7 +82,6 @@ async def test_server_remains_functional_after_cancel():
             await client.send_notification(
                 ClientNotification(
                     CancelledNotification(
-                        method="notifications/cancelled",
                         params=CancelledNotificationParams(
                             requestId=first_request_id,
                             reason="Testing server recovery",
@@ -96,7 +94,6 @@ async def test_server_remains_functional_after_cancel():
         result = await client.send_request(
             ClientRequest(
                 CallToolRequest(
-                    method="tools/call",
                     params=CallToolRequestParams(name="test_tool", arguments={}),
                 )
             ),

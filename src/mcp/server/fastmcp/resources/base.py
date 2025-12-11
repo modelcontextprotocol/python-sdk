@@ -13,6 +13,8 @@ from pydantic import (
     field_validator,
 )
 
+from mcp.types import Annotations, Icon
+
 
 class Resource(BaseModel, abc.ABC):
     """Base class for all resources."""
@@ -26,8 +28,10 @@ class Resource(BaseModel, abc.ABC):
     mime_type: str = Field(
         default="text/plain",
         description="MIME type of the resource content",
-        pattern=r"^[a-zA-Z0-9]+/[a-zA-Z0-9\-+.]+$",
+        pattern=r"^[a-zA-Z0-9]+/[a-zA-Z0-9\-+.]+(;\s*[a-zA-Z0-9\-_.]+=[a-zA-Z0-9\-_.]+)*$",
     )
+    icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this resource")
+    annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource")
 
     @field_validator("name", mode="before")
     @classmethod
@@ -42,4 +46,4 @@ class Resource(BaseModel, abc.ABC):
     @abc.abstractmethod
     async def read(self) -> str | bytes:
         """Read the resource content."""
-        pass
+        pass  # pragma: no cover

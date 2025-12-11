@@ -11,7 +11,19 @@ site_url: https://modelcontextprotocol.github.io/python-sdk
 # copyright: © Model Context Protocol 2025 to present
 
 nav:
-  - Home: index.md
+  - Introduction: index.md
+  - Installation: installation.md
+  - Documentation:
+      - Concepts: concepts.md
+      - Low-Level Server: low-level-server.md
+      - Authorization: authorization.md
+      - Testing: testing.md
+  - Experimental:
+      - Overview: experimental/index.md
+      - Tasks:
+          - Introduction: experimental/tasks.md
+          - Server Implementation: experimental/tasks-server.md
+          - Client Usage: experimental/tasks-client.md
   - API Reference: api.md
 
 theme:

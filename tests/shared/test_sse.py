@@ -4,11 +4,13 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import anyio
 import httpx
 import pytest
 import uvicorn
+from httpx_sse import ServerSentEvent
 from inline_snapshot import snapshot
 from pydantic import AnyUrl
 from starlette.applications import Starlette
@@ -16,9 +18,10 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+import mcp.client.sse
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
@@ -26,12 +29,16 @@ from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
     ErrorData,
+    Implementation,
     InitializeResult,
+    JSONRPCResponse,
     ReadResourceResult,
+    ServerCapabilities,
     TextContent,
     TextResourceContents,
     Tool,
 )
+from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_server_for_SSE"
 
@@ -49,7 +56,7 @@ def server_url(server_port: int) -> str:
 
 
 # Test server implementation
-class ServerTest(Server):
+class ServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
 
@@ -80,7 +87,7 @@ class ServerTest(Server):
 
 
 # Test fixtures
-def make_server_app() -> Starlette:
+def make_server_app() -> Starlette:  # pragma: no cover
     """Create test Starlette app with SSE transport"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
@@ -104,7 +111,7 @@ def make_server_app() -> Starlette:
     return app
 
 
-def run_server(server_port: int) -> None:
+def run_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
@@ -123,19 +130,8 @@ def server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
@@ -143,7 +139,7 @@ def server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 
@@ -166,7 +162,7 @@ async def test_raw_sse_connection(http_client: httpx.AsyncClient) -> None:
                 assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
 
                 line_number = 0
-                async for line in response.aiter_lines():
+                async for line in response.aiter_lines():  # pragma: no branch
                     if line_number == 0:
                         assert line == "event: endpoint"
                     elif line_number == 1:
@@ -192,6 +188,57 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             # Test ping
             ping_result = await session.send_ping()
             assert isinstance(ping_result, EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
+    captured_session_id: str | None = None
+
+    def on_session_created(session_id: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = session_id
+
+    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    assert captured_session_id is not None
+    assert len(captured_session_id) > 0
+
+
+@pytest.mark.parametrize(
+    "endpoint_url,expected",
+    [
+        ("/messages?sessionId=abc123", "abc123"),
+        ("/messages?session_id=def456", "def456"),
+        ("/messages?sessionId=abc&session_id=def", "abc"),
+        ("/messages?other=value", None),
+        ("/messages", None),
+        ("", None),
+    ],
+)
+def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
+    assert _extract_session_id_from_endpoint(endpoint_url) == expected
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created_not_called_when_no_session_id(
+    server: None, server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    callback_mock = Mock()
+
+    def mock_extract(url: str) -> None:
+        return None
+
+    monkeypatch.setattr(mcp.client.sse, "_extract_session_id_from_endpoint", mock_extract)
+
+    async with sse_client(server_url + "/sse", on_session_created=callback_mock) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    callback_mock.assert_not_called()
 
 
 @pytest.fixture
@@ -224,7 +271,7 @@ async def test_sse_client_exception_handling(
 
 @pytest.mark.anyio
 @pytest.mark.skip("this test highlights a possible bug in SSE read timeout exception handling")
-async def test_sse_client_timeout(
+async def test_sse_client_timeout(  # pragma: no cover
     initialized_sse_client_session: ClientSession,
 ) -> None:
     session = initialized_sse_client_session
@@ -242,7 +289,7 @@ async def test_sse_client_timeout(
     pytest.fail("the client should have timed out and returned an error already")
 
 
-def run_mounted_server(server_port: int) -> None:
+def run_mounted_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     main_app = Starlette(routes=[Mount("/mounted_app", app=app)])
     server = uvicorn.Server(config=uvicorn.Config(app=main_app, host="127.0.0.1", port=server_port, log_level="error"))
@@ -262,19 +309,8 @@ def mounted_server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
@@ -282,7 +318,7 @@ def mounted_server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 
@@ -301,7 +337,7 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
 
 
 # Test server with request context that returns headers in the response
-class RequestContextServer(Server[object, Request]):
+class RequestContextServer(Server[object, Request]):  # pragma: no cover
     def __init__(self):
         super().__init__("request_context_server")
 
@@ -343,7 +379,7 @@ class RequestContextServer(Server[object, Request]):
             ]
 
 
-def run_context_server(server_port: int) -> None:
+def run_context_server(server_port: int) -> None:  # pragma: no cover
     """Run a server that captures request context"""
     # Configure security with allowed hosts/origins for testing
     security_settings = TransportSecuritySettings(
@@ -377,26 +413,15 @@ def context_server(server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
     print("waiting for context server to start")
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Context server failed to start after {max_attempts} attempts")
+    wait_for_server(server_port)
 
     yield
 
     print("killing context server")
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("context server process failed to terminate")
 
 
@@ -511,3 +536,69 @@ def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result
         sse = SseServerTransport(endpoint)
         assert sse._endpoint == expected_result
         assert sse._endpoint.startswith("/")
+
+
+# ResourceWarning filter: When mocking aconnect_sse, the sse_client's internal task
+# group doesn't receive proper cancellation signals, so the sse_reader task's finally
+# block (which closes read_stream_writer) doesn't execute. This is a test artifact -
+# the actual code path (`if not sse.data: continue`) IS exercised and works correctly.
+# Production code with real SSE connections cleans up properly.
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
+@pytest.mark.anyio
+async def test_sse_client_handles_empty_keepalive_pings() -> None:
+    """Test that SSE client properly handles empty data lines (keep-alive pings).
+
+    Per the MCP spec (Streamable HTTP transport): "The server SHOULD immediately
+    send an SSE event consisting of an event ID and an empty data field in order
+    to prime the client to reconnect."
+
+    This test mocks the SSE event stream to include empty "message" events and
+    verifies the client skips them without crashing.
+    """
+    # Build a proper JSON-RPC response using types (not hardcoded strings)
+    init_result = InitializeResult(
+        protocolVersion="2024-11-05",
+        capabilities=ServerCapabilities(),
+        serverInfo=Implementation(name="test", version="1.0"),
+    )
+    response = JSONRPCResponse(
+        jsonrpc="2.0",
+        id=1,
+        result=init_result.model_dump(by_alias=True, exclude_none=True),
+    )
+    response_json = response.model_dump_json(by_alias=True, exclude_none=True)
+
+    # Create mock SSE events using httpx_sse's ServerSentEvent
+    async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
+        # First: endpoint event
+        yield ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123")
+        # Empty data keep-alive ping - this is what we're testing
+        yield ServerSentEvent(event="message", data="")
+        # Real JSON-RPC response
+        yield ServerSentEvent(event="message", data=response_json)
+
+    mock_event_source = MagicMock()
+    mock_event_source.aiter_sse.return_value = mock_aiter_sse()
+    mock_event_source.response = MagicMock()
+    mock_event_source.response.raise_for_status = MagicMock()
+
+    mock_aconnect_sse = MagicMock()
+    mock_aconnect_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_aconnect_sse.__aexit__ = AsyncMock(return_value=None)
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
+
+    with (
+        patch("mcp.client.sse.create_mcp_http_client", return_value=mock_client),
+        patch("mcp.client.sse.aconnect_sse", return_value=mock_aconnect_sse),
+    ):
+        async with sse_client("http://test/sse") as (read_stream, _):
+            # Read the message - should skip the empty one and get the real response
+            msg = await read_stream.receive()
+            # If we get here without error, the empty message was skipped successfully
+            assert not isinstance(msg, Exception)
+            assert isinstance(msg.message.root, types.JSONRPCResponse)
+            assert msg.message.root.id == 1

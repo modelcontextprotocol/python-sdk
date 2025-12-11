@@ -17,12 +17,12 @@ classifiers = [
 dependencies = [
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
-    "mcp>=1.0.0",
-    "uvicorn>=0.32.1"
+    "mcp",
+    "uvicorn>=0.32.1",
 ]
 
 [project.scripts]
-mcp-simple-chatbot = "mcp_simple_chatbot.client:main"
+mcp-simple-chatbot = "mcp_simple_chatbot.main:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -44,5 +44,5 @@ ignore = []
 line-length = 120
 target-version = "py310"
 
-[tool.uv]
-dev-dependencies = ["pyright>=1.1.379", "pytest>=8.3.3", "ruff>=0.6.9"]
+[dependency-groups]
+dev = ["pyright>=1.1.379", "pytest>=8.3.3", "ruff>=0.6.9"]

@@ -19,7 +19,7 @@ class TestAddTools:
     def test_basic_function(self):
         """Test registering and running a basic function."""
 
-        def sum(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:  # pragma: no cover
             """Add two numbers."""
             return a + b
 
@@ -35,7 +35,7 @@ class TestAddTools:
         assert tool.parameters["properties"]["b"]["type"] == "integer"
 
     def test_init_with_tools(self, caplog: pytest.LogCaptureFixture):
-        def sum(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:  # pragma: no cover
             return a + b
 
         class AddArguments(ArgModelBase):
@@ -68,7 +68,7 @@ class TestAddTools:
     async def test_async_function(self):
         """Test registering and running an async function."""
 
-        async def fetch_data(url: str) -> str:
+        async def fetch_data(url: str) -> str:  # pragma: no cover
             """Fetch data from URL."""
             return f"Data from {url}"
 
@@ -89,7 +89,7 @@ class TestAddTools:
             name: str
             age: int
 
-        def create_user(user: UserInput, flag: bool) -> dict[str, Any]:
+        def create_user(user: UserInput, flag: bool) -> dict[str, Any]:  # pragma: no cover
             """Create a new user."""
             return {"id": 1, **user.model_dump()}
 
@@ -112,7 +112,7 @@ class TestAddTools:
             def __init__(self):
                 self.__name__ = "MyTool"
 
-            def __call__(self, x: int) -> int:
+            def __call__(self, x: int) -> int:  # pragma: no cover
                 return x * 2
 
         manager = ToolManager()
@@ -129,7 +129,7 @@ class TestAddTools:
             def __init__(self):
                 self.__name__ = "MyAsyncTool"
 
-            async def __call__(self, x: int) -> int:
+            async def __call__(self, x: int) -> int:  # pragma: no cover
                 return x * 2
 
         manager = ToolManager()
@@ -156,7 +156,7 @@ class TestAddTools:
     def test_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
         """Test warning on duplicate tools."""
 
-        def f(x: int) -> int:
+        def f(x: int) -> int:  # pragma: no cover
             return x
 
         manager = ToolManager()
@@ -168,7 +168,7 @@ class TestAddTools:
     def test_disable_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
         """Test disabling warning on duplicate tools."""
 
-        def f(x: int) -> int:
+        def f(x: int) -> int:  # pragma: no cover
             return x
 
         manager = ToolManager()
@@ -182,7 +182,7 @@ class TestAddTools:
 class TestCallTools:
     @pytest.mark.anyio
     async def test_call_tool(self):
-        def sum(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:  # pragma: no cover
             """Add two numbers."""
             return a + b
 
@@ -193,7 +193,7 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_async_tool(self):
-        async def double(n: int) -> int:
+        async def double(n: int) -> int:  # pragma: no cover
             """Double a number."""
             return n * 2
 
@@ -243,7 +243,7 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_missing_args(self):
-        def sum(a: int, b: int) -> int:
+        def sum(a: int, b: int) -> int:  # pragma: no cover
             """Add two numbers."""
             return a + b
 
@@ -260,7 +260,7 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_list_int_input(self):
-        def sum_vals(vals: list[int]) -> int:
+        def sum_vals(vals: list[int]) -> int:  # pragma: no cover
             return sum(vals)
 
         manager = ToolManager()
@@ -273,7 +273,7 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_list_str_or_str_input(self):
-        def concat_strs(vals: list[str] | str) -> str:
+        def concat_strs(vals: list[str] | str) -> str:  # pragma: no cover
             return vals if isinstance(vals, str) else "".join(vals)
 
         manager = ToolManager()
@@ -297,7 +297,7 @@ class TestCallTools:
             shrimp: list[Shrimp]
             x: None
 
-        def name_shrimp(tank: MyShrimpTank, ctx: Context[ServerSessionT, None]) -> list[str]:
+        def name_shrimp(tank: MyShrimpTank, ctx: Context[ServerSessionT, None]) -> list[str]:  # pragma: no cover
             return [x.name for x in tank.shrimp]
 
         manager = ToolManager()
@@ -317,7 +317,7 @@ class TestCallTools:
 class TestToolSchema:
     @pytest.mark.anyio
     async def test_context_arg_excluded_from_schema(self):
-        def something(a: int, ctx: Context[ServerSessionT, None]) -> int:
+        def something(a: int, ctx: Context[ServerSessionT, None]) -> int:  # pragma: no cover
             return a
 
         manager = ToolManager()
@@ -334,20 +334,22 @@ class TestContextHandling:
         """Test that context parameters are properly detected in
         Tool.from_function()."""
 
-        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:  # pragma: no cover
             return str(x)
 
         manager = ToolManager()
         tool = manager.add_tool(tool_with_context)
         assert tool.context_kwarg == "ctx"
 
-        def tool_without_context(x: int) -> str:
+        def tool_without_context(x: int) -> str:  # pragma: no cover
             return str(x)
 
         tool = manager.add_tool(tool_without_context)
         assert tool.context_kwarg is None
 
-        def tool_with_parametrized_context(x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]) -> str:
+        def tool_with_parametrized_context(
+            x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]
+        ) -> str:  # pragma: no cover
             return str(x)
 
         tool = manager.add_tool(tool_with_parametrized_context)
@@ -373,7 +375,7 @@ class TestContextHandling:
     async def test_context_injection_async(self):
         """Test that context is properly injected in async tools."""
 
-        async def async_tool(x: int, ctx: Context[ServerSessionT, None]) -> str:
+        async def async_tool(x: int, ctx: Context[ServerSessionT, None]) -> str:  # pragma: no cover
             assert isinstance(ctx, Context)
             return str(x)
 
@@ -418,7 +420,7 @@ class TestToolAnnotations:
     def test_tool_annotations(self):
         """Test that tool annotations are correctly added to tools."""
 
-        def read_data(path: str) -> str:
+        def read_data(path: str) -> str:  # pragma: no cover
             """Read data from a file."""
             return f"Data from {path}"
 
@@ -443,7 +445,7 @@ class TestToolAnnotations:
         app = FastMCP()
 
         @app.tool(annotations=ToolAnnotations(title="Echo Tool", readOnlyHint=True))
-        def echo(message: str) -> str:
+        def echo(message: str) -> str:  # pragma: no cover
             """Echo a message back."""
             return message
 
@@ -465,7 +467,7 @@ class TestStructuredOutput:
             name: str
             age: int
 
-        def get_user(user_id: int) -> UserOutput:
+        def get_user(user_id: int) -> UserOutput:  # pragma: no cover
             """Get user by ID."""
             return UserOutput(name="John", age=30)
 
@@ -479,7 +481,7 @@ class TestStructuredOutput:
     async def test_tool_with_primitive_output(self):
         """Test tool with primitive return type."""
 
-        def double_number(n: int) -> int:
+        def double_number(n: int) -> int:  # pragma: no cover
             """Double a number."""
             return 10
 
@@ -500,7 +502,7 @@ class TestStructuredOutput:
 
         expected_output = {"name": "Alice", "age": 25}
 
-        def get_user_dict(user_id: int) -> UserDict:
+        def get_user_dict(user_id: int) -> UserDict:  # pragma: no cover
             """Get user as dict."""
             return UserDict(name="Alice", age=25)
 
@@ -520,7 +522,7 @@ class TestStructuredOutput:
 
         expected_output = {"name": "Bob", "age": 40}
 
-        def get_person() -> Person:
+        def get_person() -> Person:  # pragma: no cover
             """Get a person."""
             return Person("Bob", 40)
 
@@ -537,7 +539,7 @@ class TestStructuredOutput:
         expected_list = [1, 2, 3, 4, 5]
         expected_output = {"result": expected_list}
 
-        def get_numbers() -> list[int]:
+        def get_numbers() -> list[int]:  # pragma: no cover
             """Get a list of numbers."""
             return expected_list
 
@@ -569,7 +571,7 @@ class TestStructuredOutput:
             name: str
             age: int
 
-        def get_user() -> UserOutput:
+        def get_user() -> UserOutput:  # pragma: no cover
             return UserOutput(name="Test", age=25)
 
         manager = ToolManager()
@@ -588,7 +590,7 @@ class TestStructuredOutput:
     async def test_tool_with_dict_str_any_output(self):
         """Test tool with dict[str, Any] return type."""
 
-        def get_config() -> dict[str, Any]:
+        def get_config() -> dict[str, Any]:  # pragma: no cover
             """Get configuration"""
             return {"debug": True, "port": 8080, "features": ["auth", "logging"]}
 
@@ -613,7 +615,7 @@ class TestStructuredOutput:
     async def test_tool_with_dict_str_typed_output(self):
         """Test tool with dict[str, T] return type for specific T."""
 
-        def get_scores() -> dict[str, int]:
+        def get_scores() -> dict[str, int]:  # pragma: no cover
             """Get player scores"""
             return {"alice": 100, "bob": 85, "charlie": 92}
 
@@ -633,3 +635,288 @@ class TestStructuredOutput:
         # Test converted result
         result = await manager.call_tool("get_scores", {})
         assert result == expected
+
+
+class TestToolMetadata:
+    """Test tool metadata functionality."""
+
+    def test_add_tool_with_metadata(self):
+        """Test adding a tool with metadata via ToolManager."""
+
+        def process_data(input_data: str) -> str:  # pragma: no cover
+            """Process some data."""
+            return f"Processed: {input_data}"
+
+        metadata = {"ui": {"type": "form", "fields": ["input"]}, "version": "1.0"}
+
+        manager = ToolManager()
+        tool = manager.add_tool(process_data, meta=metadata)
+
+        assert tool.meta is not None
+        assert tool.meta == metadata
+        assert tool.meta["ui"]["type"] == "form"
+        assert tool.meta["version"] == "1.0"
+
+    def test_add_tool_without_metadata(self):
+        """Test that tools without metadata have None as meta value."""
+
+        def simple_tool(x: int) -> int:  # pragma: no cover
+            """Simple tool."""
+            return x * 2
+
+        manager = ToolManager()
+        tool = manager.add_tool(simple_tool)
+
+        assert tool.meta is None
+
+    @pytest.mark.anyio
+    async def test_metadata_in_fastmcp_decorator(self):
+        """Test that metadata is correctly added via FastMCP.tool decorator."""
+
+        app = FastMCP()
+
+        metadata = {"client": {"ui_component": "file_picker"}, "priority": "high"}
+
+        @app.tool(meta=metadata)
+        def upload_file(filename: str) -> str:  # pragma: no cover
+            """Upload a file."""
+            return f"Uploaded: {filename}"
+
+        # Get the tool from the tool manager
+        tool = app._tool_manager.get_tool("upload_file")
+        assert tool is not None
+        assert tool.meta is not None
+        assert tool.meta == metadata
+        assert tool.meta["client"]["ui_component"] == "file_picker"
+        assert tool.meta["priority"] == "high"
+
+    @pytest.mark.anyio
+    async def test_metadata_in_list_tools(self):
+        """Test that metadata is included in MCPTool when listing tools."""
+
+        app = FastMCP()
+
+        metadata = {
+            "ui": {"input_type": "textarea", "rows": 5},
+            "tags": ["text", "processing"],
+        }
+
+        @app.tool(meta=metadata)
+        def analyze_text(text: str) -> dict[str, Any]:  # pragma: no cover
+            """Analyze text content."""
+            return {"length": len(text), "words": len(text.split())}
+
+        tools = await app.list_tools()
+        assert len(tools) == 1
+        assert tools[0].meta is not None
+        assert tools[0].meta == metadata
+
+    @pytest.mark.anyio
+    async def test_multiple_tools_with_different_metadata(self):
+        """Test multiple tools with different metadata values."""
+
+        app = FastMCP()
+
+        metadata1 = {"ui": "form", "version": 1}
+        metadata2 = {"ui": "picker", "experimental": True}
+
+        @app.tool(meta=metadata1)
+        def tool1(x: int) -> int:  # pragma: no cover
+            """First tool."""
+            return x
+
+        @app.tool(meta=metadata2)
+        def tool2(y: str) -> str:  # pragma: no cover
+            """Second tool."""
+            return y
+
+        @app.tool()
+        def tool3(z: bool) -> bool:  # pragma: no cover
+            """Third tool without metadata."""
+            return z
+
+        tools = await app.list_tools()
+        assert len(tools) == 3
+
+        # Find tools by name and check metadata
+        tools_by_name = {t.name: t for t in tools}
+
+        assert tools_by_name["tool1"].meta == metadata1
+        assert tools_by_name["tool2"].meta == metadata2
+        assert tools_by_name["tool3"].meta is None
+
+    def test_metadata_with_complex_structure(self):
+        """Test metadata with complex nested structures."""
+
+        def complex_tool(data: str) -> str:  # pragma: no cover
+            """Tool with complex metadata."""
+            return data
+
+        metadata = {
+            "ui": {
+                "components": [
+                    {"type": "input", "name": "field1", "validation": {"required": True, "minLength": 5}},
+                    {"type": "select", "name": "field2", "options": ["a", "b", "c"]},
+                ],
+                "layout": {"columns": 2, "responsive": True},
+            },
+            "permissions": ["read", "write"],
+            "tags": ["data-processing", "user-input"],
+            "version": 2,
+        }
+
+        manager = ToolManager()
+        tool = manager.add_tool(complex_tool, meta=metadata)
+
+        assert tool.meta is not None
+        assert tool.meta["ui"]["components"][0]["validation"]["minLength"] == 5
+        assert tool.meta["ui"]["layout"]["columns"] == 2
+        assert "read" in tool.meta["permissions"]
+        assert "data-processing" in tool.meta["tags"]
+
+    def test_metadata_empty_dict(self):
+        """Test that empty dict metadata is preserved."""
+
+        def tool_with_empty_meta(x: int) -> int:  # pragma: no cover
+            """Tool with empty metadata."""
+            return x
+
+        manager = ToolManager()
+        tool = manager.add_tool(tool_with_empty_meta, meta={})
+
+        assert tool.meta is not None
+        assert tool.meta == {}
+
+    @pytest.mark.anyio
+    async def test_metadata_with_annotations(self):
+        """Test that metadata and annotations can coexist."""
+
+        app = FastMCP()
+
+        metadata = {"custom": "value"}
+        annotations = ToolAnnotations(title="Combined Tool", readOnlyHint=True)
+
+        @app.tool(meta=metadata, annotations=annotations)
+        def combined_tool(data: str) -> str:  # pragma: no cover
+            """Tool with both metadata and annotations."""
+            return data
+
+        tools = await app.list_tools()
+        assert len(tools) == 1
+        assert tools[0].meta == metadata
+        assert tools[0].annotations is not None
+        assert tools[0].annotations.title == "Combined Tool"
+        assert tools[0].annotations.readOnlyHint is True
+
+
+class TestRemoveTools:
+    """Test tool removal functionality in the tool manager."""
+
+    def test_remove_existing_tool(self):
+        """Test removing an existing tool."""
+
+        def add(a: int, b: int) -> int:  # pragma: no cover
+            """Add two numbers."""
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+
+        # Verify tool exists
+        assert manager.get_tool("add") is not None
+        assert len(manager.list_tools()) == 1
+
+        # Remove the tool - should not raise any exception
+        manager.remove_tool("add")
+
+        # Verify tool is removed
+        assert manager.get_tool("add") is None
+        assert len(manager.list_tools()) == 0
+
+    def test_remove_nonexistent_tool(self):
+        """Test removing a non-existent tool raises ToolError."""
+        manager = ToolManager()
+
+        with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
+            manager.remove_tool("nonexistent")
+
+    def test_remove_tool_from_multiple_tools(self):
+        """Test removing one tool when multiple tools exist."""
+
+        def add(a: int, b: int) -> int:  # pragma: no cover
+            """Add two numbers."""
+            return a + b
+
+        def multiply(a: int, b: int) -> int:  # pragma: no cover
+            """Multiply two numbers."""
+            return a * b
+
+        def divide(a: int, b: int) -> float:  # pragma: no cover
+            """Divide two numbers."""
+            return a / b
+
+        manager = ToolManager()
+        manager.add_tool(add)
+        manager.add_tool(multiply)
+        manager.add_tool(divide)
+
+        # Verify all tools exist
+        assert len(manager.list_tools()) == 3
+        assert manager.get_tool("add") is not None
+        assert manager.get_tool("multiply") is not None
+        assert manager.get_tool("divide") is not None
+
+        # Remove middle tool
+        manager.remove_tool("multiply")
+
+        # Verify only multiply is removed
+        assert len(manager.list_tools()) == 2
+        assert manager.get_tool("add") is not None
+        assert manager.get_tool("multiply") is None
+        assert manager.get_tool("divide") is not None
+
+    @pytest.mark.anyio
+    async def test_call_removed_tool_raises_error(self):
+        """Test that calling a removed tool raises ToolError."""
+
+        def greet(name: str) -> str:  # pragma: no cover
+            """Greet someone."""
+            return f"Hello, {name}!"
+
+        manager = ToolManager()
+        manager.add_tool(greet)
+
+        # Verify tool works before removal
+        result = await manager.call_tool("greet", {"name": "World"})
+        assert result == "Hello, World!"
+
+        # Remove the tool
+        manager.remove_tool("greet")
+
+        # Verify calling removed tool raises error
+        with pytest.raises(ToolError, match="Unknown tool: greet"):
+            await manager.call_tool("greet", {"name": "World"})
+
+    def test_remove_tool_case_sensitive(self):
+        """Test that tool removal is case-sensitive."""
+
+        def test_func() -> str:  # pragma: no cover
+            """Test function."""
+            return "test"
+
+        manager = ToolManager()
+        manager.add_tool(test_func)
+
+        # Verify tool exists
+        assert manager.get_tool("test_func") is not None
+
+        # Try to remove with different case - should raise ToolError
+        with pytest.raises(ToolError, match="Unknown tool: Test_Func"):
+            manager.remove_tool("Test_Func")
+
+        # Verify original tool still exists
+        assert manager.get_tool("test_func") is not None
+
+        # Remove with correct case
+        manager.remove_tool("test_func")
+        assert manager.get_tool("test_func") is None

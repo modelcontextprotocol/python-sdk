@@ -19,7 +19,9 @@ async def test_send_request_stream_cleanup():
 
     # Create a mock session with the minimal required functionality
     class TestSession(BaseSession[ClientRequest, ClientNotification, ClientResult, Any, Any]):
-        async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
+        async def _send_response(
+            self, request_id: RequestId, response: SendResultT | ErrorData
+        ) -> None:  # pragma: no cover
             pass
 
     # Create streams
@@ -35,7 +37,7 @@ async def test_send_request_stream_cleanup():
     )
 
     # Create a test request
-    request = ClientRequest(PingRequest(method="ping"))
+    request = ClientRequest(PingRequest())
 
     # Patch the _write_stream.send method to raise an exception
     async def mock_send(*args: Any, **kwargs: Any):
