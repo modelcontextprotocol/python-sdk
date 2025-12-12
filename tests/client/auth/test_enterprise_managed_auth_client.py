@@ -149,11 +149,6 @@ def test_validate_token_exchange_params_missing_subject_token():
         validate_token_exchange_params(params)
 
 
-# ============================================================================
-# Tests for TokenExchangeResponse
-# ============================================================================
-
-
 def test_token_exchange_response_parsing():
     """Test parsing token exchange response."""
     response_json = """{
@@ -183,11 +178,6 @@ def test_token_exchange_response_id_jag_property():
     )
 
     assert response.id_jag == "the-id-jag-token"
-
-
-# ============================================================================
-# Tests for IDJAGClaims
-# ============================================================================
 
 
 def test_decode_id_jag(sample_id_jag: str):

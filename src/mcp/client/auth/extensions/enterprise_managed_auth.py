@@ -6,10 +6,12 @@ enterprise SSO integration.
 """
 
 import logging
-from typing import Any
+from collections.abc import Awaitable, Callable
 
 import httpx
+import jwt
 from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
 from mcp.shared.auth import OAuthClientMetadata, OAuthToken
@@ -17,9 +19,27 @@ from mcp.shared.auth import OAuthClientMetadata, OAuthToken
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Data Models
-# ============================================================================
+class TokenExchangeRequestData(TypedDict, total=False):
+    """Type definition for RFC 8693 Token Exchange request data."""
+
+    grant_type: str
+    requested_token_type: str
+    audience: str
+    resource: str
+    subject_token: str
+    subject_token_type: str
+    scope: str
+    client_id: str
+    client_secret: str
+
+
+class JWTBearerGrantRequestData(TypedDict, total=False):
+    """Type definition for RFC 7523 JWT Bearer Grant request data."""
+
+    grant_type: str
+    assertion: str
+    client_id: str
+    client_secret: str
 
 
 class TokenExchangeParameters(BaseModel):
@@ -166,8 +186,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         storage: TokenStorage,
         idp_token_endpoint: str,
         token_exchange_params: TokenExchangeParameters,
-        redirect_handler: Any = None,
-        callback_handler: Any = None,
+        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
+        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
     ) -> None:
         """
@@ -214,7 +234,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         logger.info("Starting token exchange for ID-JAG")
 
         # Build token exchange request
-        token_data = {
+        token_data: TokenExchangeRequestData = {
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "requested_token_type": self.token_exchange_params.requested_token_type,
             "audience": self.token_exchange_params.audience,
@@ -292,7 +312,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         token_endpoint = str(self.context.oauth_metadata.token_endpoint)
 
         # Build JWT bearer grant request
-        token_data = {
+        token_data: JWTBearerGrantRequestData = {
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": id_jag,
         }
@@ -353,18 +373,12 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         )
 
 
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
-
-def decode_id_jag(id_jag: str, verify: bool = False) -> IDJAGClaims:
+def decode_id_jag(id_jag: str) -> IDJAGClaims:
     """
     Decode an ID-JAG token without verification.
 
     Args:
         id_jag: The ID-JAG token string
-        verify: Whether to verify signature (requires key)
 
     Returns:
         Decoded ID-JAG claims
@@ -372,8 +386,6 @@ def decode_id_jag(id_jag: str, verify: bool = False) -> IDJAGClaims:
     Note:
         For verification, use server-side validation instead.
     """
-    import jwt
-
     # Decode without verification for inspection
     claims = jwt.decode(id_jag, options={"verify_signature": False})
     header = jwt.get_unverified_header(id_jag)
