@@ -20,10 +20,6 @@ from mcp.client.auth.extensions.enterprise_managed_auth import (
 )
 from mcp.shared.auth import OAuthClientMetadata
 
-# ============================================================================
-# Fixtures
-# ============================================================================
-
 
 @pytest.fixture
 def sample_id_token() -> str:
@@ -42,22 +38,23 @@ def sample_id_token() -> str:
 @pytest.fixture
 def sample_id_jag() -> str:
     """Generate a sample ID-JAG token for testing."""
-    payload = {
-        "jti": "unique-jwt-id-12345",
-        "iss": "https://idp.example.com",
-        "sub": "user123",
-        "aud": "https://auth.mcp-server.example/",
-        "resource": "https://mcp-server.example/",
-        "client_id": "mcp-client-app",
-        "exp": int(time.time()) + 300,
-        "iat": int(time.time()),
-        "scope": "read write",
-    }
-    token = jwt.encode(payload, "secret", algorithm="HS256")
+    # Create typed claims using IDJAGClaims model
+    claims = IDJAGClaims(
+        typ="oauth-id-jag+jwt",
+        jti="unique-jwt-id-12345",
+        iss="https://idp.example.com",
+        sub="user123",
+        aud="https://auth.mcp-server.example/",
+        resource="https://mcp-server.example/",
+        client_id="mcp-client-app",
+        exp=int(time.time()) + 300,
+        iat=int(time.time()),
+        scope="read write",
+        email=None,  # Optional field
+    )
 
-    # Manually add typ to header
-    header = jwt.get_unverified_header(token)
-    header["typ"] = "oauth-id-jag+jwt"
+    # Dump to dict for JWT encoding (exclude typ as it goes in header)
+    payload = claims.model_dump(exclude={"typ"}, exclude_none=True)
 
     return jwt.encode(payload, "secret", algorithm="HS256", headers={"typ": "oauth-id-jag+jwt"})
 
@@ -71,11 +68,6 @@ def mock_token_storage() -> Any:
     storage.get_client_info = AsyncMock(return_value=None)
     storage.set_client_info = AsyncMock()
     return storage
-
-
-# ============================================================================
-# Tests for TokenExchangeParameters
-# ============================================================================
 
 
 def test_token_exchange_params_from_id_token():
