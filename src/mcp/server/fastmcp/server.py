@@ -92,7 +92,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # Server settings
     debug: bool
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] | None
 
     # HTTP settings
     host: str
@@ -157,7 +157,7 @@ class FastMCP(Generic[LifespanResultT]):
         *,
         tools: list[Tool] | None = None,
         debug: bool = False,
-        log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
+        log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] | None = "INFO",
         host: str = "127.0.0.1",
         port: int = 8000,
         mount_path: str = "/",
@@ -238,8 +238,9 @@ class FastMCP(Generic[LifespanResultT]):
         # Set up MCP protocol handlers
         self._setup_handlers()
 
-        # Configure logging
-        configure_logging(self.settings.log_level)
+        if self.settings.log_level is not None:
+            # Configure logging
+            configure_logging(self.settings.log_level)
 
     @property
     def name(self) -> str:
@@ -763,7 +764,7 @@ class FastMCP(Generic[LifespanResultT]):
             starlette_app,
             host=self.settings.host,
             port=self.settings.port,
-            log_level=self.settings.log_level.lower(),
+            **self._get_uvicorn_log_config(),
         )
         server = uvicorn.Server(config)
         await server.serve()
@@ -778,10 +779,16 @@ class FastMCP(Generic[LifespanResultT]):
             starlette_app,
             host=self.settings.host,
             port=self.settings.port,
-            log_level=self.settings.log_level.lower(),
+            **self._get_uvicorn_log_config(),
         )
         server = uvicorn.Server(config)
         await server.serve()
+
+    def _get_uvicorn_log_config(self) -> dict[str, Any]:
+        """Map FastMCP log level to Uvicorn log level."""
+        if self.settings.log_level is None:
+            return {"log_level": None, "log_config": None}
+        return {"log_level": self.settings.log_level.lower()}
 
     def _normalize_path(self, mount_path: str, endpoint: str) -> str:
         """
