@@ -428,6 +428,7 @@ class TestToolAnnotations:
             title="File Reader",
             readOnlyHint=True,
             openWorldHint=False,
+            agencyHint=True,
         )
 
         manager = ToolManager()
@@ -437,6 +438,7 @@ class TestToolAnnotations:
         assert tool.annotations.title == "File Reader"
         assert tool.annotations.readOnlyHint is True
         assert tool.annotations.openWorldHint is False
+        assert tool.annotations.agencyHint is True
 
     @pytest.mark.anyio
     async def test_tool_annotations_in_fastmcp(self):
@@ -444,7 +446,7 @@ class TestToolAnnotations:
 
         app = FastMCP()
 
-        @app.tool(annotations=ToolAnnotations(title="Echo Tool", readOnlyHint=True))
+        @app.tool(annotations=ToolAnnotations(title="Echo Tool", readOnlyHint=True, agencyHint=False))
         def echo(message: str) -> str:  # pragma: no cover
             """Echo a message back."""
             return message
@@ -454,6 +456,7 @@ class TestToolAnnotations:
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Echo Tool"
         assert tools[0].annotations.readOnlyHint is True
+        assert tools[0].annotations.agencyHint is False
 
 
 class TestStructuredOutput:
