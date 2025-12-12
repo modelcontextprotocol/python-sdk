@@ -4,8 +4,9 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.resources import FunctionResource, ResourceTemplate
+from mcp.server.session import ServerSession
 from mcp.types import Annotations
 
 
@@ -258,3 +259,65 @@ class TestResourceTemplateAnnotations:
         # Verify the resource works correctly
         content = await resource.read()
         assert content == "Item 123"
+
+
+class TestResourceTemplateContextHandling:
+    """Test context injection in ResourceTemplate."""
+
+    def test_template_context_kwarg_detection(self):
+        """Test that from_function() correctly detects context parameters."""
+
+        def func_with_context(name: str, ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
+            return f"Hello {name}"
+
+        template = ResourceTemplate.from_function(
+            fn=func_with_context,
+            uri_template="test://{name}",
+            name="test",
+        )
+        assert template.context_kwarg == "ctx"
+
+    @pytest.mark.anyio
+    async def test_create_resource_with_context(self):
+        """Test that create_resource() passes context to function."""
+        received_context = None
+
+        def func_with_context(name: str, ctx: Context[ServerSession, None]) -> str:
+            nonlocal received_context
+            received_context = ctx
+            return f"Hello {name}"
+
+        template = ResourceTemplate.from_function(
+            fn=func_with_context,
+            uri_template="test://{name}",
+            name="test",
+        )
+
+        mcp = FastMCP()
+        ctx = mcp.get_context()
+        resource = await template.create_resource("test://world", {"name": "world"}, context=ctx)
+
+        assert received_context is ctx
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Hello world"
+
+    @pytest.mark.anyio
+    async def test_template_without_context(self):
+        """Test that templates without context work normally."""
+
+        def func_without_context(name: str) -> str:
+            return f"Hello {name}"
+
+        template = ResourceTemplate.from_function(
+            fn=func_without_context,
+            uri_template="test://{name}",
+            name="test",
+        )
+
+        assert template.context_kwarg is None
+        resource = await template.create_resource("test://world", {"name": "world"})
+
+        assert isinstance(resource, FunctionResource)
+        content = await resource.read()
+        assert content == "Hello world"

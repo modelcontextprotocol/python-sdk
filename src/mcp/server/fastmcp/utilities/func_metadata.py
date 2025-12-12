@@ -1,3 +1,4 @@
+import functools
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
@@ -531,3 +532,13 @@ def _convert_to_content(
         result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
     return [TextContent(type="text", text=result)]
+
+
+def is_async_callable(obj: Any) -> bool:
+    """Check if an object is an async callable."""
+    while isinstance(obj, functools.partial):  # pragma: no cover
+        obj = obj.func
+
+    return inspect.iscoroutinefunction(obj) or (
+        callable(obj) and inspect.iscoroutinefunction(getattr(obj, "__call__", None))
+    )
