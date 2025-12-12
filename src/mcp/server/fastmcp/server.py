@@ -112,6 +112,8 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 
     # tool settings
     warn_on_duplicate_tools: bool
+    tool_timeout_seconds: float | None
+    """Maximum time in seconds for tool execution. None means no timeout. Default is 300 seconds (5 minutes)."""
 
     # prompt settings
     warn_on_duplicate_prompts: bool
@@ -169,6 +171,7 @@ class FastMCP(Generic[LifespanResultT]):
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
+        tool_timeout_seconds: float | None = 300.0,
         dependencies: Collection[str] = (),
         lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
@@ -196,6 +199,7 @@ class FastMCP(Generic[LifespanResultT]):
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
+            tool_timeout_seconds=tool_timeout_seconds,
             dependencies=list(dependencies),
             lifespan=lifespan,
             auth=auth,
@@ -211,7 +215,11 @@ class FastMCP(Generic[LifespanResultT]):
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
+        self._tool_manager = ToolManager(
+            tools=tools,
+            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools,
+            timeout_seconds=self.settings.tool_timeout_seconds,
+        )
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # Validate auth configuration

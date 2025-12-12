@@ -22,6 +22,7 @@ class ToolManager:
     def __init__(
         self,
         warn_on_duplicate_tools: bool = True,
+        timeout_seconds: float | None = None,
         *,
         tools: list[Tool] | None = None,
     ):
@@ -33,6 +34,7 @@ class ToolManager:
                 self._tools[tool.name] = tool
 
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
+        self.timeout_seconds = timeout_seconds
 
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name."""
@@ -90,4 +92,9 @@ class ToolManager:
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
 
-        return await tool.run(arguments, context=context, convert_result=convert_result)
+        return await tool.run(
+            arguments,
+            context=context,
+            convert_result=convert_result,
+            timeout_seconds=self.timeout_seconds,
+        )

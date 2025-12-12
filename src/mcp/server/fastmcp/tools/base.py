@@ -6,13 +6,15 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
+import anyio
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.shared.exceptions import McpError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
-from mcp.types import Icon, ToolAnnotations
+from mcp.types import REQUEST_TIMEOUT, ErrorData, Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp.server import Context
@@ -94,20 +96,45 @@ class Tool(BaseModel):
         arguments: dict[str, Any],
         context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
+        timeout_seconds: float | None = None,
     ) -> Any:
-        """Run the tool with arguments."""
+        """Run the tool with arguments.
+
+        Args:
+            arguments: The arguments to pass to the tool function
+            context: Optional context to inject into the tool function
+            convert_result: Whether to convert the result to MCP types
+            timeout_seconds: Maximum execution time in seconds. None means no timeout.
+
+        Returns:
+            The result of the tool execution
+
+        Raises:
+            McpError: If the tool execution times out (REQUEST_TIMEOUT error code)
+            ToolError: If the tool execution fails for other reasons
+        """
         try:
-            result = await self.fn_metadata.call_fn_with_arg_validation(
-                self.fn,
-                self.is_async,
-                arguments,
-                {self.context_kwarg: context} if self.context_kwarg is not None else None,
-            )
+            # Wrap execution in timeout if configured
+            with anyio.fail_after(timeout_seconds):
+                result = await self.fn_metadata.call_fn_with_arg_validation(
+                    self.fn,
+                    self.is_async,
+                    arguments,
+                    {self.context_kwarg: context} if self.context_kwarg is not None else None,
+                )
 
-            if convert_result:
-                result = self.fn_metadata.convert_result(result)
+                if convert_result:
+                    result = self.fn_metadata.convert_result(result)
 
-            return result
+                return result
+        except TimeoutError as e:
+            # Convert timeout to MCP error with REQUEST_TIMEOUT code
+            raise McpError(
+                ErrorData(
+                    code=REQUEST_TIMEOUT,
+                    message=f"Tool '{self.name}' execution exceeded timeout of {timeout_seconds} seconds",
+                )
+            ) from e
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
 
