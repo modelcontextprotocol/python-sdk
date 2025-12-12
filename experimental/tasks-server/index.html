@@ -1,0 +1,1781 @@
+<!DOCTYPE html><html lang="en" class="no-js"><head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="MCP Server">
+      
+      
+      
+        <link rel="canonical" href="https://modelcontextprotocol.github.io/python-sdk/experimental/tasks-server/">
+      
+      
+        <link rel="prev" href="../tasks/">
+      
+      
+        <link rel="next" href="../tasks-client/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.19">
+    
+    
+      
+        <title>Server Implementation - MCP Server</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+      
+        <meta property="og:type" content="website">
+      
+        <meta property="og:title" content="Server Implementation - MCP Server">
+      
+        <meta property="og:description" content="MCP Server">
+      
+        <meta property="og:image" content="https://modelcontextprotocol.github.io/python-sdk/assets/images/social/experimental/tasks-server.png">
+      
+        <meta property="og:image:type" content="image/png">
+      
+        <meta property="og:image:width" content="1200">
+      
+        <meta property="og:image:height" content="630">
+      
+        <meta property="og:url" content="https://modelcontextprotocol.github.io/python-sdk/experimental/tasks-server/">
+      
+        <meta name="twitter:card" content="summary_large_image">
+      
+        <meta name="twitter:title" content="Server Implementation - MCP Server">
+      
+        <meta name="twitter:description" content="MCP Server">
+      
+        <meta name="twitter:image" content="https://modelcontextprotocol.github.io/python-sdk/assets/images/social/experimental/tasks-server.png">
+      
+    
+    
+  <link href="../../assets/stylesheets/glightbox.min.css" rel="stylesheet"><script src="../../assets/javascripts/glightbox.min.js"></script><style id="glightbox-style">
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="black">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#server-task-implementation" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="MCP Server" class="md-header__button md-logo" aria-label="MCP Server" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            MCP Server
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Server Implementation
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="black" aria-label="Switch to light mode" type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7M9 21a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-1H9z"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="black" aria-label="Switch to dark mode" type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7M9 21v-1h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1m3-17a5 5 0 0 0-5 5c0 2.05 1.23 3.81 3 4.58V16h4v-2.42c1.77-.77 3-2.53 3-4.58a5 5 0 0 0-5-5"></path></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="white" data-md-color-accent="white" aria-label="Switch to system preference" type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9 2c3.87 0 7 3.13 7 7 0 2.38-1.19 4.47-3 5.74V17c0 .55-.45 1-1 1H6c-.55 0-1-.45-1-1v-2.26C3.19 13.47 2 11.38 2 9c0-3.87 3.13-7 7-7M6 21v-1h6v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1M9 4C6.24 4 4 6.24 4 9c0 2.05 1.23 3.81 3 4.58V16h4v-2.42c1.77-.77 3-2.53 3-4.58 0-2.76-2.24-5-5-5m10 9h-2l-3.2 9h1.9l.7-2h3.2l.7 2h1.9zm-2.15 5.65L18 15l1.15 3.65z"></path></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/modelcontextprotocol/python-sdk" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    modelcontextprotocol/python-sdk
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="MCP Server" class="md-nav__button md-logo" aria-label="MCP Server" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg>
+
+    </a>
+    MCP Server
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/modelcontextprotocol/python-sdk" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg>
+  </div>
+  <div class="md-source__repository">
+    modelcontextprotocol/python-sdk
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3">
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Documentation
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            Documentation
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Concepts
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../low-level-server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Low-Level Server
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../authorization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Authorization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Testing
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    Experimental
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Experimental
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Tasks
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            Tasks
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tasks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Server Implementation
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Server Implementation
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      Quick Start
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool Declaration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-run_task-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      The run_task Pattern
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Status Updates
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#elicitation-within-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Elicitation Within Tasks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Elicitation Within Tasks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#form-elicitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Form Elicitation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#url-elicitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      URL Elicitation
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sampling-within-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sampling Within Tasks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cancellation-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cancellation Support
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-task-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Task Store
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Complete Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling-in-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Error Handling in Tasks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#http-transport-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      HTTP Transport Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-task-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Testing Task Servers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Best Practices
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-work-functions-focused" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keep Work Functions Focused
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#check-cancellation-in-loops" class="md-nav__link">
+    <span class="md-ellipsis">
+      Check Cancellation in Loops
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-meaningful-status-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Use Meaningful Status Messages
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#handle-elicitation-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      Handle Elicitation Responses
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      Next Steps
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tasks-client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Client Usage
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    API Reference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc">
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      Quick Start
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-declaration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool Declaration
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-run_task-pattern" class="md-nav__link">
+    <span class="md-ellipsis">
+      The run_task Pattern
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#status-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Status Updates
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#elicitation-within-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Elicitation Within Tasks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Elicitation Within Tasks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#form-elicitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Form Elicitation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#url-elicitation" class="md-nav__link">
+    <span class="md-ellipsis">
+      URL Elicitation
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sampling-within-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sampling Within Tasks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cancellation-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      Cancellation Support
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-task-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      Custom Task Store
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complete-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      Complete Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-handling-in-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Error Handling in Tasks
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#http-transport-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      HTTP Transport Example
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-task-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Testing Task Servers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Best Practices
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Best Practices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-work-functions-focused" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keep Work Functions Focused
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#check-cancellation-in-loops" class="md-nav__link">
+    <span class="md-ellipsis">
+      Check Cancellation in Loops
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-meaningful-status-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      Use Meaningful Status Messages
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#handle-elicitation-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      Handle Elicitation Responses
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#next-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      Next Steps
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="server-task-implementation">Server Task Implementation</h1>
+<div class="admonition warning">
+<p class="admonition-title">Experimental</p>
+<p>Tasks are an experimental feature. The API may change without notice.</p>
+</div>
+<p>This guide covers implementing task support in MCP servers, from basic setup to advanced patterns like elicitation and sampling within tasks.</p>
+<h2 id="quick-start">Quick Start</h2>
+<p>The simplest way to add task support:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server</span><span class="w"> </span><span class="kn">import</span> <span class="n">Server</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.experimental.task_context</span><span class="w"> </span><span class="kn">import</span> <span class="n">ServerTaskContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">CallToolResult</span><span class="p">,</span> <span class="n">CreateTaskResult</span><span class="p">,</span> <span class="n">TextContent</span><span class="p">,</span> <span class="n">Tool</span><span class="p">,</span> <span class="n">ToolExecution</span><span class="p">,</span> <span class="n">TASK_REQUIRED</span>
+
+<span class="n">server</span> <span class="o">=</span> <span class="n">Server</span><span class="p">(</span><span class="s2">"my-server"</span><span class="p">)</span>
+<span class="n">server</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">enable_tasks</span><span class="p">()</span>  <span class="c1"># Registers all task handlers automatically</span>
+
+<span class="nd">@server</span><span class="o">.</span><span class="n">list_tools</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_tools</span><span class="p">():</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">Tool</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"process_data"</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">"Process data asynchronously"</span><span class="p">,</span>
+            <span class="n">inputSchema</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span> <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"input"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">}}},</span>
+            <span class="n">execution</span><span class="o">=</span><span class="n">ToolExecution</span><span class="p">(</span><span class="n">taskSupport</span><span class="o">=</span><span class="n">TASK_REQUIRED</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">]</span>
+
+<span class="nd">@server</span><span class="o">.</span><span class="n">call_tool</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_tool</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span> <span class="o">|</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"process_data"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">handle_process_data</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Unknown: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span><span class="p">)],</span> <span class="n">isError</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_process_data</span><span class="p">(</span><span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="n">ctx</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">request_context</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">validate_task_mode</span><span class="p">(</span><span class="n">TASK_REQUIRED</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Processing..."</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">arguments</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"input"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="n">result</span><span class="p">)])</span>
+
+    <span class="k">return</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">work</span><span class="p">)</span>
+</code></pre></div>
+<p>That's it. <code>enable_tasks()</code> automatically:</p>
+<ul>
+<li>Creates an in-memory task store</li>
+<li>Registers handlers for <code>tasks/get</code>, <code>tasks/result</code>, <code>tasks/list</code>, <code>tasks/cancel</code></li>
+<li>Updates server capabilities</li>
+</ul>
+<h2 id="tool-declaration">Tool Declaration</h2>
+<p>Tools declare task support via the <code>execution.taskSupport</code> field:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">Tool</span><span class="p">,</span> <span class="n">ToolExecution</span><span class="p">,</span> <span class="n">TASK_REQUIRED</span><span class="p">,</span> <span class="n">TASK_OPTIONAL</span><span class="p">,</span> <span class="n">TASK_FORBIDDEN</span>
+
+<span class="n">Tool</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"my_tool"</span><span class="p">,</span>
+    <span class="n">inputSchema</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">},</span>
+    <span class="n">execution</span><span class="o">=</span><span class="n">ToolExecution</span><span class="p">(</span><span class="n">taskSupport</span><span class="o">=</span><span class="n">TASK_REQUIRED</span><span class="p">),</span>  <span class="c1"># or TASK_OPTIONAL, TASK_FORBIDDEN</span>
+<span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TASK_REQUIRED</code></td>
+<td>Tool <strong>must</strong> be called as a task</td>
+</tr>
+<tr>
+<td><code>TASK_OPTIONAL</code></td>
+<td>Tool supports both sync and task execution</td>
+</tr>
+<tr>
+<td><code>TASK_FORBIDDEN</code></td>
+<td>Tool <strong>cannot</strong> be called as a task (default)</td>
+</tr>
+</tbody>
+</table>
+<p>Validate the request matches your tool's requirements:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="nd">@server</span><span class="o">.</span><span class="n">call_tool</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_tool</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+    <span class="n">ctx</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">request_context</span>
+
+    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"required_task_tool"</span><span class="p">:</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">validate_task_mode</span><span class="p">(</span><span class="n">TASK_REQUIRED</span><span class="p">)</span>  <span class="c1"># Raises if not task mode</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">handle_as_task</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+
+    <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"optional_task_tool"</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">is_task</span><span class="p">:</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">handle_as_task</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">handle_sync</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="the-run_task-pattern">The run_task Pattern</h2>
+<p><code>run_task()</code> is the recommended way to execute task work:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_my_tool</span><span class="p">(</span><span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="n">ctx</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">request_context</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">validate_task_mode</span><span class="p">(</span><span class="n">TASK_REQUIRED</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+        <span class="c1"># Your work here</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Done"</span><span class="p">)])</span>
+
+    <span class="k">return</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">work</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>What <code>run_task()</code> does:</strong></p>
+<ol>
+<li>Creates a task in the store</li>
+<li>Spawns your work function in the background</li>
+<li>Returns <code>CreateTaskResult</code> immediately</li>
+<li>Auto-completes the task when your function returns</li>
+<li>Auto-fails the task if your function raises</li>
+</ol>
+<p><strong>The <code>ServerTaskContext</code> provides:</strong></p>
+<ul>
+<li><code>task.task_id</code> - The task identifier</li>
+<li><code>task.update_status(message)</code> - Update progress</li>
+<li><code>task.complete(result)</code> - Explicitly complete (usually automatic)</li>
+<li><code>task.fail(error)</code> - Explicitly fail</li>
+<li><code>task.is_cancelled</code> - Check if cancellation requested</li>
+</ul>
+<h2 id="status-updates">Status Updates</h2>
+<p>Keep clients informed of progress:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Starting..."</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">items</span><span class="p">):</span>
+        <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Processing </span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">process_item</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Finalizing..."</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Complete"</span><span class="p">)])</span>
+</code></pre></div>
+<p>Status messages appear in <code>tasks/get</code> responses, letting clients show progress to users.</p>
+<h2 id="elicitation-within-tasks">Elicitation Within Tasks</h2>
+<p>Tasks can request user input via elicitation. This transitions the task to <code>input_required</code> status.</p>
+<h3 id="form-elicitation">Form Elicitation</h3>
+<p>Collect structured data from the user:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Waiting for confirmation..."</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">elicit</span><span class="p">(</span>
+        <span class="n">message</span><span class="o">=</span><span class="s2">"Delete these files?"</span><span class="p">,</span>
+        <span class="n">requestedSchema</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span>
+            <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">"confirm"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"boolean"</span><span class="p">},</span>
+                <span class="s2">"reason"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">"required"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"confirm"</span><span class="p">],</span>
+        <span class="p">},</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">"accept"</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"confirm"</span><span class="p">):</span>
+        <span class="c1"># User confirmed</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Files deleted"</span><span class="p">)])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># User declined or cancelled</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Cancelled"</span><span class="p">)])</span>
+</code></pre></div>
+<h3 id="url-elicitation">URL Elicitation</h3>
+<p>Direct users to external URLs for OAuth, payments, or other out-of-band flows:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Waiting for OAuth..."</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">elicit_url</span><span class="p">(</span>
+        <span class="n">message</span><span class="o">=</span><span class="s2">"Please authorize with GitHub"</span><span class="p">,</span>
+        <span class="n">url</span><span class="o">=</span><span class="s2">"https://github.com/login/oauth/authorize?client_id=..."</span><span class="p">,</span>
+        <span class="n">elicitation_id</span><span class="o">=</span><span class="s2">"oauth-github-123"</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">"accept"</span><span class="p">:</span>
+        <span class="c1"># User completed OAuth flow</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Connected to GitHub"</span><span class="p">)])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"OAuth cancelled"</span><span class="p">)])</span>
+</code></pre></div>
+<h2 id="sampling-within-tasks">Sampling Within Tasks</h2>
+<p>Tasks can request LLM completions from the client:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">SamplingMessage</span><span class="p">,</span> <span class="n">TextContent</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Generating response..."</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">create_message</span><span class="p">(</span>
+        <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+            <span class="n">SamplingMessage</span><span class="p">(</span>
+                <span class="n">role</span><span class="o">=</span><span class="s2">"user"</span><span class="p">,</span>
+                <span class="n">content</span><span class="o">=</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Write a haiku about coding"</span><span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">],</span>
+        <span class="n">max_tokens</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">haiku</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">text</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="p">,</span> <span class="n">TextContent</span><span class="p">)</span> <span class="k">else</span> <span class="s2">"Error"</span>
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="n">haiku</span><span class="p">)])</span>
+</code></pre></div>
+<p>Sampling supports additional parameters:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">create_message</span><span class="p">(</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span>
+    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">system_prompt</span><span class="o">=</span><span class="s2">"You are a helpful assistant"</span><span class="p">,</span>
+    <span class="n">temperature</span><span class="o">=</span><span class="mf">0.7</span><span class="p">,</span>
+    <span class="n">stop_sequences</span><span class="o">=</span><span class="p">[</span><span class="s2">"</span><span class="se">\n\n</span><span class="s2">"</span><span class="p">],</span>
+    <span class="n">model_preferences</span><span class="o">=</span><span class="n">ModelPreferences</span><span class="p">(</span><span class="n">hints</span><span class="o">=</span><span class="p">[</span><span class="n">ModelHint</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"claude-3"</span><span class="p">)]),</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="cancellation-support">Cancellation Support</h2>
+<p>Check for cancellation in long-running work:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1000</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">task</span><span class="o">.</span><span class="n">is_cancelled</span><span class="p">:</span>
+            <span class="c1"># Clean up and exit</span>
+            <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Cancelled"</span><span class="p">)])</span>
+
+        <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Step </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">/1000"</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">process_step</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Complete"</span><span class="p">)])</span>
+</code></pre></div>
+<p>The SDK's default cancel handler updates the task status. Your work function should check <code>is_cancelled</code> periodically.</p>
+<h2 id="custom-task-store">Custom Task Store</h2>
+<p>For production, implement <code>TaskStore</code> with persistent storage:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.shared.experimental.tasks.store</span><span class="w"> </span><span class="kn">import</span> <span class="n">TaskStore</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">Task</span><span class="p">,</span> <span class="n">TaskMetadata</span><span class="p">,</span> <span class="n">Result</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RedisTaskStore</span><span class="p">(</span><span class="n">TaskStore</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">redis_client</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">redis</span> <span class="o">=</span> <span class="n">redis_client</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create_task</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata</span><span class="p">:</span> <span class="n">TaskMetadata</span><span class="p">,</span> <span class="n">task_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Task</span><span class="p">:</span>
+        <span class="c1"># Create and persist task</span>
+        <span class="o">...</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_task</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">task_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Task</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Retrieve task from Redis</span>
+        <span class="o">...</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">update_task</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">task_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Task</span><span class="p">:</span>
+        <span class="c1"># Update and persist</span>
+        <span class="o">...</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">store_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">task_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">result</span><span class="p">:</span> <span class="n">Result</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Store result in Redis</span>
+        <span class="o">...</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">get_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">task_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Result</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Retrieve result</span>
+        <span class="o">...</span>
+
+    <span class="c1"># ... implement remaining methods</span>
+</code></pre></div>
+<p>Use your custom store:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="n">store</span> <span class="o">=</span> <span class="n">RedisTaskStore</span><span class="p">(</span><span class="n">redis_client</span><span class="p">)</span>
+<span class="n">server</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">enable_tasks</span><span class="p">(</span><span class="n">store</span><span class="o">=</span><span class="n">store</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="complete-example">Complete Example</h2>
+<p>A server with multiple task-supporting tools:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server</span><span class="w"> </span><span class="kn">import</span> <span class="n">Server</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.experimental.task_context</span><span class="w"> </span><span class="kn">import</span> <span class="n">ServerTaskContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CallToolResult</span><span class="p">,</span> <span class="n">CreateTaskResult</span><span class="p">,</span> <span class="n">TextContent</span><span class="p">,</span> <span class="n">Tool</span><span class="p">,</span> <span class="n">ToolExecution</span><span class="p">,</span>
+    <span class="n">SamplingMessage</span><span class="p">,</span> <span class="n">TASK_REQUIRED</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">server</span> <span class="o">=</span> <span class="n">Server</span><span class="p">(</span><span class="s2">"task-demo"</span><span class="p">)</span>
+<span class="n">server</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">enable_tasks</span><span class="p">()</span>
+
+
+<span class="nd">@server</span><span class="o">.</span><span class="n">list_tools</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_tools</span><span class="p">():</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">Tool</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"confirm_action"</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">"Requires user confirmation"</span><span class="p">,</span>
+            <span class="n">inputSchema</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span> <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"action"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">}}},</span>
+            <span class="n">execution</span><span class="o">=</span><span class="n">ToolExecution</span><span class="p">(</span><span class="n">taskSupport</span><span class="o">=</span><span class="n">TASK_REQUIRED</span><span class="p">),</span>
+        <span class="p">),</span>
+        <span class="n">Tool</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"generate_text"</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">"Generate text via LLM"</span><span class="p">,</span>
+            <span class="n">inputSchema</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span> <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"prompt"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"string"</span><span class="p">}}},</span>
+            <span class="n">execution</span><span class="o">=</span><span class="n">ToolExecution</span><span class="p">(</span><span class="n">taskSupport</span><span class="o">=</span><span class="n">TASK_REQUIRED</span><span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">]</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_confirm_action</span><span class="p">(</span><span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="n">ctx</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">request_context</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">validate_task_mode</span><span class="p">(</span><span class="n">TASK_REQUIRED</span><span class="p">)</span>
+
+    <span class="n">action</span> <span class="o">=</span> <span class="n">arguments</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"action"</span><span class="p">,</span> <span class="s2">"unknown action"</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">elicit</span><span class="p">(</span>
+            <span class="n">message</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Confirm: </span><span class="si">{</span><span class="n">action</span><span class="si">}</span><span class="s2">?"</span><span class="p">,</span>
+            <span class="n">requestedSchema</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span>
+                <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"confirm"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"boolean"</span><span class="p">}},</span>
+                <span class="s2">"required"</span><span class="p">:</span> <span class="p">[</span><span class="s2">"confirm"</span><span class="p">],</span>
+            <span class="p">},</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span> <span class="o">==</span> <span class="s2">"accept"</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"confirm"</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Executed: </span><span class="si">{</span><span class="n">action</span><span class="si">}</span><span class="s2">"</span><span class="p">)])</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Cancelled"</span><span class="p">)])</span>
+
+    <span class="k">return</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">work</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_generate_text</span><span class="p">(</span><span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="n">ctx</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">request_context</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">validate_task_mode</span><span class="p">(</span><span class="n">TASK_REQUIRED</span><span class="p">)</span>
+
+    <span class="n">prompt</span> <span class="o">=</span> <span class="n">arguments</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"prompt"</span><span class="p">,</span> <span class="s2">"Hello"</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Generating..."</span><span class="p">)</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">create_message</span><span class="p">(</span>
+            <span class="n">messages</span><span class="o">=</span><span class="p">[</span><span class="n">SamplingMessage</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">"user"</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="n">prompt</span><span class="p">))],</span>
+            <span class="n">max_tokens</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">text</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="o">.</span><span class="n">text</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="p">,</span> <span class="n">TextContent</span><span class="p">)</span> <span class="k">else</span> <span class="s2">"Error"</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="n">text</span><span class="p">)])</span>
+
+    <span class="k">return</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">work</span><span class="p">)</span>
+
+
+<span class="nd">@server</span><span class="o">.</span><span class="n">call_tool</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_tool</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span> <span class="o">|</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"confirm_action"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">handle_confirm_action</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"generate_text"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">handle_generate_text</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Unknown: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span><span class="p">)],</span> <span class="n">isError</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="error-handling-in-tasks">Error Handling in Tasks</h2>
+<p>Tasks handle errors automatically, but you can also fail explicitly:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">risky_operation</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="n">result</span><span class="p">)])</span>
+    <span class="k">except</span> <span class="ne">PermissionError</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s2">"Access denied - insufficient permissions"</span><span class="p">)</span>
+        <span class="k">raise</span>
+    <span class="k">except</span> <span class="ne">TimeoutError</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s2">"Operation timed out after 30 seconds"</span><span class="p">)</span>
+        <span class="k">raise</span>
+</code></pre></div>
+<p>When <code>run_task()</code> catches an exception, it automatically:</p>
+<ol>
+<li>Marks the task as <code>failed</code></li>
+<li>Sets <code>statusMessage</code> to the exception message</li>
+<li>Propagates the exception (which is caught by the task group)</li>
+</ol>
+<p>For custom error messages, call <code>task.fail()</code> before raising.</p>
+<h2 id="http-transport-example">HTTP Transport Example</h2>
+<p>For web applications, use the Streamable HTTP transport:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncIterator</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">contextlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">asynccontextmanager</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">uvicorn</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">starlette.applications</span><span class="w"> </span><span class="kn">import</span> <span class="n">Starlette</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">starlette.routing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mount</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server</span><span class="w"> </span><span class="kn">import</span> <span class="n">Server</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.experimental.task_context</span><span class="w"> </span><span class="kn">import</span> <span class="n">ServerTaskContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.server.streamable_http_manager</span><span class="w"> </span><span class="kn">import</span> <span class="n">StreamableHTTPSessionManager</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.types</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CallToolResult</span><span class="p">,</span> <span class="n">CreateTaskResult</span><span class="p">,</span> <span class="n">TextContent</span><span class="p">,</span> <span class="n">Tool</span><span class="p">,</span> <span class="n">ToolExecution</span><span class="p">,</span> <span class="n">TASK_REQUIRED</span><span class="p">,</span>
+<span class="p">)</span>
+
+
+<span class="n">server</span> <span class="o">=</span> <span class="n">Server</span><span class="p">(</span><span class="s2">"http-task-server"</span><span class="p">)</span>
+<span class="n">server</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">enable_tasks</span><span class="p">()</span>
+
+
+<span class="nd">@server</span><span class="o">.</span><span class="n">list_tools</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">list_tools</span><span class="p">():</span>
+    <span class="k">return</span> <span class="p">[</span>
+        <span class="n">Tool</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s2">"long_operation"</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="s2">"A long-running operation"</span><span class="p">,</span>
+            <span class="n">inputSchema</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"object"</span><span class="p">,</span> <span class="s2">"properties"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"duration"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"number"</span><span class="p">}}},</span>
+            <span class="n">execution</span><span class="o">=</span><span class="n">ToolExecution</span><span class="p">(</span><span class="n">taskSupport</span><span class="o">=</span><span class="n">TASK_REQUIRED</span><span class="p">),</span>
+        <span class="p">)</span>
+    <span class="p">]</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_long_operation</span><span class="p">(</span><span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="n">ctx</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">request_context</span>
+    <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">validate_task_mode</span><span class="p">(</span><span class="n">TASK_REQUIRED</span><span class="p">)</span>
+
+    <span class="n">duration</span> <span class="o">=</span> <span class="n">arguments</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"duration"</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">anyio</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">duration</span><span class="p">)):</span>
+            <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Step </span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">duration</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="k">await</span> <span class="n">anyio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Completed after </span><span class="si">{</span><span class="n">duration</span><span class="si">}</span><span class="s2">s"</span><span class="p">)])</span>
+
+    <span class="k">return</span> <span class="k">await</span> <span class="n">ctx</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">work</span><span class="p">)</span>
+
+
+<span class="nd">@server</span><span class="o">.</span><span class="n">call_tool</span><span class="p">()</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">handle_tool</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">arguments</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span> <span class="o">|</span> <span class="n">CreateTaskResult</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"long_operation"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="n">handle_long_operation</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Unknown: </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span><span class="p">)],</span> <span class="n">isError</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">():</span>
+    <span class="n">session_manager</span> <span class="o">=</span> <span class="n">StreamableHTTPSessionManager</span><span class="p">(</span><span class="n">app</span><span class="o">=</span><span class="n">server</span><span class="p">)</span>
+
+    <span class="nd">@asynccontextmanager</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">lifespan</span><span class="p">(</span><span class="n">app</span><span class="p">:</span> <span class="n">Starlette</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncIterator</span><span class="p">[</span><span class="kc">None</span><span class="p">]:</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">session_manager</span><span class="o">.</span><span class="n">run</span><span class="p">():</span>
+            <span class="k">yield</span>
+
+    <span class="k">return</span> <span class="n">Starlette</span><span class="p">(</span>
+        <span class="n">routes</span><span class="o">=</span><span class="p">[</span><span class="n">Mount</span><span class="p">(</span><span class="s2">"/mcp"</span><span class="p">,</span> <span class="n">app</span><span class="o">=</span><span class="n">session_manager</span><span class="o">.</span><span class="n">handle_request</span><span class="p">)],</span>
+        <span class="n">lifespan</span><span class="o">=</span><span class="n">lifespan</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">uvicorn</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">create_app</span><span class="p">(),</span> <span class="n">host</span><span class="o">=</span><span class="s2">"127.0.0.1"</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">8000</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="testing-task-servers">Testing Task Servers</h2>
+<p>Test task functionality with the SDK's testing utilities:</p>
+<div class="language-python highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">anyio</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.client.session</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClientSession</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">mcp.types</span><span class="w"> </span><span class="kn">import</span> <span class="n">CallToolResult</span>
+
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">anyio</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_task_tool</span><span class="p">():</span>
+    <span class="n">server_to_client_send</span><span class="p">,</span> <span class="n">server_to_client_receive</span> <span class="o">=</span> <span class="n">anyio</span><span class="o">.</span><span class="n">create_memory_object_stream</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+    <span class="n">client_to_server_send</span><span class="p">,</span> <span class="n">client_to_server_receive</span> <span class="o">=</span> <span class="n">anyio</span><span class="o">.</span><span class="n">create_memory_object_stream</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_server</span><span class="p">():</span>
+        <span class="k">await</span> <span class="n">server</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+            <span class="n">client_to_server_receive</span><span class="p">,</span>
+            <span class="n">server_to_client_send</span><span class="p">,</span>
+            <span class="n">server</span><span class="o">.</span><span class="n">create_initialization_options</span><span class="p">(),</span>
+        <span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run_client</span><span class="p">():</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">ClientSession</span><span class="p">(</span><span class="n">server_to_client_receive</span><span class="p">,</span> <span class="n">client_to_server_send</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+
+            <span class="c1"># Call the tool as a task</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">call_tool_as_task</span><span class="p">(</span><span class="s2">"my_tool"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"arg"</span><span class="p">:</span> <span class="s2">"value"</span><span class="p">})</span>
+            <span class="n">task_id</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">task</span><span class="o">.</span><span class="n">taskId</span>
+            <span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">task</span><span class="o">.</span><span class="n">status</span> <span class="o">==</span> <span class="s2">"working"</span>
+
+            <span class="c1"># Poll until complete</span>
+            <span class="k">async</span> <span class="k">for</span> <span class="n">status</span> <span class="ow">in</span> <span class="n">session</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">poll_task</span><span class="p">(</span><span class="n">task_id</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">status</span><span class="o">.</span><span class="n">status</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"completed"</span><span class="p">,</span> <span class="s2">"failed"</span><span class="p">):</span>
+                    <span class="k">break</span>
+
+            <span class="c1"># Get result</span>
+            <span class="n">final</span> <span class="o">=</span> <span class="k">await</span> <span class="n">session</span><span class="o">.</span><span class="n">experimental</span><span class="o">.</span><span class="n">get_task_result</span><span class="p">(</span><span class="n">task_id</span><span class="p">,</span> <span class="n">CallToolResult</span><span class="p">)</span>
+            <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">final</span><span class="o">.</span><span class="n">content</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+
+    <span class="k">async</span> <span class="k">with</span> <span class="n">anyio</span><span class="o">.</span><span class="n">create_task_group</span><span class="p">()</span> <span class="k">as</span> <span class="n">tg</span><span class="p">:</span>
+        <span class="n">tg</span><span class="o">.</span><span class="n">start_soon</span><span class="p">(</span><span class="n">run_server</span><span class="p">)</span>
+        <span class="n">tg</span><span class="o">.</span><span class="n">start_soon</span><span class="p">(</span><span class="n">run_client</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="best-practices">Best Practices</h2>
+<h3 id="keep-work-functions-focused">Keep Work Functions Focused</h3>
+<div class="language-python highlight"><pre><span></span><code><span class="c1"># Good: focused work function</span>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Validating..."</span><span class="p">)</span>
+    <span class="n">validate_input</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Processing..."</span><span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">process_data</span><span class="p">(</span><span class="n">arguments</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="n">result</span><span class="p">)])</span>
+</code></pre></div>
+<h3 id="check-cancellation-in-loops">Check Cancellation in Loops</h3>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">large_dataset</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">task</span><span class="o">.</span><span class="n">is_cancelled</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Cancelled"</span><span class="p">)])</span>
+
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="k">await</span> <span class="n">process</span><span class="p">(</span><span class="n">item</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">results</span><span class="p">))])</span>
+</code></pre></div>
+<h3 id="use-meaningful-status-messages">Use Meaningful Status Messages</h3>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Connecting to database..."</span><span class="p">)</span>
+    <span class="n">db</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connect</span><span class="p">()</span>
+
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Fetching records (0/1000)..."</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">record</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">records</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">%</span> <span class="mi">100</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Processing records (</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">/1000)..."</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">process</span><span class="p">(</span><span class="n">record</span><span class="p">)</span>
+
+    <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">update_status</span><span class="p">(</span><span class="s2">"Finalizing results..."</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Done"</span><span class="p">)])</span>
+</code></pre></div>
+<h3 id="handle-elicitation-responses">Handle Elicitation Responses</h3>
+<div class="language-python highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">work</span><span class="p">(</span><span class="n">task</span><span class="p">:</span> <span class="n">ServerTaskContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CallToolResult</span><span class="p">:</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">task</span><span class="o">.</span><span class="n">elicit</span><span class="p">(</span><span class="n">message</span><span class="o">=</span><span class="s2">"Continue?"</span><span class="p">,</span> <span class="n">requestedSchema</span><span class="o">=</span><span class="p">{</span><span class="o">...</span><span class="p">})</span>
+
+    <span class="k">match</span> <span class="n">result</span><span class="o">.</span><span class="n">action</span><span class="p">:</span>
+        <span class="k">case</span> <span class="s2">"accept"</span><span class="p">:</span>
+            <span class="c1"># User accepted, process content</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">process_accepted</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+        <span class="k">case</span> <span class="s2">"decline"</span><span class="p">:</span>
+            <span class="c1"># User explicitly declined</span>
+            <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"User declined"</span><span class="p">)])</span>
+        <span class="k">case</span> <span class="s2">"cancel"</span><span class="p">:</span>
+            <span class="c1"># User cancelled the elicitation</span>
+            <span class="k">return</span> <span class="n">CallToolResult</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="p">[</span><span class="n">TextContent</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="s2">"Cancelled"</span><span class="p">)])</span>
+</code></pre></div>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li><a href="../tasks-client/">Client Usage</a> - Learn how clients interact with task servers</li>
+<li><a href="../tasks/">Tasks Overview</a> - Review lifecycle and concepts</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "../..", "features": ["search.suggest", "search.highlight", "content.tabs.link", "content.code.annotate", "content.code.copy", "content.code.select", "navigation.path", "navigation.indexes", "navigation.sections", "navigation.tracking", "toc.follow"], "search": "../../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.92b07e13.min.js"></script>
+      
+    
+  
+<script id="init-glightbox">const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
