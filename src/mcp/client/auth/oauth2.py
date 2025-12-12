@@ -468,7 +468,7 @@ class OAuthClientProvider(httpx.Auth):
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
 
-        if self.context.current_tokens and self.context.current_tokens.expires_in:
+        if self.context.current_tokens and self.context.current_tokens.expires_in is not None:
             self.context.update_token_expiry(self.context.current_tokens)
 
         self._initialized = True
