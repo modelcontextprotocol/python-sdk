@@ -321,11 +321,13 @@ class TestTokenInitialization:
         """Test that expired tokens loaded from storage are detected as invalid."""
         context = oauth_provider.context
         await context.storage.set_tokens(expired_tokens)
-        await context.storage.set_client_info(OAuthClientInformationFull(
-            client_id="test_client_id",
-            client_secret="test_client_secret",
-            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
-        ))
+        await context.storage.set_client_info(
+            OAuthClientInformationFull(
+                client_id="test_client_id",
+                client_secret="test_client_secret",
+                redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            )
+        )
 
         # First request
         test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
