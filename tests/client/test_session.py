@@ -175,6 +175,8 @@ async def test_client_session_custom_client_info():
 
     # Assert that the custom client info was sent
     assert received_client_info == custom_client_info
+    # Assert that the client info was not replaced with server info after initialization
+    assert session._client_info == custom_client_info
 
 
 @pytest.mark.anyio
@@ -183,6 +185,7 @@ async def test_client_session_default_client_info():
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     received_client_info = None
+    received_server_info = None
 
     async def mock_server():
         nonlocal received_client_info
@@ -231,10 +234,13 @@ async def test_client_session_default_client_info():
         server_to_client_receive,
     ):
         tg.start_soon(mock_server)
-        await session.initialize()
+        result = await session.initialize()
+        received_server_info = result.serverInfo
 
     # Assert that the default client info was sent
     assert received_client_info == DEFAULT_CLIENT_INFO
+    # Assert that the default client info was replaced with server info after initialization
+    assert session._client_info == received_server_info
 
 
 @pytest.mark.anyio
