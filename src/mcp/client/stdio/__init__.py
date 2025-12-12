@@ -166,6 +166,13 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     async def stdin_writer():
         assert process.stdin, "Opened process is missing stdin"
 
+        # DEBUG: Delay for investigating issue #262.
+        # Set MCP_DEBUG_RACE_DELAY_STDIO=<seconds> to add delay before
+        # this task enters its receive loop.
+        _race_delay = os.environ.get("MCP_DEBUG_RACE_DELAY_STDIO")
+        if _race_delay:
+            await anyio.sleep(float(_race_delay))
+
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
@@ -185,6 +192,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     ):
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+
         try:
             yield read_stream, write_stream
         finally:
