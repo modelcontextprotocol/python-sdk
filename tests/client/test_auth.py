@@ -87,7 +87,7 @@ def expired_tokens():
     return OAuthToken(
         access_token="test_access_token",
         token_type="Bearer",
-        expires_in=0,
+        expires_in=-100,  # Expired 100 seconds ago
         refresh_token="test_refresh_token",
         scope="read write",
     )
