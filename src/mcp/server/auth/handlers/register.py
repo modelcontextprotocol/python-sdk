@@ -73,11 +73,11 @@ class RegistrationHandler:
                     ),
                     status_code=400,
                 )
-        if not {"authorization_code", "refresh_token"}.issubset(set(client_metadata.grant_types)):
+        if "authorization_code" not in client_metadata.grant_types:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
-                    error_description="grant_types must be authorization_code and refresh_token",
+                    error_description="grant_types must include 'authorization_code'",
                 ),
                 status_code=400,
             )
