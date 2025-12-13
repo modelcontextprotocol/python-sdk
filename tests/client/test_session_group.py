@@ -280,7 +280,7 @@ class TestClientSessionGroup:
             (
                 StreamableHttpParameters(url="http://test.com/stream", terminate_on_close=False),
                 "streamablehttp",
-                "mcp.client.session_group.streamablehttp_client",
+                "mcp.client.session_group.streamable_http_client",
             ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
         ],
     )
@@ -296,7 +296,7 @@ class TestClientSessionGroup:
                 mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")
                 mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
 
-                # streamablehttp_client's __aenter__ returns three values
+                # streamable_http_client's __aenter__ returns three values
                 if client_type_name == "streamablehttp":
                     mock_extra_stream_val = mock.AsyncMock(name="StreamableExtra")
                     mock_client_cm_instance.__aenter__.return_value = (
@@ -354,13 +354,14 @@ class TestClientSessionGroup:
                     )
                 elif client_type_name == "streamablehttp":  # pragma: no branch
                     assert isinstance(server_params_instance, StreamableHttpParameters)
-                    mock_specific_client_func.assert_called_once_with(
-                        url=server_params_instance.url,
-                        headers=server_params_instance.headers,
-                        timeout=server_params_instance.timeout,
-                        sse_read_timeout=server_params_instance.sse_read_timeout,
-                        terminate_on_close=server_params_instance.terminate_on_close,
-                    )
+                    # Verify streamable_http_client was called with url, httpx_client, and terminate_on_close
+                    # The http_client is created by the real create_mcp_http_client
+                    import httpx
+
+                    call_args = mock_specific_client_func.call_args
+                    assert call_args.kwargs["url"] == server_params_instance.url
+                    assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
+                    assert isinstance(call_args.kwargs["http_client"], httpx.AsyncClient)
 
                 mock_client_cm_instance.__aenter__.assert_awaited_once()
 

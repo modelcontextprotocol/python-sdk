@@ -455,6 +455,27 @@ class BaseSession(
                         pass
                 self._response_streams.clear()
 
+    def _normalize_request_id(self, response_id: RequestId) -> RequestId:
+        """
+        Normalize a response ID to match how request IDs are stored.
+
+        Since the client always sends integer IDs, we normalize string IDs
+        to integers when possible. This matches the TypeScript SDK approach:
+        https://github.com/modelcontextprotocol/typescript-sdk/blob/a606fb17909ea454e83aab14c73f14ea45c04448/src/shared/protocol.ts#L861
+
+        Args:
+            response_id: The response ID from the incoming message.
+
+        Returns:
+            The normalized ID (int if possible, otherwise original value).
+        """
+        if isinstance(response_id, str):
+            try:
+                return int(response_id)
+            except ValueError:
+                logging.warning(f"Response ID {response_id!r} cannot be normalized to match pending requests")
+        return response_id
+
     async def _handle_response(self, message: SessionMessage) -> None:
         """
         Handle an incoming response or error message.
@@ -471,7 +492,8 @@ class BaseSession(
         if not isinstance(root, JSONRPCResponse | JSONRPCError):
             return  # pragma: no cover
 
-        response_id: RequestId = root.id
+        # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
+        response_id = self._normalize_request_id(root.id)
 
         # First, check response routers (e.g., TaskResultHandler)
         if isinstance(root, JSONRPCError):
