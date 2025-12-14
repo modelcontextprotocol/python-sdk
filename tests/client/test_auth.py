@@ -325,9 +325,14 @@ class TestOAuthFallback:
         # When auth_server_url is None (PRM failed), we use server_url and only try root
         discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(None, "https://mcp.linear.app/sse")
 
-        # Should only try the root URL (legacy behavior)
+        # Current behavior: try path-aware variants first, then root fallbacks
         assert discovery_urls == [
+            "https://mcp.linear.app/.well-known/oauth-authorization-server/sse",
+            "https://mcp.linear.app/.well-known/openid-configuration/sse",
+            "https://mcp.linear.app/sse/.well-known/oauth-authorization-server",
+            "https://mcp.linear.app/sse/.well-known/openid-configuration",
             "https://mcp.linear.app/.well-known/oauth-authorization-server",
+            "https://mcp.linear.app/.well-known/openid-configuration",
         ]
 
     @pytest.mark.anyio
@@ -337,11 +342,14 @@ class TestOAuthFallback:
             "https://auth.example.com/tenant1", "https://api.example.com/mcp"
         )
 
-        # Should try path-based URLs only (no root URLs)
+        # Current behavior: path-aware variants (including symmetric OAuth path-local), then root fallbacks
         assert discovery_urls == [
             "https://auth.example.com/.well-known/oauth-authorization-server/tenant1",
             "https://auth.example.com/.well-known/openid-configuration/tenant1",
+            "https://auth.example.com/tenant1/.well-known/oauth-authorization-server",
             "https://auth.example.com/tenant1/.well-known/openid-configuration",
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+            "https://auth.example.com/.well-known/openid-configuration",
         ]
 
     @pytest.mark.anyio
@@ -351,7 +359,7 @@ class TestOAuthFallback:
             "https://auth.example.com", "https://api.example.com/mcp"
         )
 
-        # Should try root URLs only
+        # Should try root URLs only (no path-aware when no path)
         assert discovery_urls == [
             "https://auth.example.com/.well-known/oauth-authorization-server",
             "https://auth.example.com/.well-known/openid-configuration",
@@ -364,7 +372,7 @@ class TestOAuthFallback:
             "https://auth.example.com/", "https://api.example.com/mcp"
         )
 
-        # Should try root URLs only
+        # Should try root URLs only (trailing slash treated as root)
         assert discovery_urls == [
             "https://auth.example.com/.well-known/oauth-authorization-server",
             "https://auth.example.com/.well-known/openid-configuration",
@@ -383,7 +391,10 @@ class TestOAuthFallback:
         assert discovery_urls == [
             "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp",
             "https://api.example.com/.well-known/openid-configuration/v1/mcp",
+            "https://api.example.com/v1/mcp/.well-known/oauth-authorization-server",
             "https://api.example.com/v1/mcp/.well-known/openid-configuration",
+            "https://api.example.com/.well-known/oauth-authorization-server",
+            "https://api.example.com/.well-known/openid-configuration",
         ]
 
     @pytest.mark.anyio
@@ -459,9 +470,12 @@ class TestOAuthFallback:
             request=oauth_metadata_request_2,
         )
 
-        # Next request should be OIDC path-appended URL
+        # Next request should be OAuth path-local URL (symmetric), then OIDC path-local
         oauth_metadata_request_3 = await auth_flow.asend(oauth_metadata_response_2)
-        assert str(oauth_metadata_request_3.url) == "https://auth.example.com/v1/mcp/.well-known/openid-configuration"
+        assert (
+            str(oauth_metadata_request_3.url)
+            == "https://auth.example.com/v1/mcp/.well-known/oauth-authorization-server"
+        )
         assert oauth_metadata_request_3.method == "GET"
 
         # Send a 500 response
@@ -471,12 +485,12 @@ class TestOAuthFallback:
             request=oauth_metadata_request_3,
         )
 
-        # Mock the authorization process to minimize unnecessary state in this test
+        # Mock the authorization process to minimize unnecessary state before authorization triggers
         oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
             return_value=("test_auth_code", "test_code_verifier")
         )
 
-        # All path-based URLs failed, flow continues with default endpoints
+        # All path-based URLs failed; flow continues with default endpoints
         # Next request should be token exchange using MCP server base URL (fallback when OAuth metadata not found)
         token_request = await auth_flow.asend(oauth_metadata_response_3)
         assert str(token_request.url) == "https://api.example.com/token"
@@ -504,6 +518,46 @@ class TestOAuthFallback:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass  # Expected - generator should complete
+
+    @pytest.mark.anyio
+    async def test_oauth_discovery_path_aware_issuer_with_origin_only_metadata(self):
+        """Servers may publish metadata only at the origin even when issuer has a path;
+        ensure we include origin fallbacks."""
+        # Path-aware issuer URL
+        discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+            "https://auth.example.com/tenant1", "https://api.example.com/v1/mcp"
+        )
+
+        # Must include origin-based fallbacks at the end, after path-aware variants
+        assert discovery_urls[-2:] == [
+            "https://auth.example.com/.well-known/oauth-authorization-server",
+            "https://auth.example.com/.well-known/openid-configuration",
+        ]
+
+    @pytest.mark.anyio
+    async def test_oauth_discovery_direct_metadata_url_precedence(self):
+        """If a direct metadata URL is provided, it should be tried first before derived well-known locations."""
+        # Simulate PRM providing a direct OIDC configuration URL
+        direct_metadata_url = "https://auth.example.com/.well-known/openid-configuration"
+        discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+            direct_metadata_url, "https://api.example.com/v1/mcp"
+        )
+
+        # First entry should be the provided URL exactly
+        assert discovery_urls[0] == direct_metadata_url
+
+    @pytest.mark.anyio
+    async def test_oauth_discovery_oidc_only_metadata(self):
+        """Some servers expose only OIDC metadata; ensure OIDC paths are included in order and allow fallback."""
+        discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+            "https://auth.example.com/tenant1", "https://api.example.com/v1/mcp"
+        )
+
+        # Ensure OIDC path-aware and path-local are present early
+        assert "https://auth.example.com/.well-known/openid-configuration/tenant1" in discovery_urls[:3]
+        assert "https://auth.example.com/tenant1/.well-known/openid-configuration" in discovery_urls[:5]
+
+    # No flow needed here; presence in discovery list is sufficient
 
     @pytest.mark.anyio
     async def test_handle_metadata_response_success(self, oauth_provider: OAuthClientProvider):
@@ -1311,9 +1365,9 @@ class TestLegacyServerFallback:
         # PRM returns 404 again - all PRM URLs failed
         prm_response_2 = httpx.Response(404, request=prm_request_2)
 
-        # Should fall back to root OAuth discovery (March 2025 spec behavior)
+        # Current behavior: fall back to path-aware OAuth discovery first using server path
         oauth_metadata_request = await auth_flow.asend(prm_response_2)
-        assert str(oauth_metadata_request.url) == "https://mcp.linear.app/.well-known/oauth-authorization-server"
+        assert str(oauth_metadata_request.url) == "https://mcp.linear.app/.well-known/oauth-authorization-server/sse"
         assert oauth_metadata_request.method == "GET"
 
         # Send successful OAuth metadata response
@@ -1419,9 +1473,11 @@ class TestLegacyServerFallback:
         # Also returns 404 - all PRM URLs failed
         prm_response_3 = httpx.Response(404, request=prm_request_3)
 
-        # Should fall back to root OAuth discovery
+        # Current behavior: fall back to path-aware OAuth discovery based on server path
         oauth_metadata_request = await auth_flow.asend(prm_response_3)
-        assert str(oauth_metadata_request.url) == "https://api.example.com/.well-known/oauth-authorization-server"
+        assert (
+            str(oauth_metadata_request.url) == "https://api.example.com/.well-known/oauth-authorization-server/v1/mcp"
+        )
 
         # Complete the flow
         oauth_metadata_response = httpx.Response(
