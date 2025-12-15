@@ -1,0 +1,9 @@
+from typing import Protocol, AsyncIterator
+
+from v2_scratch.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+
+
+class Transport(Protocol):
+    async def send(self, message: JSONRPCMessage) -> None: ...
+    async def send_request(self, request: JSONRPCRequest) -> JSONRPCResponse: ...
+    def __aiter__(self) -> AsyncIterator[JSONRPCMessage]: ...
