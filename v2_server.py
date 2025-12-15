@@ -1,8 +1,8 @@
 from asyncio import Queue
 
-from v2_scratch.lowlevel_server_sketch import Server
-from v2_scratch.transport.context import Context
-from v2_scratch.types import (
+from mcp_v2.lowlevel_server_sketch import Server
+from mcp_v2.transport.context import Context
+from mcp_v2.types import (
     CallToolResult,
     InitializeResult,
     JSONRPCNotification,

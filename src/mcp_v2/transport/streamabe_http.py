@@ -1,6 +1,6 @@
 from typing import Callable, Awaitable
 
-from v2_scratch.transport.context import Context
+from mcp_v2.transport.context import Context
 
 GetStreamHandler = Callable[[Context], Awaitable[None]]
 

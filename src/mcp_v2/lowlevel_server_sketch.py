@@ -1,9 +1,9 @@
 from collections.abc import Awaitable, Callable
 from typing import cast
 
-from v2_scratch.transport.context import Context
-from v2_scratch.transport.transport_interface import Transport
-from v2_scratch.types import (
+from mcp_v2.transport.context import Context
+from mcp_v2.transport.transport_interface import Transport
+from mcp_v2.types import (
     ClientNotificationMethod,
     JSONRPCNotification,
     JSONRPCRequest,

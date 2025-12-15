@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from v2_scratch.transport.transport_interface import Transport
-from v2_scratch.types import NotificationParams, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
+from mcp_v2.transport.transport_interface import Transport
+from mcp_v2.types import NotificationParams, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 
 @dataclass
