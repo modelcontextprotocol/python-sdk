@@ -475,7 +475,7 @@ class WeatherData(BaseModel):
 
 
 @mcp.tool()
-def get_weather(city: str) -> WeatherData:
+def get_weather(_city: str) -> WeatherData:
     """Get weather for a city - returns structured data."""
     # Simulated weather data
     return WeatherData(
@@ -494,14 +494,14 @@ class LocationInfo(TypedDict):
 
 
 @mcp.tool()
-def get_location(address: str) -> LocationInfo:
+def get_location(_address: str) -> LocationInfo:
     """Get location coordinates"""
     return LocationInfo(latitude=51.5074, longitude=-0.1278, name="London, UK")
 
 
 # Using dict[str, Any] for flexible schemas
 @mcp.tool()
-def get_statistics(data_type: str) -> dict[str, float]:
+def get_statistics(_data_type: str) -> dict[str, float]:
     """Get various statistics"""
     return {"mean": 42.5, "median": 40.0, "std_dev": 5.2}
 
@@ -519,7 +519,7 @@ class UserProfile:
 
 
 @mcp.tool()
-def get_user(user_id: str) -> UserProfile:
+def get_user(_user_id: str) -> UserProfile:
     """Get user profile - returns structured data"""
     return UserProfile(name="Alice", age=30, email="alice@example.com")
 
@@ -546,7 +546,7 @@ def list_cities() -> list[str]:
 
 
 @mcp.tool()
-def get_temperature(city: str) -> float:
+def get_temperature(_city: str) -> float:
     """Get temperature as a simple float"""
     return 22.5
     # Returns: {"result": 22.5}
