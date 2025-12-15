@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Final, Generic, Literal, Optional, TypeVar
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 JSONRPC_VERSION: Final[str] = "2.0"
 
@@ -18,6 +18,8 @@ RequestId = Annotated[int, Field(strict=True)] | str
 class JSONRPCBase(BaseModel):
     """Base class for all JSON-RPC messages."""
 
+    model_config = ConfigDict(extra="allow")
+
     jsonrpc: Literal["2.0"] = JSONRPC_VERSION
 
 
@@ -30,7 +32,7 @@ class RequestBase(JSONRPCBase, Generic[MethodT, ParamsT]):
 
     id: RequestId
     method: MethodT
-    params: ParamsT = None
+    params: ParamsT
 
 
 class JSONRPCRequest(RequestBase[str, Optional[dict[str, Any]]]):
@@ -54,6 +56,8 @@ class JSONRPCNotification(NotificationBase[str, Optional[dict[str, Any]]]):
 
 class ErrorData(BaseModel):
     """Error information in a JSON-RPC error response."""
+
+    model_config = ConfigDict(extra="allow")
 
     code: int
     message: str
