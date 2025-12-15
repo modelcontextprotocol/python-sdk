@@ -1,6 +1,7 @@
-from typing import Protocol, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Protocol
 
-from mcp_v2.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from mcp_v2.types.json_rpc import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 
 class Transport(Protocol):

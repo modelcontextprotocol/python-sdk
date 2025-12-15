@@ -1,6 +1,6 @@
 """Minimum amount of base models to represent the types from JSON-RPC used by MCP."""
 
-from typing import Annotated, Any, Final, Generic, Literal, Optional, TypeVar
+from typing import Annotated, Any, Final, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -35,7 +35,9 @@ class RequestBase(JSONRPCBase, Generic[MethodT, ParamsT]):
     params: ParamsT
 
 
-class JSONRPCRequest(RequestBase[str, Optional[dict[str, Any]]]):
+# PyCharm is dumb and doesn't understand `| None` and wants `Optional` instead, so ignoring.
+# noinspection PyTypeChecker
+class JSONRPCRequest(RequestBase[str, dict[str, Any] | None]):
     """A request that expects a response."""
 
     params: dict[str, Any] | None = None
@@ -48,7 +50,9 @@ class NotificationBase(JSONRPCBase, Generic[MethodT, ParamsT]):
     params: ParamsT
 
 
-class JSONRPCNotification(NotificationBase[str, Optional[dict[str, Any]]]):
+# PyCharm is dumb and doesn't understand `| None` and wants `Optional` instead, so ignoring.
+# noinspection PyTypeChecker
+class JSONRPCNotification(NotificationBase[str, dict[str, Any] | None]):
     """A notification which does not expect a response."""
 
     params: dict[str, Any] | None = None
