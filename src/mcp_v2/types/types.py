@@ -22,41 +22,46 @@ ProgressToken = str | int
 
 
 # =============================================================================
-# MCP Base Types (with _meta support)
+# MCP Base Types
 # =============================================================================
 
 
-class RequestMeta(BaseModel):
-    """Metadata for MCP requests."""
-
-    progressToken: ProgressToken | None = None
-
-
-class RequestParams(BaseModel):
-    """Base class for MCP request parameters with _meta support."""
+class MCPModel(BaseModel):
+    """Base class for all MCP domain types. Allows extra fields for forward compatibility."""
 
     model_config = ConfigDict(extra="allow")
+
+
+class RequestMeta(MCPModel):
+    """Metadata for MCP requests."""
+
+    progress_token: Annotated[ProgressToken | None, Field(alias="progressToken")] = None
+
+
+class RequestParams(MCPModel):
+    """Base class for MCP request parameters with _meta support."""
 
     meta: Annotated[RequestMeta | None, Field(alias="_meta")] = None
 
 
-class NotificationParams(BaseModel):
+class Meta(MCPModel):
+    """Base class for MCP meta information models."""
+
+
+MetaT = TypeVar("MetaT", bound=Meta | dict[str, Any] | None)
+
+
+class NotificationParams(MCPModel):
     """Base class for MCP notification parameters with _meta support."""
 
-    model_config = ConfigDict(extra="allow")
-
-    meta: Annotated[dict[str, Any] | None, Field(alias="_meta")] = None
+    meta: Annotated[Meta | None, Field(alias="_meta")] = None
 
 
-MetaT = TypeVar("MetaT", bound=BaseModel | dict[str, Any] | None)
-
-
-class Result(BaseModel, Generic[MetaT]):
+class Result(MCPModel, Generic[MetaT]):
     """Base class for MCP results with _meta support."""
 
-    model_config = ConfigDict(extra="allow")
-
     meta: Annotated[MetaT | None, Field(alias="_meta")] = None
+
 
 # Method name literals for type-safe handler registration
 RequestMethod = Literal[
@@ -96,23 +101,45 @@ ServerNotificationMethod = Literal[
 # =============================================================================
 
 
-class Implementation(BaseModel):
+class Icon(MCPModel):
+    """An optionally-sized icon that can be displayed in a user interface."""
+
+    src: str
+    mime_type: Annotated[str | None, Field(alias="mimeType")] = None
+    sizes: list[str] | None = None
+    theme: Literal["light", "dark"] | None = None
+
+
+class Annotations(MCPModel):
+    """Optional annotations for the client."""
+
+    audience: list[Literal["user", "assistant"]] | None = None
+    priority: float | None = None
+    last_modified: Annotated[str | None, Field(alias="lastModified")] = None
+
+
+class Implementation(MCPModel):
     """Describes the name and version of an MCP implementation."""
 
     name: str
     version: str
+    title: str | None = None
+    description: str | None = None
+    icons: list[Icon] | None = None
+    website_url: Annotated[str | None, Field(alias="websiteUrl")] = None
 
 
-class ClientCapabilities(BaseModel):
+class ClientCapabilities(MCPModel):
     """Capabilities that a client may support."""
 
     experimental: dict[str, Any] | None = None
     roots: dict[str, Any] | None = None
     sampling: dict[str, Any] | None = None
     elicitation: dict[str, Any] | None = None
+    tasks: dict[str, Any] | None = None
 
 
-class ServerCapabilities(BaseModel):
+class ServerCapabilities(MCPModel):
     """Capabilities that a server may support."""
 
     experimental: dict[str, Any] | None = None
@@ -121,6 +148,7 @@ class ServerCapabilities(BaseModel):
     prompts: dict[str, Any] | None = None
     resources: dict[str, Any] | None = None
     tools: dict[str, Any] | None = None
+    tasks: dict[str, Any] | None = None
 
 
 # =============================================================================
@@ -128,26 +156,27 @@ class ServerCapabilities(BaseModel):
 # =============================================================================
 
 
-class InitializeRequestParams(BaseModel):
+class InitializeRequestParams(RequestParams):
     """Parameters for the initialize request."""
 
-    protocolVersion: str
+    protocol_version: Annotated[str, Field(alias="protocolVersion")]
     capabilities: ClientCapabilities
-    clientInfo: Implementation
+    client_info: Annotated[Implementation, Field(alias="clientInfo")]
 
 
 class InitializeRequest(RequestBase[Literal["initialize"], InitializeRequestParams]):
     """Sent from client to server when first connecting."""
 
     method: Literal["initialize"] = "initialize"
+    params: InitializeRequestParams
 
 
-class InitializeResult(BaseModel):
+class InitializeResult(Result[Meta]):
     """Server's response to an initialize request."""
 
-    protocolVersion: str
+    protocol_version: Annotated[str, Field(alias="protocolVersion")]
     capabilities: ServerCapabilities
-    serverInfo: Implementation
+    server_info: Annotated[Implementation, Field(alias="serverInfo")]
     instructions: str | None = None
 
 
@@ -162,15 +191,51 @@ class InitializedNotification(NotificationBase[Literal["notifications/initialize
 # =============================================================================
 
 
-class Tool(BaseModel):
+class ToolExecution(MCPModel):
+    """Execution-related properties for a tool."""
+
+    task_support: Annotated[
+        Literal["forbidden", "optional", "required"] | None,
+        Field(alias="taskSupport"),
+    ] = None
+
+
+class JsonSchema(MCPModel):
+    """A JSON Schema object."""
+
+    schema_: Annotated[str | None, Field(alias="$schema")] = None
+    type: Literal["object"] = "object"
+    properties: dict[str, Any] | None = None
+    required: list[str] | None = None
+
+
+class ToolAnnotations(MCPModel):
+    """Additional properties describing a Tool to clients."""
+
+    destructive_hint: Annotated[bool | None, Field(alias="destructiveHint")] = None
+    idempotent_hint: Annotated[bool | None, Field(alias="idempotentHint")] = None
+    open_world_hint: Annotated[bool | None, Field(alias="openWorldHint")] = None
+    read_only_hint: Annotated[bool | None, Field(alias="readOnlyHint")] = None
+    title: str | None = None
+
+class Tool(MCPModel):
     """Definition of a tool the server provides."""
 
+    # Required fields
+    input_schema: Annotated[JsonSchema, Field(alias="inputSchema")]
     name: str
+
+    # Optional fields (spec order)
+    meta: Annotated[Meta | None, Field(alias="_meta")] = None
+    annotations: ToolAnnotations | None = None
     description: str | None = None
-    inputSchema: dict[str, Any] = Field(default_factory=lambda: {"type": "object"})
+    execution: ToolExecution | None = None
+    icons: list[Icon] | None = None
+    output_schema: Annotated[JsonSchema | None, Field(alias="outputSchema")] = None
+    title: str | None = None
 
 
-class ListToolsRequestParams(BaseModel):
+class ListToolsRequestParams(RequestParams):
     """Parameters for tools/list request."""
 
     cursor: str | None = None
@@ -180,16 +245,17 @@ class ListToolsRequest(RequestBase[Literal["tools/list"], Optional[ListToolsRequ
     """Request to list available tools."""
 
     method: Literal["tools/list"] = "tools/list"
+    params: ListToolsRequestParams | None = None
 
 
-class ListToolsResult(BaseModel):
+class ListToolsResult(Result[Meta]):
     """Server's response to a tools/list request."""
 
     tools: list[Tool]
-    nextCursor: str | None = None
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class CallToolRequestParams(BaseModel):
+class CallToolRequestParams(RequestParams):
     """Parameters for tools/call request."""
 
     name: str
@@ -202,16 +268,18 @@ class CallToolRequest(RequestBase[Literal["tools/call"], CallToolRequestParams])
     method: Literal["tools/call"] = "tools/call"
 
 
-class TextContent(BaseModel):
+class TextContent(MCPModel):
     """Text content in a tool result."""
 
     type: Literal["text"] = "text"
     text: str
+    annotations: Annotations | None = None
+    meta: Annotated[Meta | None, Field(alias="_meta")] = None
 
 
-class CallToolResult(BaseModel):
+class CallToolResult(Result[Meta]):
     """Server's response to a tools/call request."""
 
     content: list[TextContent | dict[str, Any]]
-    structuredContent: dict[str, Any] | None = None
-    isError: bool = False
+    structured_content: Annotated[dict[str, Any] | None, Field(alias="structuredContent")] = None
+    is_error: Annotated[bool, Field(alias="isError")] = False
