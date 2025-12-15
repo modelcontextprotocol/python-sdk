@@ -3,13 +3,8 @@ from typing import cast
 
 from mcp_v2.transport.context import Context
 from mcp_v2.transport.transport_interface import Transport
-from mcp_v2.types import (
-    ClientNotificationMethod,
-    JSONRPCNotification,
-    JSONRPCRequest,
-    JSONRPCResponse,
-    RequestMethod,
-)
+from mcp_v2.types.base import ClientNotificationMethod, RequestMethod
+from mcp_v2.types.json_rpc import JSONRPCNotification, JSONRPCRequest, JSONRPCResponse
 
 RequestHandler = Callable[[Context, JSONRPCRequest], Awaitable[JSONRPCResponse]]
 NotificationHandler = Callable[[JSONRPCNotification], Awaitable[None]]

@@ -1,4 +1,4 @@
-from typing import Callable, Awaitable
+from collections.abc import Awaitable, Callable
 
 from mcp_v2.transport.context import Context
 
