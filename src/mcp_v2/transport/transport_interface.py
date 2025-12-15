@@ -1,6 +1,6 @@
 from typing import Protocol, AsyncIterator
 
-from v2_scratch.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from mcp_v2.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 
 class Transport(Protocol):
