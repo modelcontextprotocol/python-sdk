@@ -23,6 +23,7 @@ from mcp.types import (
     ContentBlock,
     EmbeddedResource,
     ImageContent,
+    InitializeResult,
     TextContent,
     TextResourceContents,
 )
@@ -37,6 +38,39 @@ class TestServer:
         mcp = FastMCP(instructions="Server instructions")
         assert mcp.name == "FastMCP"
         assert mcp.instructions == "Server instructions"
+
+    @pytest.mark.anyio
+    async def test_server_with_title_and_description(self):
+        """Test that FastMCP server title and description are passed through to serverInfo."""
+        mcp = FastMCP(
+            name="test-fastmcp-server",
+            title="Test FastMCP Server Title",
+            description="A test server that demonstrates title and description support.",
+        )
+
+        assert mcp.title == "Test FastMCP Server Title"
+        assert mcp.description == "A test server that demonstrates title and description support."
+
+        async with client_session(mcp._mcp_server) as client_session_instance:
+            result = await client_session_instance.initialize()
+
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "test-fastmcp-server"
+            assert result.serverInfo.title == "Test FastMCP Server Title"
+            assert result.serverInfo.description == "A test server that demonstrates title and description support."
+
+    @pytest.mark.anyio
+    async def test_server_without_title_and_description(self):
+        """Test that FastMCP server works correctly when title and description are not provided."""
+        mcp = FastMCP(name="test-fastmcp-server")
+
+        async with client_session(mcp._mcp_server) as client_session_instance:
+            result = await client_session_instance.initialize()
+
+            assert isinstance(result, InitializeResult)
+            assert result.serverInfo.name == "test-fastmcp-server"
+            assert result.serverInfo.title is None
+            assert result.serverInfo.description is None
 
     @pytest.mark.anyio
     async def test_normalize_path(self):

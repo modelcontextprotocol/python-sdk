@@ -177,6 +177,8 @@ class ServerSession(
                                 serverInfo=types.Implementation(
                                     name=self._init_options.server_name,
                                     version=self._init_options.server_version,
+                                    title=self._init_options.title,
+                                    description=self._init_options.description,
                                     websiteUrl=self._init_options.website_url,
                                     icons=self._init_options.icons,
                                 ),

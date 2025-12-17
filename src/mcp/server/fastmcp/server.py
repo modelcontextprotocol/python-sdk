@@ -173,6 +173,8 @@ class FastMCP(Generic[LifespanResultT]):
         lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
+        title: str | None = None,
+        description: str | None = None,
     ):
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
@@ -207,6 +209,8 @@ class FastMCP(Generic[LifespanResultT]):
             instructions=instructions,
             website_url=website_url,
             icons=icons,
+            title=title,
+            description=description,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -248,6 +252,14 @@ class FastMCP(Generic[LifespanResultT]):
     @property
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
+
+    @property
+    def title(self) -> str | None:
+        return self._mcp_server.title
+
+    @property
+    def description(self) -> str | None:
+        return self._mcp_server.description
 
     @property
     def website_url(self) -> str | None:
