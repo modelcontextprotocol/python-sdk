@@ -33,6 +33,7 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for the resource template")
 
     @classmethod
     def from_function(
@@ -46,6 +47,7 @@ class ResourceTemplate(BaseModel):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         context_kwarg: str | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> ResourceTemplate:
         """Create a template from a function."""
         func_name = name or fn.__name__
@@ -77,6 +79,7 @@ class ResourceTemplate(BaseModel):
             fn=fn,
             parameters=parameters,
             context_kwarg=context_kwarg,
+            meta=meta,
         )
 
     def matches(self, uri: str) -> dict[str, Any] | None:
@@ -113,6 +116,7 @@ class ResourceTemplate(BaseModel):
                 icons=self.icons,
                 annotations=self.annotations,
                 fn=lambda: result,  # Capture result in closure
+                meta=self.meta,
             )
         except Exception as e:
             raise ValueError(f"Error creating resource from template: {e}")

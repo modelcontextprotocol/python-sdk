@@ -193,3 +193,64 @@ class TestAnnotationsValidation:
         # Invalid roles should raise validation error
         with pytest.raises(Exception):  # Pydantic validation error
             Annotations(audience=["invalid_role"])  # type: ignore
+
+
+class TestResourceMeta:
+    """Test metadata on resources."""
+
+    def test_resource_with_meta(self):
+        """Test creating a resource with metadata."""
+
+        def get_data() -> str:  # pragma: no cover
+            return "data"
+
+        meta = {"ui": {"type": "card"}, "category": "data"}
+
+        resource = FunctionResource.from_function(fn=get_data, uri="resource://test", meta=meta)
+
+        assert resource.meta is not None
+        assert resource.meta == meta
+
+    def test_resource_without_meta(self):
+        """Test that metadata is optional."""
+
+        def get_data() -> str:  # pragma: no cover
+            return "data"
+
+        resource = FunctionResource.from_function(fn=get_data, uri="resource://test")
+
+        assert resource.meta is None
+
+    @pytest.mark.anyio
+    async def test_resource_meta_in_fastmcp(self):
+        """Test resource metadata via FastMCP decorator."""
+
+        mcp = FastMCP()
+
+        @mcp.resource("resource://with-meta", meta={"category": "test", "version": "1.0"})
+        def get_with_meta() -> str:  # pragma: no cover
+            return "data with meta"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].meta is not None
+        assert resources[0].meta == {"category": "test", "version": "1.0"}
+
+    @pytest.mark.anyio
+    async def test_resource_meta_with_annotations(self):
+        """Test that metadata and annotations can coexist."""
+
+        mcp = FastMCP()
+
+        meta = {"custom": "value"}
+        annotations = Annotations(audience=["user"], priority=0.8)
+
+        @mcp.resource("resource://combined", meta=meta, annotations=annotations)
+        def combined_resource() -> str:  # pragma: no cover
+            return "combined"
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].meta == meta
+        assert resources[0].annotations is not None
+        assert resources[0].annotations.audience == ["user"]

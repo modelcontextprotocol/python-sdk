@@ -155,3 +155,23 @@ class TestFunctionResource:
         assert resource.mime_type == "text/plain"
         assert resource.name == "test"
         assert resource.uri == AnyUrl("function://test")
+
+    @pytest.mark.anyio
+    def test_from_function_with_meta(self):
+        """Test creating a FunctionResource with metadata."""
+
+        async def get_data() -> str:  # pragma: no cover
+            return "Hello, world!"
+
+        meta = {"ui": {"type": "card"}, "version": "1.0"}
+
+        resource = FunctionResource.from_function(
+            fn=get_data,
+            uri="function://test",
+            name="test",
+            meta=meta,
+        )
+
+        assert resource.meta is not None
+        assert resource.meta == meta
+        assert resource.meta["ui"]["type"] == "card"
