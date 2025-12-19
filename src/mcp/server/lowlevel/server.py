@@ -146,12 +146,16 @@ class Server(Generic[LifespanResultT, RequestT]):
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        title: str | None = None,
+        description: str | None = None,
     ):
         self.name = name
         self.version = version
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
+        self.title = title
+        self.description = description
         self.lifespan = lifespan
         self.request_handlers: dict[type, Callable[..., Awaitable[types.ServerResult]]] = {
             types.PingRequest: _ping_handler,
@@ -186,6 +190,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 experimental_capabilities or {},
             ),
             instructions=self.instructions,
+            title=self.title,
+            description=self.description,
             website_url=self.website_url,
             icons=self.icons,
         )

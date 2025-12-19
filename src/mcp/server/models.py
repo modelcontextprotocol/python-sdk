@@ -16,5 +16,7 @@ class InitializationOptions(BaseModel):
     server_version: str
     capabilities: ServerCapabilities
     instructions: str | None = None
+    title: str | None = None
+    description: str | None = None
     website_url: str | None = None
     icons: list[Icon] | None = None
