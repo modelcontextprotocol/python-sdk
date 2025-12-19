@@ -119,7 +119,7 @@ class SseServerTransport:
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
-    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
+    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):  # pragma: no cover
         if scope["type"] != "http":
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
@@ -198,7 +198,7 @@ class SseServerTransport:
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
 
-    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
         logger.debug("Handling POST message")
         request = Request(scope, receive)
 

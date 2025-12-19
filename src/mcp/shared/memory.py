@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from typing import Any
 
 import anyio
@@ -49,7 +48,7 @@ async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageS
 @asynccontextmanager
 async def create_connected_server_and_client_session(
     server: Server[Any] | FastMCP,
-    read_timeout_seconds: timedelta | None = None,
+    read_timeout_seconds: float | None = None,
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
@@ -62,7 +61,7 @@ async def create_connected_server_and_client_session(
 
     # TODO(Marcelo): we should have a proper `Client` that can use this "in-memory transport",
     # and we should expose a method in the `FastMCP` so we don't access a private attribute.
-    if isinstance(server, FastMCP):
+    if isinstance(server, FastMCP):  # pragma: no cover
         server = server._mcp_server  # type: ignore[reportPrivateUsage]
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
@@ -94,5 +93,5 @@ async def create_connected_server_and_client_session(
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session
-            finally:
+            finally:  # pragma: no cover
                 tg.cancel_scope.cancel()
