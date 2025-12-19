@@ -101,7 +101,7 @@ def _is_primitive_field(annotation: type) -> bool:
         )
 
     # Handle Enum types
-    if issubclass(annotation, str) and issubclass(annotation, Enum):
+    if isinstance(annotation, type) and issubclass(annotation, str) and issubclass(annotation, Enum):  # type: ignore[arg-type]
         return True
 
     return False
