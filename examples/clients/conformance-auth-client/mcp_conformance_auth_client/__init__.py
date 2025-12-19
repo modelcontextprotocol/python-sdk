@@ -29,7 +29,6 @@ import json
 import logging
 import os
 import sys
-from datetime import timedelta
 from urllib.parse import ParseResult, parse_qs, urlparse
 
 import httpx
@@ -263,8 +262,8 @@ async def _run_session(server_url: str, oauth_auth: OAuthClientProvider) -> None
     async with streamablehttp_client(
         url=server_url,
         auth=oauth_auth,
-        timeout=timedelta(seconds=30),
-        sse_read_timeout=timedelta(seconds=60),
+        timeout=30.0,
+        sse_read_timeout=60.0,
     ) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session

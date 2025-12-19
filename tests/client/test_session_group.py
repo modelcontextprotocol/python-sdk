@@ -273,7 +273,7 @@ class TestClientSessionGroup:
                 "mcp.client.session_group.mcp.stdio_client",
             ),
             (
-                SseServerParameters(url="http://test.com/sse", timeout=10),
+                SseServerParameters(url="http://test.com/sse", timeout=10.0),
                 "sse",
                 "mcp.client.session_group.sse_client",
             ),  # url, headers, timeout, sse_read_timeout
