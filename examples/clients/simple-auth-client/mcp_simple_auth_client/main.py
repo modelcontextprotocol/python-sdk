@@ -207,7 +207,7 @@ class SimpleAuthClient:
                 async with sse_client(
                     url=self.server_url,
                     auth=oauth_auth,
-                    timeout=60,
+                    timeout=60.0,
                 ) as (read_stream, write_stream):
                     await self._run_session(read_stream, write_stream, None)
             else:
