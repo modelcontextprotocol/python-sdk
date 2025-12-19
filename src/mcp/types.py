@@ -244,15 +244,6 @@ class BaseMetadata(BaseModel):
     if present).
     """
 
-    description: str | None = None
-    """
-    An optional human-readable description of what this implementation does.
-
-    This can be used by clients or servers to provide context about their purpose
-    and capabilities. For example, a server might describe the types of resources
-    or tools it provides, while a client might describe its intended use case.
-    """
-
 
 class Icon(BaseModel):
     """An icon for display in user interfaces."""
@@ -281,6 +272,15 @@ class Implementation(BaseMetadata):
     """An optional list of icons for this implementation."""
 
     model_config = ConfigDict(extra="allow")
+
+    description: str | None = None
+    """
+    An optional human-readable description of what this implementation does.
+
+    This can be used by clients or servers to provide context about their purpose
+    and capabilities. For example, a server might describe the types of resources
+    or tools it provides, while a client might describe its intended use case.
+    """
 
 
 class RootsCapability(BaseModel):
