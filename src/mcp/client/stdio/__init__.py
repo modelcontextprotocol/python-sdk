@@ -236,7 +236,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | None = None,
     cwd: Path | str | None = None,
 ):
     """
