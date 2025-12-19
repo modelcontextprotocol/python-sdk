@@ -258,3 +258,63 @@ class TestResourceTemplateAnnotations:
         # Verify the resource works correctly
         content = await resource.read()
         assert content == "Item 123"
+
+
+class TestResourceTemplateMeta:
+    """Test metadata on resource templates."""
+
+    def test_template_with_meta(self):
+        """Test creating a template with metadata."""
+
+        def get_user_data(user_id: str) -> str:  # pragma: no cover
+            return f"User {user_id}"
+
+        meta = {"ui": {"type": "card"}, "version": "1.0"}
+
+        template = ResourceTemplate.from_function(
+            fn=get_user_data, uri_template="resource://users/{user_id}", meta=meta
+        )
+
+        assert template.meta is not None
+        assert template.meta == meta
+
+    def test_template_without_meta(self):
+        """Test that metadata is optional for templates."""
+
+        def get_user_data(user_id: str) -> str:  # pragma: no cover
+            return f"User {user_id}"
+
+        template = ResourceTemplate.from_function(fn=get_user_data, uri_template="resource://users/{user_id}")
+
+        assert template.meta is None
+
+    @pytest.mark.anyio
+    async def test_template_meta_in_fastmcp(self):
+        """Test template metadata via FastMCP decorator."""
+
+        mcp = FastMCP()
+
+        @mcp.resource("resource://dynamic/{id}", meta={"category": "dynamic"})
+        def get_dynamic(id: str) -> str:  # pragma: no cover
+            return f"Data for {id}"
+
+        templates = await mcp.list_resource_templates()
+        assert len(templates) == 1
+        assert templates[0].meta is not None
+        assert templates[0].meta == {"category": "dynamic"}
+
+    @pytest.mark.anyio
+    async def test_template_created_resources_inherit_meta(self):
+        """Test that resources created from templates inherit metadata."""
+
+        def get_item(item_id: str) -> str:  # pragma: no cover
+            return f"Item {item_id}"
+
+        meta = {"category": "items"}
+
+        template = ResourceTemplate.from_function(fn=get_item, uri_template="resource://items/{item_id}", meta=meta)
+
+        resource = await template.create_resource("resource://items/123", {"item_id": "123"})
+
+        assert resource.meta is not None
+        assert resource.meta == meta
