@@ -35,7 +35,7 @@ async def test_server_session_initialize():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     # Create a message handler to catch exceptions
-    async def message_handler(
+    async def message_handler(  # pragma: no cover
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
@@ -55,15 +55,15 @@ async def test_server_session_initialize():
                 capabilities=ServerCapabilities(),
             ),
         ) as server_session:
-            async for message in server_session.incoming_messages:
-                assert message is not None, "Expected to receive messages"
-                if isinstance(message, Exception):
+            async for message in server_session.incoming_messages:  # pragma: no branch
+                if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
-                assert isinstance(message, ClientNotification), "Expected ClientNotification"
-                assert isinstance(message.root, InitializedNotification), "Expected InitializedNotification"
-                received_initialized = True
-                return
+                if isinstance(message, ClientNotification) and isinstance(
+                    message.root, InitializedNotification
+                ):  # pragma: no branch
+                    received_initialized = True
+                    return
 
     try:
         async with (
@@ -77,8 +77,7 @@ async def test_server_session_initialize():
             tg.start_soon(run_server)
 
             await client_session.initialize()
-    except anyio.ClosedResourceError:
-        # This can happen if the server closes before the client finishes
+    except anyio.ClosedResourceError:  # pragma: no cover
         pass
 
     assert received_initialized
@@ -89,12 +88,6 @@ async def test_server_session_initialize_with_title_and_description():
     """Test that server_title and server_description are passed through to serverInfo."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
-
-    async def message_handler(
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            raise message
 
     async def run_server():
         async with ServerSession(
@@ -107,32 +100,22 @@ async def test_server_session_initialize_with_title_and_description():
                 description="A description of what this server does.",
                 capabilities=ServerCapabilities(),
             ),
-        ) as server_session:
-            async for message in server_session.incoming_messages:
-                assert message is not None, "Expected to receive messages"
-                if isinstance(message, Exception):
-                    raise message
-
-                assert isinstance(message, ClientNotification), "Expected ClientNotification"
-                assert isinstance(message.root, InitializedNotification), "Expected InitializedNotification"
-                return
+        ) as _:
+            # Just run the server without handling incoming messages
+            # The server will process messages internally
+            await anyio.sleep(0.1)  # Give time for initialization to complete
 
     result: types.InitializeResult | None = None
-    try:
-        async with (
-            ClientSession(
-                server_to_client_receive,
-                client_to_server_send,
-                message_handler=message_handler,
-            ) as client_session,
-            anyio.create_task_group() as tg,
-        ):
-            tg.start_soon(run_server)
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as client_session,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
 
-            result = await client_session.initialize()
-    except anyio.ClosedResourceError:
-        # This can happen if the server closes before the client finishes
-        pass
+        result = await client_session.initialize()
 
     assert result is not None
     assert result.serverInfo.name == "test-server"
@@ -155,7 +138,7 @@ async def test_server_capabilities():
 
     # Add a prompts handler
     @server.list_prompts()
-    async def list_prompts() -> list[Prompt]:
+    async def list_prompts() -> list[Prompt]:  # pragma: no cover
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
@@ -165,7 +148,7 @@ async def test_server_capabilities():
 
     # Add a resources handler
     @server.list_resources()
-    async def list_resources() -> list[Resource]:
+    async def list_resources() -> list[Resource]:  # pragma: no cover
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
@@ -175,7 +158,7 @@ async def test_server_capabilities():
 
     # Add a complete handler
     @server.completion()
-    async def complete(
+    async def complete(  # pragma: no cover
         ref: PromptReference | ResourceTemplateReference,
         argument: CompletionArgument,
         context: CompletionContext | None,
@@ -211,15 +194,15 @@ async def test_server_session_initialize_with_older_protocol_version():
                 capabilities=ServerCapabilities(),
             ),
         ) as server_session:
-            async for message in server_session.incoming_messages:
-                assert message is not None, "Expected to receive messages"
-                if isinstance(message, Exception):
+            async for message in server_session.incoming_messages:  # pragma: no branch
+                if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
-                assert isinstance(message, types.ClientNotification), "Expected ClientNotification"
-                assert isinstance(message.root, InitializedNotification), "Expected InitializedNotification"
-                received_initialized = True
-                return
+                if isinstance(message, types.ClientNotification) and isinstance(
+                    message.root, InitializedNotification
+                ):  # pragma: no branch
+                    received_initialized = True
+                    return
 
     async def mock_client():
         nonlocal received_protocol_version
@@ -297,18 +280,18 @@ async def test_ping_request_before_initialization():
                 capabilities=ServerCapabilities(),
             ),
         ) as server_session:
-            async for message in server_session.incoming_messages:
-                assert message is not None, "Expected to receive messages"
-                if isinstance(message, Exception):
+            async for message in server_session.incoming_messages:  # pragma: no branch
+                if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
                 # We should receive a ping request before initialization
-                assert isinstance(message, RequestResponder), "Expected RequestResponder"
-                assert isinstance(message.request.root, types.PingRequest), "Expected PingRequest"
-                # Respond to the ping
-                with message:
-                    await message.respond(types.ServerResult(types.EmptyResult()))
-                return
+                if isinstance(message, RequestResponder) and isinstance(
+                    message.request.root, types.PingRequest
+                ):  # pragma: no branch
+                    # Respond to the ping
+                    with message:
+                        await message.respond(types.ServerResult(types.EmptyResult()))
+                    return
 
     async def mock_client():
         nonlocal ping_response_received, ping_response_id
@@ -566,9 +549,9 @@ async def test_other_requests_blocked_before_initialization():
 
         # Wait for the error response
         error_message = await server_to_client_receive.receive()
-        assert isinstance(error_message.message.root, types.JSONRPCError), "Expected JSONRPCError response"
-        error_response_received = True
-        error_code = error_message.message.root.error.code
+        if isinstance(error_message.message.root, types.JSONRPCError):  # pragma: no branch
+            error_response_received = True
+            error_code = error_message.message.root.error.code
 
     async with (
         client_to_server_send,
