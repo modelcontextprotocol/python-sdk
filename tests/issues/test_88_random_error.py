@@ -94,9 +94,7 @@ async def test_notification_validation_error(tmp_path: Path):
             # Second call should timeout (slow operation with minimal timeout)
             # Use very small timeout to trigger quickly without waiting
             with pytest.raises(McpError) as exc_info:
-                await session.call_tool(
-                    "slow", read_timeout_seconds=0.000001
-                )  # artificial timeout that always fails
+                await session.call_tool("slow", read_timeout_seconds=0.000001)  # artificial timeout that always fails
             assert "Timed out while waiting" in str(exc_info.value)
 
             # release the slow request not to have hanging process
