@@ -313,8 +313,8 @@ class ClientSessionGroup:
                 httpx_client = create_mcp_http_client(
                     headers=server_params.headers,
                     timeout=httpx.Timeout(
-                        server_params.timeout.total_seconds(),
-                        read=server_params.sse_read_timeout.total_seconds(),
+                        server_params.timeout,
+                        read=server_params.sse_read_timeout,
                     ),
                 )
                 await session_stack.enter_async_context(httpx_client)
