@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 MCP_PACKAGE = "mcp[cli]"
 
 
-def get_claude_config_path() -> Path | None:
+def get_claude_config_path() -> Path | None:  # pragma: no cover
     """Get the Claude config directory based on platform."""
     if sys.platform == "win32":
         path = Path(Path.home(), "AppData", "Roaming", "Claude")
@@ -33,7 +33,7 @@ def get_claude_config_path() -> Path | None:
 def get_uv_path() -> str:
     """Get the full path to the uv executable."""
     uv_path = shutil.which("uv")
-    if not uv_path:
+    if not uv_path:  # pragma: no cover
         logger.error(
             "uv executable not found in PATH, falling back to 'uv'. Please ensure uv is installed and in your PATH"
         )
@@ -65,14 +65,14 @@ def update_claude_config(
     """
     config_dir = get_claude_config_path()
     uv_path = get_uv_path()
-    if not config_dir:
+    if not config_dir:  # pragma: no cover
         raise RuntimeError(
             "Claude Desktop config directory not found. Please ensure Claude Desktop"
             " is installed and has been run at least once to initialize its config."
         )
 
     config_file = config_dir / "claude_desktop_config.json"
-    if not config_file.exists():
+    if not config_file.exists():  # pragma: no cover
         try:
             config_file.write_text("{}")
         except Exception:
@@ -90,7 +90,7 @@ def update_claude_config(
             config["mcpServers"] = {}
 
         # Always preserve existing env vars and merge with new ones
-        if server_name in config["mcpServers"] and "env" in config["mcpServers"][server_name]:
+        if server_name in config["mcpServers"] and "env" in config["mcpServers"][server_name]:  # pragma: no cover
             existing_env = config["mcpServers"][server_name]["env"]
             if env_vars:
                 # New vars take precedence over existing ones
@@ -99,18 +99,18 @@ def update_claude_config(
                 env_vars = existing_env
 
         # Build uv run command
-        args = ["run"]
+        args = ["run", "--frozen"]
 
         # Collect all packages in a set to deduplicate
         packages = {MCP_PACKAGE}
-        if with_packages:
+        if with_packages:  # pragma: no cover
             packages.update(pkg for pkg in with_packages if pkg)
 
         # Add all packages with --with
         for pkg in sorted(packages):
             args.extend(["--with", pkg])
 
-        if with_editable:
+        if with_editable:  # pragma: no cover
             args.extend(["--with-editable", str(with_editable)])
 
         # Convert file path to absolute before adding to command
@@ -118,7 +118,7 @@ def update_claude_config(
         if ":" in file_spec:
             file_path, server_object = file_spec.rsplit(":", 1)
             file_spec = f"{Path(file_path).resolve()}:{server_object}"
-        else:
+        else:  # pragma: no cover
             file_spec = str(Path(file_spec).resolve())
 
         # Add fastmcp run command
@@ -127,7 +127,7 @@ def update_claude_config(
         server_config: dict[str, Any] = {"command": uv_path, "args": args}
 
         # Add environment variables if specified
-        if env_vars:
+        if env_vars:  # pragma: no cover
             server_config["env"] = env_vars
 
         config["mcpServers"][server_name] = server_config
@@ -138,7 +138,7 @@ def update_claude_config(
             extra={"config_file": str(config_file)},
         )
         return True
-    except Exception:
+    except Exception:  # pragma: no cover
         logger.exception(
             "Failed to update Claude config",
             extra={

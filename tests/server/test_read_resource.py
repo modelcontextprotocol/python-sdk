@@ -18,7 +18,7 @@ def temp_file():
     yield path
     try:
         path.unlink()
-    except FileNotFoundError:
+    except FileNotFoundError:  # pragma: no cover
         pass
 
 

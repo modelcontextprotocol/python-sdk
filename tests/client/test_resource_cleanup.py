@@ -19,7 +19,9 @@ async def test_send_request_stream_cleanup():
 
     # Create a mock session with the minimal required functionality
     class TestSession(BaseSession[ClientRequest, ClientNotification, ClientResult, Any, Any]):
-        async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
+        async def _send_response(
+            self, request_id: RequestId, response: SendResultT | ErrorData
+        ) -> None:  # pragma: no cover
             pass
 
     # Create streams

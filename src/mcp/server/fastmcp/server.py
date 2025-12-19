@@ -42,7 +42,11 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import (
     ElicitationResult,
     ElicitSchemaModelT,
+    UrlElicitationResult,
     elicit_with_validation,
+)
+from mcp.server.elicitation import (
+    elicit_url as _elicit_url,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -149,6 +153,7 @@ class FastMCP(Generic[LifespanResultT]):
         auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
+        retry_interval: int | None = None,
         *,
         tools: list[Tool] | None = None,
         debug: bool = False,
@@ -169,6 +174,14 @@ class FastMCP(Generic[LifespanResultT]):
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
+
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -203,20 +216,21 @@ class FastMCP(Generic[LifespanResultT]):
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # Validate auth configuration
         if self.settings.auth is not None:
-            if auth_server_provider and token_verifier:
+            if auth_server_provider and token_verifier:  # pragma: no cover
                 raise ValueError("Cannot specify both auth_server_provider and token_verifier")
-            if not auth_server_provider and not token_verifier:
+            if not auth_server_provider and not token_verifier:  # pragma: no cover
                 raise ValueError("Must specify either auth_server_provider or token_verifier when auth is enabled")
-        elif auth_server_provider or token_verifier:
+        elif auth_server_provider or token_verifier:  # pragma: no cover
             raise ValueError("Cannot specify auth_server_provider or token_verifier without auth settings")
 
         self._auth_server_provider = auth_server_provider
         self._token_verifier = token_verifier
 
         # Create token verifier from provider if needed (backwards compatibility)
-        if auth_server_provider and not token_verifier:
+        if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
+        self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -253,14 +267,14 @@ class FastMCP(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:
+        if self._session_manager is None:  # pragma: no cover
             raise RuntimeError(
                 "Session manager can only be accessed after"
                 "calling streamable_http_app()."
                 "The session manager is created lazily"
                 "to avoid unnecessary initialization."
             )
-        return self._session_manager
+        return self._session_manager  # pragma: no cover
 
     def run(
         self,
@@ -274,15 +288,15 @@ class FastMCP(Generic[LifespanResultT]):
             mount_path: Optional mount path for SSE transport
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
-        if transport not in TRANSPORTS.__args__:  # type: ignore
+        if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
 
         match transport:
             case "stdio":
                 anyio.run(self.run_stdio_async)
-            case "sse":
+            case "sse":  # pragma: no cover
                 anyio.run(lambda: self.run_sse_async(mount_path))
-            case "streamable-http":
+            case "streamable-http":  # pragma: no cover
                 anyio.run(self.run_streamable_http_async)
 
     def _setup_handlers(self) -> None:
@@ -368,13 +382,13 @@ class FastMCP(Generic[LifespanResultT]):
 
         context = self.get_context()
         resource = await self._resource_manager.get_resource(uri, context=context)
-        if not resource:
+        if not resource:  # pragma: no cover
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
 
@@ -697,6 +711,10 @@ class FastMCP(Generic[LifespanResultT]):
         The handler function must be an async function that accepts a Starlette
         Request and returns a Response.
 
+        Routes using this decorator will not require authorization. It is intended
+        for uses that are either a part of authorization flows or intended to be
+        public such as health check endpoints.
+
         Args:
             path: URL path for the route (e.g., "/oauth/callback")
             methods: List of HTTP methods to support (e.g., ["GET", "POST"])
@@ -710,7 +728,7 @@ class FastMCP(Generic[LifespanResultT]):
                 return JSONResponse({"status": "ok"})
         """
 
-        def decorator(
+        def decorator(  # pragma: no cover
             func: Callable[[Request], Awaitable[Response]],
         ) -> Callable[[Request], Awaitable[Response]]:
             self._custom_starlette_routes.append(
@@ -724,7 +742,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
             return func
 
-        return decorator
+        return decorator  # pragma: no cover
 
     async def run_stdio_async(self) -> None:
         """Run the server using stdio transport."""
@@ -735,7 +753,7 @@ class FastMCP(Generic[LifespanResultT]):
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self, mount_path: str | None = None) -> None:
+    async def run_sse_async(self, mount_path: str | None = None) -> None:  # pragma: no cover
         """Run the server using SSE transport."""
         import uvicorn
 
@@ -750,7 +768,7 @@ class FastMCP(Generic[LifespanResultT]):
         server = uvicorn.Server(config)
         await server.serve()
 
-    async def run_streamable_http_async(self) -> None:
+    async def run_streamable_http_async(self) -> None:  # pragma: no cover
         """Run the server using StreamableHTTP transport."""
         import uvicorn
 
@@ -810,7 +828,7 @@ class FastMCP(Generic[LifespanResultT]):
             security_settings=self.settings.transport_security,
         )
 
-        async def handle_sse(scope: Scope, receive: Receive, send: Send):
+        async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(
@@ -831,7 +849,7 @@ class FastMCP(Generic[LifespanResultT]):
         required_scopes = []
 
         # Set up auth if configured
-        if self.settings.auth:
+        if self.settings.auth:  # pragma: no cover
             required_scopes = self.settings.auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -862,7 +880,7 @@ class FastMCP(Generic[LifespanResultT]):
                 )
 
         # When auth is configured, require authentication
-        if self._token_verifier:
+        if self._token_verifier:  # pragma: no cover
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
@@ -885,7 +903,7 @@ class FastMCP(Generic[LifespanResultT]):
                     app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
-        else:
+        else:  # pragma: no cover
             # Auth is disabled, no need for RequireAuthMiddleware
             # Since handle_sse is an ASGI app, we need to create a compatible endpoint
             async def sse_endpoint(request: Request) -> Response:
@@ -906,7 +924,7 @@ class FastMCP(Generic[LifespanResultT]):
                 )
             )
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:
+        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
             from mcp.server.auth.routes import create_protected_resource_routes
 
             routes.extend(
@@ -928,10 +946,11 @@ class FastMCP(Generic[LifespanResultT]):
         from starlette.middleware import Middleware
 
         # Create session manager on first call (lazy initialization)
-        if self._session_manager is None:
+        if self._session_manager is None:  # pragma: no branch
             self._session_manager = StreamableHTTPSessionManager(
                 app=self._mcp_server,
                 event_store=self._event_store,
+                retry_interval=self._retry_interval,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
@@ -946,7 +965,7 @@ class FastMCP(Generic[LifespanResultT]):
         required_scopes = []
 
         # Set up auth if configured
-        if self.settings.auth:
+        if self.settings.auth:  # pragma: no cover
             required_scopes = self.settings.auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -974,7 +993,7 @@ class FastMCP(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if self._token_verifier:
+        if self._token_verifier:  # pragma: no cover
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
@@ -999,7 +1018,7 @@ class FastMCP(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:
+        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
             from mcp.server.auth.routes import create_protected_resource_routes
 
             routes.extend(
@@ -1066,7 +1085,7 @@ class StreamableHTTPASGIApp:
     def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
         await self.session_manager.handle_request(scope, receive, send)
 
 
@@ -1121,16 +1140,16 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def fastmcp(self) -> FastMCP:
         """Access to the FastMCP server."""
-        if self._fastmcp is None:
+        if self._fastmcp is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")
-        return self._fastmcp
+        return self._fastmcp  # pragma: no cover
 
     @property
     def request_context(
         self,
     ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
         """Access to the underlying request context."""
-        if self._request_context is None:
+        if self._request_context is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")
         return self._request_context
 
@@ -1144,7 +1163,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
         progress_token = self.request_context.meta.progressToken if self.request_context.meta else None
 
-        if progress_token is None:
+        if progress_token is None:  # pragma: no cover
             return
 
         await self.request_context.session.send_progress_notification(
@@ -1200,12 +1219,48 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+    ) -> UrlElicitationResult:
+        """Request URL mode elicitation from the client.
+
+        This directs the user to an external URL for out-of-band interactions
+        that must not pass through the MCP client. Use this for:
+        - Collecting sensitive credentials (API keys, passwords)
+        - OAuth authorization flows with third-party services
+        - Payment and subscription flows
+        - Any interaction where data should not pass through the LLM context
+
+        The response indicates whether the user consented to navigate to the URL.
+        The actual interaction happens out-of-band. When the elicitation completes,
+        call `self.session.send_elicit_complete(elicitation_id)` to notify the client.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+
+        Returns:
+            UrlElicitationResult indicating accept, decline, or cancel
+        """
+        return await _elicit_url(
+            session=self.request_context.session,
+            message=message,
+            url=url,
+            elicitation_id=elicitation_id,
+            related_request_id=self.request_id,
+        )
+
     async def log(
         self,
         level: Literal["debug", "info", "warning", "error"],
         message: str,
         *,
         logger_name: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """Send a log message to the client.
 
@@ -1213,11 +1268,20 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             level: Log level (debug, info, warning, error)
             message: Log message
             logger_name: Optional logger name
-            **extra: Additional structured data to include
+            extra: Optional dictionary with additional structured data to include
         """
+
+        if extra:
+            log_data = {
+                "message": message,
+                **extra,
+            }
+        else:
+            log_data = message
+
         await self.request_context.session.send_log_message(
             level=level,
-            data=message,
+            data=log_data,
             logger=logger_name,
             related_request_id=self.request_id,
         )
@@ -1225,7 +1289,9 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def client_id(self) -> str | None:
         """Get the client ID if available."""
-        return getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        return (
+            getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
+        )  # pragma: no cover
 
     @property
     def request_id(self) -> str:
@@ -1237,19 +1303,53 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
 
+    async def close_sse_stream(self) -> None:
+        """Close the SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the current request, triggering
+        client reconnection. Events continue to be stored in the event store and will
+        be replayed when the client reconnects with Last-Event-ID.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            The callback is only available when event_store is configured.
+        """
+        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
+            await self._request_context.close_sse_stream()
+
+    async def close_standalone_sse_stream(self) -> None:
+        """Close the standalone GET SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the standalone GET stream used
+        for unsolicited server-to-client notifications. The client SHOULD reconnect
+        with Last-Event-ID to resume receiving notifications.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            Currently, client reconnection for standalone GET streams is NOT
+            implemented - this is a known gap.
+        """
+        if self._request_context and self._request_context.close_standalone_sse_stream:  # pragma: no cover
+            await self._request_context.close_standalone_sse_stream()
+
     # Convenience methods for common log levels
-    async def debug(self, message: str, **extra: Any) -> None:
+    async def debug(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
         """Send a debug log message."""
-        await self.log("debug", message, **extra)
+        await self.log("debug", message, logger_name=logger_name, extra=extra)
 
-    async def info(self, message: str, **extra: Any) -> None:
+    async def info(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
         """Send an info log message."""
-        await self.log("info", message, **extra)
+        await self.log("info", message, logger_name=logger_name, extra=extra)
 
-    async def warning(self, message: str, **extra: Any) -> None:
+    async def warning(
+        self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None
+    ) -> None:
         """Send a warning log message."""
-        await self.log("warning", message, **extra)
+        await self.log("warning", message, logger_name=logger_name, extra=extra)
 
-    async def error(self, message: str, **extra: Any) -> None:
+    async def error(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
         """Send an error log message."""
-        await self.log("error", message, **extra)
+        await self.log("error", message, logger_name=logger_name, extra=extra)

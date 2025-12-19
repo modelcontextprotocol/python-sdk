@@ -132,14 +132,14 @@ Let's create a simple MCP server that exposes a calculator tool and some data:
 """
 FastMCP quickstart example.
 
-cd to the `examples/snippets/clients` directory and run:
-    uv run server fastmcp_quickstart stdio
+Run from the repository root:
+    uv run examples/snippets/servers/fastmcp_quickstart.py
 """
 
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
-mcp = FastMCP("Demo")
+mcp = FastMCP("Demo", json_response=True)
 
 
 # Add an addition tool
@@ -167,22 +167,35 @@ def greet_user(name: str, style: str = "friendly") -> str:
     }
 
     return f"{styles.get(style, styles['friendly'])} for someone named {name}."
+
+
+# Run with streamable HTTP transport
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http")
 ```
 
 _Full example: [examples/snippets/servers/fastmcp_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/fastmcp_quickstart.py)_
 <!-- /snippet-source -->
 
-You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
 
 ```bash
-uv run mcp install server.py
+uv run --with mcp examples/snippets/servers/fastmcp_quickstart.py
 ```
 
-Alternatively, you can test it with the MCP Inspector:
+Then add it to Claude Code:
 
 ```bash
-uv run mcp dev server.py
+claude mcp add --transport http my-server http://localhost:8000/mcp
 ```
+
+Alternatively, you can test it with the MCP Inspector. Start the server as above, then in a separate terminal:
+
+```bash
+npx -y @modelcontextprotocol/inspector
+```
+
+In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## What is MCP?
 
@@ -795,10 +808,21 @@ Request additional information from users. This example shows an Elicitation dur
 
 <!-- snippet-source examples/snippets/servers/elicitation.py -->
 ```python
+"""Elicitation examples demonstrating form and URL mode elicitation.
+
+Form mode elicitation collects structured, non-sensitive data through a schema.
+URL mode elicitation directs users to external URLs for sensitive operations
+like OAuth flows, credential collection, or payment processing.
+"""
+
+import uuid
+
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
+from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.types import ElicitRequestURLParams
 
 mcp = FastMCP(name="Elicitation Example")
 
@@ -815,7 +839,10 @@ class BookingPreferences(BaseModel):
 
 @mcp.tool()
 async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
-    """Book a table with date availability check."""
+    """Book a table with date availability check.
+
+    This demonstrates form mode elicitation for collecting non-sensitive user input.
+    """
     # Check if date is available
     if date == "2024-12-25":
         # Date unavailable - ask user for alternative
@@ -832,6 +859,54 @@ async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerS
 
     # Date available
     return f"[SUCCESS] Booked for {date} at {time}"
+
+
+@mcp.tool()
+async def secure_payment(amount: float, ctx: Context[ServerSession, None]) -> str:
+    """Process a secure payment requiring URL confirmation.
+
+    This demonstrates URL mode elicitation using ctx.elicit_url() for
+    operations that require out-of-band user interaction.
+    """
+    elicitation_id = str(uuid.uuid4())
+
+    result = await ctx.elicit_url(
+        message=f"Please confirm payment of ${amount:.2f}",
+        url=f"https://payments.example.com/confirm?amount={amount}&id={elicitation_id}",
+        elicitation_id=elicitation_id,
+    )
+
+    if result.action == "accept":
+        # In a real app, the payment confirmation would happen out-of-band
+        # and you'd verify the payment status from your backend
+        return f"Payment of ${amount:.2f} initiated - check your browser to complete"
+    elif result.action == "decline":
+        return "Payment declined by user"
+    return "Payment cancelled"
+
+
+@mcp.tool()
+async def connect_service(service_name: str, ctx: Context[ServerSession, None]) -> str:
+    """Connect to a third-party service requiring OAuth authorization.
+
+    This demonstrates the "throw error" pattern using UrlElicitationRequiredError.
+    Use this pattern when the tool cannot proceed without user authorization.
+    """
+    elicitation_id = str(uuid.uuid4())
+
+    # Raise UrlElicitationRequiredError to signal that the client must complete
+    # a URL elicitation before this request can be processed.
+    # The MCP framework will convert this to a -32042 error response.
+    raise UrlElicitationRequiredError(
+        [
+            ElicitRequestURLParams(
+                mode="url",
+                message=f"Authorization required to connect to {service_name}",
+                url=f"https://{service_name}.example.com/oauth/authorize?elicit={elicitation_id}",
+                elicitationId=elicitation_id,
+            )
+        ]
+    )
 ```
 
 _Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)_
@@ -873,6 +948,7 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
         max_tokens=100,
     )
 
+    # Since we're not passing tools param, result.content is single content
     if result.content.type == "text":
         return result.content.text
     return str(result.content)
@@ -943,6 +1019,7 @@ class SimpleTokenVerifier(TokenVerifier):
 # Create FastMCP instance as a Resource Server
 mcp = FastMCP(
     "Weather Service",
+    json_response=True,
     # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),
     # Auth settings for RFC 9728 Protected Resource Metadata
@@ -1158,7 +1235,7 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 
 ### Streamable HTTP Transport
 
-> **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
+> **Note**: Streamable HTTP transport is the recommended transport for production deployments. Use `stateless_http=True` and `json_response=True` for optimal scalability.
 
 <!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
@@ -1169,15 +1246,15 @@ Run from the repository root:
 
 from mcp.server.fastmcp import FastMCP
 
-# Stateful server (maintains session state)
-mcp = FastMCP("StatefulServer")
+# Stateless server with JSON responses (recommended)
+mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
 
 # Other configuration options:
-# Stateless server (no session persistence)
+# Stateless server with SSE streaming responses
 # mcp = FastMCP("StatelessServer", stateless_http=True)
 
-# Stateless server (no session persistence, no sse stream with supported client)
-# mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+# Stateful server with session persistence
+# mcp = FastMCP("StatefulServer")
 
 
 # Add a simple tool to demonstrate the server
@@ -1212,7 +1289,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create the Echo server
-echo_mcp = FastMCP(name="EchoServer", stateless_http=True)
+echo_mcp = FastMCP(name="EchoServer", stateless_http=True, json_response=True)
 
 
 @echo_mcp.tool()
@@ -1222,7 +1299,7 @@ def echo(message: str) -> str:
 
 
 # Create the Math server
-math_mcp = FastMCP(name="MathServer", stateless_http=True)
+math_mcp = FastMCP(name="MathServer", stateless_http=True, json_response=True)
 
 
 @math_mcp.tool()
@@ -1317,13 +1394,15 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App")
+mcp = FastMCP("My App", json_response=True)
 
 
 @mcp.tool()
@@ -1332,11 +1411,19 @@ def hello() -> str:
     return "Hello from MCP!"
 
 
+# Create a lifespan context manager to run the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with mcp.session_manager.run():
+        yield
+
+
 # Mount the StreamableHTTP server to the existing ASGI server
 app = Starlette(
     routes=[
         Mount("/", app=mcp.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1354,13 +1441,15 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Host
 
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("MCP Host App")
+mcp = FastMCP("MCP Host App", json_response=True)
 
 
 @mcp.tool()
@@ -1369,11 +1458,19 @@ def domain_info() -> str:
     return "This is served from mcp.acme.corp"
 
 
+# Create a lifespan context manager to run the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with mcp.session_manager.run():
+        yield
+
+
 # Mount using Host-based routing
 app = Starlette(
     routes=[
         Host("mcp.acme.corp", app=mcp.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1391,14 +1488,16 @@ Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server")
-chat_mcp = FastMCP("Chat Server")
+api_mcp = FastMCP("API Server", json_response=True)
+chat_mcp = FastMCP("Chat Server", json_response=True)
 
 
 @api_mcp.tool()
@@ -1418,12 +1517,23 @@ def send_message(message: str) -> str:
 api_mcp.settings.streamable_http_path = "/"
 chat_mcp.settings.streamable_http_path = "/"
 
+
+# Create a combined lifespan to manage both session managers
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(api_mcp.session_manager.run())
+        await stack.enter_async_context(chat_mcp.session_manager.run())
+        yield
+
+
 # Mount the servers
 app = Starlette(
     routes=[
         Mount("/api", app=api_mcp.streamable_http_app()),
         Mount("/chat", app=chat_mcp.streamable_http_app()),
-    ]
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1448,7 +1558,11 @@ from mcp.server.fastmcp import FastMCP
 
 # Configure streamable_http_path during initialization
 # This server will mount at the root of wherever it's mounted
-mcp_at_root = FastMCP("My Server", streamable_http_path="/")
+mcp_at_root = FastMCP(
+    "My Server",
+    json_response=True,
+    streamable_http_path="/",
+)
 
 
 @mcp_at_root.tool()
@@ -2127,12 +2241,12 @@ Run from the repository root:
 import asyncio
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamablehttp_client("http://localhost:8000/mcp") as (
+    async with streamable_http_client("http://localhost:8000/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -2256,11 +2370,12 @@ cd to the `examples/snippets` directory and run:
 import asyncio
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from pydantic import AnyUrl
 
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -2314,15 +2429,16 @@ async def main():
         callback_handler=handle_callback,
     )
 
-    async with streamablehttp_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
+        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
 
-            tools = await session.list_tools()
-            print(f"Available tools: {[tool.name for tool in tools.tools]}")
+                tools = await session.list_tools()
+                print(f"Available tools: {[tool.name for tool in tools.tools]}")
 
-            resources = await session.list_resources()
-            print(f"Available resources: {[r.uri for r in resources.resources]}")
+                resources = await session.list_resources()
+                print(f"Available resources: {[r.uri for r in resources.resources]}")
 
 
 def run():
@@ -2432,6 +2548,7 @@ MCP servers declare capabilities during initialization:
 ## Documentation
 
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
+- [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)
