@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import httpx
 from pydantic import AnyUrl, BaseModel, Field, RootModel, ValidationError
 from starlette.datastructures import FormData, QueryParams
 from starlette.requests import Request
@@ -16,7 +17,11 @@ from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     construct_redirect_uri,
 )
-from mcp.shared.auth import InvalidRedirectUriError, InvalidScopeError
+from mcp.shared.auth import (
+    InvalidRedirectUriError,
+    InvalidScopeError,
+    OAuthClientInformationFull,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +171,29 @@ class AuthorizationHandler:
             client = await self.provider.get_client(
                 auth_request.client_id,
             )
+            if not client:
+                # Check if `client_id` is a valid URL for Metadata Document
+                if auth_request.client_id.startswith("https://"):
+                    try:
+                        async with httpx.AsyncClient() as http_client:
+                            response = await http_client.get(auth_request.client_id)
+                            response.raise_for_status()
+                            metadata = response.json()
+
+                            if metadata.get("client_id") != auth_request.client_id:
+                                return await error_response(
+                                    error="invalid_request",
+                                    error_description=f"Client ID '{auth_request.client_id}' \
+                                    doesn't match with metadata document",
+                                )
+
+                            client = OAuthClientInformationFull(**metadata)
+
+                    except Exception as e:
+                        return await error_response(
+                            error="invalid_request",
+                            error_description=f"Failed to fetch client metadata from {auth_request.client_id}: {e}",
+                        )
             if not client:
                 # For client_id validation errors, return direct error (no redirect)
                 return await error_response(
