@@ -348,6 +348,15 @@ class BaseSession(
             await self._write_stream.send(session_message)
 
     async def _receive_loop(self) -> None:
+        # DEBUG: Delay for investigating issue #262.
+        # Set MCP_DEBUG_RACE_DELAY_SESSION=<seconds> to add delay before
+        # this task enters its receive loop.
+        import os
+
+        _race_delay = os.environ.get("MCP_DEBUG_RACE_DELAY_SESSION")
+        if _race_delay:
+            await anyio.sleep(float(_race_delay))
+
         async with (
             self._read_stream,
             self._write_stream,
