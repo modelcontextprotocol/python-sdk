@@ -1,0 +1,23 @@
+[project]
+name = "fastapi-mcp"
+version = "0.1.0"
+description = "A simple FastAPI application with a MCP endpoint."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["mcp", "llm", "fastapi"]
+license = { text = "MIT" }
+dependencies = [
+    "mcp",
+    "fastapi>=0.123.0",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[dependency-groups]
+dev = ["pyright>=1.1.378", "pytest>=8.3.3", "ruff>=0.6.9"]
