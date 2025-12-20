@@ -1,5 +1,4 @@
 import logging
-from datetime import timedelta
 from typing import Any, Protocol, overload
 
 import anyio.lowlevel
@@ -113,7 +112,7 @@ class ClientSession(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
@@ -369,7 +368,7 @@ class ClientSession(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
