@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from collections.abc import AsyncIterator
 from http import HTTPStatus
@@ -277,9 +278,21 @@ class StreamableHTTPSessionManager:
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
         else:  # pragma: no cover
-            # Invalid session ID
+            # Unknown or expired session ID - return 404 per MCP spec
+            # Match TypeScript SDK exactly: jsonrpc, error, id order
+            error_body = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32001,
+                        "message": "Session not found",
+                    },
+                    "id": None,
+                }
+            )
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                content=error_body,
+                status_code=HTTPStatus.NOT_FOUND,
+                media_type="application/json",
             )
             await response(scope, receive, send)
