@@ -139,6 +139,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         self,
         name: str,
         version: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
@@ -149,6 +151,8 @@ class Server(Generic[LifespanResultT, RequestT]):
     ):
         self.name = name
         self.version = version
+        self.title = title
+        self.description = description
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
@@ -186,6 +190,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 experimental_capabilities or {},
             ),
             instructions=self.instructions,
+            server_title=self.title,
+            server_description=self.description,
             website_url=self.website_url,
             icons=self.icons,
         )

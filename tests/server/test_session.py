@@ -84,6 +84,62 @@ async def test_server_session_initialize():
 
 
 @pytest.mark.anyio
+async def test_server_session_initialize_with_title_and_description():
+    """Test that server_title and server_description are passed through to serverInfo."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
+
+    async def run_server():
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                server_title="Test Server Title",
+                server_description="A description of what this server does.",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as server_session:
+            async for message in server_session.incoming_messages:  # pragma: no branch
+                if isinstance(message, Exception):  # pragma: no cover
+                    raise message
+
+                if isinstance(message, ClientNotification) and isinstance(
+                    message.root, InitializedNotification
+                ):  # pragma: no branch
+                    return
+
+    result: types.InitializeResult | None = None
+    try:
+        async with (
+            ClientSession(
+                server_to_client_receive,
+                client_to_server_send,
+                message_handler=message_handler,
+            ) as client_session,
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(run_server)
+
+            result = await client_session.initialize()
+    except anyio.ClosedResourceError:  # pragma: no cover
+        pass
+
+    assert result is not None
+    assert result.serverInfo.name == "test-server"
+    assert result.serverInfo.title == "Test Server Title"
+    assert result.serverInfo.version == "1.0.0"
+    assert result.serverInfo.description == "A description of what this server does."
+
+
+@pytest.mark.anyio
 async def test_server_capabilities():
     server = Server("test")
     notification_options = NotificationOptions()
