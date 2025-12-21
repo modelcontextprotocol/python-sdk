@@ -128,46 +128,52 @@ def get_client_metadata_scopes(
 
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
     """
-    Generate ordered list of (url, type) tuples for discovery attempts.
+    Generate an ordered list of discovery URLs for authorization server metadata.
 
     Args:
         auth_server_url: URL for the OAuth Authorization Metadata URL if found, otherwise None
         server_url: URL for the MCP server, used as a fallback if auth_server_url is None
     """
-
-    if not auth_server_url:
-        # Legacy path using the 2025-03-26 spec:
-        # link: https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization
-        parsed = urlparse(server_url)
-        return [f"{parsed.scheme}://{parsed.netloc}/.well-known/oauth-authorization-server"]
-
     urls: list[str] = []
-    parsed = urlparse(auth_server_url)
+
+    # Prefer the advertised authorization server URL when available, otherwise fall back
+    # to the configured server URL from the client configuration.
+    source_url = auth_server_url or server_url
+    parsed = urlparse(source_url)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
+    path = (parsed.path or "").rstrip("/")
 
-    # RFC 8414: Path-aware OAuth discovery
-    if parsed.path and parsed.path != "/":
-        oauth_path = f"/.well-known/oauth-authorization-server{parsed.path.rstrip('/')}"
-        urls.append(urljoin(base_url, oauth_path))
+    # If a direct metadata URL was provided, use it first without modification
+    if auth_server_url and (
+        auth_server_url.endswith("/.well-known/openid-configuration")
+        or auth_server_url.endswith("/.well-known/oauth-authorization-server")
+    ):
+        urls.append(auth_server_url)
 
+    if path and path != "":
         # RFC 8414 section 5: Path-aware OIDC discovery
         # See https://www.rfc-editor.org/rfc/rfc8414.html#section-5
-        oidc_path = f"/.well-known/openid-configuration{parsed.path.rstrip('/')}"
-        urls.append(urljoin(base_url, oidc_path))
-
+        urls.append(urljoin(base_url, f"/.well-known/oauth-authorization-server{path}"))
+        # RFC 8414: also allows using the same logic for OpenID discovery.
         # https://openid.net/specs/openid-connect-discovery-1_0.html
-        oidc_path = f"{parsed.path.rstrip('/')}/.well-known/openid-configuration"
-        urls.append(urljoin(base_url, oidc_path))
-        return urls
-
-    # OAuth root
+        urls.append(urljoin(base_url, f"/.well-known/openid-configuration{path}"))
+        # Symmetric path-local OAuth discovery
+        urls.append(urljoin(base_url, f"{path}/.well-known/oauth-authorization-server"))
+        urls.append(urljoin(base_url, f"{path}/.well-known/openid-configuration"))
+    # Always include root-based fallbacks for servers that only expose metadata at the origin.
     urls.append(urljoin(base_url, "/.well-known/oauth-authorization-server"))
-
     # OIDC 1.0 fallback (appends to full URL per OIDC spec)
-    # https://openid.net/specs/openid-connect-discovery-1_0.html
     urls.append(urljoin(base_url, "/.well-known/openid-configuration"))
 
-    return urls
+    # De-duplicate while preserving order
+    seen: set[str] = set()
+    deduped_urls: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            deduped_urls.append(url)
+
+    return deduped_urls
 
 
 async def handle_protected_resource_response(
