@@ -35,6 +35,7 @@ async def test_lowlevel_server_tool_annotations():
                 annotations=ToolAnnotations(
                     title="Echo Tool",
                     readOnlyHint=True,
+                    agencyHint=True,
                 ),
             )
         ]
@@ -98,3 +99,4 @@ async def test_lowlevel_server_tool_annotations():
     assert tools_result.tools[0].annotations is not None
     assert tools_result.tools[0].annotations.title == "Echo Tool"
     assert tools_result.tools[0].annotations.readOnlyHint is True
+    assert tools_result.tools[0].annotations.agencyHint is True
