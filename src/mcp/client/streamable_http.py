@@ -430,9 +430,22 @@ class StreamableHTTPTransport:
             logger.debug(f"SSE stream ended: {e}")
 
         # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id=ctx.session_message.message.root.id
+                if isinstance(ctx.session_message.message.root, JSONRPCRequest)
+                else "Unknown",
+                error=ErrorData(
+                    code=-32000,
+                    message="SSE stream disconnected without response (read timeout or server closed connection)",
+                ),
+            )
+            error_message = JSONRPCMessage(root=error_response)
+            await ctx.read_stream_writer.send(SessionMessage(error_message))
 
     async def _handle_reconnection(
         self,
