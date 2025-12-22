@@ -23,9 +23,14 @@ uv tool install pre-commit --with pre-commit-uv --force-reinstall
 ## Development Workflow
 
 1. Choose the correct branch for your changes:
-   - For bug fixes to a released version: use the latest release branch (e.g. v1.1.x for 1.1.3)
-   - For new features: use the main branch (which will become the next minor/major version)
-   - If unsure, ask in an issue first
+
+   | Change Type | Target Branch | Example |
+   |-------------|---------------|---------|
+   | New features, breaking changes | `main` | New APIs, refactors |
+   | Security fixes for v1 | `v1.x` | Critical patches |
+   | Bug fixes for v1 | `v1.x` | Non-breaking fixes |
+
+   > **Note:** `main` is the v2 development branch. Breaking changes are welcome on `main`. The `v1.x` branch receives only security and critical bug fixes.
 
 2. Create a new branch from your chosen base branch
 

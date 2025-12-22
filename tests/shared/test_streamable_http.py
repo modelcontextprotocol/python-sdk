@@ -9,7 +9,6 @@ import multiprocessing
 import socket
 import time
 from collections.abc import Generator
-from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -2370,8 +2369,8 @@ async def test_streamable_http_transport_deprecated_params_ignored(basic_server:
         transport = StreamableHTTPTransport(  # pyright: ignore[reportDeprecated]
             url=f"{basic_server_url}/mcp",
             headers={"X-Should-Be-Ignored": "ignored"},
-            timeout=999,
-            sse_read_timeout=timedelta(seconds=999),
+            timeout=999.0,
+            sse_read_timeout=999.0,
             auth=None,
         )
 
