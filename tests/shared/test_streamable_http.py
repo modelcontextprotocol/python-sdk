@@ -2411,7 +2411,7 @@ async def test_sse_stream_ends_without_completing_no_event_id() -> None:
     mock_response = MagicMock()
 
     async def mock_aclose() -> None:
-        pass
+        pass  # pragma: no cover
 
     mock_response.aclose = mock_aclose
 
@@ -2478,7 +2478,7 @@ async def test_handle_post_request_non_init_error_sends_error_response() -> None
             raise httpx.HTTPStatusError("Server error", request=MagicMock(), response=MagicMock(status_code=500))
 
         async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-            pass
+            pass  # pragma: no cover
 
     mock_client.stream = MagicMock(return_value=FailingStream())
 
@@ -2538,7 +2538,7 @@ async def test_handle_post_request_init_error_raises() -> None:
             raise httpx.HTTPStatusError("Server error", request=MagicMock(), response=MagicMock(status_code=500))
 
         async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-            pass
+            pass  # pragma: no cover
 
     mock_client.stream = MagicMock(return_value=FailingStream())
 

@@ -334,7 +334,7 @@ class StreamableHTTPTransport:
     async def _send_error_response(self, ctx: RequestContext, error: Exception) -> None:
         """Send an error response to the client."""
         error_data = ErrorData(code=32000, message=str(error))
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):
+        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
             jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=ctx.session_message.message.root.id, error=error_data)
             session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
             await ctx.read_stream_writer.send(session_message)
