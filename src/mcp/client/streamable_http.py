@@ -466,9 +466,7 @@ class StreamableHTTPTransport:
         """
         # Bail if max retries exceeded
         if attempt >= MAX_RECONNECTION_ATTEMPTS:
-            raise Exception(
-                f"SSE stream reconnection failed after {MAX_RECONNECTION_ATTEMPTS} attempts"
-            )
+            raise Exception(f"SSE stream reconnection failed after {MAX_RECONNECTION_ATTEMPTS} attempts")
 
         # Always wait - use server value or default
         delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
