@@ -70,6 +70,18 @@ class FuncMetadata(BaseModel):
     output_schema: dict[str, Any] | None = None
     output_model: Annotated[type[BaseModel], WithJsonSchema(None)] | None = None
     wrap_output: bool = False
+    _key_to_field_info: dict[str, FieldInfo] | None = None
+
+    @property
+    def key_to_field_info(self) -> dict[str, FieldInfo]:
+        if self._key_to_field_info is None:
+            mapping: dict[str, FieldInfo] = {}
+            for field_name, field_info in self.arg_model.model_fields.items():
+                mapping[field_name] = field_info
+                if field_info.alias:
+                    mapping[field_info.alias] = field_info
+            self._key_to_field_info = mapping
+        return self._key_to_field_info
 
     async def call_fn_with_arg_validation(
         self,
@@ -141,30 +153,19 @@ class FuncMetadata(BaseModel):
         it seems incapable of NOT doing this. For sub-models, it tends to pass
         dicts (JSON objects) as JSON strings, which can be pre-parsed here.
         """
-        new_data = data.copy()  # Shallow copy
-
-        # Build a mapping from input keys (including aliases) to field info
-        key_to_field_info: dict[str, FieldInfo] = {}
-        for field_name, field_info in self.arg_model.model_fields.items():
-            # Map both the field name and its alias (if any) to the field info
-            key_to_field_info[field_name] = field_info
-            if field_info.alias:
-                key_to_field_info[field_info.alias] = field_info
+        new_data = data.copy()
 
         for data_key, data_value in data.items():
-            if data_key not in key_to_field_info:  # pragma: no cover
+            if data_key not in self.key_to_field_info:  # pragma: no cover
                 continue
 
-            field_info = key_to_field_info[data_key]
+            field_info = self.key_to_field_info[data_key]
             if isinstance(data_value, str) and field_info.annotation is not str:
                 try:
                     pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
-                    continue  # Not JSON - skip
+                    continue
                 if isinstance(pre_parsed, str | int | float):
-                    # This is likely that the raw value is e.g. `"hello"` which we
-                    # Should really be parsed as '"hello"' in Python - but if we parse
-                    # it as JSON it'll turn into just 'hello'. So we skip it.
                     continue
                 new_data[data_key] = pre_parsed
         assert new_data.keys() == data.keys()
