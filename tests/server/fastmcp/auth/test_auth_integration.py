@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
 
 from mcp.server.auth.provider import (
@@ -100,7 +100,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
         if old_access_token is None:
             return None
         token_info = self.tokens.get(old_access_token)
-        if token_info is None:
+        if token_info is None:  # pragma: no cover
             return None
 
         # Create a RefreshToken object that matches what is expected in later code
@@ -174,17 +174,17 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         match token:
-            case RefreshToken():
+            case RefreshToken():  # pragma: no cover
                 # Remove the refresh token
                 del self.refresh_tokens[token.token]
 
-            case AccessToken():
+            case AccessToken():  # pragma: no branch
                 # Remove the access token
                 del self.tokens[token.token]
 
                 # Also remove any refresh tokens that point to this access token
                 for refresh_token, access_token in list(self.refresh_tokens.items()):
-                    if access_token == token.token:
+                    if access_token == token.token:  # pragma: no branch
                         del self.refresh_tokens[refresh_token]
 
 
@@ -283,7 +283,7 @@ async def auth_code(
     }
 
     # Override with any parameters from the test
-    if hasattr(request, "param") and request.param:
+    if hasattr(request, "param") and request.param:  # pragma: no cover
         auth_params.update(request.param)
 
     response = await test_client.get("/authorize", params=auth_params)
@@ -304,44 +304,6 @@ async def auth_code(
     }
 
 
-@pytest.fixture
-async def tokens(
-    test_client: httpx.AsyncClient,
-    registered_client: dict[str, Any],
-    auth_code: dict[str, str],
-    pkce_challenge: dict[str, str],
-    request: pytest.FixtureRequest,
-):
-    """Exchange authorization code for tokens.
-
-    Parameters can be customized via indirect parameterization:
-    @pytest.mark.parametrize("tokens",
-                            [{"code_verifier": "wrong_verifier"}],
-                            indirect=True)
-    """
-    # Default token request params
-    token_params = {
-        "grant_type": "authorization_code",
-        "client_id": registered_client["client_id"],
-        "client_secret": registered_client["client_secret"],
-        "code": auth_code["code"],
-        "code_verifier": pkce_challenge["code_verifier"],
-        "redirect_uri": auth_code["redirect_uri"],
-    }
-
-    # Override with any parameters from the test
-    if hasattr(request, "param") and request.param:
-        token_params.update(request.param)
-
-    response = await test_client.post("/token", data=token_params)
-
-    # Don't assert success here since some tests will intentionally cause errors
-    return {
-        "response": response,
-        "params": token_params,
-    }
-
-
 class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
@@ -358,7 +320,7 @@ class TestAuthEndpoints:
         assert metadata["revocation_endpoint"] == "https://auth.example.com/revoke"
         assert metadata["response_types_supported"] == ["code"]
         assert metadata["code_challenge_methods_supported"] == ["S256"]
-        assert metadata["token_endpoint_auth_methods_supported"] == ["client_secret_post"]
+        assert metadata["token_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
         assert metadata["grant_types_supported"] == [
             "authorization_code",
             "refresh_token",
@@ -377,8 +339,58 @@ class TestAuthEndpoints:
             },
         )
         error_response = response.json()
-        assert error_response["error"] == "invalid_request"
-        assert "error_description" in error_response  # Contains validation error messages
+        # Per RFC 6749 Section 5.2, authentication failures (missing client_id)
+        # must return "invalid_client", not "unauthorized_client"
+        assert error_response["error"] == "invalid_client"
+        assert "error_description" in error_response  # Contains error message
+
+    @pytest.mark.anyio
+    async def test_token_invalid_client_secret_returns_invalid_client(
+        self,
+        test_client: httpx.AsyncClient,
+        registered_client: dict[str, Any],
+        pkce_challenge: dict[str, str],
+        mock_oauth_provider: MockOAuthProvider,
+    ):
+        """Test token endpoint returns 'invalid_client' for wrong client_secret per RFC 6749.
+
+        RFC 6749 Section 5.2 defines:
+        - invalid_client: Client authentication failed (wrong credentials, unknown client)
+        - unauthorized_client: Authenticated client not authorized for grant type
+
+        When client_secret is wrong, this is an authentication failure, so the
+        error code MUST be 'invalid_client'.
+        """
+        # Create an auth code for the registered client
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=registered_client["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Try to exchange the auth code with a WRONG client_secret
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": registered_client["client_id"],
+                "client_secret": "wrong_secret_that_does_not_match",
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+
+        assert response.status_code == 401
+        error_response = response.json()
+        # RFC 6749 Section 5.2: authentication failures MUST return "invalid_client"
+        assert error_response["error"] == "invalid_client"
+        assert "Invalid client_secret" in error_response["error_description"]
 
     @pytest.mark.anyio
     async def test_token_invalid_auth_code(
@@ -422,8 +434,8 @@ class TestAuthEndpoints:
         # Find the auth code object
         code_value = auth_code["code"]
         found_code = None
-        for code_obj in mock_oauth_provider.auth_codes.values():
-            if code_obj.code == code_value:
+        for code_obj in mock_oauth_provider.auth_codes.values():  # pragma: no branch
+            if code_obj.code == code_value:  # pragma: no branch
                 found_code = code_obj
                 break
 
@@ -1013,6 +1025,335 @@ class TestAuthEndpoints:
 
         assert "response_types" in data
         assert data["response_types"] == ["code"]
+
+    @pytest.mark.anyio
+    async def test_client_secret_basic_authentication(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that client_secret_basic authentication works correctly."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "client_secret_basic"
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        credentials = f"{client_info['client_id']}:{client_info['client_secret']}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded_credentials}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 200
+        token_response = response.json()
+        assert "access_token" in token_response
+
+    @pytest.mark.anyio
+    async def test_wrong_auth_method_without_valid_credentials_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that using the wrong authentication method fails when credentials are missing."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Post Auth Client",
+            "token_endpoint_auth_method": "client_secret_post",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "client_secret_post"
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Try to use Basic auth when client_secret_post is registered (without secret in body)
+        # This should fail because the secret is missing from the expected location
+
+        credentials = f"{client_info['client_id']}:{client_info['client_secret']}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded_credentials}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                # client_secret NOT in body where it should be
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
+        assert "Client secret is required" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_basic_auth_without_header_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that omitting Basic auth when client_secret_basic is registered fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "client_secret_basic"
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "client_secret": client_info["client_secret"],  # Secret in body (ignored)
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
+        assert "Missing or invalid Basic authentication" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_basic_auth_invalid_base64_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that invalid base64 in Basic auth header fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Send invalid base64
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": "Basic !!!invalid-base64!!!"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
+        assert "Invalid Basic authentication header" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_basic_auth_no_colon_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that Basic auth without colon separator fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Send base64 without colon (invalid format)
+        import base64
+
+        invalid_creds = base64.b64encode(b"no-colon-here").decode()
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {invalid_creds}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
+        assert "Invalid Basic authentication header" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_basic_auth_client_id_mismatch_fails(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that client_id mismatch between body and Basic auth fails."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Send different client_id in Basic auth header
+        import base64
+
+        wrong_creds = base64.b64encode(f"wrong-client-id:{client_info['client_secret']}".encode()).decode()
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {wrong_creds}"},
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],  # Correct client_id in body
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 401
+        error_response = response.json()
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
+        assert "Client ID mismatch" in error_response["error_description"]
+
+    @pytest.mark.anyio
+    async def test_none_auth_method_public_client(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that 'none' authentication method works for public clients."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Public Client",
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "none"
+        # Public clients should not have a client_secret
+        assert "client_secret" not in client_info or client_info.get("client_secret") is None
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Token request without any client secret
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 200
+        token_response = response.json()
+        assert "access_token" in token_response
 
 
 class TestAuthorizeEndpointErrors:

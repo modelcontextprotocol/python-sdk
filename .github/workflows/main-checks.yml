@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "v*.*.*"
+      - "v1.x"
     tags:
       - "v*.*.*"
 

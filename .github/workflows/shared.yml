@@ -38,9 +38,9 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         dep-resolution:
           - name: lowest-direct
-            install-flags: "--resolution lowest-direct"
+            install-flags: "--upgrade --resolution lowest-direct"
           - name: highest
-            install-flags: "--frozen"
+            install-flags: "--upgrade --resolution highest"
         os: [ubuntu-latest, windows-latest]
 
     steps:
@@ -55,10 +55,11 @@ jobs:
       - name: Install the project
         run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
 
-      - name: Run pytest
-        run: uv run ${{ matrix.dep-resolution.install-flags }} --no-sync pytest
-        env:
-          UV_RESOLUTION: ${{ matrix.dep-resolution.name == 'lowest-direct' && 'lowest-direct' || 'highest' }}
+      - name: Run pytest with coverage
+        run: |
+          uv run --frozen --no-sync coverage run -m pytest
+          uv run --frozen --no-sync coverage combine
+          uv run --frozen --no-sync coverage report
 
   readme-snippets:
     runs-on: ubuntu-latest

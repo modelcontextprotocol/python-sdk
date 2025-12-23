@@ -4,11 +4,15 @@ from typing import Any, Protocol
 
 import httpx
 
-__all__ = ["create_mcp_http_client"]
+__all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT"]
+
+# Default MCP timeout configuration
+MCP_DEFAULT_TIMEOUT = 30.0  # General operations (seconds)
+MCP_DEFAULT_SSE_READ_TIMEOUT = 300.0  # SSE streams - 5 minutes (seconds)
 
 
-class McpHttpClientFactory(Protocol):
-    def __call__(
+class McpHttpClientFactory(Protocol):  # pragma: no branch
+    def __call__(  # pragma: no branch
         self,
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
@@ -68,7 +72,7 @@ def create_mcp_http_client(
 
     # Handle timeout
     if timeout is None:
-        kwargs["timeout"] = httpx.Timeout(30.0)
+        kwargs["timeout"] = httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT)
     else:
         kwargs["timeout"] = timeout
 
@@ -77,7 +81,7 @@ def create_mcp_http_client(
         kwargs["headers"] = headers
 
     # Handle authentication
-    if auth is not None:
+    if auth is not None:  # pragma: no cover
         kwargs["auth"] = auth
 
     return httpx.AsyncClient(**kwargs)
