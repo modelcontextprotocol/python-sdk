@@ -1,7 +1,7 @@
 import base64
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import AnyUrl, BaseModel
@@ -815,6 +815,37 @@ class TestServerResources:
             assert resource.uri == AnyUrl("function://test")
             assert resource.name == "test_get_data"
             assert resource.mimeType == "text/plain"
+
+    def test_server_no_log_reconfigure(self):
+        """Test that the server does not reconfigure logging if already configured."""
+        with patch("mcp.server.fastmcp.server.configure_logging") as configure_logging_mock:
+            # First instantiation should configure logging
+            FastMCP(log_level=None)
+            assert configure_logging_mock.call_count == 0
+
+    def test_server_uvicorn_no_logging(self):
+        """Test that the server does not reconfigure logging if uvicorn logging is set."""
+        with (
+            patch("mcp.server.fastmcp.server.configure_logging") as configure_logging_mock,
+            patch("uvicorn.Config") as uvicorn_config_mock,
+            patch("uvicorn.Server") as uvicorn_server_mock,
+        ):
+            uvicorn_server_mock.return_value.serve = AsyncMock()
+            # First instantiation should configure logging
+            # Launch mock server
+            mcp = FastMCP(log_level=None)
+            mcp.run(transport="streamable-http")
+            # check that logging was not configured
+            assert configure_logging_mock.call_count == 0
+            config_call_args = uvicorn_config_mock.call_args
+            # Verify that log_config and log_level are None on uvicorn Config
+            assert "log_config" in config_call_args.kwargs
+            assert config_call_args.kwargs["log_config"] is None
+            assert "log_level" in config_call_args.kwargs
+            assert config_call_args.kwargs["log_level"] is None
+            # Verify that the server was started
+            assert uvicorn_server_mock.call_count == 1
+            assert uvicorn_server_mock.return_value.serve.call_count == 1
 
 
 class TestServerResourceTemplates:
