@@ -4,6 +4,7 @@ Tests for the StreamableHTTP server and client transport.
 Contains tests for both server and client sides of the StreamableHTTP transport.
 """
 
+import contextlib
 import json
 import multiprocessing
 import socket
@@ -2393,3 +2394,269 @@ async def test_streamablehttp_client_deprecation_warning(basic_server: None, bas
                 await session.initialize()
                 tools = await session.list_tools()
                 assert len(tools.tools) > 0
+
+
+@pytest.mark.anyio
+async def test_sse_stream_ends_without_completing_no_event_id() -> None:
+    """Test that SSE stream ending without completing and no event ID sends error response."""
+    from unittest.mock import MagicMock, patch
+
+    from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
+    from mcp.shared.message import SessionMessage
+    from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest
+
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+
+    # Create a mock response that returns an empty SSE stream (no events)
+    mock_response = MagicMock()
+
+    async def mock_aclose() -> None:
+        pass  # pragma: no cover
+
+    mock_response.aclose = mock_aclose
+
+    # Create a mock EventSource that yields no events
+    async def empty_iter():
+        return
+        yield  # Make it an async generator that yields nothing
+
+    mock_event_source = MagicMock()
+    mock_event_source.aiter_sse = empty_iter
+
+    # Create streams for testing
+    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+
+    # Create a request context
+    mock_client = MagicMock()
+    mock_message = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id="test-1", method="test"))
+    session_message = SessionMessage(message=mock_message)
+
+    ctx = RequestContext(
+        client=mock_client,
+        session_id="test-session",
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+    try:
+        with patch("mcp.client.streamable_http.EventSource", return_value=mock_event_source):
+            await transport._handle_sse_response(mock_response, ctx, is_initialization=False)
+
+        # Should have received an error response
+        received = await read_stream.receive()
+        assert isinstance(received, SessionMessage)
+        assert isinstance(received.message.root, JSONRPCError)
+        assert "SSE stream ended without completing" in received.message.root.error.message
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_handle_post_request_non_init_error_sends_error_response() -> None:
+    """Test that non-initialization request errors send error response instead of raising."""
+    from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
+    from mcp.shared.message import SessionMessage
+    from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest
+
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+
+    # Create streams for testing
+    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+
+    # Create a non-initialization request
+    mock_message = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list"))
+    session_message = SessionMessage(message=mock_message)
+
+    # Create a mock client that raises an exception
+    mock_client = MagicMock()
+
+    # Create an async context manager that raises
+    class FailingStream:
+        async def __aenter__(self) -> None:
+            raise httpx.HTTPStatusError("Server error", request=MagicMock(), response=MagicMock(status_code=500))
+
+        async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+            pass  # pragma: no cover
+
+    mock_client.stream = MagicMock(return_value=FailingStream())
+
+    ctx = RequestContext(
+        client=mock_client,
+        session_id="test-session",
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+    try:
+        # This should NOT raise, but send an error response
+        await transport._handle_post_request(ctx)
+
+        # Should have received an error response
+        received = await read_stream.receive()
+        assert isinstance(received, SessionMessage)
+        assert isinstance(received.message.root, JSONRPCError)
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_handle_post_request_init_error_raises() -> None:
+    """Test that initialization request errors are raised, not sent as error response."""
+    from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
+    from mcp.shared.message import SessionMessage
+    from mcp.types import JSONRPCMessage, JSONRPCRequest
+
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+
+    # Create streams for testing
+    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+
+    # Create an initialization request
+    mock_message = JSONRPCMessage(
+        root=JSONRPCRequest(
+            jsonrpc="2.0",
+            id="init-1",
+            method="initialize",
+            params={
+                "clientInfo": {"name": "test", "version": "1.0"},
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+            },
+        )
+    )
+    session_message = SessionMessage(message=mock_message)
+
+    # Create a mock client that raises an exception
+    mock_client = MagicMock()
+
+    class FailingStream:
+        async def __aenter__(self) -> None:
+            raise httpx.HTTPStatusError("Server error", request=MagicMock(), response=MagicMock(status_code=500))
+
+        async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+            pass  # pragma: no cover
+
+    mock_client.stream = MagicMock(return_value=FailingStream())
+
+    ctx = RequestContext(
+        client=mock_client,
+        session_id=None,
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+    try:
+        # This SHOULD raise for initialization requests
+        with pytest.raises(httpx.HTTPStatusError):
+            await transport._handle_post_request(ctx)
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_handle_reconnection_max_attempts_exceeded() -> None:
+    """Test that _handle_reconnection raises when max attempts exceeded."""
+    from mcp.client.streamable_http import (
+        MAX_RECONNECTION_ATTEMPTS,
+        RequestContext,
+        StreamableHTTPTransport,
+    )
+    from mcp.shared.message import SessionMessage
+    from mcp.types import JSONRPCMessage, JSONRPCRequest
+
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+
+    # Create streams for testing
+    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+
+    # Create a request context
+    mock_message = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id="test-1", method="test"))
+    session_message = SessionMessage(message=mock_message)
+
+    ctx = RequestContext(
+        client=MagicMock(),
+        session_id="test-session",
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+    try:
+        # Call with attempt >= MAX_RECONNECTION_ATTEMPTS should raise
+        with pytest.raises(Exception, match="SSE stream reconnection failed"):
+            await transport._handle_reconnection(
+                ctx,
+                last_event_id="test-event-id",
+                retry_interval_ms=1,  # Use 1ms to speed up test
+                attempt=MAX_RECONNECTION_ATTEMPTS,
+            )
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
+
+
+@pytest.mark.anyio
+async def test_handle_reconnection_failure_retries() -> None:
+    """Test that _handle_reconnection retries on failure and eventually raises."""
+    from collections.abc import AsyncGenerator
+    from unittest.mock import MagicMock, patch
+
+    from mcp.client.streamable_http import (
+        MAX_RECONNECTION_ATTEMPTS,
+        RequestContext,
+        StreamableHTTPTransport,
+    )
+    from mcp.shared.message import SessionMessage
+    from mcp.types import JSONRPCMessage, JSONRPCRequest
+
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+
+    # Create streams for testing
+    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+
+    # Create a mock client
+    mock_client = MagicMock()
+
+    # Create a request context
+    mock_message = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id="test-1", method="test"))
+    session_message = SessionMessage(message=mock_message)
+
+    ctx = RequestContext(
+        client=mock_client,
+        session_id="test-session",
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+    # Track how many times aconnect_sse is called
+    call_count = 0
+
+    @contextlib.asynccontextmanager
+    async def failing_aconnect_sse(*args: Any, **kwargs: Any) -> AsyncGenerator[None, None]:
+        nonlocal call_count
+        call_count += 1
+        raise httpx.HTTPStatusError("Connection failed", request=MagicMock(), response=MagicMock(status_code=503))
+        yield  # Make it an async generator
+
+    try:
+        with patch("mcp.client.streamable_http.aconnect_sse", failing_aconnect_sse):
+            with pytest.raises(Exception, match="SSE stream reconnection failed"):
+                await transport._handle_reconnection(
+                    ctx,
+                    last_event_id="test-event-id",
+                    retry_interval_ms=1,  # Use 1ms to speed up test
+                    attempt=0,
+                )
+
+        # Should have tried MAX_RECONNECTION_ATTEMPTS times
+        assert call_count == MAX_RECONNECTION_ATTEMPTS
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
