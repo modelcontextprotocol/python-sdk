@@ -964,9 +964,13 @@ Tools can send logs and notifications through the context:
 <!-- snippet-source examples/snippets/servers/notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.lowlevel.server import NotificationOptions
 from mcp.server.session import ServerSession
 
-mcp = FastMCP(name="Notifications Example")
+# Setup Server Capabilities
+notification_options = NotificationOptions(prompts_changed=False, resources_changed=True, tools_changed=False)
+
+mcp = FastMCP(name="Notifications Example", notification_options=notification_options)
 
 
 @mcp.tool()
