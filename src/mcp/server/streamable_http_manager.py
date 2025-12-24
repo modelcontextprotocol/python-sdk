@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import logging
 from collections.abc import AsyncIterator
 from http import HTTPStatus
@@ -23,6 +22,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 logger = logging.getLogger(__name__)
 
@@ -277,21 +277,18 @@ class StreamableHTTPSessionManager:
 
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
-        else:  # pragma: no cover
+        else:
             # Unknown or expired session ID - return 404 per MCP spec
-            # Match TypeScript SDK exactly: jsonrpc, error, id order
-            error_body = json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32001,
-                        "message": "Session not found",
-                    },
-                    "id": None,
-                }
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id="server-error",
+                error=ErrorData(
+                    code=INVALID_REQUEST,
+                    message="Session not found",
+                ),
             )
             response = Response(
-                content=error_body,
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
                 status_code=HTTPStatus.NOT_FOUND,
                 media_type="application/json",
             )
