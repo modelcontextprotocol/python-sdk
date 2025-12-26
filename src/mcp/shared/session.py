@@ -180,6 +180,7 @@ class BaseSession(
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
     _response_routers: list["ResponseRouter"]
+    _closing: bool = False
 
     def __init__(
         self,
@@ -252,6 +253,9 @@ class BaseSession(
         Do not use this method to emit notifications! Use send_notification()
         instead.
         """
+        if self._closing:
+            raise McpError(ErrorData(code=CONNECTION_CLOSED, message="Connection closed"))
+
         request_id = self._request_id
         self._request_id = request_id + 1
 
@@ -307,7 +311,8 @@ class BaseSession(
                 return result_type.model_validate(response_or_error.result)
 
         finally:
-            self._response_streams.pop(request_id, None)
+            self._response_streams.pop(request_id, None) if not self._closing else None
+
             self._progress_callbacks.pop(request_id, None)
             await response_stream.aclose()
             await response_stream_reader.aclose()
@@ -444,6 +449,7 @@ class BaseSession(
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
+                self._closing = True
                 with anyio.CancelScope(shield=True):
                     for id, stream in self._response_streams.items():
                         error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
@@ -509,7 +515,7 @@ class BaseSession(
                     return  # Handled
 
         # Fall back to normal response streams
-        stream = self._response_streams.pop(response_id, None)
+        stream = self._response_streams.pop(response_id, None) if not self._closing else None
         if stream:  # pragma: no cover
             await stream.send(root)
         else:  # pragma: no cover
