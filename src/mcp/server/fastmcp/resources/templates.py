@@ -33,6 +33,7 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    _uri_pattern: re.Pattern[str] | None = None
 
     @classmethod
     def from_function(
@@ -66,7 +67,10 @@ class ResourceTemplate(BaseModel):
         # ensure the arguments are properly cast
         fn = validate_call(fn)
 
-        return cls(
+        pattern_str = uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
+        compiled_pattern = re.compile(f"^{pattern_str}$")
+
+        instance = cls(
             uri_template=uri_template,
             name=func_name,
             title=title,
@@ -78,15 +82,15 @@ class ResourceTemplate(BaseModel):
             parameters=parameters,
             context_kwarg=context_kwarg,
         )
+        instance._uri_pattern = compiled_pattern
+        return instance
 
     def matches(self, uri: str) -> dict[str, Any] | None:
-        """Check if URI matches template and extract parameters."""
-        # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
-        match = re.match(f"^{pattern}$", uri)
-        if match:
-            return match.groupdict()
-        return None
+        if self._uri_pattern is None:
+            pattern_str = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
+            self._uri_pattern = re.compile(f"^{pattern_str}$")
+        match = self._uri_pattern.match(uri)
+        return match.groupdict() if match else None
 
     async def create_resource(
         self,

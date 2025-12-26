@@ -13,6 +13,7 @@ This pattern enables:
 """
 
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -162,67 +163,51 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
     """
 
     def __init__(self) -> None:
-        self._queues: dict[str, list[QueuedMessage]] = {}
+        self._queues: dict[str, deque[QueuedMessage]] = {}
         self._events: dict[str, anyio.Event] = {}
 
-    def _get_queue(self, task_id: str) -> list[QueuedMessage]:
-        """Get or create the queue for a task."""
+    def _get_queue(self, task_id: str) -> deque[QueuedMessage]:
         if task_id not in self._queues:
-            self._queues[task_id] = []
+            self._queues[task_id] = deque()
         return self._queues[task_id]
 
     async def enqueue(self, task_id: str, message: QueuedMessage) -> None:
-        """Add a message to the queue."""
         queue = self._get_queue(task_id)
         queue.append(message)
-        # Signal that a message is available
         await self.notify_message_available(task_id)
 
     async def dequeue(self, task_id: str) -> QueuedMessage | None:
-        """Remove and return the next message."""
         queue = self._get_queue(task_id)
         if not queue:
             return None
-        return queue.pop(0)
+        return queue.popleft()
 
     async def peek(self, task_id: str) -> QueuedMessage | None:
-        """Return the next message without removing it."""
         queue = self._get_queue(task_id)
-        if not queue:
-            return None
-        return queue[0]
+        return queue[0] if queue else None
 
     async def is_empty(self, task_id: str) -> bool:
-        """Check if the queue is empty."""
-        queue = self._get_queue(task_id)
-        return len(queue) == 0
+        return len(self._get_queue(task_id)) == 0
 
     async def clear(self, task_id: str) -> list[QueuedMessage]:
-        """Remove and return all messages."""
         queue = self._get_queue(task_id)
         messages = list(queue)
         queue.clear()
         return messages
 
     async def wait_for_message(self, task_id: str) -> None:
-        """Wait until a message is available."""
-        # Check if there are already messages
         if not await self.is_empty(task_id):
             return
 
-        # Create a fresh event for waiting (anyio.Event can't be cleared)
         self._events[task_id] = anyio.Event()
         event = self._events[task_id]
 
-        # Double-check after creating event (avoid race condition)
         if not await self.is_empty(task_id):
             return
 
-        # Wait for a new message
         await event.wait()
 
     async def notify_message_available(self, task_id: str) -> None:
-        """Signal that a message is available."""
         if task_id in self._events:
             self._events[task_id].set()
 
