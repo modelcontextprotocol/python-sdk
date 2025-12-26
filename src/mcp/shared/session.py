@@ -444,15 +444,16 @@ class BaseSession(
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
-                for id, stream in self._response_streams.items():
-                    error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
-                    try:
-                        await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
-                        await stream.aclose()
-                    except Exception:  # pragma: no cover
-                        # Stream might already be closed
-                        pass
-                self._response_streams.clear()
+                with anyio.CancelScope(shield=True):
+                    for id, stream in self._response_streams.items():
+                        error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
+                        try:
+                            await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
+                            await stream.aclose()
+                        except Exception:  # pragma: no cover
+                            # Stream might already be closed
+                            pass
+                    self._response_streams.clear()
 
     def _normalize_request_id(self, response_id: RequestId) -> RequestId:
         """
