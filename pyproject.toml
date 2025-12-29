@@ -33,6 +33,9 @@ dependencies = [
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
     "pywin32>=310; sys_platform == 'win32'",
+    "pyjwt[crypto]>=2.10.1",
+    "typing-extensions>=4.9.0",
+    "typing-inspection>=0.4.1",
 ]
 
 [project.optional-dependencies]
@@ -59,6 +62,7 @@ dev = [
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
+    "coverage[toml]==7.10.7",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -98,7 +102,7 @@ venv = ".venv"
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
-    { root = "tests", reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
 ]
 
@@ -167,3 +171,40 @@ MD033 = false    # no-inline-html Inline HTML
 MD041 = false    # first-line-heading/first-line-h1
 MD046 = false    # indented-code-blocks
 MD059 = false    # descriptive-link-text
+
+# https://coverage.readthedocs.io/en/latest/config.html#run
+[tool.coverage.run]
+branch = true
+patch = ["subprocess"]
+concurrency = ["multiprocessing", "thread"]
+source = ["src", "tests"]
+relative_files = true
+omit = [
+    "src/mcp/client/__main__.py",
+    "src/mcp/server/__main__.py",
+    "src/mcp/os/posix/utilities.py",
+    "src/mcp/os/win32/utilities.py",
+]
+
+# https://coverage.readthedocs.io/en/latest/config.html#report
+[tool.coverage.report]
+fail_under = 100
+skip_covered = true
+show_missing = true
+ignore_errors = true
+precision = 2
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "@overload",
+    "raise NotImplementedError",
+    "^\\s*\\.\\.\\.\\s*$",
+]
+
+# https://coverage.readthedocs.io/en/latest/config.html#paths
+[tool.coverage.paths]
+source = [
+    "src/",
+    "/home/runner/work/python-sdk/python-sdk/src/",
+    'D:\a\python-sdk\python-sdk\src',
+]

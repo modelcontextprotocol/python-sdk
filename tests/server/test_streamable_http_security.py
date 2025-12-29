@@ -3,7 +3,6 @@
 import logging
 import multiprocessing
 import socket
-import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -18,6 +17,7 @@ from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
+from tests.test_helpers import wait_for_server
 
 logger = logging.getLogger(__name__)
 SERVER_NAME = "test_streamable_http_security_server"
@@ -31,11 +31,11 @@ def server_port() -> int:
 
 
 @pytest.fixture
-def server_url(server_port: int) -> str:
+def server_url(server_port: int) -> str:  # pragma: no cover
     return f"http://127.0.0.1:{server_port}"
 
 
-class SecurityTestServer(Server):
+class SecurityTestServer(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
 
@@ -43,7 +43,7 @@ class SecurityTestServer(Server):
         return []
 
 
-def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):
+def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):  # pragma: no cover
     """Run the StreamableHTTP server with specified security settings."""
     app = SecurityTestServer()
 
@@ -77,8 +77,8 @@ def start_server_process(port: int, security_settings: TransportSecuritySettings
     """Start server in a separate process."""
     process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
     process.start()
-    # Give server time to start
-    time.sleep(1)
+    # Wait for server to be ready to accept connections
+    wait_for_server(port)
     return process
 
 

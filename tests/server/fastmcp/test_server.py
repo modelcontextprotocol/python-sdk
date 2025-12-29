@@ -13,6 +13,7 @@ from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
@@ -148,7 +149,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.tool()
-        def sum(x: int, y: int) -> int:
+        def sum(x: int, y: int) -> int:  # pragma: no cover
             return x + y
 
         assert len(mcp._tool_manager.list_tools()) == 1
@@ -160,7 +161,7 @@ class TestServer:
         with pytest.raises(TypeError, match="The @tool decorator was used incorrectly"):
 
             @mcp.tool  # Missing parentheses #type: ignore
-            def sum(x: int, y: int) -> int:
+            def sum(x: int, y: int) -> int:  # pragma: no cover
                 return x + y
 
     @pytest.mark.anyio
@@ -168,7 +169,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.resource("r://{x}")
-        def get_data(x: str) -> str:
+        def get_data(x: str) -> str:  # pragma: no cover
             return f"Data: {x}"
 
         assert len(mcp._resource_manager._templates) == 1
@@ -180,8 +181,54 @@ class TestServer:
         with pytest.raises(TypeError, match="The @resource decorator was used incorrectly"):
 
             @mcp.resource  # Missing parentheses #type: ignore
-            def get_data(x: str) -> str:
+            def get_data(x: str) -> str:  # pragma: no cover
                 return f"Data: {x}"
+
+
+class TestDnsRebindingProtection:
+    """Tests for automatic DNS rebinding protection on localhost."""
+
+    def test_auto_enabled_for_127_0_0_1(self):
+        """DNS rebinding protection should auto-enable for host=127.0.0.1."""
+        mcp = FastMCP(host="127.0.0.1")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "127.0.0.1:*" in mcp.settings.transport_security.allowed_hosts
+        assert "localhost:*" in mcp.settings.transport_security.allowed_hosts
+        assert "http://127.0.0.1:*" in mcp.settings.transport_security.allowed_origins
+        assert "http://localhost:*" in mcp.settings.transport_security.allowed_origins
+
+    def test_auto_enabled_for_localhost(self):
+        """DNS rebinding protection should auto-enable for host=localhost."""
+        mcp = FastMCP(host="localhost")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "127.0.0.1:*" in mcp.settings.transport_security.allowed_hosts
+        assert "localhost:*" in mcp.settings.transport_security.allowed_hosts
+
+    def test_auto_enabled_for_ipv6_localhost(self):
+        """DNS rebinding protection should auto-enable for host=::1 (IPv6 localhost)."""
+        mcp = FastMCP(host="::1")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "[::1]:*" in mcp.settings.transport_security.allowed_hosts
+        assert "http://[::1]:*" in mcp.settings.transport_security.allowed_origins
+
+    def test_not_auto_enabled_for_other_hosts(self):
+        """DNS rebinding protection should NOT auto-enable for other hosts."""
+        mcp = FastMCP(host="0.0.0.0")
+        assert mcp.settings.transport_security is None
+
+    def test_explicit_settings_not_overridden(self):
+        """Explicit transport_security settings should not be overridden."""
+        custom_settings = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
+        mcp = FastMCP(host="127.0.0.1", transport_security=custom_settings)
+        # Settings are copied by pydantic, so check values not identity
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is False
+        assert mcp.settings.transport_security.allowed_hosts == []
 
 
 def tool_fn(x: int, y: int) -> int:
@@ -792,7 +839,7 @@ class TestServerResources:
         mcp = FastMCP()
 
         @mcp.resource("function://test", name="test_get_data")
-        def get_data() -> str:
+        def get_data() -> str:  # pragma: no cover
             """get_data returns a string"""
             return "Hello, world!"
 
@@ -808,6 +855,18 @@ class TestServerResources:
 
 class TestServerResourceTemplates:
     @pytest.mark.anyio
+    async def test_resource_with_params(self):
+        """Test that a resource with function parameters raises an error if the URI
+        parameters don't match"""
+        mcp = FastMCP()
+
+        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+
+            @mcp.resource("resource://data")
+            def get_data_fn(param: str) -> str:  # pragma: no cover
+                return f"Data: {param}"
+
+    @pytest.mark.anyio
     async def test_resource_with_uri_params(self):
         """Test that a resource with URI parameters is automatically a template"""
         mcp = FastMCP()
@@ -818,7 +877,7 @@ class TestServerResourceTemplates:
         ):
 
             @mcp.resource("resource://{param}")
-            def get_data() -> str:
+            def get_data() -> str:  # pragma: no cover
                 return "Data"
 
     @pytest.mark.anyio
@@ -827,7 +886,7 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         @mcp.resource("resource://{param}")
-        def get_data(param) -> str:  # type: ignore
+        def get_data(param) -> str:  # type: ignore  # pragma: no cover
             return "Data"
 
     @pytest.mark.anyio
@@ -880,7 +939,7 @@ class TestServerResourceTemplates:
         ):
 
             @mcp.resource("resource://{name}/data")
-            def get_data(user: str) -> str:
+            def get_data(user: str) -> str:  # pragma: no cover
                 return f"Data for {user}"
 
     @pytest.mark.anyio
@@ -908,10 +967,10 @@ class TestServerResourceTemplates:
         ):
 
             @mcp.resource("resource://{org}/{repo}/data")
-            def get_data_mismatched(org: str, repo_2: str) -> str:
+            def get_data_mismatched(org: str, repo_2: str) -> str:  # pragma: no cover
                 return f"Data for {org}"
 
-        """Test that a resource with no parameters works as a regular resource"""
+        """Test that a resource with no parameters works as a regular resource"""  # pragma: no cover
         mcp = FastMCP()
 
         @mcp.resource("resource://static")
@@ -1082,7 +1141,7 @@ class TestContextInjection:
         """Test that context parameters are properly detected."""
         mcp = FastMCP()
 
-        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
             return f"Request {ctx.request_id}: {x}"
 
         tool = mcp._tool_manager.add_tool(tool_with_context)
@@ -1391,7 +1450,7 @@ class TestServerPrompts:
         with pytest.raises(TypeError, match="decorator was used incorrectly"):
 
             @mcp.prompt  # type: ignore
-            def fn() -> str:
+            def fn() -> str:  # pragma: no cover
                 return "Hello, world!"
 
     @pytest.mark.anyio
@@ -1400,7 +1459,7 @@ class TestServerPrompts:
         mcp = FastMCP()
 
         @mcp.prompt()
-        def fn(name: str, optional: str = "default") -> str:
+        def fn(name: str, optional: str = "default") -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
         async with client_session(mcp._mcp_server) as client:
@@ -1518,7 +1577,7 @@ class TestServerPrompts:
         mcp = FastMCP()
 
         @mcp.prompt()
-        def prompt_fn(name: str) -> str:
+        def prompt_fn(name: str) -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
         async with client_session(mcp._mcp_server) as client:

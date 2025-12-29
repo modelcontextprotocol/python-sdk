@@ -1,5 +1,6 @@
 from collections.abc import Callable
-from typing import Annotated, Any, Generic, Literal, TypeAlias, TypeVar
+from datetime import datetime
+from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
@@ -23,7 +24,7 @@ for reference.
   not separate types in the schema.
 """
 
-LATEST_PROTOCOL_VERSION = "2025-06-18"
+LATEST_PROTOCOL_VERSION = "2025-11-25"
 
 """
 The default negotiated version of the Model Context Protocol when no version is specified.
@@ -39,6 +40,23 @@ Role = Literal["user", "assistant"]
 RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
+TaskExecutionMode = Literal["forbidden", "optional", "required"]
+TASK_FORBIDDEN: Final[Literal["forbidden"]] = "forbidden"
+TASK_OPTIONAL: Final[Literal["optional"]] = "optional"
+TASK_REQUIRED: Final[Literal["required"]] = "required"
+
+
+class TaskMetadata(BaseModel):
+    """
+    Metadata for augmenting a request with task execution.
+    Include this in the `task` field of the request parameters.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    ttl: Annotated[int, Field(strict=True)] | None = None
+    """Requested duration in milliseconds to retain task from creation."""
+
 
 class RequestParams(BaseModel):
     class Meta(BaseModel):
@@ -51,6 +69,16 @@ class RequestParams(BaseModel):
         """
 
         model_config = ConfigDict(extra="allow")
+
+    task: TaskMetadata | None = None
+    """
+    If specified, the caller is requesting task-augmented execution for this request.
+    The request will return a CreateTaskResult immediately, and the actual result can be
+    retrieved later via tasks/result.
+
+    Task augmentation is subject to capability negotiation - receivers MUST declare support
+    for task augmentation of specific request types in their capabilities.
+    """
 
     meta: Meta | None = Field(alias="_meta", default=None)
 
@@ -145,6 +173,10 @@ class JSONRPCResponse(BaseModel):
     result: dict[str, Any]
     model_config = ConfigDict(extra="allow")
 
+
+# MCP-specific error codes in the range [-32000, -32099]
+URL_ELICITATION_REQUIRED = -32042
+"""Error code indicating that a URL mode elicitation is required before the request can be processed."""
 
 # SDK error codes
 CONNECTION_CLOSED = -32000
@@ -250,16 +282,136 @@ class RootsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class SamplingCapability(BaseModel):
-    """Capability for sampling operations."""
+class SamplingContextCapability(BaseModel):
+    """
+    Capability for context inclusion during sampling.
+
+    Indicates support for non-'none' values in the includeContext parameter.
+    SOFT-DEPRECATED: New implementations should use tools parameter instead.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class SamplingToolsCapability(BaseModel):
+    """
+    Capability indicating support for tool calling during sampling.
+
+    When present in ClientCapabilities.sampling, indicates that the client
+    supports the tools and toolChoice parameters in sampling requests.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class FormElicitationCapability(BaseModel):
+    """Capability for form mode elicitation."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class UrlElicitationCapability(BaseModel):
+    """Capability for URL mode elicitation."""
 
     model_config = ConfigDict(extra="allow")
 
 
 class ElicitationCapability(BaseModel):
-    """Capability for elicitation operations."""
+    """Capability for elicitation operations.
+
+    Clients must support at least one mode (form or url).
+    """
+
+    form: FormElicitationCapability | None = None
+    """Present if the client supports form mode elicitation."""
+
+    url: UrlElicitationCapability | None = None
+    """Present if the client supports URL mode elicitation."""
 
     model_config = ConfigDict(extra="allow")
+
+
+class SamplingCapability(BaseModel):
+    """
+    Sampling capability structure, allowing fine-grained capability advertisement.
+    """
+
+    context: SamplingContextCapability | None = None
+    """
+    Present if the client supports non-'none' values for includeContext parameter.
+    SOFT-DEPRECATED: New implementations should use tools parameter instead.
+    """
+    tools: SamplingToolsCapability | None = None
+    """
+    Present if the client supports tools and toolChoice parameters in sampling requests.
+    Presence indicates full tool calling support during sampling.
+    """
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksListCapability(BaseModel):
+    """Capability for tasks listing operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksCancelCapability(BaseModel):
+    """Capability for tasks cancel operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksCreateMessageCapability(BaseModel):
+    """Capability for tasks create messages."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksSamplingCapability(BaseModel):
+    """Capability for tasks sampling operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    createMessage: TasksCreateMessageCapability | None = None
+
+
+class TasksCreateElicitationCapability(BaseModel):
+    """Capability for tasks create elicitation operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksElicitationCapability(BaseModel):
+    """Capability for tasks elicitation operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    create: TasksCreateElicitationCapability | None = None
+
+
+class ClientTasksRequestsCapability(BaseModel):
+    """Capability for tasks requests operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sampling: TasksSamplingCapability | None = None
+
+    elicitation: TasksElicitationCapability | None = None
+
+
+class ClientTasksCapability(BaseModel):
+    """Capability for client tasks operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    list: TasksListCapability | None = None
+    """Whether this client supports tasks/list."""
+
+    cancel: TasksCancelCapability | None = None
+    """Whether this client supports tasks/cancel."""
+
+    requests: ClientTasksRequestsCapability | None = None
+    """Specifies which request types can be augmented with tasks."""
 
 
 class ClientCapabilities(BaseModel):
@@ -268,11 +420,17 @@ class ClientCapabilities(BaseModel):
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the client supports."""
     sampling: SamplingCapability | None = None
-    """Present if the client supports sampling from an LLM."""
+    """
+    Present if the client supports sampling from an LLM.
+    Can contain fine-grained capabilities like context and tools support.
+    """
     elicitation: ElicitationCapability | None = None
     """Present if the client supports elicitation from the user."""
     roots: RootsCapability | None = None
     """Present if the client supports listing roots."""
+    tasks: ClientTasksCapability | None = None
+    """Present if the client supports task-augmented requests."""
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -314,6 +472,37 @@ class CompletionsCapability(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class TasksCallCapability(BaseModel):
+    """Capability for tasks call operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TasksToolsCapability(BaseModel):
+    """Capability for tasks tools operations."""
+
+    model_config = ConfigDict(extra="allow")
+    call: TasksCallCapability | None = None
+
+
+class ServerTasksRequestsCapability(BaseModel):
+    """Capability for tasks requests operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    tools: TasksToolsCapability | None = None
+
+
+class ServerTasksCapability(BaseModel):
+    """Capability for server tasks operations."""
+
+    model_config = ConfigDict(extra="allow")
+
+    list: TasksListCapability | None = None
+    cancel: TasksCancelCapability | None = None
+    requests: ServerTasksRequestsCapability | None = None
+
+
 class ServerCapabilities(BaseModel):
     """Capabilities that a server may support."""
 
@@ -329,7 +518,154 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers any tools to call."""
     completions: CompletionsCapability | None = None
     """Present if the server offers autocompletion suggestions for prompts and resources."""
+    tasks: ServerTasksCapability | None = None
+    """Present if the server supports task-augmented requests."""
     model_config = ConfigDict(extra="allow")
+
+
+TaskStatus = Literal["working", "input_required", "completed", "failed", "cancelled"]
+
+# Task status constants
+TASK_STATUS_WORKING: Final[Literal["working"]] = "working"
+TASK_STATUS_INPUT_REQUIRED: Final[Literal["input_required"]] = "input_required"
+TASK_STATUS_COMPLETED: Final[Literal["completed"]] = "completed"
+TASK_STATUS_FAILED: Final[Literal["failed"]] = "failed"
+TASK_STATUS_CANCELLED: Final[Literal["cancelled"]] = "cancelled"
+
+
+class RelatedTaskMetadata(BaseModel):
+    """
+    Metadata for associating messages with a task.
+
+    Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
+    """
+
+    model_config = ConfigDict(extra="allow")
+    taskId: str
+    """The task identifier this message is associated with."""
+
+
+class Task(BaseModel):
+    """Data associated with a task."""
+
+    model_config = ConfigDict(extra="allow")
+
+    taskId: str
+    """The task identifier."""
+
+    status: TaskStatus
+    """Current task state."""
+
+    statusMessage: str | None = None
+    """  
+    Optional human-readable message describing the current task state.
+    This can provide context for any status, including:
+    - Reasons for "cancelled" status
+    - Summaries for "completed" status
+    - Diagnostic information for "failed" status (e.g., error details, what went wrong)
+    """
+
+    createdAt: datetime  # Pydantic will enforce ISO 8601 and re-serialize as a string later
+    """ISO 8601 timestamp when the task was created."""
+
+    lastUpdatedAt: datetime
+    """ISO 8601 timestamp when the task was last updated."""
+
+    ttl: Annotated[int, Field(strict=True)] | None
+    """Actual retention duration from creation in milliseconds, null for unlimited."""
+
+    pollInterval: Annotated[int, Field(strict=True)] | None = None
+    """Suggested polling interval in milliseconds."""
+
+
+class CreateTaskResult(Result):
+    """A response to a task-augmented request."""
+
+    task: Task
+
+
+class GetTaskRequestParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+    taskId: str
+    """The task identifier to query."""
+
+
+class GetTaskRequest(Request[GetTaskRequestParams, Literal["tasks/get"]]):
+    """A request to retrieve the state of a task."""
+
+    method: Literal["tasks/get"] = "tasks/get"
+
+    params: GetTaskRequestParams
+
+
+class GetTaskResult(Result, Task):
+    """The response to a tasks/get request."""
+
+
+class GetTaskPayloadRequestParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+
+    taskId: str
+    """The task identifier to retrieve results for."""
+
+
+class GetTaskPayloadRequest(Request[GetTaskPayloadRequestParams, Literal["tasks/result"]]):
+    """A request to retrieve the result of a completed task."""
+
+    method: Literal["tasks/result"] = "tasks/result"
+    params: GetTaskPayloadRequestParams
+
+
+class GetTaskPayloadResult(Result):
+    """
+    The response to a tasks/result request.
+    The structure matches the result type of the original request.
+    For example, a tools/call task would return the CallToolResult structure.
+    """
+
+
+class CancelTaskRequestParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+
+    taskId: str
+    """The task identifier to cancel."""
+
+
+class CancelTaskRequest(Request[CancelTaskRequestParams, Literal["tasks/cancel"]]):
+    """A request to cancel a task."""
+
+    method: Literal["tasks/cancel"] = "tasks/cancel"
+    params: CancelTaskRequestParams
+
+
+class CancelTaskResult(Result, Task):
+    """The response to a tasks/cancel request."""
+
+
+class ListTasksRequest(PaginatedRequest[Literal["tasks/list"]]):
+    """A request to retrieve a list of tasks."""
+
+    method: Literal["tasks/list"] = "tasks/list"
+
+
+class ListTasksResult(PaginatedResult):
+    """The response to a tasks/list request."""
+
+    tasks: list[Task]
+
+
+class TaskStatusNotificationParams(NotificationParams, Task):
+    """Parameters for a `notifications/tasks/status` notification."""
+
+
+class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal["notifications/tasks/status"]]):
+    """
+    An optional notification from the receiver to the requestor, informing them that a task's status has changed.
+    Receivers are not required to send these notifications
+    """
+
+    method: Literal["notifications/tasks/status"] = "notifications/tasks/status"
+    params: TaskStatusNotificationParams
 
 
 class InitializeRequestParams(RequestParams):
@@ -742,12 +1078,100 @@ class AudioContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ToolUseContent(BaseModel):
+    """
+    Content representing an assistant's request to invoke a tool.
+
+    This content type appears in assistant messages when the LLM wants to call a tool
+    during sampling. The server should execute the tool and return a ToolResultContent
+    in the next user message.
+    """
+
+    type: Literal["tool_use"]
+    """Discriminator for tool use content."""
+
+    name: str
+    """The name of the tool to invoke. Must match a tool name from the request's tools array."""
+
+    id: str
+    """Unique identifier for this tool call, used to correlate with ToolResultContent."""
+
+    input: dict[str, Any]
+    """Arguments to pass to the tool. Must conform to the tool's inputSchema."""
+
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
+    model_config = ConfigDict(extra="allow")
+
+
+class ToolResultContent(BaseModel):
+    """
+    Content representing the result of a tool execution.
+
+    This content type appears in user messages as a response to a ToolUseContent
+    from the assistant. It contains the output of executing the requested tool.
+    """
+
+    type: Literal["tool_result"]
+    """Discriminator for tool result content."""
+
+    toolUseId: str
+    """The unique identifier that corresponds to the tool call's id field."""
+
+    content: list["ContentBlock"] = []
+    """
+    A list of content objects representing the tool result.
+    Defaults to empty list if not provided.
+    """
+
+    structuredContent: dict[str, Any] | None = None
+    """
+    Optional structured tool output that matches the tool's outputSchema (if defined).
+    """
+
+    isError: bool | None = None
+    """Whether the tool execution resulted in an error."""
+
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
+    model_config = ConfigDict(extra="allow")
+
+
+SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+"""Content block types allowed in sampling messages."""
+
+SamplingContent: TypeAlias = TextContent | ImageContent | AudioContent
+"""Basic content types for sampling responses (without tool use).
+Used for backwards-compatible CreateMessageResult when tools are not used."""
+
+
 class SamplingMessage(BaseModel):
     """Describes a message issued to or received from an LLM API."""
 
     role: Role
-    content: TextContent | ImageContent | AudioContent
+    content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
+    """
+    Message content. Can be a single content block or an array of content blocks
+    for multi-modal messages and tool interactions.
+    """
+    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    """
+    See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+    for notes on _meta usage.
+    """
     model_config = ConfigDict(extra="allow")
+
+    @property
+    def content_as_list(self) -> list[SamplingMessageContentBlock]:
+        """Returns the content as a list of content blocks, regardless of whether
+        it was originally a single block or a list."""
+        return self.content if isinstance(self.content, list) else [self.content]
 
 
 class EmbeddedResource(BaseModel):
@@ -865,7 +1289,27 @@ class ToolAnnotations(BaseModel):
     of a memory tool is not.
     Default: true
     """
+
     model_config = ConfigDict(extra="allow")
+
+
+class ToolExecution(BaseModel):
+    """Execution-related properties for a tool."""
+
+    model_config = ConfigDict(extra="allow")
+
+    taskSupport: TaskExecutionMode | None = None
+    """
+    Indicates whether this tool supports task-augmented execution.
+    This allows clients to handle long-running operations through polling
+    the task system.
+
+    - "forbidden": Tool does not support task-augmented execution (default when absent)
+    - "optional": Tool may support task-augmented execution
+    - "required": Tool requires task-augmented execution
+
+    Default: "forbidden"
+    """
 
 
 class Tool(BaseMetadata):
@@ -889,6 +1333,9 @@ class Tool(BaseMetadata):
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
     """
+
+    execution: ToolExecution | None = None
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -1035,6 +1482,25 @@ class ModelPreferences(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ToolChoice(BaseModel):
+    """
+    Controls tool usage behavior during sampling.
+
+    Allows the server to specify whether and how the LLM should use tools
+    in its response.
+    """
+
+    mode: Literal["auto", "required", "none"] | None = None
+    """
+    Controls when tools are used:
+    - "auto": Model decides whether to use tools (default)
+    - "required": Model MUST use at least one tool before completing
+    - "none": Model should not use tools
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
 class CreateMessageRequestParams(RequestParams):
     """Parameters for creating a message."""
 
@@ -1057,6 +1523,16 @@ class CreateMessageRequestParams(RequestParams):
     stopSequences: list[str] | None = None
     metadata: dict[str, Any] | None = None
     """Optional metadata to pass through to the LLM provider."""
+    tools: list["Tool"] | None = None
+    """
+    Tool definitions for the LLM to use during sampling.
+    Requires clientCapabilities.sampling.tools to be present.
+    """
+    toolChoice: ToolChoice | None = None
+    """
+    Controls tool usage behavior.
+    Requires clientCapabilities.sampling.tools and the tools parameter to be present.
+    """
     model_config = ConfigDict(extra="allow")
 
 
@@ -1067,18 +1543,52 @@ class CreateMessageRequest(Request[CreateMessageRequestParams, Literal["sampling
     params: CreateMessageRequestParams
 
 
-StopReason = Literal["endTurn", "stopSequence", "maxTokens"] | str
+StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
 
 
 class CreateMessageResult(Result):
-    """The client's response to a sampling/create_message request from the server."""
+    """The client's response to a sampling/create_message request from the server.
+
+    This is the backwards-compatible version that returns single content (no arrays).
+    Used when the request does not include tools.
+    """
 
     role: Role
-    content: TextContent | ImageContent | AudioContent
+    """The role of the message sender (typically 'assistant' for LLM responses)."""
+    content: SamplingContent
+    """Response content. Single content block (text, image, or audio)."""
     model: str
     """The name of the model that generated the message."""
     stopReason: StopReason | None = None
     """The reason why sampling stopped, if known."""
+
+
+class CreateMessageResultWithTools(Result):
+    """The client's response to a sampling/create_message request when tools were provided.
+
+    This version supports array content for tool use flows.
+    """
+
+    role: Role
+    """The role of the message sender (typically 'assistant' for LLM responses)."""
+    content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
+    """
+    Response content. May be a single content block or an array.
+    May include ToolUseContent if stopReason is 'toolUse'.
+    """
+    model: str
+    """The name of the model that generated the message."""
+    stopReason: StopReason | None = None
+    """
+    The reason why sampling stopped, if known.
+    'toolUse' indicates the model wants to use a tool.
+    """
+
+    @property
+    def content_as_list(self) -> list[SamplingMessageContentBlock]:
+        """Returns the content as a list of content blocks, regardless of whether
+        it was originally a single block or a list."""
+        return self.content if isinstance(self.content, list) else [self.content]
 
 
 class ResourceTemplateReference(BaseModel):
@@ -1230,10 +1740,17 @@ class RootsListChangedNotification(
 class CancelledNotificationParams(NotificationParams):
     """Parameters for cancellation notifications."""
 
-    requestId: RequestId
-    """The ID of the request to cancel."""
+    requestId: RequestId | None = None
+    """
+    The ID of the request to cancel.
+
+    This MUST correspond to the ID of a request previously issued in the same direction.
+    This MUST be provided for cancelling non-task requests.
+    This MUST NOT be used for cancelling tasks (use the `tasks/cancel` request instead).
+    """
     reason: str | None = None
     """An optional string describing the reason for the cancellation."""
+
     model_config = ConfigDict(extra="allow")
 
 
@@ -1247,29 +1764,67 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
     params: CancelledNotificationParams
 
 
-class ClientRequest(
-    RootModel[
-        PingRequest
-        | InitializeRequest
-        | CompleteRequest
-        | SetLevelRequest
-        | GetPromptRequest
-        | ListPromptsRequest
-        | ListResourcesRequest
-        | ListResourceTemplatesRequest
-        | ReadResourceRequest
-        | SubscribeRequest
-        | UnsubscribeRequest
-        | CallToolRequest
-        | ListToolsRequest
-    ]
+class ElicitCompleteNotificationParams(NotificationParams):
+    """Parameters for elicitation completion notifications."""
+
+    elicitationId: str
+    """The unique identifier of the elicitation that was completed."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ElicitCompleteNotification(
+    Notification[ElicitCompleteNotificationParams, Literal["notifications/elicitation/complete"]]
 ):
+    """
+    A notification from the server to the client, informing it that a URL mode
+    elicitation has been completed.
+
+    Clients MAY use the notification to automatically retry requests that received a
+    URLElicitationRequiredError, update the user interface, or otherwise continue
+    an interaction. However, because delivery of the notification is not guaranteed,
+    clients must not wait indefinitely for a notification from the server.
+    """
+
+    method: Literal["notifications/elicitation/complete"] = "notifications/elicitation/complete"
+    params: ElicitCompleteNotificationParams
+
+
+ClientRequestType: TypeAlias = (
+    PingRequest
+    | InitializeRequest
+    | CompleteRequest
+    | SetLevelRequest
+    | GetPromptRequest
+    | ListPromptsRequest
+    | ListResourcesRequest
+    | ListResourceTemplatesRequest
+    | ReadResourceRequest
+    | SubscribeRequest
+    | UnsubscribeRequest
+    | CallToolRequest
+    | ListToolsRequest
+    | GetTaskRequest
+    | GetTaskPayloadRequest
+    | ListTasksRequest
+    | CancelTaskRequest
+)
+
+
+class ClientRequest(RootModel[ClientRequestType]):
     pass
 
 
-class ClientNotification(
-    RootModel[CancelledNotification | ProgressNotification | InitializedNotification | RootsListChangedNotification]
-):
+ClientNotificationType: TypeAlias = (
+    CancelledNotification
+    | ProgressNotification
+    | InitializedNotification
+    | RootsListChangedNotification
+    | TaskStatusNotification
+)
+
+
+class ClientNotification(RootModel[ClientNotificationType]):
     pass
 
 
@@ -1278,12 +1833,56 @@ ElicitRequestedSchema: TypeAlias = dict[str, Any]
 """Schema for elicitation requests."""
 
 
-class ElicitRequestParams(RequestParams):
-    """Parameters for elicitation requests."""
+class ElicitRequestFormParams(RequestParams):
+    """Parameters for form mode elicitation requests.
+
+    Form mode collects non-sensitive information from the user via an in-band form
+    rendered by the client.
+    """
+
+    mode: Literal["form"] = "form"
+    """The elicitation mode (always "form" for this type)."""
 
     message: str
+    """The message to present to the user describing what information is being requested."""
+
     requestedSchema: ElicitRequestedSchema
+    """
+    A restricted subset of JSON Schema defining the structure of expected response.
+    Only top-level properties are allowed, without nesting.
+    """
+
     model_config = ConfigDict(extra="allow")
+
+
+class ElicitRequestURLParams(RequestParams):
+    """Parameters for URL mode elicitation requests.
+
+    URL mode directs users to external URLs for sensitive out-of-band interactions
+    like OAuth flows, credential collection, or payment processing.
+    """
+
+    mode: Literal["url"] = "url"
+    """The elicitation mode (always "url" for this type)."""
+
+    message: str
+    """The message to present to the user explaining why the interaction is needed."""
+
+    url: str
+    """The URL that the user should navigate to."""
+
+    elicitationId: str
+    """
+    The ID of the elicitation, which must be unique within the context of the server.
+    The client MUST treat this ID as an opaque value.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+# Union type for elicitation request parameters
+ElicitRequestParams: TypeAlias = ElicitRequestURLParams | ElicitRequestFormParams
+"""Parameters for elicitation requests - either form or URL mode."""
 
 
 class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]]):
@@ -1299,52 +1898,102 @@ class ElicitResult(Result):
     action: Literal["accept", "decline", "cancel"]
     """
     The user action in response to the elicitation.
-    - "accept": User submitted the form/confirmed the action
+    - "accept": User submitted the form/confirmed the action (or consented to URL navigation)
     - "decline": User explicitly declined the action
     - "cancel": User dismissed without making an explicit choice
     """
 
-    content: dict[str, str | int | float | bool | None] | None = None
+    content: dict[str, str | int | float | bool | list[str] | None] | None = None
     """
-    The submitted form data, only present when action is "accept".
-    Contains values matching the requested schema.
+    The submitted form data, only present when action is "accept" in form mode.
+    Contains values matching the requested schema. Values can be strings, integers,
+    booleans, or arrays of strings.
+    For URL mode, this field is omitted.
     """
 
 
-class ClientResult(RootModel[EmptyResult | CreateMessageResult | ListRootsResult | ElicitResult]):
+class ElicitationRequiredErrorData(BaseModel):
+    """Error data for URLElicitationRequiredError.
+
+    Servers return this when a request cannot be processed until one or more
+    URL mode elicitations are completed.
+    """
+
+    elicitations: list[ElicitRequestURLParams]
+    """List of URL mode elicitations that must be completed."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+ClientResultType: TypeAlias = (
+    EmptyResult
+    | CreateMessageResult
+    | CreateMessageResultWithTools
+    | ListRootsResult
+    | ElicitResult
+    | GetTaskResult
+    | GetTaskPayloadResult
+    | ListTasksResult
+    | CancelTaskResult
+    | CreateTaskResult
+)
+
+
+class ClientResult(RootModel[ClientResultType]):
     pass
 
 
-class ServerRequest(RootModel[PingRequest | CreateMessageRequest | ListRootsRequest | ElicitRequest]):
+ServerRequestType: TypeAlias = (
+    PingRequest
+    | CreateMessageRequest
+    | ListRootsRequest
+    | ElicitRequest
+    | GetTaskRequest
+    | GetTaskPayloadRequest
+    | ListTasksRequest
+    | CancelTaskRequest
+)
+
+
+class ServerRequest(RootModel[ServerRequestType]):
     pass
 
 
-class ServerNotification(
-    RootModel[
-        CancelledNotification
-        | ProgressNotification
-        | LoggingMessageNotification
-        | ResourceUpdatedNotification
-        | ResourceListChangedNotification
-        | ToolListChangedNotification
-        | PromptListChangedNotification
-    ]
-):
+ServerNotificationType: TypeAlias = (
+    CancelledNotification
+    | ProgressNotification
+    | LoggingMessageNotification
+    | ResourceUpdatedNotification
+    | ResourceListChangedNotification
+    | ToolListChangedNotification
+    | PromptListChangedNotification
+    | ElicitCompleteNotification
+    | TaskStatusNotification
+)
+
+
+class ServerNotification(RootModel[ServerNotificationType]):
     pass
 
 
-class ServerResult(
-    RootModel[
-        EmptyResult
-        | InitializeResult
-        | CompleteResult
-        | GetPromptResult
-        | ListPromptsResult
-        | ListResourcesResult
-        | ListResourceTemplatesResult
-        | ReadResourceResult
-        | CallToolResult
-        | ListToolsResult
-    ]
-):
+ServerResultType: TypeAlias = (
+    EmptyResult
+    | InitializeResult
+    | CompleteResult
+    | GetPromptResult
+    | ListPromptsResult
+    | ListResourcesResult
+    | ListResourceTemplatesResult
+    | ReadResourceResult
+    | CallToolResult
+    | ListToolsResult
+    | GetTaskResult
+    | GetTaskPayloadResult
+    | ListTasksResult
+    | CancelTaskResult
+    | CreateTaskResult
+)
+
+
+class ServerResult(RootModel[ServerResultType]):
     pass

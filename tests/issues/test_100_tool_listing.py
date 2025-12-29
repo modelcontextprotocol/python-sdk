@@ -13,7 +13,7 @@ async def test_list_tools_returns_all_tools():
     for i in range(num_tools):
 
         @mcp.tool(name=f"tool_{i}")
-        def dummy_tool_func():
+        def dummy_tool_func():  # pragma: no cover
             f"""Tool number {i}"""
             return i
 

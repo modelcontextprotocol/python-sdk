@@ -7,13 +7,13 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 
 import multiprocessing
 import socket
-import time
 from collections.abc import Generator
 
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
+from tests.test_helpers import wait_for_server
 
 # Test constants with various Unicode characters
 UNICODE_TEST_STRINGS = {
@@ -35,7 +35,7 @@ UNICODE_TEST_STRINGS = {
 }
 
 
-def run_unicode_server(port: int) -> None:
+def run_unicode_server(port: int) -> None:  # pragma: no cover
     """Run the Unicode test server in a separate process."""
     # Import inside the function since this runs in a separate process
     from collections.abc import AsyncGenerator
@@ -158,19 +158,8 @@ def running_unicode_server(unicode_server_port: int) -> Generator[str, None, Non
     proc = multiprocessing.Process(target=run_unicode_server, kwargs={"port": unicode_server_port}, daemon=True)
     proc.start()
 
-    # Wait for server to be running
-    max_attempts = 20
-    attempt = 0
-    while attempt < max_attempts:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect(("127.0.0.1", unicode_server_port))
-                break
-        except ConnectionRefusedError:
-            time.sleep(0.1)
-            attempt += 1
-    else:
-        raise RuntimeError(f"Server failed to start after {max_attempts} attempts")
+    # Wait for server to be ready
+    wait_for_server(unicode_server_port)
 
     try:
         yield f"http://127.0.0.1:{unicode_server_port}"
@@ -178,7 +167,7 @@ def running_unicode_server(unicode_server_port: int) -> Generator[str, None, Non
         # Clean up - try graceful termination first
         proc.terminate()
         proc.join(timeout=2)
-        if proc.is_alive():
+        if proc.is_alive():  # pragma: no cover
             proc.kill()
             proc.join(timeout=1)
 
@@ -189,7 +178,7 @@ async def test_streamable_http_client_unicode_tool_call(running_unicode_server: 
     base_url = running_unicode_server
     endpoint_url = f"{base_url}/mcp"
 
-    async with streamablehttp_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
+    async with streamable_http_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
@@ -221,7 +210,7 @@ async def test_streamable_http_client_unicode_prompts(running_unicode_server: st
     base_url = running_unicode_server
     endpoint_url = f"{base_url}/mcp"
 
-    async with streamablehttp_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
+    async with streamable_http_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
