@@ -1,14 +1,14 @@
 import logging
-from datetime import timedelta
 from typing import Any, Protocol, overload
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from jsonschema import SchemaError, ValidationError, validate
 from pydantic import AnyUrl, TypeAdapter
 from typing_extensions import deprecated
 
 import mcp.types as types
+from mcp.client.experimental import ExperimentalClientFeatures
+from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
@@ -24,7 +24,7 @@ class SamplingFnT(Protocol):
         self,
         context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
-    ) -> types.CreateMessageResult | types.ErrorData: ...  # pragma: no branch
+    ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
 
 class ElicitationFnT(Protocol):
@@ -64,7 +64,7 @@ async def _default_message_handler(
 async def _default_sampling_callback(
     context: RequestContext["ClientSession", Any],
     params: types.CreateMessageRequestParams,
-) -> types.CreateMessageResult | types.ErrorData:
+) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Sampling not supported",
@@ -112,13 +112,16 @@ class ClientSession(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        *,
+        sampling_capabilities: types.SamplingCapability | None = None,
+        experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -129,17 +132,31 @@ class ClientSession(
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
+        self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
+        self._experimental_features: ExperimentalClientFeatures | None = None
+
+        # Experimental: Task handlers (use defaults if not provided)
+        self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
 
     async def initialize(self) -> types.InitializeResult:
-        sampling = types.SamplingCapability() if self._sampling_callback is not _default_sampling_callback else None
+        sampling = (
+            (self._sampling_capabilities or types.SamplingCapability())
+            if self._sampling_callback is not _default_sampling_callback
+            else None
+        )
         elicitation = (
-            types.ElicitationCapability() if self._elicitation_callback is not _default_elicitation_callback else None
+            types.ElicitationCapability(
+                form=types.FormElicitationCapability(),
+                url=types.UrlElicitationCapability(),
+            )
+            if self._elicitation_callback is not _default_elicitation_callback
+            else None
         )
         roots = (
             # TODO: Should this be based on whether we
@@ -160,6 +177,7 @@ class ClientSession(
                             elicitation=elicitation,
                             experimental=None,
                             roots=roots,
+                            tasks=self._task_handlers.build_capability(),
                         ),
                         clientInfo=self._client_info,
                     ),
@@ -183,6 +201,20 @@ class ClientSession(
         Returns None if the session has not been initialized yet.
         """
         return self._server_capabilities
+
+    @property
+    def experimental(self) -> ExperimentalClientFeatures:
+        """Experimental APIs for tasks and other features.
+
+        WARNING: These APIs are experimental and may change without notice.
+
+        Example:
+            status = await session.experimental.get_task(task_id)
+            result = await session.experimental.get_task_result(task_id, CallToolResult)
+        """
+        if self._experimental_features is None:
+            self._experimental_features = ExperimentalClientFeatures(self)
+        return self._experimental_features
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
@@ -336,7 +368,7 @@ class ClientSession(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
@@ -376,6 +408,8 @@ class ClientSession(
             logger.warning(f"Tool {name} not listed by server, cannot validate any structured content")
 
         if output_schema is not None:
+            from jsonschema import SchemaError, ValidationError, validate
+
             if result.structuredContent is None:
                 raise RuntimeError(
                     f"Tool {name} has an output schema but did not return structured content"
@@ -515,16 +549,31 @@ class ClientSession(
             lifespan_context=None,
         )
 
+        # Delegate to experimental task handler if applicable
+        if self._task_handlers.handles_request(responder.request):
+            with responder:
+                await self._task_handlers.handle_request(ctx, responder)
+            return None
+
+        # Core request handling
         match responder.request.root:
             case types.CreateMessageRequest(params=params):
                 with responder:
-                    response = await self._sampling_callback(ctx, params)
+                    # Check if this is a task-augmented request
+                    if params.task is not None:
+                        response = await self._task_handlers.augmented_sampling(ctx, params, params.task)
+                    else:
+                        response = await self._sampling_callback(ctx, params)
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
             case types.ElicitRequest(params=params):
                 with responder:
-                    response = await self._elicitation_callback(ctx, params)
+                    # Check if this is a task-augmented request
+                    if params.task is not None:
+                        response = await self._task_handlers.augmented_elicitation(ctx, params, params.task)
+                    else:
+                        response = await self._elicitation_callback(ctx, params)
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
@@ -537,6 +586,11 @@ class ClientSession(
             case types.PingRequest():  # pragma: no cover
                 with responder:
                     return await responder.respond(types.ClientResult(root=types.EmptyResult()))
+
+            case _:  # pragma: no cover
+                pass  # Task requests handled above by _task_handlers
+
+        return None
 
     async def _handle_incoming(
         self,
@@ -551,5 +605,10 @@ class ClientSession(
         match notification.root:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
+            case types.ElicitCompleteNotification(params=params):
+                # Handle elicitation completion notification
+                # Clients MAY use this to retry requests or update UI
+                # The notification contains the elicitationId of the completed elicitation
+                pass
             case _:
                 pass

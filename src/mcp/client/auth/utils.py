@@ -3,7 +3,7 @@ import re
 from urllib.parse import urljoin, urlparse
 
 from httpx import Request, Response
-from pydantic import ValidationError
+from pydantic import AnyUrl, ValidationError
 
 from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
@@ -241,6 +241,75 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
         # await self.context.storage.set_client_info(client_info)
     except ValidationError as e:  # pragma: no cover
         raise OAuthRegistrationError(f"Invalid registration response: {e}")
+
+
+def is_valid_client_metadata_url(url: str | None) -> bool:
+    """Validate that a URL is suitable for use as a client_id (CIMD).
+
+    The URL must be HTTPS with a non-root pathname.
+
+    Args:
+        url: The URL to validate
+
+    Returns:
+        True if the URL is a valid HTTPS URL with a non-root pathname
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme == "https" and parsed.path not in ("", "/")
+    except Exception:
+        return False
+
+
+def should_use_client_metadata_url(
+    oauth_metadata: OAuthMetadata | None,
+    client_metadata_url: str | None,
+) -> bool:
+    """Determine if URL-based client ID (CIMD) should be used instead of DCR.
+
+    URL-based client IDs should be used when:
+    1. The server advertises client_id_metadata_document_supported=true
+    2. The client has a valid client_metadata_url configured
+
+    Args:
+        oauth_metadata: OAuth authorization server metadata
+        client_metadata_url: URL-based client ID (already validated)
+
+    Returns:
+        True if CIMD should be used, False if DCR should be used
+    """
+    if not client_metadata_url:
+        return False
+
+    if not oauth_metadata:
+        return False
+
+    return oauth_metadata.client_id_metadata_document_supported is True
+
+
+def create_client_info_from_metadata_url(
+    client_metadata_url: str, redirect_uris: list[AnyUrl] | None = None
+) -> OAuthClientInformationFull:
+    """Create client information using a URL-based client ID (CIMD).
+
+    When using URL-based client IDs, the URL itself becomes the client_id
+    and no client_secret is used (token_endpoint_auth_method="none").
+
+    Args:
+        client_metadata_url: The URL to use as the client_id
+        redirect_uris: The redirect URIs from the client metadata (passed through for
+            compatibility with OAuthClientInformationFull which inherits from OAuthClientMetadata)
+
+    Returns:
+        OAuthClientInformationFull with the URL as client_id
+    """
+    return OAuthClientInformationFull(
+        client_id=client_metadata_url,
+        token_endpoint_auth_method="none",
+        redirect_uris=redirect_uris,
+    )
 
 
 async def handle_token_response_scopes(

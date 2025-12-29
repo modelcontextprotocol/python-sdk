@@ -24,7 +24,7 @@ class EventEntry:
 
     event_id: EventId
     stream_id: StreamId
-    message: JSONRPCMessage
+    message: JSONRPCMessage | None
 
 
 class InMemoryEventStore(EventStore):
@@ -48,7 +48,7 @@ class InMemoryEventStore(EventStore):
         # event_id -> EventEntry for quick lookup
         self.event_index: dict[EventId, EventEntry] = {}
 
-    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage) -> EventId:
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
         """Stores an event with a generated event ID."""
         event_id = str(uuid4())
         event_entry = EventEntry(event_id=event_id, stream_id=stream_id, message=message)
@@ -88,7 +88,9 @@ class InMemoryEventStore(EventStore):
         found_last = False
         for event in stream_events:
             if found_last:
-                await send_callback(EventMessage(event.message, event.event_id))
+                # Skip priming events (None message)
+                if event.message is not None:
+                    await send_callback(EventMessage(event.message, event.event_id))
             elif event.event_id == last_event_id:
                 found_last = True
 

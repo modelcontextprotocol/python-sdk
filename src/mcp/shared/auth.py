@@ -43,7 +43,9 @@ class OAuthClientMetadata(BaseModel):
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
     # supported auth methods for the token endpoint
-    token_endpoint_auth_method: Literal["none", "client_secret_post", "private_key_jwt"] = "client_secret_post"
+    token_endpoint_auth_method: (
+        Literal["none", "client_secret_post", "client_secret_basic", "private_key_jwt"] | None
+    ) = None
     # supported grant_types of this implementation
     grant_types: list[
         Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str

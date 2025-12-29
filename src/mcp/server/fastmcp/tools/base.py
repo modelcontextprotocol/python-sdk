@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
@@ -55,6 +57,8 @@ class Tool(BaseModel):
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
+
+        validate_and_warn_tool_name(func_name)
 
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
@@ -105,6 +109,10 @@ class Tool(BaseModel):
                 result = self.fn_metadata.convert_result(result)
 
             return result
+        except UrlElicitationRequiredError:
+            # Re-raise UrlElicitationRequiredError so it can be properly handled
+            # as an MCP error response with code -32042
+            raise
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
 

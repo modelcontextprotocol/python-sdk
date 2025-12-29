@@ -1,7 +1,6 @@
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
-from datetime import timedelta
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -13,6 +12,7 @@ from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
@@ -179,6 +179,7 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
+    _response_routers: list["ResponseRouter"]
 
     def __init__(
         self,
@@ -187,7 +188,7 @@ class BaseSession(
         receive_request_type: type[ReceiveRequestT],
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -198,7 +199,23 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
+        self._response_routers = []
         self._exit_stack = AsyncExitStack()
+
+    def add_response_router(self, router: ResponseRouter) -> None:
+        """
+        Register a response router to handle responses for non-standard requests.
+
+        Response routers are checked in order before falling back to the default
+        response stream mechanism. This is used by TaskResultHandler to route
+        responses for queued task requests back to their resolvers.
+
+        WARNING: This is an experimental API that may change without notice.
+
+        Args:
+            router: A ResponseRouter implementation
+        """
+        self._response_routers.append(router)
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
@@ -223,7 +240,7 @@ class BaseSession(
         self,
         request: SendRequestT,
         result_type: type[ReceiveResultT],
-        request_read_timeout_seconds: timedelta | None = None,
+        request_read_timeout_seconds: float | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
@@ -265,9 +282,9 @@ class BaseSession(
             # request read timeout takes precedence over session read timeout
             timeout = None
             if request_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = request_read_timeout_seconds.total_seconds()
+                timeout = request_read_timeout_seconds
             elif self._session_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = self._session_read_timeout_seconds.total_seconds()
+                timeout = self._session_read_timeout_seconds
 
             try:
                 with anyio.fail_after(timeout):
@@ -413,13 +430,7 @@ class BaseSession(
                                 f"Failed to validate notification: {e}. Message was: {message.message.root}"
                             )
                     else:  # Response or error
-                        stream = self._response_streams.pop(message.message.root.id, None)
-                        if stream:  # pragma: no cover
-                            await stream.send(message.message.root)
-                        else:  # pragma: no cover
-                            await self._handle_incoming(
-                                RuntimeError(f"Received response with an unknown request ID: {message}")
-                            )
+                        await self._handle_response(message)
 
             except anyio.ClosedResourceError:
                 # This is expected when the client disconnects abruptly.
@@ -442,6 +453,66 @@ class BaseSession(
                         # Stream might already be closed
                         pass
                 self._response_streams.clear()
+
+    def _normalize_request_id(self, response_id: RequestId) -> RequestId:
+        """
+        Normalize a response ID to match how request IDs are stored.
+
+        Since the client always sends integer IDs, we normalize string IDs
+        to integers when possible. This matches the TypeScript SDK approach:
+        https://github.com/modelcontextprotocol/typescript-sdk/blob/a606fb17909ea454e83aab14c73f14ea45c04448/src/shared/protocol.ts#L861
+
+        Args:
+            response_id: The response ID from the incoming message.
+
+        Returns:
+            The normalized ID (int if possible, otherwise original value).
+        """
+        if isinstance(response_id, str):
+            try:
+                return int(response_id)
+            except ValueError:
+                logging.warning(f"Response ID {response_id!r} cannot be normalized to match pending requests")
+        return response_id
+
+    async def _handle_response(self, message: SessionMessage) -> None:
+        """
+        Handle an incoming response or error message.
+
+        Checks response routers first (e.g., for task-related responses),
+        then falls back to the normal response stream mechanism.
+        """
+        root = message.message.root
+
+        # This check is always true at runtime: the caller (_receive_loop) only invokes
+        # this method in the else branch after checking for JSONRPCRequest and
+        # JSONRPCNotification. However, the type checker can't infer this from the
+        # method signature, so we need this guard for type narrowing.
+        if not isinstance(root, JSONRPCResponse | JSONRPCError):
+            return  # pragma: no cover
+
+        # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
+        response_id = self._normalize_request_id(root.id)
+
+        # First, check response routers (e.g., TaskResultHandler)
+        if isinstance(root, JSONRPCError):
+            # Route error to routers
+            for router in self._response_routers:
+                if router.route_error(response_id, root.error):
+                    return  # Handled
+        else:
+            # Route success response to routers
+            response_data: dict[str, Any] = root.result or {}
+            for router in self._response_routers:
+                if router.route_response(response_id, response_data):
+                    return  # Handled
+
+        # Fall back to normal response streams
+        stream = self._response_streams.pop(response_id, None)
+        if stream:  # pragma: no cover
+            await stream.send(root)
+        else:  # pragma: no cover
+            await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
         """

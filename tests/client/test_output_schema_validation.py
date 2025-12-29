@@ -19,9 +19,27 @@ def bypass_server_output_validation():
     This simulates a malicious or non-compliant server that doesn't validate
     its outputs, allowing us to test client-side validation.
     """
-    # Patch jsonschema.validate in the server module to disable all validation
-    with patch("mcp.server.lowlevel.server.jsonschema.validate"):
-        # The mock will simply return None (do nothing) for all validation calls
+    import jsonschema
+
+    # Save the original validate function
+    original_validate = jsonschema.validate
+
+    # Create a mock that tracks which module is calling it
+    def selective_mock(instance: Any = None, schema: Any = None, *args: Any, **kwargs: Any) -> None:
+        import inspect
+
+        # Check the call stack to see where this is being called from
+        for frame_info in inspect.stack():
+            # If called from the server module, skip validation
+            # TODO: fix this as it's a rather gross workaround and will eventually break
+            # Normalize path separators for cross-platform compatibility
+            normalized_path = frame_info.filename.replace("\\", "/")
+            if "mcp/server/lowlevel/server.py" in normalized_path:
+                return None
+        # Otherwise, use the real validation (for client-side)
+        return original_validate(instance=instance, schema=schema, *args, **kwargs)
+
+    with patch("jsonschema.validate", selective_mock):
         yield
 
 

@@ -42,7 +42,11 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import (
     ElicitationResult,
     ElicitSchemaModelT,
+    UrlElicitationResult,
     elicit_with_validation,
+)
+from mcp.server.elicitation import (
+    elicit_url as _elicit_url,
 )
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
@@ -152,6 +156,7 @@ class FastMCP(Generic[LifespanResultT]):
         auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
+        retry_interval: int | None = None,
         *,
         tools: list[Tool] | None = None,
         debug: bool = False,
@@ -172,6 +177,14 @@ class FastMCP(Generic[LifespanResultT]):
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ):
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
+
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -223,6 +236,7 @@ class FastMCP(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._event_store = event_store
+        self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
         self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -715,6 +729,10 @@ class FastMCP(Generic[LifespanResultT]):
         The handler function must be an async function that accepts a Starlette
         Request and returns a Response.
 
+        Routes using this decorator will not require authorization. It is intended
+        for uses that are either a part of authorization flows or intended to be
+        public such as health check endpoints.
+
         Args:
             path: URL path for the route (e.g., "/oauth/callback")
             methods: List of HTTP methods to support (e.g., ["GET", "POST"])
@@ -950,6 +968,7 @@ class FastMCP(Generic[LifespanResultT]):
             self._session_manager = StreamableHTTPSessionManager(
                 app=self._mcp_server,
                 event_store=self._event_store,
+                retry_interval=self._retry_interval,
                 json_response=self.settings.json_response,
                 stateless=self.settings.stateless_http,  # Use the stateless setting
                 security_settings=self.settings.transport_security,
@@ -1218,12 +1237,48 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+    ) -> UrlElicitationResult:
+        """Request URL mode elicitation from the client.
+
+        This directs the user to an external URL for out-of-band interactions
+        that must not pass through the MCP client. Use this for:
+        - Collecting sensitive credentials (API keys, passwords)
+        - OAuth authorization flows with third-party services
+        - Payment and subscription flows
+        - Any interaction where data should not pass through the LLM context
+
+        The response indicates whether the user consented to navigate to the URL.
+        The actual interaction happens out-of-band. When the elicitation completes,
+        call `self.session.send_elicit_complete(elicitation_id)` to notify the client.
+
+        Args:
+            message: Human-readable explanation of why the interaction is needed
+            url: The URL the user should navigate to
+            elicitation_id: Unique identifier for tracking this elicitation
+
+        Returns:
+            UrlElicitationResult indicating accept, decline, or cancel
+        """
+        return await _elicit_url(
+            session=self.request_context.session,
+            message=message,
+            url=url,
+            elicitation_id=elicitation_id,
+            related_request_id=self.request_id,
+        )
+
     async def log(
         self,
         level: Literal["debug", "info", "warning", "error"],
         message: str,
         *,
         logger_name: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """Send a log message to the client.
 
@@ -1231,11 +1286,20 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             level: Log level (debug, info, warning, error)
             message: Log message
             logger_name: Optional logger name
-            **extra: Additional structured data to include
+            extra: Optional dictionary with additional structured data to include
         """
+
+        if extra:
+            log_data = {
+                "message": message,
+                **extra,
+            }
+        else:
+            log_data = message
+
         await self.request_context.session.send_log_message(
             level=level,
-            data=message,
+            data=log_data,
             logger=logger_name,
             related_request_id=self.request_id,
         )
@@ -1257,19 +1321,53 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
 
+    async def close_sse_stream(self) -> None:
+        """Close the SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the current request, triggering
+        client reconnection. Events continue to be stored in the event store and will
+        be replayed when the client reconnects with Last-Event-ID.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            The callback is only available when event_store is configured.
+        """
+        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
+            await self._request_context.close_sse_stream()
+
+    async def close_standalone_sse_stream(self) -> None:
+        """Close the standalone GET SSE stream to trigger client reconnection.
+
+        This method closes the HTTP connection for the standalone GET stream used
+        for unsolicited server-to-client notifications. The client SHOULD reconnect
+        with Last-Event-ID to resume receiving notifications.
+
+        Note:
+            This is a no-op if not using StreamableHTTP transport with event_store.
+            Currently, client reconnection for standalone GET streams is NOT
+            implemented - this is a known gap.
+        """
+        if self._request_context and self._request_context.close_standalone_sse_stream:  # pragma: no cover
+            await self._request_context.close_standalone_sse_stream()
+
     # Convenience methods for common log levels
-    async def debug(self, message: str, **extra: Any) -> None:
+    async def debug(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
         """Send a debug log message."""
-        await self.log("debug", message, **extra)
+        await self.log("debug", message, logger_name=logger_name, extra=extra)
 
-    async def info(self, message: str, **extra: Any) -> None:
+    async def info(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
         """Send an info log message."""
-        await self.log("info", message, **extra)
+        await self.log("info", message, logger_name=logger_name, extra=extra)
 
-    async def warning(self, message: str, **extra: Any) -> None:
+    async def warning(
+        self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None
+    ) -> None:
         """Send a warning log message."""
-        await self.log("warning", message, **extra)
+        await self.log("warning", message, logger_name=logger_name, extra=extra)
 
-    async def error(self, message: str, **extra: Any) -> None:
+    async def error(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
         """Send an error log message."""
-        await self.log("error", message, **extra)
+        await self.log("error", message, logger_name=logger_name, extra=extra)
