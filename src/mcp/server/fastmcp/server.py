@@ -550,13 +550,8 @@ class FastMCP(Generic[LifespanResultT]):
         has parameters, it will be registered as a template resource.
 
         Function parameters in the path are required,
-        while parameters with default values
-        can be optionally provided as query parameters using RFC 6570 form-style query
-        expansion syntax: {?param1,param2,...}
-
-        Examples:
-        - resource://{category}/{id}{?filter,sort,limit}
-        - resource://{user_id}/profile{?format,fields}
+        while parameters with default values need to be provided
+        in the function definion.
 
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
@@ -579,13 +574,12 @@ class FastMCP(Generic[LifespanResultT]):
             def get_weather(city: str) -> str:
                 return f"Weather for {city}"
 
-            @server.resource("resource://{city}/weather{?units}")
+            @server.resource("resource://{city}/weather")
             def get_weather_with_options(city: str, units: str = "metric") -> str:
                 # Can be called with resource://paris/weather?units=imperial
                 return f"Weather for {city} in {units} units"
 
-            @server.resource("resource://{category}/{id}
-            {?filter,sort,limit}")
+            @server.resource("resource://{category}/{id}")
             def get_item(category: str, id: str, filter: str = "all", sort: str = "name"
             , limit: int = 10) -> str:
                 # Can be called with resource://electronics/1234?filter=new&sort=price&limit=20
