@@ -1,6 +1,7 @@
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
+from functools import partial
 from itertools import chain
 from types import GenericAlias
 from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
@@ -16,7 +17,6 @@ from pydantic import (
     WithJsonSchema,
     create_model,
 )
-from functools import partial
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from typing_extensions import is_typeddict
@@ -95,7 +95,7 @@ class FuncMetadata(BaseModel):
         if fn_is_async:
             return await fn(**arguments_parsed_dict)
         else:
-            await anyio.to_thread.run_sync(partial(fn, **arguments_parsed_dict))
+            return await anyio.to_thread.run_sync(partial(fn, **arguments_parsed_dict))
 
     def convert_result(self, result: Any) -> Any:
         """

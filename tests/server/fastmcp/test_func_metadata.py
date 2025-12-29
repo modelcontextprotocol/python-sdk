@@ -3,10 +3,10 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
-from collections.abc import Callable
-from dataclasses import dataclass
 import threading
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Any, Final, TypedDict
 
 import annotated_types
@@ -1206,72 +1206,6 @@ def test_preserves_pydantic_metadata():
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
 
-@pytest.mark.anyio
-async def test_sync_function_runs_in_worker_thread():
-    """
-    Ensure synchronous tools are executed in a worker thread via anyio.to_thread.run_sync,
-    instead of blocking the event loop thread.
-    """
-
-    def blocking_sync(delay: float) -> int:  # pragma: no cover
-        # Sleep to simulate a blocking sync tool
-        time.sleep(delay)
-        # Return the thread ID we are running on
-        return threading.get_ident()
-
-    meta = func_metadata(blocking_sync)
-
-    # This is the event loop thread ID (where the test itself is running)
-    loop_thread_id = threading.get_ident()
-
-    # Call the sync function through call_fn_with_arg_validation
-    result_thread_id = await meta.call_fn_with_arg_validation(
-        blocking_sync,
-        fn_is_async=False,
-        arguments_to_validate={"delay": 0.01},
-        arguments_to_pass_directly=None,
-    )
-
-    # The tool should have executed in a different worker thread
-    assert result_thread_id != loop_thread_id
-
-
-@pytest.mark.anyio
-async def test_sync_blocking_tool_does_not_block_event_loop():
-    """
-    A blocking synchronous tool (time.sleep) should not prevent other tasks
-    on the event loop from running, because it is offloaded to a worker thread.
-    """
-
-    def blocking_tool(delay: float) -> str:  # pragma: no cover
-        time.sleep(delay)
-        return "done"
-
-    meta = func_metadata(blocking_tool)
-
-    flag = {"ran": False}
-
-    async def run_tool():
-        result = await meta.call_fn_with_arg_validation(
-            blocking_tool,
-            fn_is_async=False,
-            arguments_to_validate={"delay": 0.2},
-            arguments_to_pass_directly=None,
-        )
-        assert result == "done"
-
-    async def concurrent_task():
-        # If the event loop is *not* blocked, this will run while the tool sleeps
-        await anyio.sleep(0.05)
-        flag["ran"] = True
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_tool)
-        tg.start_soon(concurrent_task)
-
-    # If the sync tool had blocked the event loop, concurrent_task would never
-    # have executed and flag["ran"] would still be False.
-    assert flag["ran"] is True
 
 @pytest.mark.anyio
 async def test_sync_tool_does_not_block_event_loop() -> None:
@@ -1320,3 +1254,33 @@ async def test_sync_tool_does_not_block_event_loop() -> None:
     # If slow_sync blocks the loop, this will be ~0.30s and fail.
     # If slow_sync is offloaded, this should typically be a few ms.
     assert fast_probe_elapsed < 0.10
+
+
+@pytest.mark.anyio
+async def test_sync_function_runs_in_worker_thread():
+    """
+    Ensure synchronous tools are executed in a worker thread via anyio.to_thread.run_sync,
+    instead of blocking the event loop thread.
+    """
+
+    def blocking_sync(delay: float) -> int:  # pragma: no cover
+        # Sleep to simulate a blocking sync tool
+        time.sleep(delay)
+        # Return the thread ID we are running on
+        return threading.get_ident()
+
+    meta = func_metadata(blocking_sync)
+
+    # This is the event loop thread ID (where the test itself is running)
+    loop_thread_id = threading.get_ident()
+
+    # Call the sync function through call_fn_with_arg_validation
+    result_thread_id = await meta.call_fn_with_arg_validation(
+        blocking_sync,
+        fn_is_async=False,
+        arguments_to_validate={"delay": 0.01},
+        arguments_to_pass_directly=None,
+    )
+
+    # The tool should have executed in a different worker thread
+    assert result_thread_id != loop_thread_id
