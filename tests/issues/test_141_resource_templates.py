@@ -40,11 +40,12 @@ async def test_resource_template_edge_cases():
             return f"Profile for user {different_param}"
 
     # Test case 4: Template with extra function parameters
-    with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
-        @mcp.resource("resource://users/{user_id}/profile")
-        def get_user_profile_extra(user_id: str, extra_param: str) -> str:  # pragma: no cover
-            return f"Profile for user {user_id}"
+    # when no default value given it becomes a required
+    # query parameter when default value is given its a
+    # optional query parameter
+    @mcp.resource("resource://users_extra/{user_id}/profile")
+    def get_user_profile_extra(user_id: str, extra_param: str = "") -> str:  # pragma: no cover
+        return f"Profile for user {user_id}"
 
     # Test case 5: Template with missing function parameters
     with pytest.raises(

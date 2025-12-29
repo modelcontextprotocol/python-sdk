@@ -1300,6 +1300,8 @@ class TestUseDefaultsOnOptionalValidationErrorDecorator:
     ):
         with pytest.raises(ValidationError):
             await decorated_async_func(opt_int=100)
+
+
 def test_disallowed_type_qualifier():
     from mcp.server.fastmcp.exceptions import InvalidSignature
 

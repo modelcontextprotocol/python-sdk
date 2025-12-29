@@ -860,11 +860,9 @@ class TestServerResourceTemplates:
         parameters don't match"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
-            @mcp.resource("resource://data")
-            def get_data_fn(param: str) -> str:  # pragma: no cover
-                return f"Data: {param}"
+        @mcp.resource("resource://data")
+        def get_data_fn(param: str) -> str:  # pragma: no cover
+            return f"Data: {param}"
 
     @pytest.mark.anyio
     async def test_resource_with_uri_params(self):
