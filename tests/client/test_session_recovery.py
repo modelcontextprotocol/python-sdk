@@ -581,3 +581,207 @@ async def test_session_recovery_preserves_request_data():
     assert tool_params_received[0] == tool_params_received[1]
     assert tool_params_received[0]["name"] == "important_tool"
     assert tool_params_received[0]["arguments"] == {"key": "sensitive_value", "count": 42}
+
+
+@pytest.mark.anyio
+async def test_streamable_http_transport_404_sends_session_expired():
+    """Test that HTTP transport converts 404 response to SESSION_EXPIRED error.
+
+    This tests the transport layer directly to ensure the 404 -> SESSION_EXPIRED
+    conversion happens correctly in streamable_http.py.
+    """
+    import json
+
+    import httpx
+
+    from mcp.client.streamable_http import StreamableHTTPTransport
+
+    # Track requests to simulate different responses
+    request_count = 0
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            # First request (initialize) - return success with SSE
+            init_response = {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "result": {
+                    "protocolVersion": LATEST_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "serverInfo": {"name": "mock", "version": "0.1.0"},
+                },
+            }
+            sse_data = f"event: message\ndata: {json.dumps(init_response)}\n\n"
+            return httpx.Response(
+                200,
+                content=sse_data.encode(),
+                headers={
+                    "Content-Type": "text/event-stream",
+                    "mcp-session-id": "test-session-123",
+                },
+            )
+        else:
+            # Second request - return 404 (session not found)
+            return httpx.Response(404, content=b"Session not found")
+
+    transport = httpx.MockTransport(mock_handler)
+    http_client = httpx.AsyncClient(transport=transport)
+
+    # Create the transport
+    streamable_transport = StreamableHTTPTransport("http://example.com/mcp")
+
+    # Set up streams - read_send needs to accept SessionMessage | Exception
+    read_send, read_receive = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    write_send, write_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    # Send an initialization request
+    init_request = JSONRPCMessage(
+        JSONRPCRequest(
+            jsonrpc="2.0",
+            id=0,
+            method="initialize",
+            params={
+                "protocolVersion": LATEST_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "0.1.0"},
+            },
+        )
+    )
+
+    try:
+        async with anyio.create_task_group() as tg:
+            get_stream_started = False
+
+            def start_get_stream() -> None:
+                nonlocal get_stream_started
+                get_stream_started = True
+
+            async def run_post_writer():
+                await streamable_transport.post_writer(
+                    http_client,
+                    write_receive,
+                    read_send,
+                    write_send,
+                    start_get_stream,
+                    tg,
+                )
+
+            tg.start_soon(run_post_writer)
+
+            # Send init request
+            await write_send.send(SessionMessage(init_request))
+
+            # Get init response
+            received = await read_receive.receive()
+            assert isinstance(received, SessionMessage)
+            response = received
+            assert isinstance(response.message.root, JSONRPCResponse)
+
+            # Now send a tool call request (will get 404)
+            tool_request = JSONRPCMessage(
+                JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=1,
+                    method="tools/call",
+                    params={"name": "test_tool", "arguments": {}},
+                )
+            )
+            await write_send.send(SessionMessage(tool_request))
+
+            # Should receive SESSION_EXPIRED error
+            received = await read_receive.receive()
+            assert isinstance(received, SessionMessage)
+            error_response = received
+            assert isinstance(error_response.message.root, JSONRPCError)
+            assert error_response.message.root.error.code == SESSION_EXPIRED
+
+            # Verify session_id was cleared
+            assert streamable_transport.session_id is None
+
+            tg.cancel_scope.cancel()
+    finally:
+        # Proper cleanup of all streams
+        await write_send.aclose()
+        await write_receive.aclose()
+        await read_send.aclose()
+        await read_receive.aclose()
+        await http_client.aclose()
+
+
+@pytest.mark.anyio
+async def test_streamable_http_transport_404_on_init_sends_terminated():
+    """Test that 404 on initialization request sends session terminated error.
+
+    When the server returns 404 for an initialization request, it means the
+    session truly doesn't exist (not expired), so we send a different error.
+    """
+    import httpx
+
+    from mcp.client.streamable_http import StreamableHTTPTransport
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        # Return 404 for initialization request
+        return httpx.Response(404, content=b"Session not found")
+
+    transport = httpx.MockTransport(mock_handler)
+    http_client = httpx.AsyncClient(transport=transport)
+
+    streamable_transport = StreamableHTTPTransport("http://example.com/mcp")
+
+    # Set up streams - read_send needs to accept SessionMessage | Exception
+    read_send, read_receive = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    write_send, write_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    init_request = JSONRPCMessage(
+        JSONRPCRequest(
+            jsonrpc="2.0",
+            id=0,
+            method="initialize",
+            params={
+                "protocolVersion": LATEST_PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "0.1.0"},
+            },
+        )
+    )
+
+    try:
+        async with anyio.create_task_group() as tg:
+
+            def start_get_stream() -> None:
+                pass  # No-op for this test
+
+            async def run_post_writer():
+                await streamable_transport.post_writer(
+                    http_client,
+                    write_receive,
+                    read_send,
+                    write_send,
+                    start_get_stream,
+                    tg,
+                )
+
+            tg.start_soon(run_post_writer)
+
+            # Send init request
+            await write_send.send(SessionMessage(init_request))
+
+            # Should receive session terminated error (not expired)
+            received = await read_receive.receive()
+            assert isinstance(received, SessionMessage)
+            error_response = received
+            assert isinstance(error_response.message.root, JSONRPCError)
+            # For initialization 404, we send session terminated, not expired
+            assert error_response.message.root.error.code == 32600  # Session terminated
+
+            tg.cancel_scope.cancel()
+    finally:
+        # Proper cleanup of all streams
+        await write_send.aclose()
+        await write_receive.aclose()
+        await read_send.aclose()
+        await read_receive.aclose()
+        await http_client.aclose()
