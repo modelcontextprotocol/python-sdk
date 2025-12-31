@@ -295,7 +295,7 @@ async def test_unknown_session_id_returns_404():
         }
 
         async def mock_receive():
-            return {"type": "http.request", "body": b"{}", "more_body": False}
+            return {"type": "http.request", "body": b"{}", "more_body": False}  # pragma: no cover
 
         await manager.handle_request(scope, mock_receive, mock_send)
 
