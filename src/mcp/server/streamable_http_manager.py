@@ -279,6 +279,8 @@ class StreamableHTTPSessionManager:
                 await http_transport.handle_request(scope, receive, send)
         else:
             # Unknown or expired session ID - return 404 per MCP spec
+            # TODO: Align error code once spec clarifies
+            # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
             error_response = JSONRPCError(
                 jsonrpc="2.0",
                 id="server-error",
