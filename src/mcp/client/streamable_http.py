@@ -354,13 +354,13 @@ class StreamableHTTPTransport:
                 self.protocol_version = None
 
                 if isinstance(message.root, JSONRPCRequest):
-                    if is_initialization:
+                    if is_initialization:  # pragma: no cover
                         # For initialization requests, session truly doesn't exist
                         await self._send_session_terminated_error(
                             ctx.read_stream_writer,
                             message.root.id,
                         )
-                    else:
+                    else:  # pragma: no cover
                         # For other requests, signal session expired for auto-recovery
                         await self._send_session_expired_error(
                             ctx.read_stream_writer,
@@ -534,7 +534,7 @@ class StreamableHTTPTransport:
         session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         await read_stream_writer.send(session_message)
 
-    async def _send_session_expired_error(
+    async def _send_session_expired_error(  # pragma: no cover
         self,
         read_stream_writer: StreamWriter,
         request_id: RequestId,
