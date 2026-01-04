@@ -197,3 +197,24 @@ async def test_fastmcp_tool_error_with_text_message():
     assert len(result.content) == 1
     assert isinstance(result.content[0], TextContent)
     assert "Simple error message" in result.content[0].text
+
+
+async def test_generic_exception_returns_error():
+    """Test that a generic Exception (not ToolError) returns isError=True."""
+    server = Server("test")
+
+    @server.list_tools()
+    async def list_tools():
+        return [create_tool("fail", "Raises generic exception")]
+
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any]):
+        raise ValueError("A generic error occurred")
+
+    async with client_session(server) as client:
+        result = await client.call_tool("fail", {})
+
+    assert result.isError is True
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert "A generic error occurred" in result.content[0].text
