@@ -84,6 +84,7 @@ from typing_extensions import TypeVar
 
 import mcp.types as types
 from mcp.server.experimental.request_context import Experimental
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -573,6 +574,16 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Re-raise UrlElicitationRequiredError so it can be properly handled
                     # by _handle_request, which converts it to an error response with code -32042
                     raise
+                except ToolError as e:
+                    # ToolError can have custom content for the error response
+                    if e.content is not None:
+                        return types.ServerResult(
+                            types.CallToolResult(
+                                content=e.content,
+                                isError=True,
+                            )
+                        )
+                    return self._make_error_result(str(e))
                 except Exception as e:
                     return self._make_error_result(str(e))
 
