@@ -1,5 +1,6 @@
 """Tests for StreamableHTTPSessionManager."""
 
+import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -11,6 +12,7 @@ from mcp.server import streamable_http_manager
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import INVALID_REQUEST
 
 
 @pytest.mark.anyio
@@ -262,3 +264,52 @@ async def test_stateless_requests_memory_cleanup():
 
             # Verify internal state is cleaned up
             assert len(transport._request_streams) == 0, "Transport should have no active request streams"
+
+
+@pytest.mark.anyio
+async def test_unknown_session_id_returns_404():
+    """Test that requests with unknown session IDs return HTTP 404 per MCP spec."""
+    app = Server("test-unknown-session")
+    manager = StreamableHTTPSessionManager(app=app)
+
+    async with manager.run():
+        sent_messages: list[Message] = []
+        response_body = b""
+
+        async def mock_send(message: Message):
+            nonlocal response_body
+            sent_messages.append(message)
+            if message["type"] == "http.response.body":
+                response_body += message.get("body", b"")
+
+        # Request with a non-existent session ID
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"accept", b"application/json, text/event-stream"),
+                (b"mcp-session-id", b"non-existent-session-id"),
+            ],
+        }
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b"{}", "more_body": False}  # pragma: no cover
+
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        # Find the response start message
+        response_start = next(
+            (msg for msg in sent_messages if msg["type"] == "http.response.start"),
+            None,
+        )
+        assert response_start is not None, "Should have sent a response"
+        assert response_start["status"] == 404, "Should return HTTP 404 for unknown session ID"
+
+        # Verify JSON-RPC error format
+        error_data = json.loads(response_body)
+        assert error_data["jsonrpc"] == "2.0"
+        assert error_data["id"] == "server-error"
+        assert error_data["error"]["code"] == INVALID_REQUEST
+        assert error_data["error"]["message"] == "Session not found"
