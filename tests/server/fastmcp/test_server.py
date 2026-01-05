@@ -1088,9 +1088,9 @@ class TestContextInjection:
 
             if isinstance(r, ReadResourceContents):
                 return f"Read resource: {r.content} with mime type {r.mime_type}"
-            elif isinstance(r, TextResourceContents):
+            elif isinstance(r, TextResourceContents):  # pragma: no cover
                 return f"Read resource: {r.text} with mime type {r.mimeType}"
-            else:
+            else:  # pragma: no cover
                 raise AssertionError(f"Unexpected content type: {type(r)}")
 
         async with client_session(mcp._mcp_server) as client:

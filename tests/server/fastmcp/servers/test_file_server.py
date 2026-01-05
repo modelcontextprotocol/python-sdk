@@ -100,10 +100,10 @@ async def test_read_resource_dir(mcp: FastMCP):
     if isinstance(res, ReadResourceContents):
         assert res.mime_type == "text/plain"
         files = json.loads(res.content)
-    elif isinstance(res, TextResourceContents):
+    elif isinstance(res, TextResourceContents):  # pragma: no cover
         assert res.mimeType == "text/plain"
         files = json.loads(res.text)
-    else:
+    else:  # pragma: no cover
         raise AssertionError(f"Unexpected content type: {type(res)}")
 
     assert sorted([Path(f).name for f in files]) == [
@@ -126,9 +126,9 @@ async def test_read_resource_file(mcp: FastMCP):
 
     if isinstance(res, ReadResourceContents):
         assert res.content == "print('hello world')"
-    elif isinstance(res, TextResourceContents):
+    elif isinstance(res, TextResourceContents):  # pragma: no cover
         assert res.text == "print('hello world')"
-    else:
+    else:  # pragma: no cover
         raise AssertionError(f"Unexpected content type: {type(res)}")
 
 
@@ -152,7 +152,7 @@ async def test_delete_file_and_check_resources(mcp: FastMCP, test_dir: Path):
 
     if isinstance(res, ReadResourceContents):
         assert res.content == "File not found"
-    elif isinstance(res, TextResourceContents):
+    elif isinstance(res, TextResourceContents):  # pragma: no cover
         assert res.text == "File not found"
-    else:
+    else:  # pragma: no cover
         raise AssertionError(f"Unexpected content type: {type(res)}")

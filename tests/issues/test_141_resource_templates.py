@@ -61,11 +61,11 @@ async def test_resource_template_edge_cases():
     if isinstance(content, ReadResourceContents):
         assert content.content == "Post 456 by user 123"
         assert content.mime_type == "text/plain"
-    elif isinstance(content, TextResourceContents):
+    elif isinstance(content, TextResourceContents):  # pragma: no cover
         # If it's TextResourceContents (direct return)
         assert content.text == "Post 456 by user 123"
         assert content.mimeType == "text/plain"
-    else:
+    else:  # pragma: no cover
         # Should not happen for string resources
         raise AssertionError(f"Unexpected content type: {type(content)}")
 
