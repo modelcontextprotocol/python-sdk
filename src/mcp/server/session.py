@@ -702,7 +702,5 @@ class ServerSession(
         await self._incoming_message_stream_writer.send(req)
 
     @property
-    def incoming_messages(
-        self,
-    ) -> MemoryObjectReceiveStream[ServerRequestResponder]:
+    def incoming_messages(self) -> MemoryObjectReceiveStream[ServerRequestResponder]:
         return self._incoming_message_stream_reader
