@@ -65,6 +65,7 @@ dev = [
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
     "coverage[toml]==7.10.7",
+    "pillow>=12.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -104,7 +105,9 @@ venv = ".venv"
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
-    { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "tests", extraPaths = [
+        ".",
+    ], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
 ]
 
