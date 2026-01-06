@@ -29,7 +29,8 @@ import json
 import logging
 import os
 import sys
-from urllib.parse import ParseResult, parse_qs, urlparse
+from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from mcp import ClientSession
@@ -39,12 +40,12 @@ from mcp.client.auth.extensions.client_credentials import (
     PrivateKeyJWTOAuthProvider,
     SignedJWTParameters,
 )
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from pydantic import AnyUrl
 
 
-def get_conformance_context() -> dict:
+def get_conformance_context() -> dict[str, Any]:
     """Load conformance test context from MCP_CONFORMANCE_CONTEXT environment variable."""
     context_json = os.environ.get("MCP_CONFORMANCE_CONTEXT")
     if not context_json:
@@ -116,9 +117,9 @@ class ConformanceOAuthCallbackHandler:
 
             # Check for redirect response
             if response.status_code in (301, 302, 303, 307, 308):
-                location = response.headers.get("location")
+                location = cast(str, response.headers.get("location"))
                 if location:
-                    redirect_url: ParseResult = urlparse(location)
+                    redirect_url = urlparse(location)
                     query_params: dict[str, list[str]] = parse_qs(redirect_url.query)
 
                     if "code" in query_params:
@@ -259,12 +260,8 @@ async def run_client_credentials_basic_client(server_url: str) -> None:
 async def _run_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
     """Common session logic for all OAuth flows."""
     # Connect using streamable HTTP transport with OAuth
-    async with streamablehttp_client(
-        url=server_url,
-        auth=oauth_auth,
-        timeout=30.0,
-        sse_read_timeout=60.0,
-    ) as (read_stream, write_stream, _):
+    client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
+    async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             await session.initialize()
