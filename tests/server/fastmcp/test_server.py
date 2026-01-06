@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -12,30 +12,41 @@ from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
+from mcp.shared.memory import create_connected_server_and_client_session as client_session
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
     ContentBlock,
     EmbeddedResource,
+    Icon,
     ImageContent,
     TextContent,
     TextResourceContents,
 )
 
-if TYPE_CHECKING:
-    from mcp.server.fastmcp import Context
-
 
 class TestServer:
     @pytest.mark.anyio
     async def test_create_server(self):
-        mcp = FastMCP(instructions="Server instructions")
+        mcp = FastMCP(
+            title="FastMCP Server",
+            description="Server description",
+            instructions="Server instructions",
+            website_url="https://example.com/mcp_server",
+            version="1.0",
+            icons=[Icon(src="https://example.com/icon.png", mimeType="image/png", sizes=["48x48", "96x96"])],
+        )
         assert mcp.name == "FastMCP"
+        assert mcp.title == "FastMCP Server"
+        assert mcp.description == "Server description"
         assert mcp.instructions == "Server instructions"
+        assert mcp.website_url == "https://example.com/mcp_server"
+        assert mcp.version == "1.0"
+        assert isinstance(mcp.icons, list)
+        assert len(mcp.icons) == 1
+        assert mcp.icons[0].src == "https://example.com/icon.png"
 
     @pytest.mark.anyio
     async def test_normalize_path(self):
@@ -181,6 +192,52 @@ class TestServer:
             @mcp.resource  # Missing parentheses #type: ignore
             def get_data(x: str) -> str:  # pragma: no cover
                 return f"Data: {x}"
+
+
+class TestDnsRebindingProtection:
+    """Tests for automatic DNS rebinding protection on localhost."""
+
+    def test_auto_enabled_for_127_0_0_1(self):
+        """DNS rebinding protection should auto-enable for host=127.0.0.1."""
+        mcp = FastMCP(host="127.0.0.1")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "127.0.0.1:*" in mcp.settings.transport_security.allowed_hosts
+        assert "localhost:*" in mcp.settings.transport_security.allowed_hosts
+        assert "http://127.0.0.1:*" in mcp.settings.transport_security.allowed_origins
+        assert "http://localhost:*" in mcp.settings.transport_security.allowed_origins
+
+    def test_auto_enabled_for_localhost(self):
+        """DNS rebinding protection should auto-enable for host=localhost."""
+        mcp = FastMCP(host="localhost")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "127.0.0.1:*" in mcp.settings.transport_security.allowed_hosts
+        assert "localhost:*" in mcp.settings.transport_security.allowed_hosts
+
+    def test_auto_enabled_for_ipv6_localhost(self):
+        """DNS rebinding protection should auto-enable for host=::1 (IPv6 localhost)."""
+        mcp = FastMCP(host="::1")
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is True
+        assert "[::1]:*" in mcp.settings.transport_security.allowed_hosts
+        assert "http://[::1]:*" in mcp.settings.transport_security.allowed_origins
+
+    def test_not_auto_enabled_for_other_hosts(self):
+        """DNS rebinding protection should NOT auto-enable for other hosts."""
+        mcp = FastMCP(host="0.0.0.0")
+        assert mcp.settings.transport_security is None
+
+    def test_explicit_settings_not_overridden(self):
+        """Explicit transport_security settings should not be overridden."""
+        custom_settings = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
+        mcp = FastMCP(host="127.0.0.1", transport_security=custom_settings)
+        # Settings are copied by pydantic, so check values not identity
+        assert mcp.settings.transport_security is not None
+        assert mcp.settings.transport_security.enable_dns_rebinding_protection is False
+        assert mcp.settings.transport_security.allowed_hosts == []
 
 
 def tool_fn(x: int, y: int) -> int:

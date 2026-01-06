@@ -12,19 +12,13 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import anyio
 import pytest
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import _create_platform_compatible_process, stdio_client
-
-# TODO(Marcelo): This doesn't seem to be the right path. We should fix this.
-if TYPE_CHECKING:
-    from ..shared.test_win32_utils import escape_path_for_python
-else:
-    from tests.shared.test_win32_utils import escape_path_for_python
+from tests.shared.test_win32_utils import escape_path_for_python
 
 
 @pytest.mark.anyio
@@ -95,7 +89,7 @@ async def test_lifespan_cleanup_executed():
             async with ClientSession(read, write) as session:
                 # Initialize the session
                 result = await session.initialize()
-                assert result.protocolVersion in ["2024-11-05", "2025-06-18"]
+                assert result.protocolVersion in ["2024-11-05", "2025-06-18", "2025-11-25"]
 
                 # Verify startup marker was created
                 assert Path(startup_marker).exists(), "Server startup marker not created"

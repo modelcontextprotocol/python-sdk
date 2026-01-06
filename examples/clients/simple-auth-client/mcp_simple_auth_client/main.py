@@ -11,15 +11,15 @@ import os
 import threading
 import time
 import webbrowser
-from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -150,9 +150,15 @@ class CallbackServer:
 class SimpleAuthClient:
     """Simple MCP client with auth support."""
 
-    def __init__(self, server_url: str, transport_type: str = "streamable-http"):
+    def __init__(
+        self,
+        server_url: str,
+        transport_type: str = "streamable-http",
+        client_metadata_url: str | None = None,
+    ):
         self.server_url = server_url
         self.transport_type = transport_type
+        self.client_metadata_url = client_metadata_url
         self.session: ClientSession | None = None
 
     async def connect(self):
@@ -177,7 +183,6 @@ class SimpleAuthClient:
                 "redirect_uris": ["http://localhost:3030/callback"],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],
-                "token_endpoint_auth_method": "client_secret_post",
             }
 
             async def _default_redirect_handler(authorization_url: str) -> None:
@@ -186,12 +191,14 @@ class SimpleAuthClient:
                 webbrowser.open(authorization_url)
 
             # Create OAuth authentication handler using the new interface
+            # Use client_metadata_url to enable CIMD when the server supports it
             oauth_auth = OAuthClientProvider(
-                server_url=self.server_url,
+                server_url=self.server_url.replace("/mcp", ""),
                 client_metadata=OAuthClientMetadata.model_validate(client_metadata_dict),
                 storage=InMemoryTokenStorage(),
                 redirect_handler=_default_redirect_handler,
                 callback_handler=callback_handler,
+                client_metadata_url=self.client_metadata_url,
             )
 
             # Create transport with auth handler based on transport type
@@ -200,17 +207,17 @@ class SimpleAuthClient:
                 async with sse_client(
                     url=self.server_url,
                     auth=oauth_auth,
-                    timeout=60,
+                    timeout=60.0,
                 ) as (read_stream, write_stream):
                     await self._run_session(read_stream, write_stream, None)
             else:
                 print("📡 Opening StreamableHTTP transport connection with auth...")
-                async with streamablehttp_client(
-                    url=self.server_url,
-                    auth=oauth_auth,
-                    timeout=timedelta(seconds=60),
-                ) as (read_stream, write_stream, get_session_id):
-                    await self._run_session(read_stream, write_stream, get_session_id)
+                async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
+                    async with streamable_http_client(
+                        url=self.server_url,
+                        http_client=custom_client,
+                    ) as (read_stream, write_stream, get_session_id):
+                        await self._run_session(read_stream, write_stream, get_session_id)
 
         except Exception as e:
             print(f"❌ Failed to connect: {e}")
@@ -335,6 +342,7 @@ async def main():
     # Most MCP streamable HTTP servers use /mcp as the endpoint
     server_url = os.getenv("MCP_SERVER_PORT", 8000)
     transport_type = os.getenv("MCP_TRANSPORT_TYPE", "streamable-http")
+    client_metadata_url = os.getenv("MCP_CLIENT_METADATA_URL")
     server_url = (
         f"http://localhost:{server_url}/mcp"
         if transport_type == "streamable-http"
@@ -344,9 +352,11 @@ async def main():
     print("🚀 Simple MCP Auth Client")
     print(f"Connecting to: {server_url}")
     print(f"Transport type: {transport_type}")
+    if client_metadata_url:
+        print(f"Client metadata URL: {client_metadata_url}")
 
     # Start connection flow - OAuth will be handled automatically
-    client = SimpleAuthClient(server_url, transport_type)
+    client = SimpleAuthClient(server_url, transport_type, client_metadata_url)
     await client.connect()
 
 

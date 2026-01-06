@@ -22,6 +22,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
+        security_settings: Optional transport security settings.
+        retry_interval: Retry interval in milliseconds to suggest to clients in SSE
+                       retry field. Used for SSE polling behavior.
     """
 
     def __init__(
@@ -60,12 +64,14 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+        self.retry_interval = retry_interval
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -226,6 +232,7 @@ class StreamableHTTPSessionManager:
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
+                    retry_interval=self.retry_interval,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -270,10 +277,21 @@ class StreamableHTTPSessionManager:
 
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
-        else:  # pragma: no cover
-            # Invalid session ID
+        else:
+            # Unknown or expired session ID - return 404 per MCP spec
+            # TODO: Align error code once spec clarifies
+            # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id="server-error",
+                error=ErrorData(
+                    code=INVALID_REQUEST,
+                    message="Session not found",
+                ),
+            )
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                status_code=HTTPStatus.NOT_FOUND,
+                media_type="application/json",
             )
             await response(scope, receive, send)

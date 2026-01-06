@@ -12,11 +12,11 @@ import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from types import TracebackType
 from typing import Any, TypeAlias, overload
 
 import anyio
+import httpx
 from pydantic import BaseModel
 from typing_extensions import Self, deprecated
 
@@ -25,7 +25,8 @@ from mcp import types
 from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 
@@ -39,15 +40,15 @@ class SseServerParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: float = 5
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 5.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: float = 60 * 5
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
 
 class StreamableHttpParameters(BaseModel):
-    """Parameters for intializing a streamablehttp_client."""
+    """Parameters for intializing a streamable_http_client."""
 
     # The endpoint URL.
     url: str
@@ -55,11 +56,11 @@ class StreamableHttpParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: timedelta = timedelta(seconds=30)
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 30.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: timedelta = timedelta(seconds=60 * 5)
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
@@ -74,7 +75,7 @@ ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | Stre
 class ClientSessionParameters:
     """Parameters for establishing a client session to an MCP server."""
 
-    read_timeout_seconds: timedelta | None = None
+    read_timeout_seconds: float | None = None
     sampling_callback: SamplingFnT | None = None
     elicitation_callback: ElicitationFnT | None = None
     list_roots_callback: ListRootsFnT | None = None
@@ -195,7 +196,7 @@ class ClientSessionGroup:
         self,
         name: str,
         arguments: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
@@ -208,7 +209,7 @@ class ClientSessionGroup:
         name: str,
         *,
         args: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         meta: dict[str, Any] | None = None,
     ) -> types.CallToolResult: ...
@@ -217,7 +218,7 @@ class ClientSessionGroup:
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
@@ -309,11 +310,18 @@ class ClientSessionGroup:
                 )
                 read, write = await session_stack.enter_async_context(client)
             else:
-                client = streamablehttp_client(
-                    url=server_params.url,
+                httpx_client = create_mcp_http_client(
                     headers=server_params.headers,
-                    timeout=server_params.timeout,
-                    sse_read_timeout=server_params.sse_read_timeout,
+                    timeout=httpx.Timeout(
+                        server_params.timeout,
+                        read=server_params.sse_read_timeout,
+                    ),
+                )
+                await session_stack.enter_async_context(httpx_client)
+
+                client = streamable_http_client(
+                    url=server_params.url,
+                    http_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
                 )
                 read, write, _ = await session_stack.enter_async_context(client)
