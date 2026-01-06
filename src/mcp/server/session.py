@@ -49,6 +49,7 @@ import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
+from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -93,6 +94,7 @@ class ServerSession(
         stateless: bool = False,
     ) -> None:
         super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
+        self._stateless = stateless
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )
@@ -311,7 +313,10 @@ class ServerSession(
         Raises:
             McpError: If tools are provided but client doesn't support them.
             ValueError: If tool_use or tool_result message structure is invalid.
+            StatelessModeNotSupported: If called in stateless HTTP mode.
         """
+        if self._stateless:
+            raise StatelessModeNotSupported(method="sampling")
         client_caps = self._client_params.capabilities if self._client_params else None
         validate_sampling_tools(client_caps, tools, tool_choice)
         validate_tool_use_result_messages(messages)
@@ -349,6 +354,8 @@ class ServerSession(
 
     async def list_roots(self) -> types.ListRootsResult:
         """Send a roots/list request."""
+        if self._stateless:
+            raise StatelessModeNotSupported(method="list_roots")
         return await self.send_request(
             types.ServerRequest(types.ListRootsRequest()),
             types.ListRootsResult,
@@ -391,7 +398,12 @@ class ServerSession(
 
         Returns:
             The client's response with form data
+
+        Raises:
+            StatelessModeNotSupported: If called in stateless HTTP mode.
         """
+        if self._stateless:
+            raise StatelessModeNotSupported(method="elicitation")
         return await self.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
@@ -425,7 +437,12 @@ class ServerSession(
 
         Returns:
             The client's response indicating acceptance, decline, or cancellation
+
+        Raises:
+            StatelessModeNotSupported: If called in stateless HTTP mode.
         """
+        if self._stateless:
+            raise StatelessModeNotSupported(method="elicitation")
         return await self.send_request(
             types.ServerRequest(
                 types.ElicitRequest(
