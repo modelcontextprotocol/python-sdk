@@ -34,7 +34,7 @@ dependencies = [
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
-    "pywin32>=310; sys_platform == 'win32'",
+    "pywin32>=311; sys_platform == 'win32'",
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.9.0",
     "typing-inspection>=0.4.1",
