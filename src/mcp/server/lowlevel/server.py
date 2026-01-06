@@ -105,14 +105,6 @@ StructuredContent: TypeAlias = dict[str, Any]
 UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
 CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
-# type alias for call_tool handler function signature
-CallToolHandler: TypeAlias = Callable[
-    [str, dict[str, Any]],
-    Awaitable[
-        UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult | types.CreateTaskResult
-    ],
-]
-
 # This will be properly typed in each Server instance's context
 request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
 
@@ -505,7 +497,18 @@ class Server(Generic[LifespanResultT, RequestT]):
         If outputSchema is defined, validates structuredContent or errors if missing.
         """
 
-        def decorator(func: CallToolHandler) -> CallToolHandler:
+        def decorator(
+            func: Callable[
+                [str, dict[str, Any]],
+                Awaitable[
+                    UnstructuredContent
+                    | StructuredContent
+                    | CombinationContent
+                    | types.CallToolResult
+                    | types.CreateTaskResult
+                ],
+            ],
+        ):
             logger.debug("Registering handler for CallToolRequest")
 
             async def handler(req: types.CallToolRequest):
