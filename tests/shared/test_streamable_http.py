@@ -4,6 +4,8 @@ Tests for the StreamableHTTP server and client transport.
 Contains tests for both server and client sides of the StreamableHTTP transport.
 """
 
+from __future__ import annotations as _annotations
+
 import json
 import multiprocessing
 import socket
@@ -25,11 +27,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import (
-    StreamableHTTPTransport,
-    streamable_http_client,
-    streamablehttp_client,  # pyright: ignore[reportDeprecated]
-)
+from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -1728,11 +1726,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
     # Simulate bad client that crashes after init
     async def bad_client():
         """Client that triggers ClosedResourceError"""
-        async with streamable_http_client(f"{basic_server_url}/mcp") as (
-            read_stream,
-            write_stream,
-            _,
-        ):
+        async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 raise Exception("client crash")
@@ -1746,11 +1740,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
         await anyio.sleep(0.1)
 
     # Try a good client, it should still be able to connect and list tools
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -2360,36 +2350,3 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
-
-
-@pytest.mark.anyio
-async def test_streamable_http_transport_deprecated_params_ignored(basic_server: None, basic_server_url: str) -> None:
-    """Test that deprecated parameters passed to StreamableHTTPTransport are properly ignored."""
-    with pytest.warns(DeprecationWarning):
-        transport = StreamableHTTPTransport(  # pyright: ignore[reportDeprecated]
-            url=f"{basic_server_url}/mcp",
-            headers={"X-Should-Be-Ignored": "ignored"},
-            timeout=999.0,
-            sse_read_timeout=999.0,
-            auth=None,
-        )
-
-    headers = transport._prepare_headers()
-    assert "X-Should-Be-Ignored" not in headers
-    assert headers["accept"] == "application/json, text/event-stream"
-    assert headers["content-type"] == "application/json"
-
-
-@pytest.mark.anyio
-async def test_streamablehttp_client_deprecation_warning(basic_server: None, basic_server_url: str) -> None:
-    """Test that the old streamablehttp_client() function issues a deprecation warning."""
-    with pytest.warns(DeprecationWarning, match="Use `streamable_http_client` instead"):
-        async with streamablehttp_client(f"{basic_server_url}/mcp") as (  # pyright: ignore[reportDeprecated]
-            read_stream,
-            write_stream,
-            _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
-                await session.initialize()
-                tools = await session.list_tools()
-                assert len(tools.tools) > 0
