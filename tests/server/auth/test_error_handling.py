@@ -3,7 +3,7 @@ Tests for OAuth error handling in the auth handlers.
 """
 
 import unittest.mock
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -14,12 +14,7 @@ from starlette.applications import Starlette
 
 from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
 from mcp.server.auth.routes import create_auth_routes
-
-# TODO(Marcelo): This TYPE_CHECKING shouldn't be here, but pytest doesn't seem to get the module correctly.
-if TYPE_CHECKING:
-    from ...server.fastmcp.auth.test_auth_integration import MockOAuthProvider
-else:
-    from tests.server.fastmcp.auth.test_auth_integration import MockOAuthProvider
+from tests.server.fastmcp.auth.test_auth_integration import MockOAuthProvider
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -14,9 +14,7 @@ from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
+from mcp.shared.memory import create_connected_server_and_client_session as client_session
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
@@ -27,9 +25,6 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-
-if TYPE_CHECKING:
-    from mcp.server.fastmcp import Context
 
 
 class TestServer:
