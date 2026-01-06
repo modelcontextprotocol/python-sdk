@@ -1,3 +1,5 @@
+from __future__ import annotations as _annotations
+
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
@@ -72,14 +74,8 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
-        session: """BaseSession[
-            SendRequestT,
-            SendNotificationT,
-            SendResultT,
-            ReceiveRequestT,
-            ReceiveNotificationT
-        ]""",
-        on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
+        session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
+        on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
     ) -> None:
         self.request_id = request_id
@@ -92,7 +88,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._on_complete = on_complete
         self._entered = False  # Track if we're in a context manager
 
-    def __enter__(self) -> "RequestResponder[ReceiveRequestT, SendResultT]":
+    def __enter__(self) -> RequestResponder[ReceiveRequestT, SendResultT]:
         """Enter the context manager, enabling request cancellation tracking."""
         self._entered = True
         self._cancel_scope = anyio.CancelScope()
@@ -179,7 +175,7 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
-    _response_routers: list["ResponseRouter"]
+    _response_routers: list[ResponseRouter]
 
     def __init__(
         self,
@@ -210,7 +206,8 @@ class BaseSession(
         response stream mechanism. This is used by TaskResultHandler to route
         responses for queued task requests back to their resolvers.
 
-        WARNING: This is an experimental API that may change without notice.
+        !!! warning
+            This is an experimental API that may change without notice.
 
         Args:
             router: A ResponseRouter implementation
