@@ -499,7 +499,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         def decorator(
             func: Callable[
-                ...,
+                [str, dict[str, Any]],
                 Awaitable[
                     UnstructuredContent
                     | StructuredContent
