@@ -206,7 +206,7 @@ class BaseSession(
         response stream mechanism. This is used by TaskResultHandler to route
         responses for queued task requests back to their resolvers.
 
-        !!! warn
+        !!! warning
             This is an experimental API that may change without notice.
 
         Args:
