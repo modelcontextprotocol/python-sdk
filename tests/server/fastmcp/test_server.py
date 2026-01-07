@@ -20,6 +20,7 @@ from mcp.types import (
     BlobResourceContents,
     ContentBlock,
     EmbeddedResource,
+    Icon,
     ImageContent,
     TextContent,
     TextResourceContents,
@@ -29,9 +30,23 @@ from mcp.types import (
 class TestServer:
     @pytest.mark.anyio
     async def test_create_server(self):
-        mcp = FastMCP(instructions="Server instructions")
+        mcp = FastMCP(
+            title="FastMCP Server",
+            description="Server description",
+            instructions="Server instructions",
+            website_url="https://example.com/mcp_server",
+            version="1.0",
+            icons=[Icon(src="https://example.com/icon.png", mimeType="image/png", sizes=["48x48", "96x96"])],
+        )
         assert mcp.name == "FastMCP"
+        assert mcp.title == "FastMCP Server"
+        assert mcp.description == "Server description"
         assert mcp.instructions == "Server instructions"
+        assert mcp.website_url == "https://example.com/mcp_server"
+        assert mcp.version == "1.0"
+        assert isinstance(mcp.icons, list)
+        assert len(mcp.icons) == 1
+        assert mcp.icons[0].src == "https://example.com/icon.png"
 
     @pytest.mark.anyio
     async def test_normalize_path(self):
