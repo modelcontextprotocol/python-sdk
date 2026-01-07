@@ -93,7 +93,13 @@ packages = ["src/mcp"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
-include = ["src/mcp", "tests", "examples/servers", "examples/snippets"]
+include = [
+    "src/mcp",
+    "tests",
+    "examples/servers",
+    "examples/snippets",
+    "examples/clients",
+]
 venvPath = "."
 venv = ".venv"
 # The FastAPI style of using decorators in tests gives a `reportUnusedFunction` error.
@@ -102,7 +108,9 @@ venv = ".venv"
 # those private functions instead of testing the private functions directly. It makes it easier to maintain the code source
 # and refactor code that is not public.
 executionEnvironments = [
-    { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
+    { root = "tests", extraPaths = [
+        ".",
+    ], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
 ]
 
