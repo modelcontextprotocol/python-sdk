@@ -35,7 +35,7 @@ jobs:
     continue-on-error: true
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         dep-resolution:
           - name: lowest-direct
             install-flags: "--upgrade --resolution lowest-direct"
