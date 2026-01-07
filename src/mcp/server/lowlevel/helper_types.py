@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -7,3 +8,4 @@ class ReadResourceContents:
 
     content: str | bytes
     mime_type: str | None = None
+    meta: dict[str, Any] | None = None
