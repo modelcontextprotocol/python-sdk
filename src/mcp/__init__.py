@@ -62,9 +62,7 @@ from .types import (
     ToolUseContent,
     UnsubscribeRequest,
 )
-from .types import (
-    Role as SamplingRole,
-)
+from .types import Role as SamplingRole
 
 __all__ = [
     "CallToolRequest",

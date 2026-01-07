@@ -147,9 +147,12 @@ class FastMCP(Generic[LifespanResultT]):
     def __init__(  # noqa: PLR0913
         self,
         name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
+        version: str | None = None,
         auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
         event_store: EventStore | None = None,
@@ -204,9 +207,12 @@ class FastMCP(Generic[LifespanResultT]):
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
+            title=title,
+            description=description,
             instructions=instructions,
             website_url=website_url,
             icons=icons,
+            version=version,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -246,6 +252,14 @@ class FastMCP(Generic[LifespanResultT]):
         return self._mcp_server.name
 
     @property
+    def title(self) -> str | None:
+        return self._mcp_server.title
+
+    @property
+    def description(self) -> str | None:
+        return self._mcp_server.description
+
+    @property
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
@@ -256,6 +270,10 @@ class FastMCP(Generic[LifespanResultT]):
     @property
     def icons(self) -> list[Icon] | None:
         return self._mcp_server.icons
+
+    @property
+    def version(self) -> str | None:
+        return self._mcp_server.version
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:

@@ -22,6 +22,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +277,21 @@ class StreamableHTTPSessionManager:
 
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
-        else:  # pragma: no cover
-            # Invalid session ID
+        else:
+            # Unknown or expired session ID - return 404 per MCP spec
+            # TODO: Align error code once spec clarifies
+            # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id="server-error",
+                error=ErrorData(
+                    code=INVALID_REQUEST,
+                    message="Session not found",
+                ),
+            )
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                status_code=HTTPStatus.NOT_FOUND,
+                media_type="application/json",
             )
             await response(scope, receive, send)
