@@ -28,6 +28,7 @@ from mcp.shared._httpx_utils import (
 )
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    CONNECTION_CLOSED,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -443,7 +444,7 @@ class StreamableHTTPTransport:
                     jsonrpc="2.0",
                     id=request_id,
                     error=ErrorData(
-                        code=-32000,
+                        code=CONNECTION_CLOSED,
                         message="SSE stream disconnected before receiving response",
                     ),
                 )
