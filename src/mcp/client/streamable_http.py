@@ -438,7 +438,7 @@ class StreamableHTTPTransport:
             # Cannot reconnect - no event ID received before disconnection
             # Notify session layer to prevent deadlock (fixes #1811)
             logger.warning("SSE stream disconnected without resumption token, cannot reconnect")
-            if isinstance(ctx.session_message.message.root, JSONRPCRequest):
+            if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
                 request_id = ctx.session_message.message.root.id
                 error_response = JSONRPCError(
                     jsonrpc="2.0",
