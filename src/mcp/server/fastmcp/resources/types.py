@@ -14,7 +14,12 @@ import pydantic_core
 from pydantic import AnyUrl, Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
-from mcp.types import Annotations, Icon
+from mcp.types import (
+    Annotations,
+    BlobResourceContents,
+    Icon,
+    TextResourceContents,
+)
 
 
 class TextResource(Resource):
@@ -52,7 +57,7 @@ class FunctionResource(Resource):
 
     fn: Callable[[], Any] = Field(exclude=True)
 
-    async def read(self) -> str | bytes:
+    async def read(self) -> str | bytes | TextResourceContents | BlobResourceContents:
         """Read the resource by calling the wrapped function."""
         try:
             # Call the function first to see if it returns a coroutine
@@ -63,6 +68,8 @@ class FunctionResource(Resource):
 
             if isinstance(result, Resource):  # pragma: no cover
                 return await result.read()
+            elif isinstance(result, TextResourceContents | BlobResourceContents):
+                return result
             elif isinstance(result, bytes):
                 return result
             elif isinstance(result, str):

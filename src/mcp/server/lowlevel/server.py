@@ -337,7 +337,14 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def read_resource(self):
         def decorator(
-            func: Callable[[AnyUrl], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
+            func: Callable[
+                [AnyUrl],
+                Awaitable[
+                    str
+                    | bytes
+                    | Iterable[ReadResourceContents | types.TextResourceContents | types.BlobResourceContents]
+                ],
+            ],
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
@@ -370,7 +377,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                         content = create_content(data, None)
                     case Iterable() as contents:
                         contents_list = [
-                            create_content(content_item.content, content_item.mime_type) for content_item in contents
+                            content_item
+                            if isinstance(content_item, types.ResourceContents)
+                            else create_content(content_item.content, content_item.mime_type)
+                            for content_item in contents
                         ]
                         return types.ServerResult(
                             types.ReadResourceResult(
