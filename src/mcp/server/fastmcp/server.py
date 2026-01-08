@@ -376,6 +376,7 @@ class FastMCP(Generic[LifespanResultT]):
                 mimeType=resource.mime_type,
                 icons=resource.icons,
                 annotations=resource.annotations,
+                _meta=resource.meta,
             )
             for resource in resources
         ]
@@ -391,6 +392,7 @@ class FastMCP(Generic[LifespanResultT]):
                 mimeType=template.mime_type,
                 icons=template.icons,
                 annotations=template.annotations,
+                _meta=template.meta,
             )
             for template in templates
         ]
@@ -557,6 +559,7 @@ class FastMCP(Generic[LifespanResultT]):
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -633,6 +636,7 @@ class FastMCP(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    meta=meta,
                 )
             else:
                 # Register as regular resource
@@ -645,6 +649,7 @@ class FastMCP(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    meta=meta,
                 )
                 self.add_resource(resource)
             return fn
