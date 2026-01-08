@@ -178,6 +178,8 @@ class ServerSession(
                                 capabilities=self._init_options.capabilities,
                                 serverInfo=types.Implementation(
                                     name=self._init_options.server_name,
+                                    title=self._init_options.title,
+                                    description=self._init_options.description,
                                     version=self._init_options.server_version,
                                     websiteUrl=self._init_options.website_url,
                                     icons=self._init_options.icons,
@@ -702,7 +704,5 @@ class ServerSession(
         await self._incoming_message_stream_writer.send(req)
 
     @property
-    def incoming_messages(
-        self,
-    ) -> MemoryObjectReceiveStream[ServerRequestResponder]:
+    def incoming_messages(self) -> MemoryObjectReceiveStream[ServerRequestResponder]:
         return self._incoming_message_stream_reader

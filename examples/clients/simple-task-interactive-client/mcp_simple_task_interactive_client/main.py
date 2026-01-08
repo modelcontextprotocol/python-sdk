@@ -11,7 +11,7 @@ from typing import Any
 
 import click
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.context import RequestContext
 from mcp.types import (
     CallToolResult,
@@ -73,7 +73,7 @@ def get_text(result: CallToolResult) -> str:
 
 
 async def run(url: str) -> None:
-    async with streamablehttp_client(url) as (read, write, _):
+    async with streamable_http_client(url) as (read, write, _):
         async with ClientSession(
             read,
             write,
