@@ -4,8 +4,7 @@ SessionGroup concurrently manages multiple MCP session connections.
 Tools, resources, and prompts are aggregated across servers. Servers may
 be connected to or disconnected from at any point after initialization.
 
-This abstractions can handle naming collisions using a custom user-provided
-hook.
+This abstractions can handle naming collisions using a custom user-provided hook.
 """
 
 import contextlib
