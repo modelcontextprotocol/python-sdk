@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -93,7 +95,7 @@ class Server:
             await self.cleanup()
             raise
 
-    async def list_tools(self) -> list[Any]:
+    async def list_tools(self) -> list[Tool]:
         """List available tools from the server.
 
         Returns:
@@ -106,10 +108,10 @@ class Server:
             raise RuntimeError(f"Server {self.name} not initialized")
 
         tools_response = await self.session.list_tools()
-        tools = []
+        tools: list[Tool] = []
 
         for item in tools_response:
-            if isinstance(item, tuple) and item[0] == "tools":
+            if item[0] == "tools":
                 tools.extend(Tool(tool.name, tool.description, tool.inputSchema, tool.title) for tool in item[1])
 
         return tools
@@ -189,7 +191,7 @@ class Tool:
         Returns:
             A formatted string describing the tool.
         """
-        args_desc = []
+        args_desc: list[str] = []
         if "properties" in self.input_schema:
             for param_name, param_info in self.input_schema["properties"].items():
                 arg_desc = f"- {param_name}: {param_info.get('description', 'No description')}"
@@ -311,9 +313,9 @@ class ChatSession:
                             result = await server.execute_tool(tool_call["tool"], tool_call["arguments"])
 
                             if isinstance(result, dict) and "progress" in result:
-                                progress = result["progress"]
-                                total = result["total"]
-                                percentage = (progress / total) * 100
+                                progress = result["progress"]  # type: ignore
+                                total = result["total"]  # type: ignore
+                                percentage = (progress / total) * 100  # type: ignore
                                 logging.info(f"Progress: {progress}/{total} ({percentage:.1f}%)")
 
                             return f"Tool execution result: {result}"
@@ -338,7 +340,7 @@ class ChatSession:
                     await self.cleanup_servers()
                     return
 
-            all_tools = []
+            all_tools: list[Tool] = []
             for server in self.servers:
                 tools = await server.list_tools()
                 all_tools.extend(tools)

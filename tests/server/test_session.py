@@ -410,11 +410,9 @@ async def test_create_message_tool_result_validation():
 
             # Case 8: empty messages list - skips validation entirely
             # Covers the `if messages:` branch (line 280->302)
-            with anyio.move_on_after(0.01):
-                await session.create_message(
-                    messages=[],
-                    max_tokens=100,
-                )
+            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+            with anyio.move_on_after(0.01):  # pragma: no cover
+                await session.create_message(messages=[], max_tokens=100)
 
 
 @pytest.mark.anyio
