@@ -2403,11 +2403,13 @@ async def test_sse_disconnect_without_resumption_token_sends_error() -> None:
     any events with IDs (e.g., timeout fires before server sends response), the
     client should send a JSONRPCError to the session layer instead of hanging forever.
 
-    This test verifies the else branch in _handle_sse_response() correctly sends
-    an error to the session layer when last_event_id is None after stream disconnect.
+    This test exercises the else branch in _handle_sse_response() by mocking
+    EventSource to yield no events, simulating a stream that closes immediately.
     """
-    from mcp.client.streamable_http import RequestContext
-    from mcp.types import ErrorData, JSONRPCError, JSONRPCMessage, JSONRPCRequest
+    from unittest.mock import patch
+
+    from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
+    from mcp.types import CONNECTION_CLOSED, JSONRPCError, JSONRPCMessage, JSONRPCRequest
 
     # Create a mock request (needed for the else branch to extract request_id)
     mock_request = JSONRPCRequest(jsonrpc="2.0", id="test-request-123", method="tools/call")
@@ -2417,7 +2419,7 @@ async def test_sse_disconnect_without_resumption_token_sends_error() -> None:
     # Create memory streams for the test
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
-    # Create a mock httpx client (not used in the else branch path)
+    # Create a mock httpx client
     mock_client = MagicMock()
 
     # Create the request context
@@ -2429,30 +2431,29 @@ async def test_sse_disconnect_without_resumption_token_sends_error() -> None:
         read_stream_writer=read_stream_writer,
     )
 
-    # Simulate what happens in _handle_sse_response when stream ends without events:
-    # The else branch should send an error to read_stream_writer
-    last_event_id = None  # Simulating no events received before disconnect
+    # Create a mock response
+    mock_response = MagicMock(spec=httpx.Response)
 
-    # This is the code path we're testing (from the else branch in _handle_sse_response)
-    if last_event_id is None:
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):
-            request_id = ctx.session_message.message.root.id
-            error_response = JSONRPCError(
-                jsonrpc="2.0",
-                id=request_id,
-                error=ErrorData(
-                    code=-32000,
-                    message="SSE stream disconnected before receiving response",
-                ),
-            )
-            await ctx.read_stream_writer.send(SessionMessage(JSONRPCMessage(error_response)))
+    # Create transport instance
+    transport = StreamableHTTPTransport("http://test.example/mcp")
+
+    # Mock EventSource to yield nothing (simulates stream closing immediately without events)
+    async def empty_aiter_sse():
+        return
+        yield  # Makes this an async generator that yields nothing
+
+    with patch("mcp.client.streamable_http.EventSource") as mock_event_source:
+        mock_event_source.return_value.aiter_sse = empty_aiter_sse
+
+        # Call the actual method - this exercises lines 437-451 in streamable_http.py
+        await transport._handle_sse_response(mock_response, ctx)
 
     # Verify an error was sent to the stream
     received = await read_stream.receive()
     assert isinstance(received, SessionMessage)
     assert isinstance(received.message.root, JSONRPCError)
     assert received.message.root.id == "test-request-123"
-    assert received.message.root.error.code == -32000
+    assert received.message.root.error.code == CONNECTION_CLOSED
     assert "SSE stream disconnected" in received.message.root.error.message
 
     # Cleanup
