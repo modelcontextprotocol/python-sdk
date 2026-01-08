@@ -1,22 +1,26 @@
 import logging
-from typing import Any, Protocol, overload
+from typing import Any, Protocol, TypeVar, overload
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import AnyUrl, BaseModel, TypeAdapter
 from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared.context import RequestContext
+from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.session import BaseSession, MessageMetadata, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
 logger = logging.getLogger("client")
+
+# TypeVar for generic result type in send_request (bound to BaseModel like in BaseSession)
+_ResultT = TypeVar("_ResultT", bound=BaseModel)
 
 
 class SamplingFnT(Protocol):
@@ -194,6 +198,49 @@ class ClientSession(
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
 
         return result
+
+    async def send_request(
+        self,
+        request: types.ClientRequest,
+        result_type: type[_ResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        _session_recovery_attempted: bool = False,
+    ) -> _ResultT:
+        """Send a request with automatic session recovery on expiration.
+
+        Per MCP spec, when the server returns 404 indicating the session has
+        expired, the client MUST re-initialize the session and retry the request.
+
+        This override adds that automatic recovery behavior to the base
+        send_request method.
+        """
+        try:
+            return await super().send_request(
+                request,
+                result_type,
+                request_read_timeout_seconds,
+                metadata,
+                progress_callback,
+            )
+        except McpError as e:
+            # Check if this is a session expired error
+            if e.error.code == types.SESSION_EXPIRED and not _session_recovery_attempted:
+                logger.info("Session expired, re-initializing...")
+                # Re-initialize the session
+                await self.initialize()
+                # Retry the original request (with flag to prevent infinite loops)
+                return await self.send_request(
+                    request,
+                    result_type,
+                    request_read_timeout_seconds,
+                    metadata,
+                    progress_callback,
+                    _session_recovery_attempted=True,
+                )
+            raise
 
     def get_server_capabilities(self) -> types.ServerCapabilities | None:
         """Return the server capabilities received during initialization.
