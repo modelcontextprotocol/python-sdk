@@ -193,3 +193,41 @@ class TestAnnotationsValidation:
         # Invalid roles should raise validation error
         with pytest.raises(Exception):  # Pydantic validation error
             Annotations(audience=["invalid_role"])  # type: ignore
+
+
+class TestResourceMetadata:
+    """Test metadata field on base Resource class."""
+
+    def test_resource_with_metadata(self):
+        """Test that Resource base class accepts meta parameter."""
+
+        def dummy_func() -> str:  # pragma: no cover
+            return "data"
+
+        metadata = {"version": "1.0", "category": "test"}
+
+        resource = FunctionResource(
+            uri=AnyUrl("resource://test"),
+            name="test",
+            fn=dummy_func,
+            meta=metadata,
+        )
+
+        assert resource.meta is not None
+        assert resource.meta == metadata
+        assert resource.meta["version"] == "1.0"
+        assert resource.meta["category"] == "test"
+
+    def test_resource_without_metadata(self):
+        """Test that meta field defaults to None."""
+
+        def dummy_func() -> str:  # pragma: no cover
+            return "data"
+
+        resource = FunctionResource(
+            uri=AnyUrl("resource://test"),
+            name="test",
+            fn=dummy_func,
+        )
+
+        assert resource.meta is None

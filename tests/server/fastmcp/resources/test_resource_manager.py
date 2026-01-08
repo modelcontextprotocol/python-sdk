@@ -134,3 +134,43 @@ class TestResourceManager:
         resources = manager.list_resources()
         assert len(resources) == 2
         assert resources == [resource1, resource2]
+
+
+class TestResourceManagerMetadata:
+    """Test ResourceManager Metadata"""
+
+    def test_add_template_with_metadata(self):
+        """Test that ResourceManager.add_template() accepts and passes meta parameter."""
+
+        manager = ResourceManager()
+
+        def get_item(id: str) -> str:  # pragma: no cover
+            return f"Item {id}"
+
+        metadata = {"source": "database", "cached": True}
+
+        template = manager.add_template(
+            fn=get_item,
+            uri_template="resource://items/{id}",
+            meta=metadata,
+        )
+
+        assert template.meta is not None
+        assert template.meta == metadata
+        assert template.meta["source"] == "database"
+        assert template.meta["cached"] is True
+
+    def test_add_template_without_metadata(self):
+        """Test that ResourceManager.add_template() works without meta parameter."""
+
+        manager = ResourceManager()
+
+        def get_item(id: str) -> str:  # pragma: no cover
+            return f"Item {id}"
+
+        template = manager.add_template(
+            fn=get_item,
+            uri_template="resource://items/{id}",
+        )
+
+        assert template.meta is None
