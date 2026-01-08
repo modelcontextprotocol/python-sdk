@@ -45,9 +45,8 @@ class ResponseRouter(Protocol):
             response: The response result data
 
         Returns:
-            True if the response was handled, False otherwise
+            True if the response was handled, False otherwise.
         """
-        ...  # pragma: no cover
 
     def route_error(self, request_id: RequestId, error: ErrorData) -> bool:
         """
@@ -58,6 +57,5 @@ class ResponseRouter(Protocol):
             error: The error data
 
         Returns:
-            True if the error was handled, False otherwise
+            True if the error was handled, False otherwise.
         """
-        ...  # pragma: no cover

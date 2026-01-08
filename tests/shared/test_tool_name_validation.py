@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from mcp.shared.tool_name_validation import (
+from mcp.shared._tool_name_validation import (
     issue_tool_name_warning,
     validate_and_warn_tool_name,
     validate_tool_name,

@@ -4,6 +4,8 @@ OAuth2 Authentication implementation for HTTPX.
 Implements authorization code flow with PKCE and automatic token refresh.
 """
 
+from __future__ import annotations as _annotations
+
 import base64
 import hashlib
 import logging
@@ -13,11 +15,11 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 
 import anyio
 import httpx
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import AnyUrl, BaseModel, Field, HttpUrl, ValidationError
 
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
@@ -45,11 +47,6 @@ from mcp.shared.auth import (
     OAuthToken,
     ProtectedResourceMetadata,
 )
-from mcp.shared.auth_utils import (
-    calculate_token_expiry,
-    check_resource_allowed,
-    resource_url_from_server_url,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +58,7 @@ class PKCEParameters(BaseModel):
     code_challenge: str = Field(..., min_length=43, max_length=128)
 
     @classmethod
-    def generate(cls) -> "PKCEParameters":
+    def generate(cls) -> PKCEParameters:
         """Generate new PKCE parameters."""
         code_verifier = "".join(secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(128))
         digest = hashlib.sha256(code_verifier.encode()).digest()
@@ -74,19 +71,15 @@ class TokenStorage(Protocol):
 
     async def get_tokens(self) -> OAuthToken | None:
         """Get stored tokens."""
-        ...
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         """Store tokens."""
-        ...
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         """Get stored client information."""
-        ...
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         """Store client information."""
-        ...
 
 
 @dataclass
@@ -124,7 +117,7 @@ class OAuthContext:
 
     def update_token_expiry(self, token: OAuthToken) -> None:
         """Update token expiry time using shared util function."""
-        self.token_expiry_time = calculate_token_expiry(token.expires_in)
+        self.token_expiry_time = _calculate_token_expiry(token.expires_in)
 
     def is_token_valid(self) -> bool:
         """Check if current token is valid."""
@@ -148,12 +141,12 @@ class OAuthContext:
 
         Uses PRM resource if it's a valid parent, otherwise uses canonical server URL.
         """
-        resource = resource_url_from_server_url(self.server_url)
+        resource = _resource_url_from_server_url(self.server_url)
 
         # If PRM provides a resource that's a valid parent, use it
         if self.protected_resource_metadata and self.protected_resource_metadata.resource:
             prm_resource = str(self.protected_resource_metadata.resource)
-            if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
+            if _check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
                 resource = prm_resource
 
         return resource
@@ -614,3 +607,82 @@ class OAuthClientProvider(httpx.Auth):
                 # Retry with new tokens
                 self._add_auth_header(request)
                 yield request
+
+
+def _resource_url_from_server_url(url: str | HttpUrl | AnyUrl) -> str:
+    """Convert server URL to canonical resource URL per RFC 8707.
+
+    RFC 8707 section 2 states that resource URIs "MUST NOT include a fragment component".
+    Returns absolute URI with lowercase scheme/host for canonical form.
+
+    Args:
+        url: Server URL to convert
+
+    Returns:
+        Canonical resource URL string
+    """
+    # Convert to string if needed
+    url_str = str(url)
+
+    # Parse the URL and remove fragment, create canonical form
+    parsed = urlsplit(url_str)
+    canonical = urlunsplit(parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower(), fragment=""))
+
+    return canonical
+
+
+def _check_resource_allowed(requested_resource: str, configured_resource: str) -> bool:
+    """Check if a requested resource URL matches a configured resource URL.
+
+    A requested resource matches if it has the same scheme, domain, port,
+    and its path starts with the configured resource's path. This allows
+    hierarchical matching where a token for a parent resource can be used
+    for child resources.
+
+    Args:
+        requested_resource: The resource URL being requested
+        configured_resource: The resource URL that has been configured
+
+    Returns:
+        True if the requested resource matches the configured resource
+    """
+    # Parse both URLs
+    requested = urlparse(requested_resource)
+    configured = urlparse(configured_resource)
+
+    # Compare scheme, host, and port (origin)
+    if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
+        return False
+
+    # Handle cases like requested=/foo and configured=/foo/
+    requested_path = requested.path
+    configured_path = configured.path
+
+    # If requested path is shorter, it cannot be a child
+    if len(requested_path) < len(configured_path):
+        return False
+
+    # Check if the requested path starts with the configured path
+    # Ensure both paths end with / for proper comparison
+    # This ensures that paths like "/api123" don't incorrectly match "/api"
+    if not requested_path.endswith("/"):
+        requested_path += "/"
+    if not configured_path.endswith("/"):
+        configured_path += "/"
+
+    return requested_path.startswith(configured_path)
+
+
+def _calculate_token_expiry(expires_in: int | str | None) -> float | None:
+    """Calculate token expiry timestamp from expires_in seconds.
+
+    Args:
+        expires_in: Seconds until token expiration (may be string from some servers)
+
+    Returns:
+        Unix timestamp when token expires, or None if no expiry specified
+    """
+    if expires_in is None:
+        return None  # pragma: no cover
+    # Defensive: handle servers that return expires_in as string
+    return time.time() + int(expires_in)

@@ -26,8 +26,7 @@ async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageS
     Creates a pair of bidirectional memory streams for client-server communication.
 
     Returns:
-        A tuple of (client_streams, server_streams) where each is a tuple of
-        (read_stream, write_stream)
+        A tuple of (client_streams, server_streams) where each is a tuple of (read_stream, write_stream).
     """
     # Create streams for both directions
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -36,12 +35,7 @@ async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageS
     client_streams = (server_to_client_receive, client_to_server_send)
     server_streams = (client_to_server_receive, server_to_client_send)
 
-    async with (
-        server_to_client_receive,
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-    ):
+    async with server_to_client_receive, client_to_server_send, client_to_server_receive, server_to_client_send:
         yield client_streams, server_streams
 
 

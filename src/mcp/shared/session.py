@@ -268,12 +268,7 @@ class BaseSession(
             self._progress_callbacks[request_id] = progress_callback
 
         try:
-            jsonrpc_request = JSONRPCRequest(
-                jsonrpc="2.0",
-                id=request_id,
-                **request_data,
-            )
-
+            jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
             await self._write_stream.send(SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata))
 
             # request read timeout takes precedence over session read timeout
@@ -292,8 +287,7 @@ class BaseSession(
                         code=httpx.codes.REQUEST_TIMEOUT,
                         message=(
                             f"Timed out while waiting for response to "
-                            f"{request.__class__.__name__}. Waited "
-                            f"{timeout} seconds."
+                            f"{request.__class__.__name__}. Waited {timeout} seconds."
                         ),
                     )
                 )
@@ -345,10 +339,7 @@ class BaseSession(
             await self._write_stream.send(session_message)
 
     async def _receive_loop(self) -> None:
-        async with (
-            self._read_stream,
-            self._write_stream,
-        ):
+        async with self._read_stream, self._write_stream:
             try:
                 async for message in self._read_stream:
                     if isinstance(message, Exception):  # pragma: no cover
@@ -543,4 +534,3 @@ class BaseSession(
         req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception,
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
-        pass  # pragma: no cover

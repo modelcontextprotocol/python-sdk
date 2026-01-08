@@ -1,6 +1,9 @@
 """Tests for OAuth 2.0 Resource Indicators utilities."""
 
-from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
+# TODO(Marcelo): We should not have tests for private functions. We can test the public functions with the behavior
+# that uses these private functions instead.
+from mcp.client.auth.oauth2 import _check_resource_allowed as check_resource_allowed
+from mcp.client.auth.oauth2 import _resource_url_from_server_url as resource_url_from_server_url
 
 
 class TestResourceUrlFromServerUrl:

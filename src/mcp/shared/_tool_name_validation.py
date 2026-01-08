@@ -9,7 +9,7 @@ Tool names SHOULD NOT contain spaces, commas, or other special characters.
 See: https://modelcontextprotocol.io/specification/2025-11-25/server/tools#tool-names
 """
 
-from __future__ import annotations
+from __future__ import annotations as _annotations
 
 import logging
 import re

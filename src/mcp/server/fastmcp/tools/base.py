@@ -12,7 +12,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared.exceptions import UrlElicitationRequiredError
-from mcp.shared.tool_name_validation import validate_and_warn_tool_name
+from mcp.shared._tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:

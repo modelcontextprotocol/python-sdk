@@ -1,5 +1,6 @@
+from __future__ import annotations as _annotations
+
 import json
-import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -11,8 +12,6 @@ from websockets.typing import Subprotocol
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
-
-logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -64,10 +63,7 @@ async def websocket_client(
                         await read_stream_writer.send(exc)
 
         async def ws_writer():
-            """
-            Reads JSON-RPC messages from write_stream_reader and
-            sends them to the server.
-            """
+            """Reads JSON-RPC messages from write_stream_reader and sends them to the server."""
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
                     # Convert to a dict, then to JSON

@@ -31,7 +31,7 @@ from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
-    """Parameters for intializing a sse_client."""
+    """Parameters for initializing a sse_client."""
 
     # The endpoint URL.
     url: str
