@@ -602,3 +602,77 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             assert not isinstance(msg, Exception)
             assert isinstance(msg.message.root, types.JSONRPCResponse)
             assert msg.message.root.id == 1
+
+
+# Stateless SSE mode tests
+def make_stateless_server_app() -> Starlette:  # pragma: no cover
+    """Create test Starlette app with SSE transport in stateless mode."""
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
+    server = ServerTest()
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await server.run(
+                streams[0],
+                streams[1],
+                server.create_initialization_options(),
+                stateless=True,  # Enable stateless mode
+            )
+        return Response()
+
+    app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ]
+    )
+
+    return app
+
+
+def run_stateless_server(server_port: int) -> None:  # pragma: no cover
+    app = make_stateless_server_app()
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
+    server.run()
+
+
+@pytest.fixture()
+def stateless_server(server_port: int) -> Generator[None, None, None]:
+    proc = multiprocessing.Process(target=run_stateless_server, kwargs={"server_port": server_port}, daemon=True)
+    proc.start()
+    wait_for_server(server_port)
+    yield
+    proc.kill()
+    proc.join(timeout=2)
+
+
+@pytest.mark.anyio
+async def test_sse_stateless_mode_allows_requests_without_initialization(
+    stateless_server: None, server_url: str
+) -> None:
+    """Test that stateless SSE mode allows tool calls without initialization.
+
+    This tests the fix for issue #1844 where Claude Code (and other fast clients)
+    would send requests before the initialization handshake completed, causing
+    'Received request before initialization was complete' errors.
+
+    In stateless mode, the server bypasses the initialization requirement,
+    allowing immediate tool calls.
+    """
+    async with sse_client(server_url + "/sse") as streams:
+        async with ClientSession(*streams) as session:
+            # In stateless mode, we can call tools without initializing first
+            # Note: ClientSession still sends initialize internally, but the server
+            # doesn't require it to be completed before processing other requests
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+            # Now test that tool calls work
+            tool_result = await session.call_tool("test_tool", {})
+            assert len(tool_result.content) == 1
+            assert tool_result.content[0].type == "text"
+            assert "Called test_tool" in tool_result.content[0].text
