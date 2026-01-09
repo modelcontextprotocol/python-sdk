@@ -1371,6 +1371,75 @@ class TestAuthEndpoints:
         token_response = response.json()
         assert "access_token" in token_response
 
+    @pytest.mark.anyio
+    async def test_none_auth_method_ignores_stored_client_secret(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that 'none' auth method works even if client has a stored secret.
+
+        This tests the fix for issue #1842: when token_endpoint_auth_method="none",
+        the server should not require client_secret even if one is stored for the client.
+        This can happen if a client was previously registered with a secret but later
+        changed to public authentication.
+        """
+        # Register a public client with token_endpoint_auth_method="none"
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Public Client With Stored Secret",
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert client_info["token_endpoint_auth_method"] == "none"
+
+        # Manually add a client_secret to the stored client (simulating edge case)
+        stored_client = await mock_oauth_provider.get_client(client_info["client_id"])
+        assert stored_client is not None
+        # Create a modified client with a secret
+        modified_client = OAuthClientInformationFull(
+            client_id=stored_client.client_id,
+            client_id_issued_at=stored_client.client_id_issued_at,
+            client_secret="secret_that_should_be_ignored",
+            client_secret_expires_at=None,
+            redirect_uris=stored_client.redirect_uris,
+            token_endpoint_auth_method="none",  # Still using 'none' auth method
+            grant_types=stored_client.grant_types,
+            response_types=stored_client.response_types,
+            client_name=stored_client.client_name,
+            scope=stored_client.scope,
+        )
+        mock_oauth_provider.clients[client_info["client_id"]] = modified_client
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Token request without any client secret should still succeed
+        # because token_endpoint_auth_method="none"
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": client_info["client_id"],
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 200
+        token_response = response.json()
+        assert "access_token" in token_response
+
 
 class TestAuthorizeEndpointErrors:
     """Test error handling in the OAuth authorization endpoint."""
