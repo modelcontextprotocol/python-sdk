@@ -2393,3 +2393,69 @@ async def test_streamablehttp_client_deprecation_warning(basic_server: None, bas
                 await session.initialize()
                 tools = await session.list_tools()
                 assert len(tools.tools) > 0
+
+
+@pytest.mark.anyio
+async def test_sse_disconnect_without_resumption_token_sends_error() -> None:
+    """Test that SSE disconnect without resumption token sends error instead of hanging.
+
+    Regression test for issue #1811: When SSE stream disconnects before receiving
+    any events with IDs (e.g., timeout fires before server sends response), the
+    client should send a JSONRPCError to the session layer instead of hanging forever.
+
+    This test exercises the else branch in _handle_sse_response() by mocking
+    EventSource to yield no events, simulating a stream that closes immediately.
+    """
+    from unittest.mock import patch
+
+    from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
+    from mcp.types import CONNECTION_CLOSED, JSONRPCError, JSONRPCMessage, JSONRPCRequest
+
+    # Create a mock request (needed for the else branch to extract request_id)
+    mock_request = JSONRPCRequest(jsonrpc="2.0", id="test-request-123", method="tools/call")
+    mock_message = JSONRPCMessage(root=mock_request)
+    session_message = SessionMessage(mock_message)
+
+    # Create memory streams for the test
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    # Create a mock httpx client
+    mock_client = MagicMock()
+
+    # Create the request context
+    ctx = RequestContext(
+        client=mock_client,
+        session_id="test-session",
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=read_stream_writer,
+    )
+
+    # Create a mock response
+    mock_response = MagicMock(spec=httpx.Response)
+
+    # Create transport instance
+    transport = StreamableHTTPTransport("http://test.example/mcp")
+
+    # Mock EventSource to yield nothing (simulates stream closing immediately without events)
+    async def empty_aiter_sse():
+        return
+        yield  # Makes this an async generator that yields nothing
+
+    with patch("mcp.client.streamable_http.EventSource") as mock_event_source:
+        mock_event_source.return_value.aiter_sse = empty_aiter_sse
+
+        # Call the actual method - this exercises lines 437-451 in streamable_http.py
+        await transport._handle_sse_response(mock_response, ctx)
+
+    # Verify an error was sent to the stream
+    received = await read_stream.receive()
+    assert isinstance(received, SessionMessage)
+    assert isinstance(received.message.root, JSONRPCError)
+    assert received.message.root.id == "test-request-123"
+    assert received.message.root.error.code == CONNECTION_CLOSED
+    assert "SSE stream disconnected" in received.message.root.error.message
+
+    # Cleanup
+    await read_stream_writer.aclose()
+    await read_stream.aclose()
