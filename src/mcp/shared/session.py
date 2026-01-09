@@ -397,9 +397,9 @@ class BaseSession(
                                             logging.exception("Progress callback raised an exception")
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
-                        except Exception:
+                        except Exception:  # pragma: no cover
                             # For other validation errors, log and continue
-                            logging.warning(  # pragma: no cover
+                            logging.warning(
                                 f"Failed to validate notification:. Message was: {message.message}",
                                 exc_info=True,
                             )
