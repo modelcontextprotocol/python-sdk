@@ -1,4 +1,5 @@
 import base64
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -809,6 +810,41 @@ class TestServerResources:
             assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
     @pytest.mark.anyio
+    async def test_resource_with_form_style_query(self):
+        """Test that resources with form-style query expansion work correctly"""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{category}/{id}")
+        def get_item(
+            category: str,
+            id: str,
+            filter: str = "all",
+            sort: str = "name",
+            limit: int = 10,
+        ) -> str:
+            return f"Item {id} in {category}, filtered by {filter}, sorted by {sort}, limited to {limit}"
+
+        async with client_session(mcp._mcp_server) as client:
+            # Test with default values
+            result = await client.read_resource(AnyUrl("resource://electronics/1234"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "Item 1234 in electronics, filtered by all, sorted by name, limited to 10"
+
+            # Test with query parameters
+            result = await client.read_resource(AnyUrl("resource://electronics/1234?filter=new&sort=price&limit=20"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text == "Item 1234 in electronics, filtered by new, sorted by price, limited to 20"
+            )
+
+            # Test with partial query parameters
+            result = await client.read_resource(AnyUrl("resource://electronics/1234?filter=used"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert (
+                result.contents[0].text == "Item 1234 in electronics, filtered by used, sorted by name, limited to 10"
+            )
+
+    @pytest.mark.anyio
     async def test_function_resource(self):
         mcp = FastMCP()
 
@@ -834,18 +870,19 @@ class TestServerResourceTemplates:
         parameters don't match"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
-
-            @mcp.resource("resource://data")
-            def get_data_fn(param: str) -> str:  # pragma: no cover
-                return f"Data: {param}"
+        @mcp.resource("resource://data")
+        def get_data_fn(param: str) -> str:  # pragma: no cover
+            return f"Data: {param}"
 
     @pytest.mark.anyio
     async def test_resource_with_uri_params(self):
         """Test that a resource with URI parameters is automatically a template"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and required function parameters .*",
+        ):
 
             @mcp.resource("resource://{param}")
             def get_data() -> str:  # pragma: no cover
@@ -875,11 +912,39 @@ class TestServerResourceTemplates:
             assert result.contents[0].text == "Data for test"
 
     @pytest.mark.anyio
+    async def test_resource_with_optional_params(self):
+        """Test that resources with optional parameters work correctly"""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://{name}/data")
+        def get_data_with_options(name: str, format: str = "text", limit: int = 10) -> str:
+            return f"Data for {name} in {format} format with limit {limit}"
+
+        async with client_session(mcp._mcp_server) as client:
+            # Test with default values
+            result = await client.read_resource(AnyUrl("resource://test/data"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "Data for test in text format with limit 10"
+
+            # Test with query parameters
+            result = await client.read_resource(AnyUrl("resource://test/data?format=json&limit=20"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "Data for test in json format with limit 20"
+
+            # Test with partial query parameters
+            result = await client.read_resource(AnyUrl("resource://test/data?format=xml"))
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "Data for test in xml format with limit 10"
+
+    @pytest.mark.anyio
     async def test_resource_mismatched_params(self):
         """Test that mismatched parameters raise an error"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and required function parameters .*",
+        ):
 
             @mcp.resource("resource://{name}/data")
             def get_data(user: str) -> str:  # pragma: no cover
@@ -904,7 +969,10 @@ class TestServerResourceTemplates:
         """Test that mismatched parameters raise an error"""
         mcp = FastMCP()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(
+            ValueError,
+            match="Mismatch between URI path parameters .* and required function parameters .*",
+        ):
 
             @mcp.resource("resource://{org}/{repo}/data")
             def get_data_mismatched(org: str, repo_2: str) -> str:  # pragma: no cover
@@ -961,6 +1029,116 @@ class TestServerResourceTemplates:
             result = await client.read_resource(AnyUrl("resource://bob/csv"))
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "csv for bob"
+
+    @pytest.mark.anyio
+    async def test_resource_optional_param_validation_fallback_and_url_encoding(
+        self,
+    ):
+        """Test handling of optional param validation fallback & URL encoding."""
+        mcp = FastMCP()
+
+        @mcp.resource("resource://test_item/{item_id}")
+        def get_test_item_details(
+            item_id: str,
+            name: str = "default_name",
+            count: int = 0,
+            active: bool = False,
+        ) -> dict[str, str | int | bool]:
+            return {
+                "item_id": item_id,
+                "name": name,
+                "count": count,
+                "active": active,
+            }
+
+        async with client_session(mcp._mcp_server) as client:
+            # 1. All defaults
+            res1_uri = "resource://test_item/item001"
+            res1_content_result = await client.read_resource(AnyUrl(res1_uri))
+            assert res1_content_result.contents and isinstance(res1_content_result.contents[0], TextResourceContents)
+            data1 = json.loads(res1_content_result.contents[0].text)
+            assert data1 == {
+                "item_id": "item001",
+                "name": "default_name",
+                "count": 0,
+                "active": False,
+            }
+
+            # 2. Valid optional params (name is URL encoded)
+            res2_uri = "resource://test_item/item002?name=My%20Product&count=10&active=true"
+            res2_content_result = await client.read_resource(AnyUrl(res2_uri))
+            assert res2_content_result.contents and isinstance(res2_content_result.contents[0], TextResourceContents)
+            data2 = json.loads(res2_content_result.contents[0].text)
+            assert data2 == {
+                "item_id": "item002",
+                "name": "My Product",  # Decoded
+                "count": 10,
+                "active": True,
+            }
+
+            # 3. Invalid 'count' (optional int), valid 'name', 'active' not provided
+            # count=notanint should make it use default_count = 0
+            res3_uri = "resource://test_item/item003?name=Another%20Item&count=notanint"
+            res3_content_result = await client.read_resource(AnyUrl(res3_uri))
+            assert res3_content_result.contents and isinstance(res3_content_result.contents[0], TextResourceContents)
+            data3 = json.loads(res3_content_result.contents[0].text)
+            assert data3 == {
+                "item_id": "item003",
+                "name": "Another Item",
+                "count": 0,  # Fallback to default
+                "active": False,  # Fallback to default
+            }
+
+            # 4. Invalid 'active' (optional bool), valid 'count', 'name' not provided
+            # active=notabool should make it use default_active = False
+            res4_uri = "resource://test_item/item004?count=50&active=notabool"
+            res4_content_result = await client.read_resource(AnyUrl(res4_uri))
+            assert res4_content_result.contents and isinstance(res4_content_result.contents[0], TextResourceContents)
+            data4 = json.loads(res4_content_result.contents[0].text)
+            assert data4 == {
+                "item_id": "item004",
+                "name": "default_name",  # Fallback to default
+                "count": 50,
+                "active": False,  # Fallback to default
+            }
+
+            # 5. Empty value for optional 'name' (string type)
+            # name= (empty value) should fall back to default
+            res5_uri = "resource://test_item/item005?name="
+            res5_content_result = await client.read_resource(AnyUrl(res5_uri))
+            assert res5_content_result.contents and isinstance(res5_content_result.contents[0], TextResourceContents)
+            data5 = json.loads(res5_content_result.contents[0].text)
+            assert data5 == {
+                "item_id": "item005",
+                "name": "default_name",  # Fallback to default
+                "count": 0,
+                "active": False,
+            }
+
+            # 6. Empty value for optional 'count' (int type)
+            # count= (empty value) should fall back to default
+            res6_uri = "resource://test_item/item006?count="
+            res6_content_result = await client.read_resource(AnyUrl(res6_uri))
+            assert res6_content_result.contents and isinstance(res6_content_result.contents[0], TextResourceContents)
+            data6 = json.loads(res6_content_result.contents[0].text)
+            assert data6 == {
+                "item_id": "item006",
+                "name": "default_name",
+                "count": 0,  # Fallback to default because param is removed by parse_qs
+                "active": False,
+            }
+
+        # Test required param failing validation at server level
+        @mcp.resource("resource://req_fail/{req_id}/details")
+        def get_req_details(req_id: int, detail_type: str = "summary") -> dict[str, str | int]:
+            return {"req_id": req_id, "detail_type": detail_type}
+
+        async with client_session(mcp._mcp_server) as client:
+            invalid_req_uri = "resource://req_fail/notanint/details"
+            # The FastMCP.read_resource wraps internal errors,
+            # from template.create_resource, into a ResourceError, as McpError.
+            with pytest.raises(McpError):
+                await client.read_resource(AnyUrl(invalid_req_uri))
 
 
 class TestContextInjection:
