@@ -1280,6 +1280,12 @@ class ToolAnnotations(BaseModel):
     Default: true
     """
 
+    agencyHint: bool | None = None
+    """
+    If true, this tool encapsulates an internal "agent loop" (e.g., plan–act–observe cycles, tool-chaining, or autonomous retries).
+    Default: false
+    """
+
     model_config = ConfigDict(extra="allow")
 
 
