@@ -4,8 +4,9 @@ This module defines a wrapper type that combines JSONRPCMessage with metadata
 to support transport-specific features like resumability.
 """
 
+import contextvars
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from mcp.types import JSONRPCMessage, RequestId
@@ -49,4 +50,5 @@ class SessionMessage:
     """A message with specific metadata for transport-specific features."""
 
     message: JSONRPCMessage
+    context: contextvars.Context = field(default_factory=contextvars.copy_context)
     metadata: MessageMetadata = None
