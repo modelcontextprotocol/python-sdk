@@ -405,7 +405,7 @@ class FastMCP(Generic[LifespanResultT]):
 
         try:
             content = await resource.read()
-            return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
+            return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as e:  # pragma: no cover
             logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))

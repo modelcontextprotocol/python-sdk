@@ -344,19 +344,21 @@ class Server(Generic[LifespanResultT, RequestT]):
             async def handler(req: types.ReadResourceRequest):
                 result = await func(req.params.uri)
 
-                def create_content(data: str | bytes, mime_type: str | None):
+                def create_content(data: str | bytes, mime_type: str | None, meta: dict[str, Any] | None = None):
                     match data:
                         case str() as data:
                             return types.TextResourceContents(
                                 uri=req.params.uri,
                                 text=data,
                                 mimeType=mime_type or "text/plain",
+                                meta=meta,
                             )
                         case bytes() as data:  # pragma: no cover
                             return types.BlobResourceContents(
                                 uri=req.params.uri,
                                 blob=base64.b64encode(data).decode(),
                                 mimeType=mime_type or "application/octet-stream",
+                                meta=meta,
                             )
 
                 match result:
@@ -370,7 +372,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                         content = create_content(data, None)
                     case Iterable() as contents:
                         contents_list = [
-                            create_content(content_item.content, content_item.mime_type) for content_item in contents
+                            create_content(content_item.content, content_item.mime_type, content_item.meta)
+                            for content_item in contents
                         ]
                         return types.ServerResult(
                             types.ReadResourceResult(
