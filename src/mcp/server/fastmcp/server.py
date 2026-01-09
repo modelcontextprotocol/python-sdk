@@ -107,6 +107,10 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     stateless_http: bool
     """Define if the server should create a new transport per request."""
 
+    # SSE settings
+    stateless_sse: bool
+    """Define if the SSE server should bypass MCP initialization handshake."""
+
     # resource settings
     warn_on_duplicate_resources: bool
 
@@ -169,6 +173,7 @@ class FastMCP(Generic[LifespanResultT]):
         streamable_http_path: str = "/mcp",
         json_response: bool = False,
         stateless_http: bool = False,
+        stateless_sse: bool = False,
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
@@ -196,6 +201,7 @@ class FastMCP(Generic[LifespanResultT]):
             streamable_http_path=streamable_http_path,
             json_response=json_response,
             stateless_http=stateless_http,
+            stateless_sse=stateless_sse,
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
@@ -858,6 +864,7 @@ class FastMCP(Generic[LifespanResultT]):
                     streams[0],
                     streams[1],
                     self._mcp_server.create_initialization_options(),
+                    stateless=self.settings.stateless_sse,
                 )
             return Response()
 
