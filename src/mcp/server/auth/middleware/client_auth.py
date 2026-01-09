@@ -97,9 +97,9 @@ class ClientAuthenticator:
                 f"Unsupported auth method: {client.token_endpoint_auth_method}"
             )
 
-        # If client from the store expects a secret, validate that the request provides
-        # that secret
-        if client.client_secret:  # pragma: no branch
+        # If client from the store expects a secret and the auth method requires it,
+        # validate that the request provides that secret
+        if client.token_endpoint_auth_method != "none" and client.client_secret:
             if not request_client_secret:
                 raise AuthenticationError("Client secret is required")  # pragma: no cover
 
