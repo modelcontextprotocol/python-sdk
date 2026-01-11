@@ -68,14 +68,20 @@ class ClientAuthenticator:
         match client.token_endpoint_auth_method:
             case "client_secret_basic":
                 if client_credentials.auth_method != "client_secret_basic":
-                    raise AuthenticationError(f"Expected client_secret_basic authentication method, but got {client_credentials.auth_method}")
+                    raise AuthenticationError(
+                        f"Expected client_secret_basic authentication method, but got {client_credentials.auth_method}"
+                    )
             case "client_secret_post":
                 if client_credentials.auth_method != "client_secret_post":
-                    raise AuthenticationError(f"Expected client_secret_post authentication method, but got {client_credentials.auth_method}")
+                    raise AuthenticationError(
+                        f"Expected client_secret_post authentication method, but got {client_credentials.auth_method}"
+                    )
             case "none":
                 pass
             case _:
-                raise AuthenticationError(f"Unsupported auth method: {client.token_endpoint_auth_method}")  # pragma: no cover
+                raise AuthenticationError(  # pragma: no cover
+                    f"Unsupported auth method: {client.token_endpoint_auth_method}"
+                )
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
@@ -97,9 +103,9 @@ class ClientAuthenticator:
     async def _get_credentials(self, request: Request) -> ClientCredentials:
         """
         Extract client credentials from request, either from form data or Basic auth header.
-        
+
         Basic auth header takes precedence over form data.
-        
+
         Args:
             request: The HTTP request containing client credentials
         Returns:
@@ -131,7 +137,7 @@ class ClientAuthenticator:
         client_id = form_data.get("client_id")
         if not client_id:
             raise AuthenticationError("Missing client_id")
-        
+
         raw_client_secret = form_data.get("client_secret")
         client_secret = str(raw_client_secret) if isinstance(raw_client_secret, str) else None
         return ClientCredentials(

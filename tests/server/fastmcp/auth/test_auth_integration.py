@@ -1323,7 +1323,7 @@ class TestAuthEndpoints:
 
         # Header takes precedence, so this should succeed
         assert response.status_code == 200
-    
+
     @pytest.mark.anyio
     async def test_basic_auth_without_client_id_at_body(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
