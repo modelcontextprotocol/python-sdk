@@ -939,7 +939,8 @@ class TestAuthEndpoints:
         assert registered_client.scope == "read write"
 
     @pytest.mark.anyio
-    async def test_client_registration_invalid_grant_type(self, test_client: httpx.AsyncClient):
+    async def test_client_registration_with_authorization_code_only(self, test_client: httpx.AsyncClient):
+        """Test that registration succeeds with only authorization_code (refresh_token is optional per RFC 7591)."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -947,11 +948,26 @@ class TestAuthEndpoints:
         }
 
         response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert "client_id" in client_info
+        assert client_info["grant_types"] == ["authorization_code"]
+
+    @pytest.mark.anyio
+    async def test_client_registration_missing_authorization_code(self, test_client: httpx.AsyncClient):
+        """Test that registration fails when authorization_code grant type is missing."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Test Client",
+            "grant_types": ["refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
         assert response.status_code == 400
         error_data = response.json()
         assert "error" in error_data
         assert error_data["error"] == "invalid_client_metadata"
-        assert error_data["error_description"] == "grant_types must be authorization_code and refresh_token"
+        assert error_data["error_description"] == "grant_types must include 'authorization_code'"
 
     @pytest.mark.anyio
     async def test_client_registration_with_additional_grant_type(self, test_client: httpx.AsyncClient):

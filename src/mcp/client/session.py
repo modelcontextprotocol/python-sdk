@@ -206,7 +206,8 @@ class ClientSession(
     def experimental(self) -> ExperimentalClientFeatures:
         """Experimental APIs for tasks and other features.
 
-        WARNING: These APIs are experimental and may change without notice.
+        !!! warning
+            These APIs are experimental and may change without notice.
 
         Example:
             status = await session.experimental.get_task(task_id)

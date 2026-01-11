@@ -1,3 +1,5 @@
+from __future__ import annotations as _annotations
+
 from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
@@ -5,24 +7,6 @@ from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
 from typing_extensions import deprecated
-
-"""
-Model Context Protocol bindings for Python
-
-These bindings were generated from https://github.com/modelcontextprotocol/specification,
-using Claude, with a prompt something like the following:
-
-Generate idiomatic Python bindings for this schema for MCP, or the "Model Context
-Protocol." The schema is defined in TypeScript, but there's also a JSON Schema version
-for reference.
-
-* For the bindings, let's use Pydantic V2 models.
-* Each model should allow extra fields everywhere, by specifying `model_config =
-  ConfigDict(extra='allow')`. Do this in every case, instead of a custom base class.
-* Union types should be represented with a Pydantic `RootModel`.
-* Define additional model classes instead of using dictionaries. Do this even if they're
-  not separate types in the schema.
-"""
 
 LATEST_PROTOCOL_VERSION = "2025-11-25"
 
@@ -264,6 +248,12 @@ class Implementation(BaseMetadata):
     """Describes the name and version of an MCP implementation."""
 
     version: str
+
+    title: str | None = None
+    """An optional human-readable title for this implementation."""
+
+    description: str | None = None
+    """An optional human-readable description of what this implementation does."""
 
     websiteUrl: str | None = None
     """An optional URL of the website for this implementation."""
@@ -557,7 +547,7 @@ class Task(BaseModel):
     """Current task state."""
 
     statusMessage: str | None = None
-    """  
+    """
     Optional human-readable message describing the current task state.
     This can provide context for any status, including:
     - Reasons for "cancelled" status
@@ -1121,7 +1111,7 @@ class ToolResultContent(BaseModel):
     toolUseId: str
     """The unique identifier that corresponds to the tool call's id field."""
 
-    content: list["ContentBlock"] = []
+    content: list[ContentBlock] = []
     """
     A list of content objects representing the tool result.
     Defaults to empty list if not provided.
@@ -1523,7 +1513,7 @@ class CreateMessageRequestParams(RequestParams):
     stopSequences: list[str] | None = None
     metadata: dict[str, Any] | None = None
     """Optional metadata to pass through to the LLM provider."""
-    tools: list["Tool"] | None = None
+    tools: list[Tool] | None = None
     """
     Tool definitions for the LLM to use during sampling.
     Requires clientCapabilities.sampling.tools to be present.
