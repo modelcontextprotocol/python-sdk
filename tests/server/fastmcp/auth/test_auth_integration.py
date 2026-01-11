@@ -1089,7 +1089,7 @@ class TestAuthEndpoints:
         assert "access_token" in token_response
 
     @pytest.mark.anyio
-    async def test_wrong_auth_method_without_valid_credentials_fails(
+    async def test_wrong_auth_method_fails(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
         """Test that using the wrong authentication method fails when credentials are missing."""
@@ -1368,6 +1368,23 @@ class TestAuthEndpoints:
         assert response.status_code == 200
         token_response = response.json()
         assert "access_token" in token_response
+        assert "refresh_token" in token_response
+
+        refresh_token = token_response["refresh_token"]
+
+        # Now, use the refresh token without client_id in body
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded_credentials}"},
+            data={
+                "grant_type": "refresh_token",
+                # client_id omitted from body
+                "refresh_token": refresh_token,
+            },
+        )
+        assert response.status_code == 200
+        new_token_response = response.json()
+        assert "access_token" in new_token_response
 
     @pytest.mark.anyio
     async def test_none_auth_method_public_client(
