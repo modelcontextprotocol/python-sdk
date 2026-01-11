@@ -61,7 +61,7 @@ class ClientAuthenticator:
             AuthenticationError: If authentication fails
         """
         client_credentials = await self._get_credentials(request)
-        client = await self.provider.get_client(str(client_credentials.client_id))
+        client = await self.provider.get_client(client_credentials.client_id)
         if not client:
             raise AuthenticationError("Invalid client_id")  # pragma: no cover
 
