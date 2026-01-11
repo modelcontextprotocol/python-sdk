@@ -78,8 +78,8 @@ class ClientAuthenticator:
                     )
             case "none":
                 pass
-            case _:
-                raise AuthenticationError(  # pragma: no cover
+            case _:  # pragma: no cover
+                raise AuthenticationError( 
                     f"Unsupported auth method: {client.token_endpoint_auth_method}"
                 )
 
