@@ -121,3 +121,49 @@ class ClientAuthenticator:
                 raise AuthenticationError("Client secret has expired")  # pragma: no cover
 
         return client
+
+    async def _get_credentials(self, request: Request) -> ClientCredentials:
+        """
+        Extract client credentials from request, either from form data or Basic auth header.
+        
+        Basic auth header takes precedence over form data.
+        
+        Args:
+            request: The HTTP request containing client credentials
+        Returns:
+            The extracted client credentials
+        """
+        # First, check for Basic auth header
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            try:
+                encoded_credentials = auth_header[6:]  # Remove "Basic " prefix
+                decoded = base64.b64decode(encoded_credentials).decode("utf-8")
+                if ":" not in decoded:
+                    raise ValueError("Invalid Basic auth format")
+                client_id, client_secret = decoded.split(":", 1)
+
+                # URL-decode the client_id per RFC 6749 Section 2.3.1
+                client_id = unquote(client_id)
+                client_secret = unquote(client_secret)
+                return ClientCredentials(
+                    auth_method="client_secret_basic",
+                    client_id=client_id,
+                    client_secret=client_secret,
+                )
+            except (ValueError, UnicodeDecodeError, binascii.Error):
+                raise AuthenticationError("Invalid Basic authentication header")
+
+        # If not, check for client_id and client_secret in form data
+        form_data = await request.form()
+        client_id = form_data.get("client_id")
+        if not client_id:
+            raise AuthenticationError("Missing client_id")
+        
+        raw_client_secret = form_data.get("client_secret")
+        client_secret = str(raw_client_secret) if isinstance(raw_client_secret, str) else None
+        return ClientCredentials(
+            auth_method="client_secret_post",
+            client_id=str(client_id),
+            client_secret=client_secret,
+        )
