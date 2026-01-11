@@ -79,9 +79,7 @@ class ClientAuthenticator:
             case "none":
                 pass
             case _:  # pragma: no cover
-                raise AuthenticationError( 
-                    f"Unsupported auth method: {client.token_endpoint_auth_method}"
-                )
+                raise AuthenticationError(f"Unsupported auth method: {client.token_endpoint_auth_method}")
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
