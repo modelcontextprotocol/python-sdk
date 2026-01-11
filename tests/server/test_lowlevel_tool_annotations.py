@@ -67,7 +67,8 @@ async def test_lowlevel_server_tool_annotations():
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    async for message in server_session.incoming_messages:
+                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+                    async for message in server_session.incoming_messages:  # pragma: no cover
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
