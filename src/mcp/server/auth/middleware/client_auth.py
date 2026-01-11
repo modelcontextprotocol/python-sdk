@@ -2,7 +2,8 @@ import base64
 import binascii
 import hmac
 import time
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 from urllib.parse import unquote
 
 from starlette.requests import Request
@@ -14,6 +15,13 @@ from mcp.shared.auth import OAuthClientInformationFull
 class AuthenticationError(Exception):
     def __init__(self, message: str):
         self.message = message  # pragma: no cover
+
+
+@dataclass
+class ClientCredentials:
+    auth_method: Literal["client_secret_basic", "client_secret_post"]
+    client_id: str
+    client_secret: str | None = None
 
 
 class ClientAuthenticator:
