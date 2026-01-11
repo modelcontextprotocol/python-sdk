@@ -33,7 +33,7 @@ class RefreshTokenRequest(BaseModel):
     grant_type: Literal["refresh_token"]
     refresh_token: str = Field(..., description="The refresh token")
     scope: str | None = Field(None, description="Optional scope parameter")
-    client_id: str
+    client_id: str | None = Field(None, description="If none, client_id must be provided via basic auth header")
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
     # RFC 8707 resource indicator
