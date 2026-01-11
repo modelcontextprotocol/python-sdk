@@ -62,24 +62,24 @@ class ClientAuthenticator:
         """
         client_credentials = await self._get_credentials(request)
         client = await self.provider.get_client(client_credentials.client_id)
+
         if not client:
             raise AuthenticationError("Invalid client_id")  # pragma: no cover
 
-        match client.token_endpoint_auth_method:
-            case "client_secret_basic":
-                if client_credentials.auth_method != "client_secret_basic":
-                    raise AuthenticationError(
-                        f"Expected client_secret_basic authentication method, but got {client_credentials.auth_method}"
-                    )
-            case "client_secret_post":
-                if client_credentials.auth_method != "client_secret_post":
-                    raise AuthenticationError(
-                        f"Expected client_secret_post authentication method, but got {client_credentials.auth_method}"
-                    )
-            case "none":
-                pass
-            case _:  # pragma: no cover
-                raise AuthenticationError(f"Unsupported auth method: {client.token_endpoint_auth_method}")
+        if client.token_endpoint_auth_method == "client_secret_basic":
+            if client_credentials.auth_method != "client_secret_basic":
+                raise AuthenticationError(
+                    f"Expected client_secret_basic authentication method, but got {client_credentials.auth_method}"
+                )
+        elif client.token_endpoint_auth_method == "client_secret_post":
+            if client_credentials.auth_method != "client_secret_post":
+                raise AuthenticationError(
+                    f"Expected client_secret_post authentication method, but got {client_credentials.auth_method}"
+                )
+        elif client.token_endpoint_auth_method == "none":
+            pass
+        else:  # pragma: no cover
+            raise AuthenticationError(f"Unsupported auth method: {client.token_endpoint_auth_method}")
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
