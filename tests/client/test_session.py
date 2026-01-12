@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import pytest
@@ -775,13 +775,13 @@ async def test_initialize_without_context_manager_raises_error():
     """
     Test that calling initialize() without entering the context manager raises RuntimeError.
     """
-    # Create dummy streams for session initialization
-    read_stream, write_stream = anyio.create_memory_object_stream(0)
+    send_stream, receive_stream = anyio.create_memory_object_stream[Any](0)
 
-    async with read_stream, write_stream:
-        # Instantiate the session object directly
+    read_stream = cast(Any, receive_stream)
+    write_stream = cast(Any, send_stream)
+
+    async with send_stream, receive_stream:
         session = ClientSession(read_stream, write_stream)
 
-        # Verify that calling initialize() raises a RuntimeError
         with pytest.raises(RuntimeError, match="must be used within"):
             await session.initialize()
