@@ -28,6 +28,7 @@ from mcp.shared._httpx_utils import (
 )
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    SESSION_EXPIRED,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -347,13 +348,25 @@ class StreamableHTTPTransport:
                 logger.debug("Received 202 Accepted")
                 return
 
-            if response.status_code == 404:  # pragma: no branch
+            if response.status_code == 404:
+                # Clear invalid session per MCP spec
+                self.session_id = None
+                self.protocol_version = None
+
                 if isinstance(message.root, JSONRPCRequest):
-                    await self._send_session_terminated_error(  # pragma: no cover
-                        ctx.read_stream_writer,  # pragma: no cover
-                        message.root.id,  # pragma: no cover
-                    )  # pragma: no cover
-                return  # pragma: no cover
+                    if is_initialization:  # pragma: no cover
+                        # For initialization requests, session truly doesn't exist
+                        await self._send_session_terminated_error(
+                            ctx.read_stream_writer,
+                            message.root.id,
+                        )
+                    else:  # pragma: no cover
+                        # For other requests, signal session expired for auto-recovery
+                        await self._send_session_expired_error(
+                            ctx.read_stream_writer,
+                            message.root.id,
+                        )
+                return
 
             response.raise_for_status()
             if is_initialization:
@@ -517,6 +530,23 @@ class StreamableHTTPTransport:
             jsonrpc="2.0",
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
+        )
+        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
+        await read_stream_writer.send(session_message)
+
+    async def _send_session_expired_error(  # pragma: no cover
+        self,
+        read_stream_writer: StreamWriter,
+        request_id: RequestId,
+    ) -> None:
+        """Send a session expired error response for auto-recovery."""
+        jsonrpc_error = JSONRPCError(
+            jsonrpc="2.0",
+            id=request_id,
+            error=ErrorData(
+                code=SESSION_EXPIRED,
+                message="Session expired, re-initialization required",
+            ),
         )
         session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         await read_stream_writer.send(session_message)

@@ -165,6 +165,8 @@ URL_ELICITATION_REQUIRED = -32042
 # SDK error codes
 CONNECTION_CLOSED = -32000
 # REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
+SESSION_EXPIRED = -32002
+"""Error code indicating the session has expired and needs re-initialization."""
 
 # Standard JSON-RPC error codes
 PARSE_ERROR = -32700
