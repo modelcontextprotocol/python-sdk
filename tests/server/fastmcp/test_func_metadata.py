@@ -1202,3 +1202,123 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def test_bool_string_coercion_lowercase():
+    """Test that string 'false'/'true' are coerced to Python booleans.
+
+    This tests the fix for issue #1843: LLM clients sometimes serialize
+    booleans as strings ("false" instead of false in JSON), and these
+    need to be properly coerced to Python booleans.
+    """
+
+    def my_tool(flag: bool = True) -> str:  # pragma: no cover
+        return f"flag is {flag}"
+
+    meta = func_metadata(my_tool)
+
+    # Test lowercase
+    result = meta.pre_parse_json({"flag": "false"})
+    assert result["flag"] is False
+
+    result = meta.pre_parse_json({"flag": "true"})
+    assert result["flag"] is True
+
+
+def test_bool_string_coercion_case_insensitive():
+    """Test case-insensitive boolean coercion."""
+
+    def my_tool(flag: bool) -> str:  # pragma: no cover
+        return str(flag)
+
+    meta = func_metadata(my_tool)
+
+    # Test various case combinations for true
+    for true_val in ["true", "True", "TRUE", "tRuE"]:
+        result = meta.pre_parse_json({"flag": true_val})
+        assert result["flag"] is True, f"Expected True for {true_val!r}"
+
+    # Test various case combinations for false
+    for false_val in ["false", "False", "FALSE", "fAlSe"]:
+        result = meta.pre_parse_json({"flag": false_val})
+        assert result["flag"] is False, f"Expected False for {false_val!r}"
+
+
+def test_bool_native_values_unchanged():
+    """Test that native boolean values pass through unchanged."""
+
+    def my_tool(flag: bool) -> str:  # pragma: no cover
+        return str(flag)
+
+    meta = func_metadata(my_tool)
+
+    # Native booleans should pass through
+    result = meta.pre_parse_json({"flag": True})
+    assert result["flag"] is True
+
+    result = meta.pre_parse_json({"flag": False})
+    assert result["flag"] is False
+
+
+def test_bool_string_coercion_non_boolean_strings():
+    """Test that non-boolean strings for bool params fall through to Pydantic validation."""
+
+    def my_tool(flag: bool) -> str:  # pragma: no cover
+        return str(flag)
+
+    meta = func_metadata(my_tool)
+
+    # Non-boolean strings should not be modified by pre_parse_json
+    # (Pydantic validation will handle/reject them later)
+    result = meta.pre_parse_json({"flag": "yes"})
+    assert result["flag"] == "yes"
+
+    result = meta.pre_parse_json({"flag": "1"})
+    assert result["flag"] == "1"
+
+    result = meta.pre_parse_json({"flag": "no"})
+    assert result["flag"] == "no"
+
+
+@pytest.mark.anyio
+async def test_bool_string_coercion_runtime_validation():
+    """Test that boolean string coercion works in full runtime validation."""
+
+    def tool_with_bool(enabled: bool, name: str) -> str:  # pragma: no cover
+        assert isinstance(enabled, bool), f"Expected bool, got {type(enabled)}"
+        return f"enabled={enabled}, name={name}"
+
+    meta = func_metadata(tool_with_bool)
+
+    # Test with string "false" - should be coerced to Python False
+    result = await meta.call_fn_with_arg_validation(
+        tool_with_bool,
+        fn_is_async=False,
+        arguments_to_validate={"enabled": "false", "name": "test"},
+        arguments_to_pass_directly=None,
+    )
+    assert result == "enabled=False, name=test"
+
+    # Test with string "True" (capitalized) - should be coerced to Python True
+    result = await meta.call_fn_with_arg_validation(
+        tool_with_bool,
+        fn_is_async=False,
+        arguments_to_validate={"enabled": "True", "name": "test"},
+        arguments_to_pass_directly=None,
+    )
+    assert result == "enabled=True, name=test"
+
+
+def test_bool_string_coercion_does_not_affect_other_types():
+    """Test that boolean string coercion only applies to bool-annotated params."""
+
+    def my_tool(text: str, count: int, flag: bool) -> str:  # pragma: no cover
+        return f"{text}, {count}, {flag}"
+
+    meta = func_metadata(my_tool)
+
+    # "false" for a str param should remain a string
+    result = meta.pre_parse_json({"text": "false", "count": 5, "flag": "true"})
+    assert result["text"] == "false"  # Unchanged (str annotation)
+    assert result["count"] == 5  # Unchanged (int annotation)
+    assert result["flag"] is True  # Coerced (bool annotation)

@@ -156,6 +156,22 @@ class FuncMetadata(BaseModel):
                 continue
 
             field_info = key_to_field_info[data_key]
+
+            # Handle boolean string coercion (case-insensitive)
+            # Some LLM clients incorrectly serialize booleans as strings ("true"/"false")
+            # We need to handle this before the generic JSON parsing below, because
+            # json.loads("false") returns False, but isinstance(False, int) is True
+            # (since bool is a subclass of int in Python), causing it to be skipped.
+            if isinstance(data_value, str) and field_info.annotation is bool:
+                lower_value = data_value.lower()
+                if lower_value == "true":
+                    new_data[data_key] = True
+                    continue
+                elif lower_value == "false":
+                    new_data[data_key] = False
+                    continue
+                # If not "true"/"false", fall through to existing logic
+
             if isinstance(data_value, str) and field_info.annotation is not str:
                 try:
                     pre_parsed = json.loads(data_value)
