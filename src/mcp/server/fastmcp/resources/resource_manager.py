@@ -64,6 +64,7 @@ class ResourceManager:
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> ResourceTemplate:
         """Add a template from a function."""
         template = ResourceTemplate.from_function(
@@ -75,6 +76,7 @@ class ResourceManager:
             mime_type=mime_type,
             icons=icons,
             annotations=annotations,
+            meta=meta,
         )
         self._templates[template.uri_template] = template
         return template
