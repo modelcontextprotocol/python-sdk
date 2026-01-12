@@ -110,7 +110,7 @@ class ClientSession(
     ]
 ):
     _entered: bool
-    
+
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
