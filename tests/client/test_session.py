@@ -768,3 +768,20 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_initialize_without_context_manager_raises_error():
+    """
+    Test that calling initialize() without entering the context manager raises RuntimeError.
+    """
+    # Create dummy streams for session initialization
+    read_stream, write_stream = anyio.create_memory_object_stream(0)
+
+    async with read_stream, write_stream:
+        # Instantiate the session object directly
+        session = ClientSession(read_stream, write_stream)
+
+        # Verify that calling initialize() raises a RuntimeError
+        with pytest.raises(RuntimeError, match="must be used within"):
+            await session.initialize()
