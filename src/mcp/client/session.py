@@ -109,6 +109,8 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
+    _entered: bool
+    
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -162,9 +164,7 @@ class ClientSession(
 
     def _check_is_active(self) -> None:
         if not self._entered:
-            raise RuntimeError(
-                "ClientSession must be used within an 'async with' block."
-            )
+            raise RuntimeError("ClientSession must be used within an 'async with' block.")
 
     async def initialize(self) -> types.InitializeResult:
         self._check_is_active()
