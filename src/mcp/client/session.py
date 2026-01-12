@@ -1,6 +1,6 @@
 import logging
-from typing import Any, Protocol, overload
 from types import TracebackType
+from typing import Any, Protocol, overload
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
