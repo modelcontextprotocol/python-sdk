@@ -5,7 +5,7 @@
 <strong>Python implementation of the Model Context Protocol (MCP)</strong>
 
 [![PyPI][pypi-badge]][pypi-url]
-[![MIT licensed][mit-badge]][mit-url]
+[![Apache 2.0 licensed][license-badge]][license-url]
 [![Python Version][python-badge]][python-url]
 [![Documentation][docs-badge]][docs-url]
 [![Protocol][protocol-badge]][protocol-url]
@@ -70,8 +70,8 @@
 
 [pypi-badge]: https://img.shields.io/pypi/v/mcp.svg
 [pypi-url]: https://pypi.org/project/mcp/
-[mit-badge]: https://img.shields.io/pypi/l/mcp.svg
-[mit-url]: https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE
+[license-badge]: https://img.shields.io/badge/License-Apache_2.0-blue.svg
+[license-url]: https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE
 [python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
 [python-url]: https://www.python.org/downloads/
 [docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
@@ -2559,4 +2559,4 @@ We are passionate about supporting contributors of all levels of experience and 
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
