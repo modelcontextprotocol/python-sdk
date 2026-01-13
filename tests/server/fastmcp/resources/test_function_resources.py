@@ -155,3 +155,38 @@ class TestFunctionResource:
         assert resource.mime_type == "text/plain"
         assert resource.name == "test"
         assert resource.uri == AnyUrl("function://test")
+
+
+class TestFunctionResourceMetadata:
+    def test_from_function_with_metadata(self):
+        # from_function() accepts meta dict and stores it on the resource for static resources
+
+        def get_data() -> str:  # pragma: no cover
+            return "test data"
+
+        metadata = {"cache_ttl": 300, "tags": ["data", "readonly"]}
+
+        resource = FunctionResource.from_function(
+            fn=get_data,
+            uri="resource://data",
+            meta=metadata,
+        )
+
+        assert resource.meta is not None
+        assert resource.meta == metadata
+        assert resource.meta["cache_ttl"] == 300
+        assert "data" in resource.meta["tags"]
+        assert "readonly" in resource.meta["tags"]
+
+    def test_from_function_without_metadata(self):
+        # meta parameter is optional and defaults to None for backward compatibility
+
+        def get_data() -> str:  # pragma: no cover
+            return "test data"
+
+        resource = FunctionResource.from_function(
+            fn=get_data,
+            uri="resource://data",
+        )
+
+        assert resource.meta is None
