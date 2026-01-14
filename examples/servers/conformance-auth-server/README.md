@@ -45,8 +45,9 @@ npx @modelcontextprotocol/conformance server --suite auth \
 
 ## Token Validation
 
-The server accepts Bearer tokens that start with:
-- `test-token` - Standard test tokens
-- `cc-token` - Client credentials tokens
+The server validates Bearer tokens using OAuth 2.0 Token Introspection (RFC 7662).
+It discovers the introspection endpoint from the authorization server's metadata
+and calls it to validate each token.
 
-These are the token formats issued by the conformance test framework's fake authorization server.
+This approach ensures the server properly integrates with the authorization server
+rather than relying on hardcoded token patterns.

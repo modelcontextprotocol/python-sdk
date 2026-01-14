@@ -17,6 +17,7 @@ import os
 import sys
 
 import click
+import httpx
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
@@ -25,24 +26,75 @@ from pydantic import AnyHttpUrl
 logger = logging.getLogger(__name__)
 
 
-class ConformanceTokenVerifier(TokenVerifier):
+class IntrospectionTokenVerifier(TokenVerifier):
     """
-    Token verifier for conformance testing.
+    Token verifier that uses OAuth 2.0 Token Introspection (RFC 7662).
 
-    Validates Bearer tokens that start with 'test-token' or 'cc-token'
-    (as issued by the fake auth server).
+    Validates Bearer tokens by calling the authorization server's
+    introspection endpoint.
     """
+
+    def __init__(self, auth_server_url: str):
+        self._auth_server_url = auth_server_url.rstrip("/")
+        self._introspection_endpoint: str | None = None
+        self._http_client = httpx.AsyncClient()
+
+    async def _get_introspection_endpoint(self) -> str:
+        """Discover the introspection endpoint from AS metadata."""
+        if self._introspection_endpoint is not None:
+            return self._introspection_endpoint
+
+        # Fetch AS metadata
+        metadata_url = f"{self._auth_server_url}/.well-known/oauth-authorization-server"
+        logger.debug(f"Fetching AS metadata from {metadata_url}")
+
+        response = await self._http_client.get(metadata_url)
+        response.raise_for_status()
+        metadata = response.json()
+
+        introspection_endpoint = metadata.get("introspection_endpoint")
+        if not introspection_endpoint:
+            raise ValueError("Authorization server does not advertise introspection_endpoint")
+
+        self._introspection_endpoint = introspection_endpoint
+        logger.debug(f"Discovered introspection endpoint: {introspection_endpoint}")
+        return introspection_endpoint
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        """Verify a bearer token and return access info if valid."""
-        # Accept tokens that start with 'test-token' or 'cc-token'
-        if token.startswith("test-token") or token.startswith("cc-token"):
+        """Verify a bearer token using introspection and return access info if valid."""
+        try:
+            introspection_endpoint = await self._get_introspection_endpoint()
+
+            # Call introspection endpoint (RFC 7662)
+            response = await self._http_client.post(
+                introspection_endpoint,
+                data={"token": token},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Check if token is active
+            if not result.get("active", False):
+                logger.debug("Token introspection returned active=false")
+                return None
+
+            # Extract token info from introspection response
+            client_id: str = result.get("client_id", "unknown")
+            scope_str: str = result.get("scope", "")
+            scopes: list[str] = scope_str.split() if scope_str else []
+            expires_at: int | None = result.get("exp")
+
+            logger.debug(f"Token verified for client {client_id} with scopes {scopes}")
             return AccessToken(
                 token=token,
-                client_id="conformance-test-client",
-                scopes=["mcp:read", "mcp:write"],
+                client_id=client_id,
+                scopes=scopes,
+                expires_at=expires_at,
             )
-        return None
+        except Exception:
+            logger.exception("Token introspection failed")
+            return None
 
 
 def create_server(auth_server_url: str, port: int) -> FastMCP:
@@ -51,7 +103,7 @@ def create_server(auth_server_url: str, port: int) -> FastMCP:
 
     mcp = FastMCP(
         name="mcp-auth-test-server",
-        token_verifier=ConformanceTokenVerifier(),
+        token_verifier=IntrospectionTokenVerifier(auth_server_url),
         auth=AuthSettings(
             issuer_url=AnyHttpUrl(auth_server_url),
             resource_server_url=AnyHttpUrl(base_url),

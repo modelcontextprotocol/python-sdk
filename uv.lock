@@ -896,6 +896,7 @@ version = "0.1.0"
 source = { editable = "examples/servers/conformance-auth-server" }
 dependencies = [
     { name = "click" },
+    { name = "httpx" },
     { name = "mcp" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -911,6 +912,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.2.0" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", editable = "." },
     { name = "starlette" },
     { name = "uvicorn" },

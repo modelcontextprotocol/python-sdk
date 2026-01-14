@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Anthropic, PBC." }]
 keywords = ["mcp", "llm", "oauth", "conformance", "testing"]
 license = { text = "MIT" }
-dependencies = ["click>=8.2.0", "mcp", "starlette", "uvicorn"]
+dependencies = ["click>=8.2.0", "httpx>=0.27", "mcp", "starlette", "uvicorn"]
 
 [project.scripts]
 mcp-conformance-auth-server = "mcp_conformance_auth_server.server:main"
