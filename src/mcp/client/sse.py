@@ -1,10 +1,16 @@
 import logging
+import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
+
+if sys.version_info >= (3, 11):
+    from builtins import BaseExceptionGroup  # pragma: no cover
+else:
+    from exceptiongroup import BaseExceptionGroup  # pragma: no cover
 import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -157,8 +163,19 @@ async def sse_client(
 
                     try:
                         yield read_stream, write_stream
+                    # Suppress GeneratorExit to prevent "generator didn't stop after athrow()"
+                    # when client code exits the context manager during cancellation.
+                    # See https://github.com/python/cpython/issues/95571
+                    except GeneratorExit:
+                        pass
+                    # anyio wraps GeneratorExit in BaseExceptionGroup; extract and re-raise other exceptions
+                    except BaseExceptionGroup as eg:
+                        _, rest = eg.split(GeneratorExit)
+                        if rest:
+                            raise rest from None
                     finally:
                         tg.cancel_scope.cancel()
         finally:
             await read_stream_writer.aclose()
+            await read_stream.aclose()
             await write_stream.aclose()
