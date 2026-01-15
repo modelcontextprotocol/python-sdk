@@ -52,20 +52,25 @@ async with http_client:
 
 The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
 
-### `Content` type alias removed
+### Removed type aliases and classes
 
-The deprecated `Content` type alias has been removed. Use `ContentBlock` directly instead.
+The following deprecated type aliases and classes have been removed from `mcp.types`:
+
+| Removed | Replacement |
+|---------|-------------|
+| `Content` | `ContentBlock` |
+| `ResourceReference` | `ResourceTemplateReference` |
 
 **Before (v1):**
 
 ```python
-from mcp.types import Content
+from mcp.types import Content, ResourceReference
 ```
 
 **After (v2):**
 
 ```python
-from mcp.types import ContentBlock
+from mcp.types import ContentBlock, ResourceTemplateReference
 ```
 
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
@@ -82,6 +87,33 @@ result = await session_group.call_tool("my_tool", args={"key": "value"})
 
 ```python
 result = await session_group.call_tool("my_tool", arguments={"key": "value"})
+```
+
+### `cursor` parameter removed from `ClientSession` list methods
+
+The deprecated `cursor` parameter has been removed from the following `ClientSession` methods:
+
+- `list_resources()`
+- `list_resource_templates()`
+- `list_prompts()`
+- `list_tools()`
+
+Use `params=PaginatedRequestParams(cursor=...)` instead.
+
+**Before (v1):**
+
+```python
+result = await session.list_resources(cursor="next_page_token")
+result = await session.list_tools(cursor="next_page_token")
+```
+
+**After (v2):**
+
+```python
+from mcp.types import PaginatedRequestParams
+
+result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
+result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
 ## Deprecations
