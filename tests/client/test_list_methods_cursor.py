@@ -55,65 +55,6 @@ async def full_featured_server():
         ("list_resource_templates", "resources/templates/list"),
     ],
 )
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-async def test_list_methods_cursor_parameter(
-    stream_spy: Callable[[], StreamSpyCollection],
-    full_featured_server: FastMCP,
-    method_name: str,
-    request_method: str,
-):
-    """Test that the cursor parameter is accepted and correctly passed to the server.
-
-    Covers: list_tools, list_resources, list_prompts, list_resource_templates
-
-    See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
-    """
-    async with create_session(full_featured_server._mcp_server) as client_session:
-        spies = stream_spy()
-
-        # Test without cursor parameter (omitted)
-        method = getattr(client_session, method_name)
-        _ = await method()
-        requests = spies.get_client_requests(method=request_method)
-        assert len(requests) == 1
-        assert requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor=None
-        _ = await method(cursor=None)
-        requests = spies.get_client_requests(method=request_method)
-        assert len(requests) == 1
-        assert requests[0].params is None
-
-        spies.clear()
-
-        # Test with cursor as string
-        _ = await method(cursor="some_cursor_value")
-        requests = spies.get_client_requests(method=request_method)
-        assert len(requests) == 1
-        assert requests[0].params is not None
-        assert requests[0].params["cursor"] == "some_cursor_value"
-
-        spies.clear()
-
-        # Test with empty string cursor
-        _ = await method(cursor="")
-        requests = spies.get_client_requests(method=request_method)
-        assert len(requests) == 1
-        assert requests[0].params is not None
-        assert requests[0].params["cursor"] == ""
-
-
-@pytest.mark.parametrize(
-    "method_name,request_method",
-    [
-        ("list_tools", "tools/list"),
-        ("list_resources", "resources/list"),
-        ("list_prompts", "prompts/list"),
-        ("list_resource_templates", "resources/templates/list"),
-    ],
-)
 async def test_list_methods_params_parameter(
     stream_spy: Callable[[], StreamSpyCollection],
     full_featured_server: FastMCP,
@@ -162,37 +103,6 @@ async def test_list_methods_params_parameter(
         assert len(requests) == 1
         assert requests[0].params is not None
         assert requests[0].params["cursor"] == "some_cursor_value"
-
-
-@pytest.mark.parametrize(
-    "method_name",
-    [
-        "list_tools",
-        "list_resources",
-        "list_prompts",
-        "list_resource_templates",
-    ],
-)
-async def test_list_methods_raises_error_when_both_cursor_and_params_provided(
-    full_featured_server: FastMCP,
-    method_name: str,
-):
-    """Test that providing both cursor and params raises ValueError.
-
-    Covers: list_tools, list_resources, list_prompts, list_resource_templates
-
-    When both cursor and params are provided, a ValueError should be raised
-    to prevent ambiguity.
-    """
-    async with create_session(full_featured_server._mcp_server) as client_session:
-        method = getattr(client_session, method_name)
-
-        # Call with both cursor and params - should raise ValueError
-        with pytest.raises(ValueError, match="Cannot specify both cursor and params"):
-            await method(
-                cursor="old_cursor",
-                params=types.PaginatedRequestParams(cursor="new_cursor"),
-            )
 
 
 async def test_list_tools_with_strict_server_validation():

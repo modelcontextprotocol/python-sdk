@@ -1,6 +1,6 @@
 """FastMCP - A more ergonomic interface for MCP servers."""
 
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
 import inspect
 import re
