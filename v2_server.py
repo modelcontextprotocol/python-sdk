@@ -1,17 +1,9 @@
 from asyncio import Queue
 
+from mcp.types import ProgressNotificationParams
 from mcp_v2.lowlevel_server_sketch import Server
 from mcp_v2.transport.context import Context
-from mcp_v2.types import (
-    CallToolResult,
-    InitializeResult,
-    JSONRPCNotification,
-    JSONRPCRequest,
-    JSONRPCResponse,
-    NotificationParams,
-    ProgressNotificationParams,
-    ResourceUpdatedNotificationParams,
-)
+from mcp_v2.types.json_rpc import JSONRPCRequest, JSONRPCResponse
 
 notification_queue: Queue[NotificationParams] = Queue()
 
