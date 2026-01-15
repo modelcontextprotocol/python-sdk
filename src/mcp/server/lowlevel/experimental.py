@@ -31,6 +31,7 @@ from mcp.types import (
     ServerResult,
     ServerTasksCapability,
     ServerTasksRequestsCapability,
+    TasksCallCapability,
     TasksCancelCapability,
     TasksListCapability,
     TasksToolsCapability,
@@ -79,7 +80,7 @@ class ExperimentalHandlers:
             capabilities.tasks.cancel = TasksCancelCapability()
 
         capabilities.tasks.requests = ServerTasksRequestsCapability(
-            tools=TasksToolsCapability()
+            tools=TasksToolsCapability(call=TasksCallCapability())
         )  # assuming always supported for now
 
     def enable_tasks(
