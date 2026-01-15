@@ -84,6 +84,49 @@ result = await session_group.call_tool("my_tool", args={"key": "value"})
 result = await session_group.call_tool("my_tool", arguments={"key": "value"})
 ```
 
+### `cursor` parameter removed from `ClientSession` list methods
+
+The deprecated `cursor` parameter has been removed from the following `ClientSession` methods:
+
+- `list_resources()`
+- `list_resource_templates()`
+- `list_prompts()`
+- `list_tools()`
+
+Use `params=PaginatedRequestParams(cursor=...)` instead.
+
+**Before (v1):**
+
+```python
+result = await session.list_resources(cursor="next_page_token")
+result = await session.list_tools(cursor="next_page_token")
+```
+
+**After (v2):**
+
+```python
+from mcp.types import PaginatedRequestParams
+
+result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
+result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
+```
+
+### `ResourceReference` class removed
+
+The deprecated `ResourceReference` class has been removed. Use `ResourceTemplateReference` directly instead.
+
+**Before (v1):**
+
+```python
+from mcp.types import ResourceReference
+```
+
+**After (v2):**
+
+```python
+from mcp.types import ResourceTemplateReference
+```
+
 ## Deprecations
 
 <!-- Add deprecations below -->
