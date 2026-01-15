@@ -39,7 +39,7 @@ class TestUrlParameterDecoding:
 
         params = template.matches("search://caf%C3%A9")
         assert params is not None
-        assert params["query"] == "cafe"  # encoded as UTF-8
+        assert params["query"] == "café"
 
     def test_template_matches_decodes_complex_phrase(self):
         """Test complex French phrase from the original issue."""
@@ -53,11 +53,9 @@ class TestUrlParameterDecoding:
             name="search",
         )
 
-        params = template.matches(
-            "search://stick%20correcteur%20teint%C3%A9%20anti-imperfections"
-        )
+        params = template.matches("search://stick%20correcteur%20teint%C3%A9%20anti-imperfections")
         assert params is not None
-        assert params["query"] == "stick correcteur teinte anti-imperfections"
+        assert params["query"] == "stick correcteur teinté anti-imperfections"
 
     def test_template_matches_preserves_plus_sign(self):
         """Test that plus sign remains as plus (not converted to space).
