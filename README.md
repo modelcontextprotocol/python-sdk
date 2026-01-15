@@ -13,6 +13,13 @@
 
 </div>
 
+> [!IMPORTANT]
+> **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
+>
+> We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+>
+> For v1 documentation and code, see the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
+
 <!-- omit in toc -->
 ## Table of Contents
 
