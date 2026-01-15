@@ -1,5 +1,4 @@
 import json
-import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -11,8 +10,6 @@ from websockets.typing import Subprotocol
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
-
-logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
