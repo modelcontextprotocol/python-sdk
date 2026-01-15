@@ -52,6 +52,48 @@ async with http_client:
 
 The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
 
+### Resource URI type changed from `AnyUrl` to `str`
+
+The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the MCP specification which defines URIs as plain strings without validation. This change allows relative paths like `users/me` that were previously rejected.
+
+**Before (v1):**
+
+```python
+from pydantic import AnyUrl
+from mcp.types import Resource
+
+# Required wrapping in AnyUrl
+resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validation
+```
+
+**After (v2):**
+
+```python
+from mcp.types import Resource
+
+# Plain strings accepted
+resource = Resource(name="test", uri="users/me")  # Works
+resource = Resource(name="test", uri="custom://scheme")  # Works
+resource = Resource(name="test", uri="https://example.com")  # Works
+```
+
+If your code passes `AnyUrl` objects to URI fields, convert them to strings:
+
+```python
+# If you have an AnyUrl from elsewhere
+uri = str(my_any_url)  # Convert to string
+```
+
+Affected types:
+- `Resource.uri`
+- `ReadResourceRequestParams.uri`
+- `ResourceContents.uri` (and subclasses `TextResourceContents`, `BlobResourceContents`)
+- `SubscribeRequestParams.uri`
+- `UnsubscribeRequestParams.uri`
+- `ResourceUpdatedNotificationParams.uri`
+
+The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` methods now accept both `str` and `AnyUrl` for backwards compatibility.
+
 ## Deprecations
 
 <!-- Add deprecations below -->
