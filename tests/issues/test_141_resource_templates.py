@@ -2,10 +2,12 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
+from mcp.shared.exceptions import McpError
 from mcp.shared.memory import (
     create_connected_server_and_client_session as client_session,
 )
 from mcp.types import (
+    RESOURCE_NOT_FOUND,
     ListResourceTemplatesResult,
     TextResourceContents,
 )
@@ -56,12 +58,14 @@ async def test_resource_template_edge_cases():
     assert result_list[0].content == "Post 456 by user 123"
     assert result_list[0].mime_type == "text/plain"
 
-    # Verify invalid parameters raise error
-    with pytest.raises(ValueError, match="Unknown resource"):
+    # Verify invalid parameters raise protocol error
+    with pytest.raises(McpError, match="Unknown resource") as exc_info:
         await mcp.read_resource("resource://users/123/posts")  # Missing post_id
+    assert exc_info.value.error.code == RESOURCE_NOT_FOUND
 
-    with pytest.raises(ValueError, match="Unknown resource"):
+    with pytest.raises(McpError, match="Unknown resource") as exc_info:
         await mcp.read_resource("resource://users/123/posts/456/extra")  # Extra path component
+    assert exc_info.value.error.code == RESOURCE_NOT_FOUND
 
 
 @pytest.mark.anyio

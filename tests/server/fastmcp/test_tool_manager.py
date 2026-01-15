@@ -12,6 +12,7 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT, RequestT
+from mcp.shared.exceptions import McpError
 from mcp.types import TextContent, ToolAnnotations
 
 
@@ -255,7 +256,8 @@ class TestCallTools:
     @pytest.mark.anyio
     async def test_call_unknown_tool(self):
         manager = ToolManager()
-        with pytest.raises(ToolError):
+        # Unknown tool raises McpError (protocol error) per MCP spec
+        with pytest.raises(McpError):
             await manager.call_tool("unknown", {"a": 1})
 
     @pytest.mark.anyio
@@ -893,8 +895,8 @@ class TestRemoveTools:
         # Remove the tool
         manager.remove_tool("greet")
 
-        # Verify calling removed tool raises error
-        with pytest.raises(ToolError, match="Unknown tool: greet"):
+        # Verify calling removed tool raises McpError (protocol error per MCP spec)
+        with pytest.raises(McpError, match="Unknown tool: greet"):
             await manager.call_tool("greet", {"name": "World"})
 
     def test_remove_tool_case_sensitive(self):

@@ -285,8 +285,8 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
         async with client_session(mcp._mcp_server) as client:
-            result = await client.call_tool("my_tool", {"arg1": "value"})
-            assert not hasattr(result, "error")
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert not result.isError
             assert len(result.content) > 0
 
     @pytest.mark.anyio
@@ -711,7 +711,7 @@ class TestServerTools:
 
     @pytest.mark.anyio
     async def test_remove_tool_and_call(self):
-        """Test that calling a removed tool fails appropriately."""
+        """Test that calling a removed tool raises a protocol error."""
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
 
@@ -726,13 +726,11 @@ class TestServerTools:
         # Remove the tool
         mcp.remove_tool("tool_fn")
 
-        # Verify calling removed tool returns an error
+        # Verify calling removed tool raises a protocol error (per MCP spec)
         async with client_session(mcp._mcp_server) as client:
-            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
-            assert result.isError
-            content = result.content[0]
-            assert isinstance(content, TextContent)
-            assert "Unknown tool" in content.text
+            with pytest.raises(McpError) as exc_info:
+                await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert "Unknown tool" in str(exc_info.value)
 
 
 class TestServerResources:
