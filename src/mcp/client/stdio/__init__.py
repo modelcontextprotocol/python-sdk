@@ -103,7 +103,7 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
+async def stdio_client(server: StdioServerParameters, errlog: TextIO | None = None):
     """
     Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
@@ -236,7 +236,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | None = None,
     cwd: Path | str | None = None,
 ):
     """
