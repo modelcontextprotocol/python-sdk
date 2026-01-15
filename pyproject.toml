@@ -39,6 +39,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.9.0",
     "typing-inspection>=0.4.1",
+    "exceptiongroup>=1.0.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

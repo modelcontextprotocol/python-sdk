@@ -1,14 +1,86 @@
-from collections.abc import Callable, Generator
+import multiprocessing
+import socket
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+import uvicorn
 from anyio.streams.memory import MemoryObjectSendStream
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Mount, Route
 
 import mcp.shared.memory
+from mcp.server import Server
+from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCNotification, JSONRPCRequest
+from tests.test_helpers import wait_for_server
+
+
+def run_server(port: int) -> None:  # pragma: no cover
+    """Run server with SSE and Streamable HTTP endpoints."""
+    server = Server(name="cleanup_test_server")
+    session_manager = StreamableHTTPSessionManager(app=server, json_response=False)
+    sse_transport = SseServerTransport("/messages/")
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse_transport.connect_sse(request.scope, request.receive, request._send) as streams:
+            if streams:
+                await server.run(streams[0], streams[1], server.create_initialization_options())
+        return Response()
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
+        async with session_manager.run():
+            yield
+
+    app = Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse_transport.handle_post_message),
+            Mount("/mcp", app=session_manager.handle_request),
+        ],
+        lifespan=lifespan,
+    )
+    uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")).run()
+
+
+@pytest.fixture
+def server_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def test_server(server_port: int) -> Generator[str, None, None]:
+    """Start server with SSE and Streamable HTTP endpoints."""
+    proc = multiprocessing.Process(target=run_server, kwargs={"port": server_port}, daemon=True)
+    proc.start()
+    wait_for_server(server_port)
+    try:
+        yield f"http://127.0.0.1:{server_port}"
+    finally:
+        proc.terminate()
+        proc.join(timeout=2)
+        if proc.is_alive():  # pragma: no cover
+            proc.kill()
+            proc.join(timeout=1)
+
+
+@pytest.fixture
+def sse_server_url(test_server: str) -> str:
+    return f"{test_server}/sse"
+
+
+@pytest.fixture
+def streamable_server_url(test_server: str) -> str:
+    return f"{test_server}/mcp"
 
 
 class SpyMemoryObjectSendStream:
