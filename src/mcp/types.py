@@ -6,7 +6,6 @@ from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
-from typing_extensions import deprecated
 
 LATEST_PROTOCOL_VERSION = "2025-11-25"
 
@@ -1585,11 +1584,6 @@ class ResourceTemplateReference(BaseModel):
     uri: str
     """The URI or URI template of the resource."""
     model_config = ConfigDict(extra="allow")
-
-
-@deprecated("`ResourceReference` is deprecated, you should use `ResourceTemplateReference`.")
-class ResourceReference(ResourceTemplateReference):
-    pass
 
 
 class PromptReference(BaseModel):

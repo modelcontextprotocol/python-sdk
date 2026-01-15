@@ -1,10 +1,9 @@
 import logging
-from typing import Any, Protocol, overload
+from typing import Any, Protocol
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl, TypeAdapter
-from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.client.experimental import ExperimentalClientFeatures
@@ -256,112 +255,48 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    @overload
-    @deprecated("Use list_resources(params=PaginatedRequestParams(...)) instead")
-    async def list_resources(self, cursor: str | None) -> types.ListResourcesResult: ...
-
-    @overload
-    async def list_resources(self, *, params: types.PaginatedRequestParams | None) -> types.ListResourcesResult: ...
-
-    @overload
-    async def list_resources(self) -> types.ListResourcesResult: ...
-
-    async def list_resources(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListResourcesResult:
+    async def list_resources(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListResourcesResult:
         """Send a resources/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         return await self.send_request(
-            types.ClientRequest(types.ListResourcesRequest(params=request_params)),
+            types.ClientRequest(types.ListResourcesRequest(params=params)),
             types.ListResourcesResult,
         )
 
-    @overload
-    @deprecated("Use list_resource_templates(params=PaginatedRequestParams(...)) instead")
-    async def list_resource_templates(self, cursor: str | None) -> types.ListResourceTemplatesResult: ...
-
-    @overload
     async def list_resource_templates(
-        self, *, params: types.PaginatedRequestParams | None
-    ) -> types.ListResourceTemplatesResult: ...
-
-    @overload
-    async def list_resource_templates(self) -> types.ListResourceTemplatesResult: ...
-
-    async def list_resource_templates(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
+        self, *, params: types.PaginatedRequestParams | None = None
     ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         return await self.send_request(
-            types.ClientRequest(types.ListResourceTemplatesRequest(params=request_params)),
+            types.ClientRequest(types.ListResourceTemplatesRequest(params=params)),
             types.ListResourceTemplatesResult,
         )
 
     async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
-            types.ClientRequest(
-                types.ReadResourceRequest(
-                    params=types.ReadResourceRequestParams(uri=uri),
-                )
-            ),
+            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=uri))),
             types.ReadResourceResult,
         )
 
     async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(
-                types.SubscribeRequest(
-                    params=types.SubscribeRequestParams(uri=uri),
-                )
-            ),
+            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri))),
             types.EmptyResult,
         )
 
     async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(
-                types.UnsubscribeRequest(
-                    params=types.UnsubscribeRequestParams(uri=uri),
-                )
-            ),
+            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri))),
             types.EmptyResult,
         )
 
@@ -422,40 +357,14 @@ class ClientSession(
             except SchemaError as e:  # pragma: no cover
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
 
-    @overload
-    @deprecated("Use list_prompts(params=PaginatedRequestParams(...)) instead")
-    async def list_prompts(self, cursor: str | None) -> types.ListPromptsResult: ...
-
-    @overload
-    async def list_prompts(self, *, params: types.PaginatedRequestParams | None) -> types.ListPromptsResult: ...
-
-    @overload
-    async def list_prompts(self) -> types.ListPromptsResult: ...
-
-    async def list_prompts(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListPromptsResult:
+    async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         return await self.send_request(
-            types.ClientRequest(types.ListPromptsRequest(params=request_params)),
+            types.ClientRequest(types.ListPromptsRequest(params=params)),
             types.ListPromptsResult,
         )
 
@@ -494,40 +403,15 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    @overload
-    @deprecated("Use list_tools(params=PaginatedRequestParams(...)) instead")
-    async def list_tools(self, cursor: str | None) -> types.ListToolsResult: ...
-
-    @overload
-    async def list_tools(self, *, params: types.PaginatedRequestParams | None) -> types.ListToolsResult: ...
-
-    @overload
-    async def list_tools(self) -> types.ListToolsResult: ...
-
-    async def list_tools(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListToolsResult:
+    async def list_tools(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListToolsResult:
         """Send a tools/list request.
 
         Args:
             cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         result = await self.send_request(
-            types.ClientRequest(types.ListToolsRequest(params=request_params)),
+            types.ClientRequest(types.ListToolsRequest(params=params)),
             types.ListToolsResult,
         )
 

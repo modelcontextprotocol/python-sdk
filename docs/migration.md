@@ -52,20 +52,25 @@ async with http_client:
 
 The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
 
-### `Content` type alias removed
+### Removed type aliases and classes
 
-The deprecated `Content` type alias has been removed. Use `ContentBlock` directly instead.
+The following deprecated type aliases and classes have been removed from `mcp.types`:
+
+| Removed | Replacement |
+|---------|-------------|
+| `Content` | `ContentBlock` |
+| `ResourceReference` | `ResourceTemplateReference` |
 
 **Before (v1):**
 
 ```python
-from mcp.types import Content
+from mcp.types import Content, ResourceReference
 ```
 
 **After (v2):**
 
 ```python
-from mcp.types import ContentBlock
+from mcp.types import ContentBlock, ResourceTemplateReference
 ```
 
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
@@ -109,22 +114,6 @@ from mcp.types import PaginatedRequestParams
 
 result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
-```
-
-### `ResourceReference` class removed
-
-The deprecated `ResourceReference` class has been removed. Use `ResourceTemplateReference` directly instead.
-
-**Before (v1):**
-
-```python
-from mcp.types import ResourceReference
-```
-
-**After (v2):**
-
-```python
-from mcp.types import ResourceTemplateReference
 ```
 
 ## Deprecations
