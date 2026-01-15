@@ -1433,13 +1433,15 @@ async def test_streamablehttp_client_resumption_with_extra_headers(event_server:
     if captured_protocol_version:  # pragma: no cover
         headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
 
-    async with create_mcp_http_client(headers=headers) as httpx_client:
-        async with streamable_http_client(f"{server_url}/mcp", http_client=httpx_client) as (
+    async with create_mcp_http_client(headers=headers) as httpx_client:  # pragma: no branch
+        async with streamable_http_client(f"{server_url}/mcp", http_client=httpx_client) as (  # pragma: no branch
             read_stream,
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            async with ClientSession(  # pragma: no branch
+                read_stream, write_stream, message_handler=message_handler
+            ) as session:
                 result = await session.send_request(
                     types.ClientRequest(
                         types.CallToolRequest(
