@@ -52,6 +52,38 @@ async with http_client:
 
 The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
 
+### `Content` type alias removed
+
+The deprecated `Content` type alias has been removed. Use `ContentBlock` directly instead.
+
+**Before (v1):**
+
+```python
+from mcp.types import Content
+```
+
+**After (v2):**
+
+```python
+from mcp.types import ContentBlock
+```
+
+### `args` parameter removed from `ClientSessionGroup.call_tool()`
+
+The deprecated `args` parameter has been removed from `ClientSessionGroup.call_tool()`. Use `arguments` instead.
+
+**Before (v1):**
+
+```python
+result = await session_group.call_tool("my_tool", args={"key": "value"})
+```
+
+**After (v2):**
+
+```python
+result = await session_group.call_tool("my_tool", arguments={"key": "value"})
+```
+
 ## Deprecations
 
 <!-- Add deprecations below -->

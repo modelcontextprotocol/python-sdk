@@ -77,7 +77,7 @@ class TestClientSessionGroup:
         assert result.content == [text_content]
         mock_session.call_tool.assert_called_once_with(
             "my_tool",
-            {"name": "value1", "args": {}},
+            arguments={"name": "value1", "args": {}},
             read_timeout_seconds=None,
             progress_callback=None,
             meta=None,
