@@ -12,12 +12,12 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, TypeAlias, overload
+from typing import Any, TypeAlias
 
 import anyio
 import httpx
 from pydantic import BaseModel
-from typing_extensions import Self, deprecated
+from typing_extensions import Self
 
 import mcp
 from mcp import types
@@ -190,29 +190,6 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
-    @overload
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any],
-        read_timeout_seconds: float | None = None,
-        progress_callback: ProgressFnT | None = None,
-        *,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
-    @overload
-    @deprecated("The 'args' parameter is deprecated. Use 'arguments' instead.")
-    async def call_tool(
-        self,
-        name: str,
-        *,
-        args: dict[str, Any],
-        read_timeout_seconds: float | None = None,
-        progress_callback: ProgressFnT | None = None,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
     async def call_tool(
         self,
         name: str,
@@ -221,14 +198,13 @@ class ClientSessionGroup:
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
-        args: dict[str, Any] | None = None,
     ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
         return await session.call_tool(
             session_tool_name,
-            arguments if args is None else args,
+            arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
