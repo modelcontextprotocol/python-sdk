@@ -1,85 +1,132 @@
 """Tests for issue #1574: Python SDK incorrectly validates Resource URIs.
 
-The Python SDK uses Pydantic's AnyUrl for URI fields, which rejects relative paths
-like 'users/me' that are valid according to the MCP spec and accepted by the
-TypeScript SDK.
+The Python SDK previously used Pydantic's AnyUrl for URI fields, which rejected
+relative paths like 'users/me' that are valid according to the MCP spec and
+accepted by the TypeScript SDK.
 
-The spec defines uri fields as plain strings with no JSON Schema format validation.
+The fix changed URI fields to plain strings to match the spec, which defines
+uri fields as strings with no JSON Schema format validation.
+
+These tests verify the fix works end-to-end through the JSON-RPC protocol.
 """
 
+import pytest
+
 from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.shared.memory import (
+    create_connected_server_and_client_session as client_session,
+)
+
+pytestmark = pytest.mark.anyio
 
 
-class TestResourceUriValidation:
-    """Test that Resource URI fields accept all valid MCP URIs."""
+async def test_relative_uri_roundtrip():
+    """Relative URIs survive the full server-client JSON-RPC roundtrip.
 
-    def test_relative_path_uri(self):
-        """
-        REPRODUCER: Relative paths like 'users/me' should be accepted.
+    This is the critical regression test - if someone reintroduces AnyUrl,
+    the server would fail to serialize resources with relative URIs,
+    or the URI would be transformed during the roundtrip.
+    """
+    server = Server("test")
 
-        Currently fails with:
-        ValidationError: Input should be a valid URL, relative URL without a base
-        """
-        # This should NOT raise - relative paths are valid per MCP spec
-        resource = types.Resource(name="test", uri="users/me")
-        assert str(resource.uri) == "users/me"
+    @server.list_resources()
+    async def list_resources():
+        return [
+            types.Resource(name="user", uri="users/me"),
+            types.Resource(name="config", uri="./config"),
+            types.Resource(name="parent", uri="../parent/resource"),
+        ]
 
-    def test_custom_scheme_uri(self):
-        """Custom scheme URIs should be accepted."""
-        resource = types.Resource(name="test", uri="custom://resource")
-        assert str(resource.uri) == "custom://resource"
+    @server.read_resource()
+    async def read_resource(uri: str):
+        return [
+            ReadResourceContents(
+                content=f"data for {uri}",
+                mime_type="text/plain",
+            )
+        ]
 
-    def test_file_url(self):
-        """File URLs should be accepted."""
-        resource = types.Resource(name="test", uri="file:///path/to/file")
-        assert str(resource.uri) == "file:///path/to/file"
+    async with client_session(server) as client:
+        # List should return the exact URIs we specified
+        resources = await client.list_resources()
+        uri_map = {r.uri: r for r in resources.resources}
 
-    def test_http_url(self):
-        """HTTP URLs should be accepted."""
-        resource = types.Resource(name="test", uri="https://example.com/resource")
-        assert str(resource.uri) == "https://example.com/resource"
+        assert "users/me" in uri_map, f"Expected 'users/me' in {list(uri_map.keys())}"
+        assert "./config" in uri_map, f"Expected './config' in {list(uri_map.keys())}"
+        assert "../parent/resource" in uri_map, f"Expected '../parent/resource' in {list(uri_map.keys())}"
 
-
-class TestReadResourceRequestParamsUri:
-    """Test that ReadResourceRequestParams.uri accepts all valid MCP URIs."""
-
-    def test_relative_path_uri(self):
-        """Relative paths should be accepted in read requests."""
-        params = types.ReadResourceRequestParams(uri="users/me")
-        assert str(params.uri) == "users/me"
-
-
-class TestResourceContentsUri:
-    """Test that ResourceContents.uri accepts all valid MCP URIs."""
-
-    def test_relative_path_uri(self):
-        """Relative paths should be accepted in resource contents."""
-        contents = types.TextResourceContents(uri="users/me", text="content")
-        assert str(contents.uri) == "users/me"
+        # Read should work with each relative URI and preserve it in the response
+        for uri_str in ["users/me", "./config", "../parent/resource"]:
+            result = await client.read_resource(uri_str)
+            assert len(result.contents) == 1
+            assert result.contents[0].uri == uri_str
 
 
-class TestSubscribeRequestParamsUri:
-    """Test that SubscribeRequestParams.uri accepts all valid MCP URIs."""
+async def test_custom_scheme_uri_roundtrip():
+    """Custom scheme URIs work through the protocol.
 
-    def test_relative_path_uri(self):
-        """Relative paths should be accepted in subscribe requests."""
-        params = types.SubscribeRequestParams(uri="users/me")
-        assert str(params.uri) == "users/me"
+    Some MCP servers use custom schemes like "custom://resource".
+    These should work end-to-end.
+    """
+    server = Server("test")
+
+    @server.list_resources()
+    async def list_resources():
+        return [
+            types.Resource(name="custom", uri="custom://my-resource"),
+            types.Resource(name="file", uri="file:///path/to/file"),
+        ]
+
+    @server.read_resource()
+    async def read_resource(uri: str):
+        return [ReadResourceContents(content="data", mime_type="text/plain")]
+
+    async with client_session(server) as client:
+        resources = await client.list_resources()
+        uri_map = {r.uri: r for r in resources.resources}
+
+        assert "custom://my-resource" in uri_map
+        assert "file:///path/to/file" in uri_map
+
+        # Read with custom scheme
+        result = await client.read_resource("custom://my-resource")
+        assert len(result.contents) == 1
 
 
-class TestUnsubscribeRequestParamsUri:
-    """Test that UnsubscribeRequestParams.uri accepts all valid MCP URIs."""
+def test_uri_json_roundtrip_preserves_value():
+    """URI is preserved exactly through JSON serialization.
 
-    def test_relative_path_uri(self):
-        """Relative paths should be accepted in unsubscribe requests."""
-        params = types.UnsubscribeRequestParams(uri="users/me")
-        assert str(params.uri) == "users/me"
+    This catches any Pydantic validation or normalization that would
+    alter the URI during the JSON-RPC message flow.
+    """
+    test_uris = [
+        "users/me",
+        "custom://resource",
+        "./relative",
+        "../parent",
+        "file:///absolute/path",
+        "https://example.com/path",
+    ]
+
+    for uri_str in test_uris:
+        resource = types.Resource(name="test", uri=uri_str)
+        json_data = resource.model_dump(mode="json")
+        restored = types.Resource.model_validate(json_data)
+        assert restored.uri == uri_str, f"URI mutated: {uri_str} -> {restored.uri}"
 
 
-class TestResourceUpdatedNotificationParamsUri:
-    """Test that ResourceUpdatedNotificationParams.uri accepts all valid MCP URIs."""
+def test_resource_contents_uri_json_roundtrip():
+    """TextResourceContents URI is preserved through JSON serialization."""
+    test_uris = ["users/me", "./relative", "custom://resource"]
 
-    def test_relative_path_uri(self):
-        """Relative paths should be accepted in resource updated notifications."""
-        params = types.ResourceUpdatedNotificationParams(uri="users/me")
-        assert str(params.uri) == "users/me"
+    for uri_str in test_uris:
+        contents = types.TextResourceContents(
+            uri=uri_str,
+            text="data",
+            mimeType="text/plain",
+        )
+        json_data = contents.model_dump(mode="json")
+        restored = types.TextResourceContents.model_validate(json_data)
+        assert restored.uri == uri_str, f"URI mutated: {uri_str} -> {restored.uri}"
