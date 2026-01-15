@@ -56,6 +56,7 @@ jobs:
         run: uv sync ${{ matrix.dep-resolution.install-flags }} --all-extras --python ${{ matrix.python-version }}
 
       - name: Run pytest with coverage
+        shell: bash
         run: |
           uv run --frozen --no-sync coverage run -m pytest
           uv run --frozen --no-sync coverage combine
