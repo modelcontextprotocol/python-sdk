@@ -1015,7 +1015,7 @@ class GetPromptRequest(Request[GetPromptRequestParams, Literal["prompts/get"]]):
 class TextContent(BaseModel):
     """Text content for a message."""
 
-    type: Literal["text"]
+    type: Literal["text"] = "text"
     text: str
     """The text content of the message."""
     annotations: Annotations | None = None
@@ -1030,7 +1030,7 @@ class TextContent(BaseModel):
 class ImageContent(BaseModel):
     """Image content for a message."""
 
-    type: Literal["image"]
+    type: Literal["image"] = "image"
     data: str
     """The base64-encoded image data."""
     mimeType: str
@@ -1050,7 +1050,7 @@ class ImageContent(BaseModel):
 class AudioContent(BaseModel):
     """Audio content for a message."""
 
-    type: Literal["audio"]
+    type: Literal["audio"] = "audio"
     data: str
     """The base64-encoded audio data."""
     mimeType: str
@@ -1076,7 +1076,7 @@ class ToolUseContent(BaseModel):
     in the next user message.
     """
 
-    type: Literal["tool_use"]
+    type: Literal["tool_use"] = "tool_use"
     """Discriminator for tool use content."""
 
     name: str
@@ -1104,7 +1104,7 @@ class ToolResultContent(BaseModel):
     from the assistant. It contains the output of executing the requested tool.
     """
 
-    type: Literal["tool_result"]
+    type: Literal["tool_result"] = "tool_result"
     """Discriminator for tool result content."""
 
     toolUseId: str
@@ -1171,7 +1171,7 @@ class EmbeddedResource(BaseModel):
     of the LLM and/or the user.
     """
 
-    type: Literal["resource"]
+    type: Literal["resource"] = "resource"
     resource: TextResourceContents | BlobResourceContents
     annotations: Annotations | None = None
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
@@ -1189,7 +1189,7 @@ class ResourceLink(Resource):
     Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
     """
 
-    type: Literal["resource_link"]
+    type: Literal["resource_link"] = "resource_link"
 
 
 ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
@@ -1580,7 +1580,7 @@ class CreateMessageResultWithTools(Result):
 class ResourceTemplateReference(BaseModel):
     """A reference to a resource or resource template definition."""
 
-    type: Literal["ref/resource"]
+    type: Literal["ref/resource"] = "ref/resource"
     uri: str
     """The URI or URI template of the resource."""
     model_config = ConfigDict(extra="allow")
@@ -1589,7 +1589,7 @@ class ResourceTemplateReference(BaseModel):
 class PromptReference(BaseModel):
     """Identifies a prompt."""
 
-    type: Literal["ref/prompt"]
+    type: Literal["ref/prompt"] = "ref/prompt"
     name: str
     """The name of the prompt or prompt template"""
     model_config = ConfigDict(extra="allow")
