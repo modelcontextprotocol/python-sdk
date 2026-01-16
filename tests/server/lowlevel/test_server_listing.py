@@ -3,7 +3,6 @@
 import warnings
 
 import pytest
-from pydantic import AnyUrl
 
 from mcp.server import Server
 from mcp.types import (
@@ -52,8 +51,8 @@ async def test_list_resources_basic() -> None:
     server = Server("test")
 
     test_resources = [
-        Resource(uri=AnyUrl("file:///test1.txt"), name="Test 1"),
-        Resource(uri=AnyUrl("file:///test2.txt"), name="Test 2"),
+        Resource(uri="file:///test1.txt", name="Test 1"),
+        Resource(uri="file:///test2.txt", name="Test 2"),
     ]
 
     with warnings.catch_warnings():

@@ -29,7 +29,7 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def test_embedded_resource() -> list[EmbeddedResource]:
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("test://embedded-resource"),
+                uri="test://embedded-resource",
                 mimeType="text/plain",
                 text="This is an embedded resource content.",
             ),
@@ -131,7 +131,7 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("test://mixed-content-resource"),
+                uri="test://mixed-content-resource",
                 mimeType="application/json",
                 text='{"test": "data", "value": 123}',
             ),
@@ -372,7 +372,7 @@ def test_prompt_with_embedded_resource(resourceUri: str) -> list[UserMessage]:
             content=EmbeddedResource(
                 type="resource",
                 resource=TextResourceContents(
-                    uri=AnyUrl(resourceUri),
+                    uri=resourceUri,
                     mimeType="text/plain",
                     text="Embedded resource content for testing.",
                 ),
@@ -402,13 +402,13 @@ async def handle_set_logging_level(level: str) -> None:
     # For conformance testing, we just acknowledge the request
 
 
-async def handle_subscribe(uri: AnyUrl) -> None:
+async def handle_subscribe(uri: str) -> None:
     """Handle resource subscription"""
     resource_subscriptions.add(str(uri))
     logger.info(f"Subscribed to resource: {uri}")
 
 
-async def handle_unsubscribe(uri: AnyUrl) -> None:
+async def handle_unsubscribe(uri: str) -> None:
     """Handle resource unsubscription"""
     resource_subscriptions.discard(str(uri))
     logger.info(f"Unsubscribed from resource: {uri}")

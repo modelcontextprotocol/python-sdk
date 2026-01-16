@@ -4,7 +4,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from pydantic import AnyUrl, BaseModel
+from pydantic import BaseModel
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -49,85 +49,23 @@ class TestServer:
         assert mcp.icons[0].src == "https://example.com/icon.png"
 
     @pytest.mark.anyio
-    async def test_normalize_path(self):
-        """Test path normalization for mount paths."""
-        mcp = FastMCP()
+    async def test_sse_app_returns_starlette_app(self):
+        """Test that sse_app returns a Starlette application with correct routes."""
+        from starlette.applications import Starlette
 
-        # Test root path
-        assert mcp._normalize_path("/", "/messages/") == "/messages/"
-
-        # Test path with trailing slash
-        assert mcp._normalize_path("/github/", "/messages/") == "/github/messages/"
-
-        # Test path without trailing slash
-        assert mcp._normalize_path("/github", "/messages/") == "/github/messages/"
-
-        # Test endpoint without leading slash
-        assert mcp._normalize_path("/github", "messages/") == "/github/messages/"
-
-        # Test both with trailing/leading slashes
-        assert mcp._normalize_path("/api/", "/v1/") == "/api/v1/"
-
-    @pytest.mark.anyio
-    async def test_sse_app_with_mount_path(self):
-        """Test SSE app creation with different mount paths."""
-        # Test with default mount path
-        mcp = FastMCP()
-        with patch.object(mcp, "_normalize_path", return_value="/messages/") as mock_normalize:
-            mcp.sse_app()
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/", "/messages/")
-
-        # Test with custom mount path in settings
-        mcp = FastMCP()
-        mcp.settings.mount_path = "/custom"
-        with patch.object(mcp, "_normalize_path", return_value="/custom/messages/") as mock_normalize:
-            mcp.sse_app()
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/custom", "/messages/")
-
-        # Test with mount_path parameter
-        mcp = FastMCP()
-        with patch.object(mcp, "_normalize_path", return_value="/param/messages/") as mock_normalize:
-            mcp.sse_app(mount_path="/param")
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/param", "/messages/")
-
-    @pytest.mark.anyio
-    async def test_starlette_routes_with_mount_path(self):
-        """Test that Starlette routes are correctly configured with mount path."""
-        # Test with mount path in settings
-        mcp = FastMCP()
-        mcp.settings.mount_path = "/api"
+        mcp = FastMCP("test", host="0.0.0.0")  # Use 0.0.0.0 to avoid auto DNS protection
         app = mcp.sse_app()
 
-        # Find routes by type
+        assert isinstance(app, Starlette)
+
+        # Verify routes exist
         sse_routes = [r for r in app.routes if isinstance(r, Route)]
         mount_routes = [r for r in app.routes if isinstance(r, Mount)]
 
-        # Verify routes exist
         assert len(sse_routes) == 1, "Should have one SSE route"
         assert len(mount_routes) == 1, "Should have one mount route"
-
-        # Verify path values
-        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
-
-        # Test with mount path as parameter
-        mcp = FastMCP()
-        app = mcp.sse_app(mount_path="/param")
-
-        # Find routes by type
-        sse_routes = [r for r in app.routes if isinstance(r, Route)]
-        mount_routes = [r for r in app.routes if isinstance(r, Mount)]
-
-        # Verify routes exist
-        assert len(sse_routes) == 1, "Should have one SSE route"
-        assert len(mount_routes) == 1, "Should have one mount route"
-
-        # Verify path values
-        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
+        assert sse_routes[0].path == "/sse"
+        assert mount_routes[0].path == "/messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
@@ -743,11 +681,11 @@ class TestServerResources:
         def get_text():
             return "Hello, world!"
 
-        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text)
+        resource = FunctionResource(uri="resource://test", name="test", fn=get_text)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://test"))
+            result = await client.read_resource("resource://test")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello, world!"
 
@@ -759,7 +697,7 @@ class TestServerResources:
             return b"Binary data"
 
         resource = FunctionResource(
-            uri=AnyUrl("resource://binary"),
+            uri="resource://binary",
             name="binary",
             fn=get_binary,
             mime_type="application/octet-stream",
@@ -767,7 +705,7 @@ class TestServerResources:
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://binary"))
+            result = await client.read_resource("resource://binary")
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary data").decode()
 
@@ -779,11 +717,11 @@ class TestServerResources:
         text_file = tmp_path / "test.txt"
         text_file.write_text("Hello from file!")
 
-        resource = FileResource(uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file)
+        resource = FileResource(uri="file://test.txt", name="test.txt", path=text_file)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("file://test.txt"))
+            result = await client.read_resource("file://test.txt")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello from file!"
 
@@ -796,7 +734,7 @@ class TestServerResources:
         binary_file.write_bytes(b"Binary file data")
 
         resource = FileResource(
-            uri=AnyUrl("file://test.bin"),
+            uri="file://test.bin",
             name="test.bin",
             path=binary_file,
             mime_type="application/octet-stream",
@@ -804,7 +742,7 @@ class TestServerResources:
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("file://test.bin"))
+            result = await client.read_resource("file://test.bin")
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
@@ -822,7 +760,7 @@ class TestServerResources:
             assert len(resources.resources) == 1
             resource = resources.resources[0]
             assert resource.description == "get_data returns a string"
-            assert resource.uri == AnyUrl("function://test")
+            assert resource.uri == "function://test"
             assert resource.name == "test_get_data"
             assert resource.mimeType == "text/plain"
 
@@ -870,7 +808,7 @@ class TestServerResourceTemplates:
             return f"Data for {name}"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://test/data"))
+            result = await client.read_resource("resource://test/data")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for test"
 
@@ -895,7 +833,7 @@ class TestServerResourceTemplates:
             return f"Data for {org}/{repo}"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://cursor/fastmcp/data"))
+            result = await client.read_resource("resource://cursor/fastmcp/data")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/fastmcp"
 
@@ -918,7 +856,7 @@ class TestServerResourceTemplates:
             return "Static data"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://static"))
+            result = await client.read_resource("resource://static")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Static data"
 
@@ -958,7 +896,7 @@ class TestServerResourceTemplates:
         assert template.mimeType == "text/csv"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://bob/csv"))
+            result = await client.read_resource("resource://bob/csv")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "csv for bob"
 
@@ -1020,7 +958,7 @@ class TestServerResourceMetadata:
             return "test data"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://data"))
+            result = await client.read_resource("resource://data")
 
             # Verify content and metadata in protocol response
             assert isinstance(result.contents[0], TextResourceContents)
@@ -1189,7 +1127,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://context/test"))
+            result = await client.read_resource("resource://context/test")
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1214,7 +1152,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://nocontext/test"))
+            result = await client.read_resource("resource://nocontext/test")
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1239,7 +1177,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://custom/123"))
+            result = await client.read_resource("resource://custom/123")
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1442,7 +1380,7 @@ class TestServerPrompts:
                 content=EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("file://file.txt"),
+                        uri="file://file.txt",
                         text="File contents",
                         mimeType="text/plain",
                     ),

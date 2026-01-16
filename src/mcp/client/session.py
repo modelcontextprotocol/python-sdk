@@ -279,24 +279,24 @@ class ClientSession(
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
-            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=uri))),
+            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=str(uri)))),
             types.ReadResourceResult,
         )
 
-    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri))),
+            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=str(uri)))),
             types.EmptyResult,
         )
 
-    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri))),
+            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=str(uri)))),
             types.EmptyResult,
         )
 

@@ -1078,7 +1078,7 @@ The FastMCP server instance accessible via `ctx.fastmcp` provides access to serv
   - `debug` - Debug mode flag
   - `log_level` - Current logging level
   - `host` and `port` - Server network configuration
-  - `mount_path`, `sse_path`, `streamable_http_path` - Transport paths
+  - `sse_path`, `streamable_http_path` - Transport paths
   - `stateless_http` - Whether the server operates in stateless mode
   - And other configuration options
 
@@ -1614,7 +1614,7 @@ app = Starlette(
 app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
 
-When mounting multiple MCP servers under different paths, you can configure the mount path in several ways:
+You can also mount multiple MCP servers at different sub-paths. The SSE transport automatically detects the mount path via ASGI's `root_path` mechanism, so message endpoints are correctly routed:
 
 ```python
 from starlette.applications import Starlette
@@ -1624,31 +1624,18 @@ from mcp.server.fastmcp import FastMCP
 # Create multiple MCP servers
 github_mcp = FastMCP("GitHub API")
 browser_mcp = FastMCP("Browser")
-curl_mcp = FastMCP("Curl")
 search_mcp = FastMCP("Search")
 
-# Method 1: Configure mount paths via settings (recommended for persistent configuration)
-github_mcp.settings.mount_path = "/github"
-browser_mcp.settings.mount_path = "/browser"
-
-# Method 2: Pass mount path directly to sse_app (preferred for ad-hoc mounting)
-# This approach doesn't modify the server's settings permanently
-
-# Create Starlette app with multiple mounted servers
+# Mount each server at its own sub-path
+# The SSE transport automatically uses ASGI's root_path to construct
+# the correct message endpoint (e.g., /github/messages/, /browser/messages/)
 app = Starlette(
     routes=[
-        # Using settings-based configuration
         Mount("/github", app=github_mcp.sse_app()),
         Mount("/browser", app=browser_mcp.sse_app()),
-        # Using direct mount path parameter
-        Mount("/curl", app=curl_mcp.sse_app("/curl")),
-        Mount("/search", app=search_mcp.sse_app("/search")),
+        Mount("/search", app=search_mcp.sse_app()),
     ]
 )
-
-# Method 3: For direct execution, you can also pass the mount path to run()
-if __name__ == "__main__":
-    search_mcp.run(transport="sse", mount_path="/search")
 ```
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
@@ -2044,8 +2031,6 @@ For servers that need to handle large datasets, the low-level server provides pa
 Example of implementing pagination with MCP server decorators.
 """
 
-from pydantic import AnyUrl
-
 import mcp.types as types
 from mcp.server.lowlevel import Server
 
@@ -2070,7 +2055,7 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
 
     # Get page of resources
     page_items = [
-        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
+        types.Resource(uri=f"resource://items/{item}", name=item, description=f"Description for {item}")
         for item in ITEMS[start:end]
     ]
 

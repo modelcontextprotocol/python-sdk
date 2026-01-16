@@ -79,7 +79,6 @@ from typing import Any, Generic, TypeAlias, cast
 import anyio
 import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
@@ -337,7 +336,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def read_resource(self):
         def decorator(
-            func: Callable[[AnyUrl], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
+            func: Callable[[str], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
@@ -412,7 +411,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def subscribe_resource(self):  # pragma: no cover
-        def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
+        def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for SubscribeRequest")
 
             async def handler(req: types.SubscribeRequest):
@@ -425,7 +424,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def unsubscribe_resource(self):  # pragma: no cover
-        def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
+        def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for UnsubscribeRequest")
 
             async def handler(req: types.UnsubscribeRequest):

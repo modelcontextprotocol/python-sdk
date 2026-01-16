@@ -116,6 +116,55 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
+### `mount_path` parameter removed from FastMCP
+
+The `mount_path` parameter has been removed from `FastMCP.__init__()`, `FastMCP.run()`, `FastMCP.run_sse_async()`, and `FastMCP.sse_app()`. It was also removed from the `Settings` class.
+
+This parameter was redundant because the SSE transport already handles sub-path mounting via ASGI's standard `root_path` mechanism. When using Starlette's `Mount("/path", app=mcp.sse_app())`, Starlette automatically sets `root_path` in the ASGI scope, and the `SseServerTransport` uses this to construct the correct message endpoint path.
+
+### Resource URI type changed from `AnyUrl` to `str`
+
+The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the [MCP specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) which defines URIs as plain strings (`uri: string`) without strict URL validation. This change allows relative paths like `users/me` that were previously rejected.
+
+**Before (v1):**
+
+```python
+from pydantic import AnyUrl
+from mcp.types import Resource
+
+# Required wrapping in AnyUrl
+resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validation
+```
+
+**After (v2):**
+
+```python
+from mcp.types import Resource
+
+# Plain strings accepted
+resource = Resource(name="test", uri="users/me")  # Works
+resource = Resource(name="test", uri="custom://scheme")  # Works
+resource = Resource(name="test", uri="https://example.com")  # Works
+```
+
+If your code passes `AnyUrl` objects to URI fields, convert them to strings:
+
+```python
+# If you have an AnyUrl from elsewhere
+uri = str(my_any_url)  # Convert to string
+```
+
+Affected types:
+
+- `Resource.uri`
+- `ReadResourceRequestParams.uri`
+- `ResourceContents.uri` (and subclasses `TextResourceContents`, `BlobResourceContents`)
+- `SubscribeRequestParams.uri`
+- `UnsubscribeRequestParams.uri`
+- `ResourceUpdatedNotificationParams.uri`
+
+The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` methods now accept both `str` and `AnyUrl` for backwards compatibility.
+
 ## Deprecations
 
 <!-- Add deprecations below -->

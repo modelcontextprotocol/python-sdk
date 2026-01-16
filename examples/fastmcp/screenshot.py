@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.types import Image
 
 # Create server
-mcp = FastMCP("Screenshot Demo", dependencies=["pyautogui", "Pillow"])
+mcp = FastMCP("Screenshot Demo")
 
 
 @mcp.tool()

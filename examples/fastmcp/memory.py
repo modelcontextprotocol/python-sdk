@@ -37,15 +37,7 @@ DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 
 T = TypeVar("T")
 
-mcp = FastMCP(
-    "memory",
-    dependencies=[
-        "pydantic-ai-slim[openai]",
-        "asyncpg",
-        "numpy",
-        "pgvector",
-    ],
-)
+mcp = FastMCP("memory")
 
 DB_DSN = "postgresql://postgres:postgres@localhost:54320/memory_db"
 # reset memory with rm ~/.fastmcp/{USER}/memory/*

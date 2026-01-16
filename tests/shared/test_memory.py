@@ -1,5 +1,4 @@
 import pytest
-from pydantic import AnyUrl
 from typing_extensions import AsyncGenerator
 
 from mcp.client.session import ClientSession
@@ -16,7 +15,7 @@ def mcp_server() -> Server:
     async def handle_list_resources():  # pragma: no cover
         return [
             Resource(
-                uri=AnyUrl("memory://test"),
+                uri="memory://test",
                 name="Test Resource",
                 description="A test resource",
             )
