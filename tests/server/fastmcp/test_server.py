@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
+from mcp.client import Client
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
@@ -16,7 +17,6 @@ from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import create_connected_server_and_client_session as client_session
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
@@ -77,7 +77,7 @@ class TestServer:
         def hello_world(name: str = "世界") -> str:
             return f"¡Hola, {name}! 👋"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
             tool = tools.tools[0]
@@ -230,7 +230,7 @@ class TestServerTools:
     async def test_list_tools(self):
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
 
@@ -238,7 +238,7 @@ class TestServerTools:
     async def test_call_tool(self):
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("my_tool", {"arg1": "value"})
             assert not hasattr(result, "error")
             assert len(result.content) > 0
@@ -247,7 +247,7 @@ class TestServerTools:
     async def test_tool_exception_handling(self):
         mcp = FastMCP()
         mcp.add_tool(error_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             assert len(result.content) == 1
             content = result.content[0]
@@ -259,7 +259,7 @@ class TestServerTools:
     async def test_tool_error_handling(self):
         mcp = FastMCP()
         mcp.add_tool(error_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             assert len(result.content) == 1
             content = result.content[0]
@@ -272,7 +272,7 @@ class TestServerTools:
         """Test that exception details are properly formatted in the response"""
         mcp = FastMCP()
         mcp.add_tool(error_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             content = result.content[0]
             assert isinstance(content, TextContent)
@@ -284,7 +284,7 @@ class TestServerTools:
     async def test_tool_return_value_conversion(self):
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert len(result.content) == 1
             content = result.content[0]
@@ -302,7 +302,7 @@ class TestServerTools:
 
         mcp = FastMCP()
         mcp.add_tool(image_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("image_tool_fn", {"path": str(image_path)})
             assert len(result.content) == 1
             content = result.content[0]
@@ -323,7 +323,7 @@ class TestServerTools:
 
         mcp = FastMCP()
         mcp.add_tool(audio_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
             assert len(result.content) == 1
             content = result.content[0]
@@ -358,7 +358,7 @@ class TestServerTools:
         audio_path = tmp_path / filename
         audio_path.write_bytes(b"fake audio data")
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
             assert len(result.content) == 1
             content = result.content[0]
@@ -373,7 +373,7 @@ class TestServerTools:
     async def test_tool_mixed_content(self):
         mcp = FastMCP()
         mcp.add_tool(mixed_content_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("mixed_content_tool_fn", {})
             assert len(result.content) == 3
             content1, content2, content3 = result.content
@@ -425,7 +425,7 @@ class TestServerTools:
 
         mcp = FastMCP()
         mcp.add_tool(mixed_list_fn)  # type: ignore
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("mixed_list_fn", {})
             assert len(result.content) == 5
             # Check text conversion
@@ -469,7 +469,7 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_user)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_user")
@@ -499,7 +499,7 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(calculate_sum)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "calculate_sum")
@@ -526,7 +526,7 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_numbers)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("get_numbers", {})
             assert result.is_error is False
             assert result.structured_content is not None
@@ -542,7 +542,7 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_numbers)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("get_numbers", {})
             assert result.is_error is True
             assert result.structured_content is None
@@ -566,7 +566,7 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_metadata)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_metadata")
@@ -602,7 +602,7 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_settings)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_settings")
@@ -646,7 +646,7 @@ class TestServerTools:
         mcp.add_tool(error_tool_fn)
 
         # Verify both tools exist
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 2
             tool_names = [t.name for t in tools.tools]
@@ -657,7 +657,7 @@ class TestServerTools:
         mcp.remove_tool("tool_fn")
 
         # Verify only one tool remains
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
             assert tools.tools[0].name == "error_tool_fn"
@@ -669,7 +669,7 @@ class TestServerTools:
         mcp.add_tool(tool_fn)
 
         # Verify tool works before removal
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert not result.is_error
             content = result.content[0]
@@ -680,7 +680,7 @@ class TestServerTools:
         mcp.remove_tool("tool_fn")
 
         # Verify calling removed tool returns an error
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert result.is_error
             content = result.content[0]
@@ -699,8 +699,12 @@ class TestServerResources:
         resource = FunctionResource(uri="resource://test", name="test", fn=get_text)
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://test")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://test")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello, world!"
 
@@ -719,8 +723,12 @@ class TestServerResources:
         )
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://binary")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://binary")
+
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary data").decode()
 
@@ -735,8 +743,12 @@ class TestServerResources:
         resource = FileResource(uri="file://test.txt", name="test.txt", path=text_file)
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("file://test.txt")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("file://test.txt")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello from file!"
 
@@ -756,8 +768,12 @@ class TestServerResources:
         )
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("file://test.bin")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("file://test.bin")
+
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
@@ -770,7 +786,7 @@ class TestServerResources:
             """get_data returns a string"""
             return "Hello, world!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             resources = await client.list_resources()
             assert len(resources.resources) == 1
             resource = resources.resources[0]
@@ -822,8 +838,12 @@ class TestServerResourceTemplates:
         def get_data(name: str) -> str:
             return f"Data for {name}"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://test/data")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://test/data")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for test"
 
@@ -847,8 +867,12 @@ class TestServerResourceTemplates:
         def get_data(org: str, repo: str) -> str:
             return f"Data for {org}/{repo}"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://cursor/fastmcp/data")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://cursor/fastmcp/data")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/fastmcp"
 
@@ -870,8 +894,12 @@ class TestServerResourceTemplates:
         def get_static_data() -> str:
             return "Static data"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://static")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://static")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Static data"
 
@@ -910,8 +938,12 @@ class TestServerResourceTemplates:
         assert hasattr(template, "mime_type")
         assert template.mime_type == "text/csv"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://bob/csv")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://bob/csv")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "csv for bob"
 
@@ -972,7 +1004,10 @@ class TestServerResourceMetadata:
         def get_data() -> str:
             return "test data"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://data")
+
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://data")
 
             # Verify content and metadata in protocol response
@@ -1008,7 +1043,7 @@ class TestContextInjection:
             return f"Request {ctx.request_id}: {x}"
 
         mcp.add_tool(tool_with_context)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_with_context", {"x": 42})
             assert len(result.content) == 1
             content = result.content[0]
@@ -1026,7 +1061,7 @@ class TestContextInjection:
             return f"Async request {ctx.request_id}: {x}"
 
         mcp.add_tool(async_tool)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("async_tool", {"x": 42})
             assert len(result.content) == 1
             content = result.content[0]
@@ -1049,7 +1084,7 @@ class TestContextInjection:
         mcp.add_tool(logging_tool)
 
         with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
-            async with client_session(mcp._mcp_server) as client:
+            async with Client(mcp) as client:
                 result = await client.call_tool("logging_tool", {"msg": "test"})
                 assert len(result.content) == 1
                 content = result.content[0]
@@ -1091,7 +1126,7 @@ class TestContextInjection:
             return x * 2
 
         mcp.add_tool(no_context)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("no_context", {"x": 21})
             assert len(result.content) == 1
             content = result.content[0]
@@ -1115,7 +1150,7 @@ class TestContextInjection:
             r = r_list[0]
             return f"Read resource: {r.content} with mime type {r.mime_type}"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_with_resource", {})
             assert len(result.content) == 1
             content = result.content[0]
@@ -1141,8 +1176,13 @@ class TestContextInjection:
         assert template.context_kwarg == "ctx"
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
+
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://context/test")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://context/test")
+
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1166,8 +1206,13 @@ class TestContextInjection:
         assert template.context_kwarg is None
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
+
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://nocontext/test")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://nocontext/test")
+
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1191,8 +1236,13 @@ class TestContextInjection:
         assert template.context_kwarg == "my_ctx"
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
+
+        async with Client(mcp) as client:
             result = await client.read_resource("resource://custom/123")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://custom/123")
+
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1214,7 +1264,7 @@ class TestContextInjection:
         assert len(prompts) == 1
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Try calling without passing ctx explicitly
             result = await client.get_prompt("prompt_with_ctx", {"text": "test"})
             # If this succeeds, check if context was injected
@@ -1234,7 +1284,7 @@ class TestContextInjection:
             return f"Prompt '{text}' works"
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("prompt_no_ctx", {"text": "test"})
             assert len(result.messages) == 1
             message = result.messages[0]
@@ -1313,7 +1363,7 @@ class TestServerPrompts:
         def fn(name: str, optional: str = "default") -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.list_prompts()
             assert result.prompts is not None
             assert len(result.prompts) == 1
@@ -1335,7 +1385,7 @@ class TestServerPrompts:
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert len(result.messages) == 1
             message = result.messages[0]
@@ -1353,7 +1403,7 @@ class TestServerPrompts:
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result.description == "Test prompt description"
 
@@ -1366,7 +1416,7 @@ class TestServerPrompts:
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result.description == ""
 
@@ -1380,7 +1430,7 @@ class TestServerPrompts:
             """This is the function docstring."""
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result.description == "This is the function docstring."
 
@@ -1402,7 +1452,7 @@ class TestServerPrompts:
                 )
             )
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn")
             assert len(result.messages) == 1
             message = result.messages[0]
@@ -1418,7 +1468,7 @@ class TestServerPrompts:
     async def test_get_unknown_prompt(self):
         """Test error when getting unknown prompt."""
         mcp = FastMCP()
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             with pytest.raises(McpError, match="Unknown prompt"):
                 await client.get_prompt("unknown")
 
@@ -1431,7 +1481,7 @@ class TestServerPrompts:
         def prompt_fn(name: str) -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
 

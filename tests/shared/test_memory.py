@@ -1,9 +1,7 @@
 import pytest
-from typing_extensions import AsyncGenerator
 
-from mcp.client.session import ClientSession
+from mcp import Client
 from mcp.server import Server
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import EmptyResult, Resource
 
 
@@ -24,18 +22,9 @@ def mcp_server() -> Server:
     return server
 
 
-@pytest.fixture
-async def client_connected_to_server(
-    mcp_server: Server,
-) -> AsyncGenerator[ClientSession, None]:
-    async with create_connected_server_and_client_session(mcp_server) as client_session:
-        yield client_session
-
-
 @pytest.mark.anyio
-async def test_memory_server_and_client_connection(
-    client_connected_to_server: ClientSession,
-):
+async def test_memory_server_and_client_connection(mcp_server: Server):
     """Shows how a client and server can communicate over memory streams."""
-    response = await client_connected_to_server.send_ping()
-    assert isinstance(response, EmptyResult)
+    async with Client(mcp_server) as client:
+        response = await client.send_ping()
+        assert isinstance(response, EmptyResult)

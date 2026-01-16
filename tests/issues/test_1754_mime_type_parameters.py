@@ -7,10 +7,8 @@ with parameters like 'text/html;profile=mcp-app' which are valid per RFC 2045.
 import pytest
 from pydantic import AnyUrl
 
+from mcp import Client
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 
 pytestmark = pytest.mark.anyio
 
@@ -63,7 +61,7 @@ async def test_mime_type_preserved_in_read_resource():
     def my_widget() -> str:
         return "<html><body>Hello MCP-UI</body></html>"
 
-    async with client_session(mcp._mcp_server) as client:
+    async with Client(mcp) as client:
         # Read the resource
         result = await client.read_resource(AnyUrl("ui://my-widget"))
         assert len(result.contents) == 1

@@ -2,11 +2,10 @@
 
 import pytest
 
-from mcp import types
+from mcp import Client, types
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
-from mcp.shared.memory import create_connected_server_and_client_session
 
 
 @pytest.mark.anyio
@@ -28,12 +27,10 @@ async def test_url_elicitation_error_thrown_from_tool():
             ]
         )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client_session:
-        await client_session.initialize()
-
+    async with Client(mcp) as client:
         # Call the tool - it should raise McpError with URL_ELICITATION_REQUIRED code
         with pytest.raises(McpError) as exc_info:
-            await client_session.call_tool("connect_service", {"service_name": "github"})
+            await client.call_tool("connect_service", {"service_name": "github"})
 
         # Verify the error details
         error = exc_info.value.error
@@ -74,12 +71,10 @@ async def test_url_elicitation_error_from_error():
             ]
         )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client_session:
-        await client_session.initialize()
-
+    async with Client(mcp) as client:
         # Call the tool and catch the error
         with pytest.raises(McpError) as exc_info:
-            await client_session.call_tool("multi_auth", {})
+            await client.call_tool("multi_auth", {})
 
         # Reconstruct the typed error
         mcp_error = exc_info.value
@@ -102,11 +97,9 @@ async def test_normal_exceptions_still_return_error_result():
     async def failing_tool(ctx: Context[ServerSession, None]) -> str:
         raise ValueError("Something went wrong")
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client_session:
-        await client_session.initialize()
-
+    async with Client(mcp) as client:
         # Normal exceptions should be returned as error results, not McpError
-        result = await client_session.call_tool("failing_tool", {})
+        result = await client.call_tool("failing_tool", {})
         assert result.is_error is True
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)

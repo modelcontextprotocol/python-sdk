@@ -1,10 +1,8 @@
 import pytest
 from pydantic import AnyUrl
 
+from mcp import Client
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 from mcp.types import (
     ListResourceTemplatesResult,
     TextResourceContents,
@@ -78,10 +76,7 @@ async def test_resource_template_client_interaction():
     def get_user_profile(user_id: str) -> str:
         return f"Profile for user {user_id}"
 
-    async with client_session(mcp._mcp_server) as session:
-        # Initialize the session
-        await session.initialize()
-
+    async with Client(mcp) as session:
         # List available resources
         resources = await session.list_resource_templates()
         assert isinstance(resources, ListResourceTemplatesResult)

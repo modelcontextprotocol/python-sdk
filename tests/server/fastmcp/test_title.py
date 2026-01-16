@@ -2,9 +2,9 @@
 
 import pytest
 
+from mcp import Client
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.shared.metadata_utils import get_display_name
 from mcp.types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
 
@@ -24,8 +24,9 @@ async def test_server_name_title_description_version():
     assert mcp.version == "1.0"
 
     # Start server and connect client
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
-        init_result = await client.initialize()
+    async with Client(mcp) as client:
+        # Access initialization result from session
+        init_result = await client.session.initialize()
         assert init_result.server_info.name == "TestServer"
         assert init_result.server_info.title == "Test Server Title"
         assert init_result.server_info.description == "This is a test server description."
@@ -60,9 +61,7 @@ async def test_tool_title_precedence():
         return message
 
     # Start server and connect client
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
-        await client.initialize()
-
+    async with Client(mcp) as client:
         # List tools
         tools_result = await client.list_tools()
         tools = {tool.name: tool for tool in tools_result.tools}
@@ -104,9 +103,7 @@ async def test_prompt_title():
         return f"Tell me about {topic}"
 
     # Start server and connect client
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
-        await client.initialize()
-
+    async with Client(mcp) as client:
         # List prompts
         prompts_result = await client.list_prompts()
         prompts = {prompt.name: prompt for prompt in prompts_result.prompts}
@@ -164,9 +161,7 @@ async def test_resource_title():
         return f"Data for {id}"
 
     # Start server and connect client
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
-        await client.initialize()
-
+    async with Client(mcp) as client:
         # List resources
         resources_result = await client.list_resources()
         resources = {str(res.uri): res for res in resources_result.resources}
