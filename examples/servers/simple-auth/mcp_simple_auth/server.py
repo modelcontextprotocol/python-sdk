@@ -66,8 +66,6 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     app = FastMCP(
         name="MCP Resource Server",
         instructions="Resource Server that validates tokens via Authorization Server introspection",
-        host=settings.host,
-        port=settings.port,
         debug=True,
         # Auth configuration for RS mode
         token_verifier=token_verifier,
@@ -77,6 +75,8 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
             resource_server_url=settings.server_url,
         ),
     )
+    # Store settings for later use in run()
+    app._resource_server_settings = settings  # type: ignore[attr-defined]
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
@@ -153,7 +153,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         logger.info(f"🔑 Using Authorization Server: {settings.auth_server_url}")
 
         # Run the server - this should block and keep running
-        mcp_server.run(transport=transport)
+        mcp_server.run(transport=transport, host=host, port=port)
         logger.info("Server stopped")
         return 0
     except Exception:

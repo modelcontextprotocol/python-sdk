@@ -83,8 +83,6 @@ event_store = InMemoryEventStore()
 
 mcp = FastMCP(
     name="mcp-conformance-test-server",
-    event_store=event_store,
-    retry_interval=100,  # 100ms retry interval for SSE polling
 )
 
 
@@ -448,8 +446,12 @@ def main(port: int, log_level: str) -> int:
     logger.info(f"Starting MCP Everything Server on port {port}")
     logger.info(f"Endpoint will be: http://localhost:{port}/mcp")
 
-    mcp.settings.port = port
-    mcp.run(transport="streamable-http")
+    mcp.run(
+        transport="streamable-http",
+        port=port,
+        event_store=event_store,
+        retry_interval=100,  # 100ms retry interval for SSE polling
+    )
 
     return 0
 

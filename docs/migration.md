@@ -122,6 +122,63 @@ The `mount_path` parameter has been removed from `FastMCP.__init__()`, `FastMCP.
 
 This parameter was redundant because the SSE transport already handles sub-path mounting via ASGI's standard `root_path` mechanism. When using Starlette's `Mount("/path", app=mcp.sse_app())`, Starlette automatically sets `root_path` in the ASGI scope, and the `SseServerTransport` uses this to construct the correct message endpoint path.
 
+### Transport-specific parameters moved from FastMCP constructor to run()/app methods
+
+Transport-specific parameters have been moved from the `FastMCP` constructor to the `run()`, `sse_app()`, and `streamable_http_app()` methods. This provides better separation of concerns - the constructor now only handles server identity and authentication, while transport configuration is passed when starting the server.
+
+**Parameters moved:**
+
+- `host`, `port` - HTTP server binding
+- `sse_path`, `message_path` - SSE transport paths
+- `streamable_http_path` - StreamableHTTP endpoint path
+- `json_response`, `stateless_http` - StreamableHTTP behavior
+- `event_store`, `retry_interval` - StreamableHTTP event handling
+- `transport_security` - DNS rebinding protection
+
+**Before (v1):**
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Transport params in constructor
+mcp = FastMCP("Demo", json_response=True, stateless_http=True)
+mcp.run(transport="streamable-http")
+
+# Or for SSE
+mcp = FastMCP("Server", host="0.0.0.0", port=9000, sse_path="/events")
+mcp.run(transport="sse")
+```
+
+**After (v2):**
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+# Transport params passed to run()
+mcp = FastMCP("Demo")
+mcp.run(transport="streamable-http", json_response=True, stateless_http=True)
+
+# Or for SSE
+mcp = FastMCP("Server")
+mcp.run(transport="sse", host="0.0.0.0", port=9000, sse_path="/events")
+```
+
+**For mounted apps:**
+
+When mounting FastMCP in a Starlette app, pass transport params to the app methods:
+
+```python
+# Before (v1)
+mcp = FastMCP("App", json_response=True)
+app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())])
+
+# After (v2)
+mcp = FastMCP("App")
+app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=True))])
+```
+
+**Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
+
 ### Resource URI type changed from `AnyUrl` to `str`
 
 The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the [MCP specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) which defines URIs as plain strings (`uri: string`) without strict URL validation. This change allows relative paths like `users/me` that were previously rejected.

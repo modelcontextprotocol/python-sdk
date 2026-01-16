@@ -146,7 +146,7 @@ Run from the repository root:
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
-mcp = FastMCP("Demo", json_response=True)
+mcp = FastMCP("Demo")
 
 
 # Add an addition tool
@@ -178,7 +178,7 @@ def greet_user(name: str, style: str = "friendly") -> str:
 
 # Run with streamable HTTP transport
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", json_response=True)
 ```
 
 _Full example: [examples/snippets/servers/fastmcp_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/fastmcp_quickstart.py)_
@@ -1026,7 +1026,6 @@ class SimpleTokenVerifier(TokenVerifier):
 # Create FastMCP instance as a Resource Server
 mcp = FastMCP(
     "Weather Service",
-    json_response=True,
     # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),
     # Auth settings for RFC 9728 Protected Resource Metadata
@@ -1050,7 +1049,7 @@ async def get_weather(city: str = "London") -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", json_response=True)
 ```
 
 _Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
@@ -1253,15 +1252,7 @@ Run from the repository root:
 
 from mcp.server.fastmcp import FastMCP
 
-# Stateless server with JSON responses (recommended)
-mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
-
-# Other configuration options:
-# Stateless server with SSE streaming responses
-# mcp = FastMCP("StatelessServer", stateless_http=True)
-
-# Stateful server with session persistence
-# mcp = FastMCP("StatefulServer")
+mcp = FastMCP("StatelessServer")
 
 
 # Add a simple tool to demonstrate the server
@@ -1272,8 +1263,17 @@ def greet(name: str = "World") -> str:
 
 
 # Run server with streamable_http transport
+# Transport-specific options (stateless_http, json_response) are passed to run()
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    # Stateless server with JSON responses (recommended)
+    mcp.run(transport="streamable-http", stateless_http=True, json_response=True)
+
+    # Other configuration options:
+    # Stateless server with SSE streaming responses
+    # mcp.run(transport="streamable-http", stateless_http=True)
+
+    # Stateful server with session persistence
+    # mcp.run(transport="streamable-http")
 ```
 
 _Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
@@ -1296,7 +1296,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create the Echo server
-echo_mcp = FastMCP(name="EchoServer", stateless_http=True, json_response=True)
+echo_mcp = FastMCP(name="EchoServer")
 
 
 @echo_mcp.tool()
@@ -1306,7 +1306,7 @@ def echo(message: str) -> str:
 
 
 # Create the Math server
-math_mcp = FastMCP(name="MathServer", stateless_http=True, json_response=True)
+math_mcp = FastMCP(name="MathServer")
 
 
 @math_mcp.tool()
@@ -1327,16 +1327,16 @@ async def lifespan(app: Starlette):
 # Create the Starlette app and mount the MCP servers
 app = Starlette(
     routes=[
-        Mount("/echo", echo_mcp.streamable_http_app()),
-        Mount("/math", math_mcp.streamable_http_app()),
+        Mount("/echo", echo_mcp.streamable_http_app(stateless_http=True, json_response=True)),
+        Mount("/math", math_mcp.streamable_http_app(stateless_http=True, json_response=True)),
     ],
     lifespan=lifespan,
 )
 
 # Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
 # To mount at the root of each path (e.g., /echo instead of /echo/mcp):
-# echo_mcp.settings.streamable_http_path = "/"
-# math_mcp.settings.streamable_http_path = "/"
+# echo_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
+# math_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
 ```
 
 _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
@@ -1409,7 +1409,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App", json_response=True)
+mcp = FastMCP("My App")
 
 
 @mcp.tool()
@@ -1426,9 +1426,10 @@ async def lifespan(app: Starlette):
 
 
 # Mount the StreamableHTTP server to the existing ASGI server
+# Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Mount("/", app=mcp.streamable_http_app()),
+        Mount("/", app=mcp.streamable_http_app(json_response=True)),
     ],
     lifespan=lifespan,
 )
@@ -1456,7 +1457,7 @@ from starlette.routing import Host
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("MCP Host App", json_response=True)
+mcp = FastMCP("MCP Host App")
 
 
 @mcp.tool()
@@ -1473,9 +1474,10 @@ async def lifespan(app: Starlette):
 
 
 # Mount using Host-based routing
+# Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Host("mcp.acme.corp", app=mcp.streamable_http_app()),
+        Host("mcp.acme.corp", app=mcp.streamable_http_app(json_response=True)),
     ],
     lifespan=lifespan,
 )
@@ -1503,8 +1505,8 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server", json_response=True)
-chat_mcp = FastMCP("Chat Server", json_response=True)
+api_mcp = FastMCP("API Server")
+chat_mcp = FastMCP("Chat Server")
 
 
 @api_mcp.tool()
@@ -1519,12 +1521,6 @@ def send_message(message: str) -> str:
     return f"Message sent: {message}"
 
 
-# Configure servers to mount at the root of each path
-# This means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
-api_mcp.settings.streamable_http_path = "/"
-chat_mcp.settings.streamable_http_path = "/"
-
-
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
@@ -1534,11 +1530,12 @@ async def lifespan(app: Starlette):
         yield
 
 
-# Mount the servers
+# Mount the servers with transport-specific options passed to streamable_http_app()
+# streamable_http_path="/" means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
 app = Starlette(
     routes=[
-        Mount("/api", app=api_mcp.streamable_http_app()),
-        Mount("/chat", app=chat_mcp.streamable_http_app()),
+        Mount("/api", app=api_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
+        Mount("/chat", app=chat_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
     ],
     lifespan=lifespan,
 )
@@ -1552,7 +1549,7 @@ _Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](h
 <!-- snippet-source examples/snippets/servers/streamable_http_path_config.py -->
 ```python
 """
-Example showing path configuration during FastMCP initialization.
+Example showing path configuration when mounting FastMCP.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
@@ -1563,13 +1560,8 @@ from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
-# Configure streamable_http_path during initialization
-# This server will mount at the root of wherever it's mounted
-mcp_at_root = FastMCP(
-    "My Server",
-    json_response=True,
-    streamable_http_path="/",
-)
+# Create a simple FastMCP server
+mcp_at_root = FastMCP("My Server")
 
 
 @mcp_at_root.tool()
@@ -1578,10 +1570,14 @@ def process_data(data: str) -> str:
     return f"Processed: {data}"
 
 
-# Mount at /process - endpoints will be at /process instead of /process/mcp
+# Mount at /process with streamable_http_path="/" so the endpoint is /process (not /process/mcp)
+# Transport-specific options like json_response are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Mount("/process", app=mcp_at_root.streamable_http_app()),
+        Mount(
+            "/process",
+            app=mcp_at_root.streamable_http_app(json_response=True, streamable_http_path="/"),
+        ),
     ]
 )
 ```

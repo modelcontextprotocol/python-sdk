@@ -6,6 +6,7 @@ from typing import Any
 import anyio
 import click
 import mcp.types as types
+import uvicorn
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
@@ -33,7 +34,7 @@ def main(
     port: int,
     log_level: str,
     json_response: bool,
-) -> int:
+) -> None:
     # Configure logging
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
@@ -118,9 +119,7 @@ def main(
     # Create an ASGI application using the transport
     starlette_app = Starlette(
         debug=True,
-        routes=[
-            Mount("/mcp", app=handle_streamable_http),
-        ],
+        routes=[Mount("/mcp", app=handle_streamable_http)],
         lifespan=lifespan,
     )
 
@@ -133,8 +132,4 @@ def main(
         expose_headers=["Mcp-Session-Id"],
     )
 
-    import uvicorn
-
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
-
-    return 0
