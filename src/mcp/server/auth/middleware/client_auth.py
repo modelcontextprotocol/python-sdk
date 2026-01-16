@@ -2,7 +2,8 @@ import base64
 import binascii
 import hmac
 import time
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 from urllib.parse import unquote
 
 from starlette.requests import Request
@@ -14,6 +15,13 @@ from mcp.shared.auth import OAuthClientInformationFull
 class AuthenticationError(Exception):
     def __init__(self, message: str):
         self.message = message  # pragma: no cover
+
+
+@dataclass
+class ClientCredentials:
+    auth_method: Literal["client_secret_basic", "client_secret_post"]
+    client_id: str
+    client_secret: str | None = None
 
 
 class ClientAuthenticator:
@@ -52,64 +60,86 @@ class ClientAuthenticator:
         Raises:
             AuthenticationError: If authentication fails
         """
-        form_data = await request.form()
-        client_id = form_data.get("client_id")
-        if not client_id:
-            raise AuthenticationError("Missing client_id")
+        client_credentials = await self._get_credentials(request)
+        client = await self.provider.get_client(client_credentials.client_id)
 
-        client = await self.provider.get_client(str(client_id))
         if not client:
             raise AuthenticationError("Invalid client_id")  # pragma: no cover
 
-        request_client_secret: str | None = None
-        auth_header = request.headers.get("Authorization", "")
-
         if client.token_endpoint_auth_method == "client_secret_basic":
-            if not auth_header.startswith("Basic "):
-                raise AuthenticationError("Missing or invalid Basic authentication in Authorization header")
-
-            try:
-                encoded_credentials = auth_header[6:]  # Remove "Basic " prefix
-                decoded = base64.b64decode(encoded_credentials).decode("utf-8")
-                if ":" not in decoded:
-                    raise ValueError("Invalid Basic auth format")
-                basic_client_id, request_client_secret = decoded.split(":", 1)
-
-                # URL-decode both parts per RFC 6749 Section 2.3.1
-                basic_client_id = unquote(basic_client_id)
-                request_client_secret = unquote(request_client_secret)
-
-                if basic_client_id != client_id:
-                    raise AuthenticationError("Client ID mismatch in Basic auth")
-            except (ValueError, UnicodeDecodeError, binascii.Error):
-                raise AuthenticationError("Invalid Basic authentication header")
-
+            if client_credentials.auth_method != "client_secret_basic":
+                raise AuthenticationError(
+                    f"Expected client_secret_basic authentication method, but got {client_credentials.auth_method}"
+                )
         elif client.token_endpoint_auth_method == "client_secret_post":
-            raw_form_data = form_data.get("client_secret")
-            # form_data.get() can return a UploadFile or None, so we need to check if it's a string
-            if isinstance(raw_form_data, str):
-                request_client_secret = str(raw_form_data)
-
+            if client_credentials.auth_method != "client_secret_post":
+                raise AuthenticationError(
+                    f"Expected client_secret_post authentication method, but got {client_credentials.auth_method}"
+                )
         elif client.token_endpoint_auth_method == "none":
-            request_client_secret = None
-        else:
-            raise AuthenticationError(  # pragma: no cover
-                f"Unsupported auth method: {client.token_endpoint_auth_method}"
-            )
+            pass
+        else:  # pragma: no cover
+            raise AuthenticationError(f"Unsupported auth method: {client.token_endpoint_auth_method}")
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
         if client.client_secret:  # pragma: no branch
-            if not request_client_secret:
+            if not client_credentials.client_secret:
                 raise AuthenticationError("Client secret is required")  # pragma: no cover
 
             # hmac.compare_digest requires that both arguments are either bytes or a `str` containing
             # only ASCII characters. Since we do not control `request_client_secret`, we encode both
             # arguments to bytes.
-            if not hmac.compare_digest(client.client_secret.encode(), request_client_secret.encode()):
+            if not hmac.compare_digest(client.client_secret.encode(), client_credentials.client_secret.encode()):
                 raise AuthenticationError("Invalid client_secret")  # pragma: no cover
 
             if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
                 raise AuthenticationError("Client secret has expired")  # pragma: no cover
 
         return client
+
+    async def _get_credentials(self, request: Request) -> ClientCredentials:
+        """
+        Extract client credentials from request, either from form data or Basic auth header.
+
+        Basic auth header takes precedence over form data.
+
+        Args:
+            request: The HTTP request containing client credentials
+        Returns:
+            The extracted client credentials
+        """
+        # First, check for Basic auth header
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Basic "):
+            try:
+                encoded_credentials = auth_header[6:]  # Remove "Basic " prefix
+                decoded = base64.b64decode(encoded_credentials).decode("utf-8")
+                if ":" not in decoded:
+                    raise ValueError("Invalid Basic auth format")
+                client_id, client_secret = decoded.split(":", 1)
+
+                # URL-decode the client_id per RFC 6749 Section 2.3.1
+                client_id = unquote(client_id)
+                client_secret = unquote(client_secret)
+                return ClientCredentials(
+                    auth_method="client_secret_basic",
+                    client_id=client_id,
+                    client_secret=client_secret,
+                )
+            except (ValueError, UnicodeDecodeError, binascii.Error):
+                raise AuthenticationError("Invalid Basic authentication header")
+
+        # If not, check for client_id and client_secret in form data
+        form_data = await request.form()
+        client_id = form_data.get("client_id")
+        if not client_id:
+            raise AuthenticationError("Missing client_id")
+
+        raw_client_secret = form_data.get("client_secret")
+        client_secret = str(raw_client_secret) if isinstance(raw_client_secret, str) else None
+        return ClientCredentials(
+            auth_method="client_secret_post",
+            client_id=str(client_id),
+            client_secret=client_secret,
+        )

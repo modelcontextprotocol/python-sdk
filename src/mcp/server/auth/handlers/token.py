@@ -19,7 +19,7 @@ class AuthorizationCodeRequest(BaseModel):
     grant_type: Literal["authorization_code"]
     code: str = Field(..., description="The authorization code")
     redirect_uri: AnyUrl | None = Field(None, description="Must be the same as redirect URI provided in /authorize")
-    client_id: str
+    client_id: str | None = Field(None, description="If none, client_id must be provided via basic auth header")
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
     # See https://datatracker.ietf.org/doc/html/rfc7636#section-4.5
@@ -33,7 +33,7 @@ class RefreshTokenRequest(BaseModel):
     grant_type: Literal["refresh_token"]
     refresh_token: str = Field(..., description="The refresh token")
     scope: str | None = Field(None, description="Optional scope parameter")
-    client_id: str
+    client_id: str | None = Field(None, description="If none, client_id must be provided via basic auth header")
     # we use the client_secret param, per https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
     client_secret: str | None = None
     # RFC 8707 resource indicator
@@ -131,7 +131,7 @@ class TokenHandler:
         match token_request:
             case AuthorizationCodeRequest():
                 auth_code = await self.provider.load_authorization_code(client_info, token_request.code)
-                if auth_code is None or auth_code.client_id != token_request.client_id:
+                if auth_code is None or auth_code.client_id != client_info.client_id:
                     # if code belongs to different client, pretend it doesn't exist
                     return self.response(
                         TokenErrorResponse(
@@ -197,7 +197,7 @@ class TokenHandler:
 
             case RefreshTokenRequest():  # pragma: no cover
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
-                if refresh_token is None or refresh_token.client_id != token_request.client_id:
+                if refresh_token is None or refresh_token.client_id != client_info.client_id:
                     # if token belongs to different client, pretend it doesn't exist
                     return self.response(
                         TokenErrorResponse(

@@ -1089,7 +1089,7 @@ class TestAuthEndpoints:
         assert "access_token" in token_response
 
     @pytest.mark.anyio
-    async def test_wrong_auth_method_without_valid_credentials_fails(
+    async def test_wrong_auth_method_fails(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
         """Test that using the wrong authentication method fails when credentials are missing."""
@@ -1117,7 +1117,7 @@ class TestAuthEndpoints:
         )
 
         # Try to use Basic auth when client_secret_post is registered (without secret in body)
-        # This should fail because the secret is missing from the expected location
+        # This should fail despite that credentials are provided via Basic auth, because the method is wrong
 
         credentials = f"{client_info['client_id']}:{client_info['client_secret']}"
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
@@ -1138,7 +1138,7 @@ class TestAuthEndpoints:
         error_response = response.json()
         # RFC 6749: authentication failures return "invalid_client"
         assert error_response["error"] == "invalid_client"
-        assert "Client secret is required" in error_response["error_description"]
+        assert "Expected client_secret_post authentication method" in error_response["error_description"]
 
     @pytest.mark.anyio
     async def test_basic_auth_without_header_fails(
@@ -1183,7 +1183,7 @@ class TestAuthEndpoints:
         error_response = response.json()
         # RFC 6749: authentication failures return "invalid_client"
         assert error_response["error"] == "invalid_client"
-        assert "Missing or invalid Basic authentication" in error_response["error_description"]
+        assert "Expected client_secret_basic authentication method" in error_response["error_description"]
 
     @pytest.mark.anyio
     async def test_basic_auth_invalid_base64_fails(
@@ -1279,10 +1279,10 @@ class TestAuthEndpoints:
         assert "Invalid Basic authentication header" in error_response["error_description"]
 
     @pytest.mark.anyio
-    async def test_basic_auth_client_id_mismatch_fails(
+    async def test_basic_auth_takes_precedence(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
     ):
-        """Test that client_id mismatch between body and Basic auth fails."""
+        """Test that even client_id at body is invalid, Basic auth passes because of the priority."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Basic Auth Client",
@@ -1308,23 +1308,83 @@ class TestAuthEndpoints:
         # Send different client_id in Basic auth header
         import base64
 
-        wrong_creds = base64.b64encode(f"wrong-client-id:{client_info['client_secret']}".encode()).decode()
+        creds = base64.b64encode(f"{client_info['client_id']}:{client_info['client_secret']}".encode()).decode()
         response = await test_client.post(
             "/token",
-            headers={"Authorization": f"Basic {wrong_creds}"},
+            headers={"Authorization": f"Basic {creds}"},
             data={
                 "grant_type": "authorization_code",
-                "client_id": client_info["client_id"],  # Correct client_id in body
+                "client_id": "wrong-client-id",  # Wrong client_id in body
                 "code": auth_code,
                 "code_verifier": pkce_challenge["code_verifier"],
                 "redirect_uri": "https://client.example.com/callback",
             },
         )
-        assert response.status_code == 401
-        error_response = response.json()
-        # RFC 6749: authentication failures return "invalid_client"
-        assert error_response["error"] == "invalid_client"
-        assert "Client ID mismatch" in error_response["error_description"]
+
+        # Header takes precedence, so this should succeed
+        assert response.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_basic_auth_without_client_id_at_body(
+        self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
+    ):
+        """Test that Basic auth works even if client_id is missing from body."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Basic Auth Client",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "grant_types": ["authorization_code", "refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=client_info["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        credentials = f"{client_info['client_id']}:{client_info['client_secret']}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded_credentials}"},
+            data={
+                "grant_type": "authorization_code",
+                # client_id omitted from body
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+        assert response.status_code == 200
+        token_response = response.json()
+        assert "access_token" in token_response
+        assert "refresh_token" in token_response
+
+        refresh_token = token_response["refresh_token"]
+
+        # Now, use the refresh token without client_id in body
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded_credentials}"},
+            data={
+                "grant_type": "refresh_token",
+                # client_id omitted from body
+                "refresh_token": refresh_token,
+            },
+        )
+        assert response.status_code == 200
+        new_token_response = response.json()
+        assert "access_token" in new_token_response
 
     @pytest.mark.anyio
     async def test_none_auth_method_public_client(
