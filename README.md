@@ -136,8 +136,7 @@ Let's create a simple MCP server that exposes a calculator tool and some data:
 
 <!-- snippet-source examples/snippets/servers/fastmcp_quickstart.py -->
 ```python
-"""
-FastMCP quickstart example.
+"""FastMCP quickstart example.
 
 Run from the repository root:
     uv run examples/snippets/servers/fastmcp_quickstart.py
@@ -727,9 +726,8 @@ Client usage:
 
 <!-- snippet-source examples/snippets/clients/completion_client.py -->
 ```python
-"""
-cd to the `examples/snippets` directory and run:
-    uv run completion-client
+"""cd to the `examples/snippets` directory and run:
+uv run completion-client
 """
 
 import asyncio
@@ -1004,9 +1002,8 @@ MCP servers can use authentication by providing an implementation of the `TokenV
 
 <!-- snippet-source examples/snippets/servers/oauth_server.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/oauth_server.py
+"""Run from the repository root:
+uv run examples/snippets/servers/oauth_server.py
 """
 
 from pydantic import AnyHttpUrl
@@ -1245,9 +1242,8 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 
 <!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/streamable_config.py
+"""Run from the repository root:
+uv run examples/snippets/servers/streamable_config.py
 """
 
 from mcp.server.fastmcp import FastMCP
@@ -1283,9 +1279,8 @@ You can mount multiple FastMCP servers in a Starlette application:
 
 <!-- snippet-source examples/snippets/servers/streamable_starlette_mount.py -->
 ```python
-"""
-Run from the repository root:
-    uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
+"""Run from the repository root:
+uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """
 
 import contextlib
@@ -1394,8 +1389,7 @@ You can mount the StreamableHTTP server to an existing ASGI server using the `st
 
 <!-- snippet-source examples/snippets/servers/streamable_http_basic_mounting.py -->
 ```python
-"""
-Basic example showing how to mount StreamableHTTP server in Starlette.
+"""Basic example showing how to mount StreamableHTTP server in Starlette.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload
@@ -1442,8 +1436,7 @@ _Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](htt
 
 <!-- snippet-source examples/snippets/servers/streamable_http_host_mounting.py -->
 ```python
-"""
-Example showing how to mount StreamableHTTP server using Host-based routing.
+"""Example showing how to mount StreamableHTTP server using Host-based routing.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
@@ -1490,8 +1483,7 @@ _Full example: [examples/snippets/servers/streamable_http_host_mounting.py](http
 
 <!-- snippet-source examples/snippets/servers/streamable_http_multiple_servers.py -->
 ```python
-"""
-Example showing how to mount multiple StreamableHTTP servers with path configuration.
+"""Example showing how to mount multiple StreamableHTTP servers with path configuration.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
@@ -1548,8 +1540,7 @@ _Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](h
 
 <!-- snippet-source examples/snippets/servers/streamable_http_path_config.py -->
 ```python
-"""
-Example showing path configuration when mounting FastMCP.
+"""Example showing path configuration when mounting FastMCP.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
@@ -1644,9 +1635,8 @@ For more control, you can use the low-level server implementation directly. This
 
 <!-- snippet-source examples/snippets/servers/lowlevel/lifespan.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/lifespan.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/lifespan.py
 """
 
 from collections.abc import AsyncIterator
@@ -1761,8 +1751,7 @@ The lifespan API provides:
 
 <!-- snippet-source examples/snippets/servers/lowlevel/basic.py -->
 ```python
-"""
-Run from the repository root:
+"""Run from the repository root:
 uv run examples/snippets/servers/lowlevel/basic.py
 """
 
@@ -1840,9 +1829,8 @@ The low-level server supports structured output for tools, allowing you to retur
 
 <!-- snippet-source examples/snippets/servers/lowlevel/structured_output.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/structured_output.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/structured_output.py
 """
 
 import asyncio
@@ -1943,9 +1931,8 @@ For full control over the response including the `_meta` field (for passing data
 
 <!-- snippet-source examples/snippets/servers/lowlevel/direct_call_tool_result.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
 """
 
 import asyncio
@@ -2023,9 +2010,7 @@ For servers that need to handle large datasets, the low-level server provides pa
 
 <!-- snippet-source examples/snippets/servers/pagination_example.py -->
 ```python
-"""
-Example of implementing pagination with MCP server decorators.
-"""
+"""Example of implementing pagination with MCP server decorators."""
 
 import mcp.types as types
 from mcp.server.lowlevel import Server
@@ -2068,9 +2053,7 @@ _Full example: [examples/snippets/servers/pagination_example.py](https://github.
 
 <!-- snippet-source examples/snippets/clients/pagination_client.py -->
 ```python
-"""
-Example of consuming paginated MCP endpoints from a client.
-"""
+"""Example of consuming paginated MCP endpoints from a client."""
 
 import asyncio
 
@@ -2129,9 +2112,8 @@ The SDK provides a high-level client interface for connecting to MCP servers usi
 
 <!-- snippet-source examples/snippets/clients/stdio_client.py -->
 ```python
-"""
-cd to the `examples/snippets/clients` directory and run:
-    uv run client
+"""cd to the `examples/snippets/clients` directory and run:
+uv run client
 """
 
 import asyncio
@@ -2221,9 +2203,8 @@ Clients can also connect using [Streamable HTTP transport](https://modelcontextp
 
 <!-- snippet-source examples/snippets/clients/streamable_basic.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/clients/streamable_basic.py
+"""Run from the repository root:
+uv run examples/snippets/clients/streamable_basic.py
 """
 
 import asyncio
@@ -2261,9 +2242,8 @@ When building MCP clients, the SDK provides utilities to help display human-read
 
 <!-- snippet-source examples/snippets/clients/display_utilities.py -->
 ```python
-"""
-cd to the `examples/snippets` directory and run:
-    uv run display-utilities-client
+"""cd to the `examples/snippets` directory and run:
+uv run display-utilities-client
 """
 
 import asyncio
@@ -2346,8 +2326,7 @@ The SDK includes [authorization support](https://modelcontextprotocol.io/specifi
 
 <!-- snippet-source examples/snippets/clients/oauth_client.py -->
 ```python
-"""
-Before running, specify running MCP RS server URL.
+"""Before running, specify running MCP RS server URL.
 To spin up RS server locally, see
     examples/servers/simple-auth/README.md
 
