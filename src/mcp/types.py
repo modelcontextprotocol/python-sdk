@@ -1,4 +1,4 @@
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
@@ -6,7 +6,6 @@ from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
 from pydantic.networks import AnyUrl, UrlConstraints
-from typing_extensions import deprecated
 
 LATEST_PROTOCOL_VERSION = "2025-11-25"
 
@@ -1196,9 +1195,6 @@ class ResourceLink(Resource):
 ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
 """A content block that can be used in prompts and tool results."""
 
-Content: TypeAlias = ContentBlock
-# """DEPRECATED: Content is deprecated, you should use ContentBlock directly."""
-
 
 class PromptMessage(BaseModel):
     """Describes a message returned as part of a prompt."""
@@ -1588,11 +1584,6 @@ class ResourceTemplateReference(BaseModel):
     uri: str
     """The URI or URI template of the resource."""
     model_config = ConfigDict(extra="allow")
-
-
-@deprecated("`ResourceReference` is deprecated, you should use `ResourceTemplateReference`.")
-class ResourceReference(ResourceTemplateReference):
-    pass
 
 
 class PromptReference(BaseModel):

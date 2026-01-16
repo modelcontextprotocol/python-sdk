@@ -30,6 +30,7 @@ class ResourceTemplate(BaseModel):
     mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for the resource template")
     annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource template")
+    meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this resource template")
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
@@ -45,6 +46,7 @@ class ResourceTemplate(BaseModel):
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        meta: dict[str, Any] | None = None,
         context_kwarg: str | None = None,
     ) -> ResourceTemplate:
         """Create a template from a function."""
@@ -74,6 +76,7 @@ class ResourceTemplate(BaseModel):
             mime_type=mime_type or "text/plain",
             icons=icons,
             annotations=annotations,
+            meta=meta,
             fn=fn,
             parameters=parameters,
             context_kwarg=context_kwarg,
@@ -112,6 +115,7 @@ class ResourceTemplate(BaseModel):
                 mime_type=self.mime_type,
                 icons=self.icons,
                 annotations=self.annotations,
+                meta=self.meta,
                 fn=lambda: result,  # Capture result in closure
             )
         except Exception as e:

@@ -258,3 +258,50 @@ class TestResourceTemplateAnnotations:
         # Verify the resource works correctly
         content = await resource.read()
         assert content == "Item 123"
+
+
+class TestResourceTemplateMetadata:
+    """Test ResourceTemplate meta handling."""
+
+    def test_template_from_function_with_metadata(self):
+        """Test that ResourceTemplate.from_function() accepts and stores meta parameter."""
+
+        def get_user(user_id: str) -> str:  # pragma: no cover
+            return f"User {user_id}"
+
+        metadata = {"requires_auth": True, "rate_limit": 100}
+
+        template = ResourceTemplate.from_function(
+            fn=get_user,
+            uri_template="resource://users/{user_id}",
+            meta=metadata,
+        )
+
+        assert template.meta is not None
+        assert template.meta == metadata
+        assert template.meta["requires_auth"] is True
+        assert template.meta["rate_limit"] == 100
+
+    @pytest.mark.anyio
+    async def test_template_created_resources_inherit_metadata(self):
+        """Test that resources created from templates inherit meta from template."""
+
+        def get_item(item_id: str) -> str:
+            return f"Item {item_id}"
+
+        metadata = {"category": "inventory", "cacheable": True}
+
+        template = ResourceTemplate.from_function(
+            fn=get_item,
+            uri_template="resource://items/{item_id}",
+            meta=metadata,
+        )
+
+        # Create a resource from the template
+        resource = await template.create_resource("resource://items/123", {"item_id": "123"})
+
+        # The resource should inherit the template's metadata
+        assert resource.meta is not None
+        assert resource.meta == metadata
+        assert resource.meta["category"] == "inventory"
+        assert resource.meta["cacheable"] is True

@@ -83,6 +83,7 @@ class FunctionResource(Resource):
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> "FunctionResource":
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
@@ -101,6 +102,7 @@ class FunctionResource(Resource):
             fn=fn,
             icons=icons,
             annotations=annotations,
+            meta=meta,
         )
 
 

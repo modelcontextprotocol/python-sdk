@@ -1,4 +1,4 @@
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
 import logging
 from collections.abc import Callable
