@@ -290,7 +290,7 @@ async def test_elicitation_with_default_values():
     async def callback_schema_verify(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         # Verify the schema includes defaults
         assert isinstance(params, types.ElicitRequestFormParams), "Expected form mode elicitation"
-        schema = params.requestedSchema
+        schema = params.requested_schema
         props = schema["properties"]
 
         assert props["name"]["default"] == "Guest"

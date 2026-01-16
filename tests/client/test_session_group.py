@@ -59,7 +59,7 @@ class TestClientSessionGroup:
             return f"{(server_info.name)}-{name}"
 
         mcp_session_group = ClientSessionGroup(component_name_hook=hook)
-        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", inputSchema={})}
+        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", input_schema={})}
         mcp_session_group._tool_to_session = {"server1-my_tool": mock_session}
         text_content = types.TextContent(type="text", text="OK")
         mock_session.call_tool.return_value = types.CallToolResult(content=[text_content])
@@ -324,7 +324,7 @@ class TestClientSessionGroup:
 
                 # Mock session.initialize()
                 mock_initialize_result = mock.AsyncMock(name="InitializeResult")
-                mock_initialize_result.serverInfo = types.Implementation(name="foo", version="1")
+                mock_initialize_result.server_info = types.Implementation(name="foo", version="1")
                 mock_entered_session.initialize.return_value = mock_initialize_result
 
                 # --- Test Execution ---
@@ -381,5 +381,5 @@ class TestClientSessionGroup:
                 mock_entered_session.initialize.assert_awaited_once()
 
                 # 3. Assert returned values
-                assert returned_server_info is mock_initialize_result.serverInfo
+                assert returned_server_info is mock_initialize_result.server_info
                 assert returned_session is mock_entered_session

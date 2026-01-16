@@ -36,7 +36,7 @@ class TestServer:
             instructions="Server instructions",
             website_url="https://example.com/mcp_server",
             version="1.0",
-            icons=[Icon(src="https://example.com/icon.png", mimeType="image/png", sizes=["48x48", "96x96"])],
+            icons=[Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48", "96x96"])],
         )
         assert mcp.name == "FastMCP"
         assert mcp.title == "FastMCP Server"
@@ -197,8 +197,8 @@ def audio_tool_fn(path: str) -> Audio:
 def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
-        ImageContent(type="image", data="abc", mimeType="image/png"),
-        AudioContent(type="audio", data="def", mimeType="audio/wav"),
+        ImageContent(type="image", data="abc", mime_type="image/png"),
+        AudioContent(type="audio", data="def", mime_type="audio/wav"),
     ]
 
 
@@ -237,7 +237,7 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Test error" in content.text
-            assert result.isError is True
+            assert result.is_error is True
 
     @pytest.mark.anyio
     async def test_tool_error_handling(self):
@@ -249,7 +249,7 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Test error" in content.text
-            assert result.isError is True
+            assert result.is_error is True
 
     @pytest.mark.anyio
     async def test_tool_error_details(self):
@@ -262,7 +262,7 @@ class TestServerTools:
             assert isinstance(content, TextContent)
             assert isinstance(content.text, str)
             assert "Test error" in content.text
-            assert result.isError is True
+            assert result.is_error is True
 
     @pytest.mark.anyio
     async def test_tool_return_value_conversion(self):
@@ -275,8 +275,8 @@ class TestServerTools:
             assert isinstance(content, TextContent)
             assert content.text == "3"
             # Check structured content - int return type should have structured output
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"result": 3}
+            assert result.structured_content is not None
+            assert result.structured_content == {"result": 3}
 
     @pytest.mark.anyio
     async def test_tool_image_helper(self, tmp_path: Path):
@@ -292,12 +292,12 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, ImageContent)
             assert content.type == "image"
-            assert content.mimeType == "image/png"
+            assert content.mime_type == "image/png"
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake png data"
             # Check structured content - Image return type should NOT have structured output
-            assert result.structuredContent is None
+            assert result.structured_content is None
 
     @pytest.mark.anyio
     async def test_tool_audio_helper(self, tmp_path: Path):
@@ -313,12 +313,12 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, AudioContent)
             assert content.type == "audio"
-            assert content.mimeType == "audio/wav"
+            assert content.mime_type == "audio/wav"
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake wav data"
             # Check structured content - Image return type should NOT have structured output
-            assert result.structuredContent is None
+            assert result.structured_content is None
 
     @pytest.mark.parametrize(
         "filename,expected_mime_type",
@@ -348,7 +348,7 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, AudioContent)
             assert content.type == "audio"
-            assert content.mimeType == expected_mime_type
+            assert content.mime_type == expected_mime_type
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake audio data"
@@ -364,14 +364,14 @@ class TestServerTools:
             assert isinstance(content1, TextContent)
             assert content1.text == "Hello"
             assert isinstance(content2, ImageContent)
-            assert content2.mimeType == "image/png"
+            assert content2.mime_type == "image/png"
             assert content2.data == "abc"
             assert isinstance(content3, AudioContent)
-            assert content3.mimeType == "audio/wav"
+            assert content3.mime_type == "audio/wav"
             assert content3.data == "def"
-            assert result.structuredContent is not None
-            assert "result" in result.structuredContent
-            structured_result = result.structuredContent["result"]
+            assert result.structured_content is not None
+            assert "result" in result.structured_content
+            structured_result = result.structured_content["result"]
             assert len(structured_result) == 3
 
             expected_content = [
@@ -419,12 +419,12 @@ class TestServerTools:
             # Check image conversion
             content2 = result.content[1]
             assert isinstance(content2, ImageContent)
-            assert content2.mimeType == "image/png"
+            assert content2.mime_type == "image/png"
             assert base64.b64decode(content2.data) == b"test image data"
             # Check audio conversion
             content3 = result.content[2]
             assert isinstance(content3, AudioContent)
-            assert content3.mimeType == "audio/wav"
+            assert content3.mime_type == "audio/wav"
             assert base64.b64decode(content3.data) == b"test audio data"
             # Check dict conversion
             content4 = result.content[3]
@@ -435,7 +435,7 @@ class TestServerTools:
             assert isinstance(content5, TextContent)
             assert content5.text == "direct content"
             # Check structured content - untyped list with Image objects should NOT have structured output
-            assert result.structuredContent is None
+            assert result.structured_content is None
 
     @pytest.mark.anyio
     async def test_tool_structured_output_basemodel(self):
@@ -457,16 +457,16 @@ class TestServerTools:
             # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_user")
-            assert tool.outputSchema is not None
-            assert tool.outputSchema["type"] == "object"
-            assert "name" in tool.outputSchema["properties"]
-            assert "age" in tool.outputSchema["properties"]
+            assert tool.output_schema is not None
+            assert tool.output_schema["type"] == "object"
+            assert "name" in tool.output_schema["properties"]
+            assert "age" in tool.output_schema["properties"]
 
             # Call the tool and check structured output
             result = await client.call_tool("get_user", {"user_id": 123})
-            assert result.isError is False
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"name": "John Doe", "age": 30, "active": True}
+            assert result.is_error is False
+            assert result.structured_content is not None
+            assert result.structured_content == {"name": "John Doe", "age": 30, "active": True}
             # Content should be JSON serialized version
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
@@ -487,17 +487,17 @@ class TestServerTools:
             # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "calculate_sum")
-            assert tool.outputSchema is not None
+            assert tool.output_schema is not None
             # Primitive types are wrapped
-            assert tool.outputSchema["type"] == "object"
-            assert "result" in tool.outputSchema["properties"]
-            assert tool.outputSchema["properties"]["result"]["type"] == "integer"
+            assert tool.output_schema["type"] == "object"
+            assert "result" in tool.output_schema["properties"]
+            assert tool.output_schema["properties"]["result"]["type"] == "integer"
 
             # Call the tool
             result = await client.call_tool("calculate_sum", {"a": 5, "b": 7})
-            assert result.isError is False
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"result": 12}
+            assert result.is_error is False
+            assert result.structured_content is not None
+            assert result.structured_content == {"result": 12}
 
     @pytest.mark.anyio
     async def test_tool_structured_output_list(self):
@@ -512,9 +512,9 @@ class TestServerTools:
 
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("get_numbers", {})
-            assert result.isError is False
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"result": [1, 2, 3, 4, 5]}
+            assert result.is_error is False
+            assert result.structured_content is not None
+            assert result.structured_content == {"result": [1, 2, 3, 4, 5]}
 
     @pytest.mark.anyio
     async def test_tool_structured_output_server_side_validation_error(self):
@@ -528,8 +528,8 @@ class TestServerTools:
 
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("get_numbers", {})
-            assert result.isError is True
-            assert result.structuredContent is None
+            assert result.is_error is True
+            assert result.structured_content is None
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
 
@@ -554,17 +554,18 @@ class TestServerTools:
             # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_metadata")
-            assert tool.outputSchema is not None
-            assert tool.outputSchema["type"] == "object"
+            assert tool.output_schema is not None
+            assert tool.output_schema["type"] == "object"
             # dict[str, Any] should have minimal schema
             assert (
-                "additionalProperties" not in tool.outputSchema or tool.outputSchema.get("additionalProperties") is True
+                "additionalProperties" not in tool.output_schema
+                or tool.output_schema.get("additionalProperties") is True
             )
 
             # Call tool
             result = await client.call_tool("get_metadata", {})
-            assert result.isError is False
-            assert result.structuredContent is not None
+            assert result.is_error is False
+            assert result.structured_content is not None
             expected = {
                 "version": "1.0.0",
                 "enabled": True,
@@ -572,7 +573,7 @@ class TestServerTools:
                 "tags": ["production", "stable"],
                 "config": {"nested": {"value": 123}},
             }
-            assert result.structuredContent == expected
+            assert result.structured_content == expected
 
     @pytest.mark.anyio
     async def test_tool_structured_output_dict_str_typed(self):
@@ -589,14 +590,14 @@ class TestServerTools:
             # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_settings")
-            assert tool.outputSchema is not None
-            assert tool.outputSchema["type"] == "object"
-            assert tool.outputSchema["additionalProperties"]["type"] == "string"
+            assert tool.output_schema is not None
+            assert tool.output_schema["type"] == "object"
+            assert tool.output_schema["additionalProperties"]["type"] == "string"
 
             # Call tool
             result = await client.call_tool("get_settings", {})
-            assert result.isError is False
-            assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
+            assert result.is_error is False
+            assert result.structured_content == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
     @pytest.mark.anyio
     async def test_remove_tool(self):
@@ -656,7 +657,7 @@ class TestServerTools:
         # Verify tool works before removal
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
-            assert not result.isError
+            assert not result.is_error
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert content.text == "3"
@@ -667,7 +668,7 @@ class TestServerTools:
         # Verify calling removed tool returns an error
         async with client_session(mcp._mcp_server) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
-            assert result.isError
+            assert result.is_error
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Unknown tool" in content.text
@@ -762,7 +763,7 @@ class TestServerResources:
             assert resource.description == "get_data returns a string"
             assert resource.uri == "function://test"
             assert resource.name == "test_get_data"
-            assert resource.mimeType == "text/plain"
+            assert resource.mime_type == "text/plain"
 
 
 class TestServerResourceTemplates:
@@ -892,8 +893,8 @@ class TestServerResourceTemplates:
         assert len(templates) == 1
         template = templates[0]
 
-        assert hasattr(template, "mimeType")
-        assert template.mimeType == "text/csv"
+        assert hasattr(template, "mime_type")
+        assert template.mime_type == "text/csv"
 
         async with client_session(mcp._mcp_server) as client:
             result = await client.read_resource("resource://bob/csv")
@@ -1382,7 +1383,7 @@ class TestServerPrompts:
                     resource=TextResourceContents(
                         uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )
@@ -1397,7 +1398,7 @@ class TestServerPrompts:
             resource = content.resource
             assert isinstance(resource, TextResourceContents)
             assert resource.text == "File contents"
-            assert resource.mimeType == "text/plain"
+            assert resource.mime_type == "text/plain"
 
     @pytest.mark.anyio
     async def test_get_unknown_prompt(self):

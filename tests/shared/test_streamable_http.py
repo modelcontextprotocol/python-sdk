@@ -154,47 +154,47 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="test_tool_with_standalone_notification",
                     description="A test tool that sends a notification",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="long_running_with_checkpoints",
                     description="A long-running tool that sends periodic notifications",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="test_sampling_tool",
                     description="A tool that triggers server-side sampling",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="wait_for_lock_with_notification",
                     description="A tool that sends a notification and waits for lock",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="release_lock",
                     description="A tool that releases the lock",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="tool_with_stream_close",
                     description="A tool that closes SSE stream mid-operation",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="tool_with_multiple_notifications_and_close",
                     description="Tool that sends notification1, closes stream, sends notification2, notification3",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="tool_with_multiple_stream_closes",
                     description="Tool that closes SSE stream multiple times during execution",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {
                             "checkpoints": {"type": "integer", "default": 3},
@@ -205,7 +205,7 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="tool_with_standalone_stream_close",
                     description="Tool that closes standalone GET stream mid-operation",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
             ]
 
@@ -1004,7 +1004,7 @@ async def test_streamable_http_client_basic_connection(basic_server: None, basic
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
 
 @pytest.mark.anyio
@@ -1084,7 +1084,7 @@ async def test_streamable_http_client_json_response(json_response_server: None, 
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Check tool listing
             tools = await session.list_tools()
@@ -1286,7 +1286,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             captured_session_id = get_session_id()
             assert captured_session_id is not None
             # Capture the negotiated protocol version
-            captured_protocol_version = result.protocolVersion
+            captured_protocol_version = result.protocol_version
 
             # Start the tool that will wait on lock in a task
             async with anyio.create_task_group() as tg:
@@ -1395,7 +1395,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
                 text=f"Received message from server: {message_received}",
             ),
             model="test-model",
-            stopReason="endTurn",
+            stop_reason="endTurn",
         )
 
     # Create client with sampling callback
@@ -1439,12 +1439,12 @@ class ContextAwareServerTest(Server):  # pragma: no cover
                 Tool(
                     name="echo_headers",
                     description="Echo request headers from context",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="echo_context",
                     description="Echo request context with custom data",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {
                             "request_id": {"type": "string"},
@@ -1553,7 +1553,7 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
-                assert result.serverInfo.name == "ContextAwareServer"
+                assert result.server_info.name == "ContextAwareServer"
 
                 # Call the tool that echoes headers back
                 tool_result = await session.call_tool("echo_headers", {})
@@ -1619,7 +1619,7 @@ async def test_client_includes_protocol_version_header_after_init(context_aware_
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize and get the negotiated version
             init_result = await session.initialize()
-            negotiated_version = init_result.protocolVersion
+            negotiated_version = init_result.protocol_version
 
             # Call a tool that echoes headers to verify the header is present
             tool_result = await session.call_tool("echo_headers", {})

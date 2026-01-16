@@ -120,7 +120,7 @@ def main(port: int, log_level: str, retry_interval: int) -> int:
                     "Process a batch of items with periodic checkpoints. "
                     "Demonstrates SSE polling where server closes stream periodically."
                 ),
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "items": {

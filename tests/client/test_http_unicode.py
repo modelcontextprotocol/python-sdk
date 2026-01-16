@@ -61,7 +61,7 @@ def run_unicode_server(port: int) -> None:  # pragma: no cover
             Tool(
                 name="echo_unicode",
                 description="🔤 Echo Unicode text - Hello 👋 World 🌍 - Testing 🧪 Unicode ✨",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "text": {"type": "string", "description": "Text to echo back"},

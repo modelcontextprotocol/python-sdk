@@ -113,8 +113,8 @@ class StreamableHTTPTransport:
         if isinstance(message.root, JSONRPCResponse) and message.root.result:  # pragma: no branch
             try:
                 # Parse the result as InitializeResult for type safety
-                init_result = InitializeResult.model_validate(message.root.result)
-                self.protocol_version = str(init_result.protocolVersion)
+                init_result = InitializeResult.model_validate(message.root.result, by_name=False)
+                self.protocol_version = str(init_result.protocol_version)
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
             except Exception:  # pragma: no cover
                 logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)
@@ -137,7 +137,7 @@ class StreamableHTTPTransport:
                     await resumption_callback(sse.id)
                 return False
             try:
-                message = JSONRPCMessage.model_validate_json(sse.data)
+                message = JSONRPCMessage.model_validate_json(sse.data, by_name=False)
                 logger.debug(f"SSE message: {message}")
 
                 # Extract protocol version from initialization response
@@ -291,7 +291,7 @@ class StreamableHTTPTransport:
         """Handle JSON response from the server."""
         try:
             content = await response.aread()
-            message = JSONRPCMessage.model_validate_json(content)
+            message = JSONRPCMessage.model_validate_json(content, by_name=False)
 
             # Extract protocol version from initialization response
             if is_initialization:

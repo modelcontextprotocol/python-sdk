@@ -258,7 +258,7 @@ async def test_basic_tools(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Tool Example"
+            assert result.server_info.name == "Tool Example"
             assert result.capabilities.tools is not None
 
             # Test sum tool
@@ -295,7 +295,7 @@ async def test_basic_resources(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Resource Example"
+            assert result.server_info.name == "Resource Example"
             assert result.capabilities.resources is not None
 
             # Test document resource
@@ -336,7 +336,7 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Prompt Example"
+            assert result.server_info.name == "Prompt Example"
             assert result.capabilities.prompts is not None
 
             # Test review_code prompt
@@ -396,7 +396,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Progress Example"
+            assert result.server_info.name == "Progress Example"
 
             # Test progress callback
             progress_updates = []
@@ -449,7 +449,7 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Sampling Example"
+            assert result.server_info.name == "Sampling Example"
             assert result.capabilities.tools is not None
 
             # Test sampling tool
@@ -480,7 +480,7 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Elicitation Example"
+            assert result.server_info.name == "Elicitation Example"
 
             # Test booking with unavailable date (triggers elicitation)
             booking_result = await session.call_tool(
@@ -537,7 +537,7 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Notifications Example"
+            assert result.server_info.name == "Notifications Example"
 
             # Call tool that generates notifications
             tool_result = await session.call_tool("process_data", {"data": "test_data"})
@@ -578,7 +578,7 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Example"
+            assert result.server_info.name == "Example"
             assert result.capabilities.resources is not None
             assert result.capabilities.prompts is not None
 
@@ -635,7 +635,7 @@ async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> Non
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Demo"
+            assert result.server_info.name == "Demo"
 
             # Test add tool
             tool_result = await session.call_tool("add", {"a": 10, "b": 20})
@@ -673,7 +673,7 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Structured Output Example"
+            assert result.server_info.name == "Structured Output Example"
 
             # Test get_weather tool
             weather_result = await session.call_tool("get_weather", {"city": "New York"})

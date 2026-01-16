@@ -79,7 +79,7 @@ async def test_bidirectional_progress_notifications():
             types.Tool(
                 name="test_tool",
                 description="A tool that sends progress notifications <o/",
-                inputSchema={},
+                input_schema={},
             )
         ]
 
@@ -138,7 +138,7 @@ async def test_bidirectional_progress_notifications():
                 params = message.root.params
                 client_progress_updates.append(
                     {
-                        "token": params.progressToken,
+                        "token": params.progress_token,
                         "progress": params.progress,
                         "total": params.total,
                         "message": params.message,
@@ -274,7 +274,7 @@ async def test_progress_context_manager():
         progress_token = "client_token_456"
 
         # Create request context
-        meta = types.RequestParams.Meta(progressToken=progress_token)
+        meta = types.RequestParams.Meta(progress_token=progress_token)
         request_context = RequestContext(
             request_id="test-request",
             session=client_session,
@@ -362,7 +362,7 @@ async def test_progress_callback_exception_logging():
             types.Tool(
                 name="progress_tool",
                 description="A tool that sends progress notifications",
-                inputSchema={},
+                input_schema={},
             )
         ]
 

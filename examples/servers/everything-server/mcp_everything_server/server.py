@@ -98,13 +98,13 @@ def test_simple_text() -> str:
 @mcp.tool()
 def test_image_content() -> list[ImageContent]:
     """Tests image content response"""
-    return [ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png")]
+    return [ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png")]
 
 
 @mcp.tool()
 def test_audio_content() -> list[AudioContent]:
     """Tests audio content response"""
-    return [AudioContent(type="audio", data=TEST_AUDIO_BASE64, mimeType="audio/wav")]
+    return [AudioContent(type="audio", data=TEST_AUDIO_BASE64, mime_type="audio/wav")]
 
 
 @mcp.tool()
@@ -115,7 +115,7 @@ def test_embedded_resource() -> list[EmbeddedResource]:
             type="resource",
             resource=TextResourceContents(
                 uri="test://embedded-resource",
-                mimeType="text/plain",
+                mime_type="text/plain",
                 text="This is an embedded resource content.",
             ),
         )
@@ -127,12 +127,12 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
     """Tests response with multiple content types (text, image, resource)"""
     return [
         TextContent(type="text", text="Multiple content types test:"),
-        ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png"),
+        ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png"),
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
                 uri="test://mixed-content-resource",
-                mimeType="application/json",
+                mime_type="application/json",
                 text='{"test": "data", "value": 123}',
             ),
         ),
@@ -164,7 +164,7 @@ async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
     await ctx.report_progress(progress=100, total=100, message="Completed step 100 of 100")
 
     # Return progress token as string
-    progress_token = ctx.request_context.meta.progressToken if ctx.request_context and ctx.request_context.meta else 0
+    progress_token = ctx.request_context.meta.progress_token if ctx.request_context and ctx.request_context.meta else 0
     return str(progress_token)
 
 
@@ -373,7 +373,7 @@ def test_prompt_with_embedded_resource(resourceUri: str) -> list[UserMessage]:
                 type="resource",
                 resource=TextResourceContents(
                     uri=resourceUri,
-                    mimeType="text/plain",
+                    mime_type="text/plain",
                     text="Embedded resource content for testing.",
                 ),
             ),
@@ -386,7 +386,7 @@ def test_prompt_with_embedded_resource(resourceUri: str) -> list[UserMessage]:
 def test_prompt_with_image() -> list[UserMessage]:
     """A prompt that includes image content"""
     return [
-        UserMessage(role="user", content=ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png")),
+        UserMessage(role="user", content=ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png")),
         UserMessage(role="user", content=TextContent(type="text", text="Please analyze the image above.")),
     ]
 
@@ -427,7 +427,7 @@ async def _handle_completion(
     """Handle completion requests"""
     # Basic completion support - returns empty array for conformance
     # Real implementations would provide contextual suggestions
-    return Completion(values=[], total=0, hasMore=False)
+    return Completion(values=[], total=0, has_more=False)
 
 
 # CLI

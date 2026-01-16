@@ -45,9 +45,9 @@ async def test_client_capabilities_without_tasks():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -119,9 +119,9 @@ async def test_client_capabilities_with_tasks():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -203,9 +203,9 @@ async def test_client_capabilities_auto_built_from_handlers():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -283,9 +283,9 @@ async def test_client_capabilities_with_task_augmented_handlers():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 

@@ -41,5 +41,5 @@ async def poll_until_terminal(
         if is_terminal(status.status):
             break
 
-        interval_ms = status.pollInterval if status.pollInterval is not None else default_interval_ms
+        interval_ms = status.poll_interval if status.poll_interval is not None else default_interval_ms
         await anyio.sleep(interval_ms / 1000)

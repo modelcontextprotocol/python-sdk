@@ -38,7 +38,7 @@ async def test_server_remains_functional_after_cancel():
             Tool(
                 name="test_tool",
                 description="Tool for testing",
-                inputSchema={},
+                input_schema={},
             )
         ]
 
@@ -83,7 +83,7 @@ async def test_server_remains_functional_after_cancel():
                 ClientNotification(
                     CancelledNotification(
                         params=CancelledNotificationParams(
-                            requestId=first_request_id,
+                            request_id=first_request_id,
                             reason="Testing server recovery",
                         ),
                     )

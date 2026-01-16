@@ -29,8 +29,8 @@ async def list_all_resources() -> None:
                 print(f"Fetched {len(result.resources)} resources")
 
                 # Check if there are more pages
-                if result.nextCursor:
-                    cursor = result.nextCursor
+                if result.next_cursor:
+                    cursor = result.next_cursor
                 else:
                     break
 

@@ -8,7 +8,7 @@ WARNING: These APIs are experimental and may change without notice.
 Example:
     # Call a tool as a task
     result = await session.experimental.call_tool_as_task("tool_name", {"arg": "value"})
-    task_id = result.task.taskId
+    task_id = result.task.task_id
 
     # Get task status
     status = await session.experimental.get_task(task_id)
@@ -77,7 +77,7 @@ class ExperimentalClientFeatures:
             result = await session.experimental.call_tool_as_task(
                 "long_running_tool", {"input": "data"}
             )
-            task_id = result.task.taskId
+            task_id = result.task.task_id
 
             # Poll for completion
             while True:
@@ -120,7 +120,7 @@ class ExperimentalClientFeatures:
         return await self._session.send_request(
             types.ClientRequest(
                 types.GetTaskRequest(
-                    params=types.GetTaskRequestParams(taskId=task_id),
+                    params=types.GetTaskRequestParams(task_id=task_id),
                 )
             ),
             types.GetTaskResult,
@@ -148,7 +148,7 @@ class ExperimentalClientFeatures:
         return await self._session.send_request(
             types.ClientRequest(
                 types.GetTaskPayloadRequest(
-                    params=types.GetTaskPayloadRequestParams(taskId=task_id),
+                    params=types.GetTaskPayloadRequestParams(task_id=task_id),
                 )
             ),
             result_type,
@@ -188,7 +188,7 @@ class ExperimentalClientFeatures:
         return await self._session.send_request(
             types.ClientRequest(
                 types.CancelTaskRequest(
-                    params=types.CancelTaskRequestParams(taskId=task_id),
+                    params=types.CancelTaskRequestParams(task_id=task_id),
                 )
             ),
             types.CancelTaskResult,

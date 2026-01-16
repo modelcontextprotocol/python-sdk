@@ -26,7 +26,7 @@ async def test_mime_type_with_parameters():
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
-    assert resources[0].mimeType == "text/html;profile=mcp-app"
+    assert resources[0].mime_type == "text/html;profile=mcp-app"
 
 
 async def test_mime_type_with_parameters_and_space():
@@ -39,7 +39,7 @@ async def test_mime_type_with_parameters_and_space():
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
-    assert resources[0].mimeType == "application/json; charset=utf-8"
+    assert resources[0].mime_type == "application/json; charset=utf-8"
 
 
 async def test_mime_type_with_multiple_parameters():
@@ -52,7 +52,7 @@ async def test_mime_type_with_multiple_parameters():
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
-    assert resources[0].mimeType == "text/plain; charset=utf-8; format=fixed"
+    assert resources[0].mime_type == "text/plain; charset=utf-8; format=fixed"
 
 
 async def test_mime_type_preserved_in_read_resource():
@@ -67,4 +67,4 @@ async def test_mime_type_preserved_in_read_resource():
         # Read the resource
         result = await client.read_resource(AnyUrl("ui://my-widget"))
         assert len(result.contents) == 1
-        assert result.contents[0].mimeType == "text/html;profile=mcp-app"
+        assert result.contents[0].mime_type == "text/html;profile=mcp-app"

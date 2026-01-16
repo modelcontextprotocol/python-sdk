@@ -134,23 +134,23 @@ class ExperimentalHandlers:
         if GetTaskRequest not in self._request_handlers:
 
             async def _default_get_task(req: GetTaskRequest) -> ServerResult:
-                task = await support.store.get_task(req.params.taskId)
+                task = await support.store.get_task(req.params.task_id)
                 if task is None:
                     raise McpError(
                         ErrorData(
                             code=INVALID_PARAMS,
-                            message=f"Task not found: {req.params.taskId}",
+                            message=f"Task not found: {req.params.task_id}",
                         )
                     )
                 return ServerResult(
                     GetTaskResult(
-                        taskId=task.taskId,
+                        task_id=task.task_id,
                         status=task.status,
-                        statusMessage=task.statusMessage,
-                        createdAt=task.createdAt,
-                        lastUpdatedAt=task.lastUpdatedAt,
+                        status_message=task.status_message,
+                        created_at=task.created_at,
+                        last_updated_at=task.last_updated_at,
                         ttl=task.ttl,
-                        pollInterval=task.pollInterval,
+                        poll_interval=task.poll_interval,
                     )
                 )
 
@@ -172,7 +172,7 @@ class ExperimentalHandlers:
             async def _default_list_tasks(req: ListTasksRequest) -> ServerResult:
                 cursor = req.params.cursor if req.params else None
                 tasks, next_cursor = await support.store.list_tasks(cursor)
-                return ServerResult(ListTasksResult(tasks=tasks, nextCursor=next_cursor))
+                return ServerResult(ListTasksResult(tasks=tasks, next_cursor=next_cursor))
 
             self._request_handlers[ListTasksRequest] = _default_list_tasks
 
@@ -180,7 +180,7 @@ class ExperimentalHandlers:
         if CancelTaskRequest not in self._request_handlers:
 
             async def _default_cancel_task(req: CancelTaskRequest) -> ServerResult:
-                result = await cancel_task(support.store, req.params.taskId)
+                result = await cancel_task(support.store, req.params.task_id)
                 return ServerResult(result)
 
             self._request_handlers[CancelTaskRequest] = _default_cancel_task
