@@ -45,7 +45,6 @@ UNICODE_TEST_STRINGS = {
 
 def run_unicode_server(port: int) -> None:  # pragma: no cover
     """Run the Unicode test server in a separate process."""
-    # uvicorn is imported inside the function since it's an optional dependency
     import uvicorn
 
     # Need to recreate the server setup in this process
