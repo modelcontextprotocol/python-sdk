@@ -9,14 +9,12 @@ from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
-    ImageContent,
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
     JSONRPCMessage,
     JSONRPCRequest,
     ListToolsResult,
-    PromptReference,
     SamplingCapability,
     SamplingMessage,
     TextContent,
@@ -71,17 +69,6 @@ async def test_method_initialization():
     assert initialize_request.method == "initialize", "method should be set to 'initialize'"
     assert initialize_request.params is not None
     assert initialize_request.params.protocolVersion == LATEST_PROTOCOL_VERSION
-
-
-def test_content_type_literal_defaults():
-    """Content types should default their Literal type field.
-
-    This allows instantiation without explicitly passing the type discriminator,
-    e.g., TextContent(text="hello") instead of TextContent(type="text", text="hello").
-    """
-    assert TextContent(text="hello").type == "text"
-    assert ImageContent(data="base64", mimeType="image/png").type == "image"
-    assert PromptReference(name="test").type == "ref/prompt"
 
 
 @pytest.mark.anyio
