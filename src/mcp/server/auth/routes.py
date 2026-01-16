@@ -10,7 +10,7 @@ from starlette.routing import Route, request_response  # type: ignore
 from starlette.types import ASGIApp
 
 from mcp.server.auth.handlers.authorize import AuthorizationHandler
-from mcp.server.auth.handlers.metadata import MetadataHandler
+from mcp.server.auth.handlers.metadata import MetadataHandler, ProtectedResourceMetadataHandler
 from mcp.server.auth.handlers.register import RegistrationHandler
 from mcp.server.auth.handlers.revoke import RevocationHandler
 from mcp.server.auth.handlers.token import TokenHandler
@@ -18,7 +18,7 @@ from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.auth import OAuthMetadata
+from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
 
 def validate_issuer_url(url: AnyHttpUrl):
@@ -224,9 +224,6 @@ def create_protected_resource_routes(
     Returns:
         List of Starlette routes for protected resource metadata
     """
-    from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
-    from mcp.shared.auth import ProtectedResourceMetadata
-
     metadata = ProtectedResourceMetadata(
         resource=resource_url,
         authorization_servers=authorization_servers,
