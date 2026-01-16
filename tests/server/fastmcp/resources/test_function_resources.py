@@ -1,5 +1,5 @@
 import pytest
-from pydantic import AnyUrl, BaseModel
+from pydantic import BaseModel
 
 from mcp.server.fastmcp.resources import FunctionResource
 
@@ -14,7 +14,7 @@ class TestFunctionResource:
             return "test content"
 
         resource = FunctionResource(
-            uri=AnyUrl("fn://test"),
+            uri="fn://test",
             name="test",
             description="test function",
             fn=my_func,
@@ -33,7 +33,7 @@ class TestFunctionResource:
             return "Hello, world!"
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -49,7 +49,7 @@ class TestFunctionResource:
             return b"Hello, world!"
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -64,7 +64,7 @@ class TestFunctionResource:
             return {"key": "value"}
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -80,7 +80,7 @@ class TestFunctionResource:
             raise ValueError("Test error")
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=failing_func,
         )
@@ -95,7 +95,7 @@ class TestFunctionResource:
             name: str
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=lambda: MyModel(name="test"),
         )
@@ -114,7 +114,7 @@ class TestFunctionResource:
             return CustomData()
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -129,7 +129,7 @@ class TestFunctionResource:
             return "Hello, world!"
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -154,7 +154,7 @@ class TestFunctionResource:
         assert resource.description == "get_data returns a string"
         assert resource.mime_type == "text/plain"
         assert resource.name == "test"
-        assert resource.uri == AnyUrl("function://test")
+        assert resource.uri == "function://test"
 
 
 class TestFunctionResourceMetadata:

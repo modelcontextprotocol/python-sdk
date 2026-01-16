@@ -51,6 +51,17 @@ This document contains critical information about working with this codebase. Fo
 - NEVER ever mention a `co-authored-by` or similar aspects. In particular, never
   mention the tool used to create the commit message or PR.
 
+## Breaking Changes
+
+When making breaking changes, document them in `docs/migration.md`. Include:
+
+- What changed
+- Why it changed
+- How to migrate existing code
+
+Search for related sections in the migration guide and group related changes together
+rather than adding new standalone sections.
+
 ## Python Tools
 
 ## Code Formatting

@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import pytest
-from pydantic import AnyUrl, FileUrl
+from pydantic import AnyUrl
 
 from mcp.server.fastmcp.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
 
@@ -31,7 +31,7 @@ class TestResourceManager:
         """Test adding a resource."""
         manager = ResourceManager()
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=temp_file,
         )
@@ -43,7 +43,7 @@ class TestResourceManager:
         """Test adding the same resource twice."""
         manager = ResourceManager()
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=temp_file,
         )
@@ -56,7 +56,7 @@ class TestResourceManager:
         """Test warning on duplicate resources."""
         manager = ResourceManager()
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=temp_file,
         )
@@ -68,7 +68,7 @@ class TestResourceManager:
         """Test disabling warning on duplicate resources."""
         manager = ResourceManager(warn_on_duplicate_resources=False)
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=temp_file,
         )
@@ -81,7 +81,7 @@ class TestResourceManager:
         """Test getting a resource by URI."""
         manager = ResourceManager()
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=temp_file,
         )
@@ -120,12 +120,12 @@ class TestResourceManager:
         """Test listing all resources."""
         manager = ResourceManager()
         resource1 = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test1",
             path=temp_file,
         )
         resource2 = FileResource(
-            uri=FileUrl(f"file://{temp_file}2"),
+            uri=f"file://{temp_file}2",
             name="test2",
             path=temp_file,
         )

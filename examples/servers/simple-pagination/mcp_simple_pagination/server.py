@@ -11,7 +11,6 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from pydantic import AnyUrl
 from starlette.requests import Request
 
 # Sample data - in real scenarios, this might come from a database
@@ -27,7 +26,7 @@ SAMPLE_TOOLS = [
 
 SAMPLE_RESOURCES = [
     types.Resource(
-        uri=AnyUrl(f"file:///path/to/resource_{i}.txt"),
+        uri=f"file:///path/to/resource_{i}.txt",
         name=f"resource_{i}",
         description=f"This is sample resource number {i}",
     )
@@ -160,7 +159,7 @@ def main(port: int, transport: str) -> int:
 
     # Implement read_resource handler
     @app.read_resource()
-    async def read_resource(uri: AnyUrl) -> str:
+    async def read_resource(uri: str) -> str:
         # Find the resource in our sample data
         resource = next((r for r in SAMPLE_RESOURCES if r.uri == uri), None)
         if not resource:

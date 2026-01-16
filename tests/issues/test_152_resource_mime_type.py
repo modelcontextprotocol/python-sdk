@@ -70,9 +70,9 @@ async def test_lowlevel_resource_mime_type():
 
     # Create test resources with specific mime types
     test_resources = [
-        types.Resource(uri=AnyUrl("test://image"), name="test image", mimeType="image/png"),
+        types.Resource(uri="test://image", name="test image", mimeType="image/png"),
         types.Resource(
-            uri=AnyUrl("test://image_bytes"),
+            uri="test://image_bytes",
             name="test image bytes",
             mimeType="image/png",
         ),
@@ -83,7 +83,7 @@ async def test_lowlevel_resource_mime_type():
         return test_resources
 
     @server.read_resource()
-    async def handle_read_resource(uri: AnyUrl):
+    async def handle_read_resource(uri: str):
         if str(uri) == "test://image":
             return [ReadResourceContents(content=base64_string, mime_type="image/png")]
         elif str(uri) == "test://image_bytes":

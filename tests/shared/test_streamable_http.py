@@ -13,6 +13,7 @@ import time
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -20,7 +21,6 @@ import pytest
 import requests
 import uvicorn
 from httpx_sse import ServerSentEvent
-from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
@@ -137,13 +137,14 @@ class ServerTest(Server):  # pragma: no cover
         self._lock = None  # Will be initialized in async context
 
         @self.read_resource()
-        async def handle_read_resource(uri: AnyUrl) -> str | bytes:
-            if uri.scheme == "foobar":
-                return f"Read {uri.host}"
-            elif uri.scheme == "slow":
+        async def handle_read_resource(uri: str) -> str | bytes:
+            parsed = urlparse(uri)
+            if parsed.scheme == "foobar":
+                return f"Read {parsed.netloc}"
+            if parsed.scheme == "slow":
                 # Simulate a slow resource
                 await anyio.sleep(2.0)
-                return f"Slow response from {uri.host}"
+                return f"Slow response from {parsed.netloc}"
 
             raise ValueError(f"Unknown resource: {uri}")
 
@@ -214,7 +215,7 @@ class ServerTest(Server):  # pragma: no cover
 
             # When the tool is called, send a notification to test GET stream
             if name == "test_tool_with_standalone_notification":
-                await ctx.session.send_resource_updated(uri=AnyUrl("http://test_resource"))
+                await ctx.session.send_resource_updated(uri="http://test_resource")
                 return [TextContent(type="text", text=f"Called {name}")]
 
             elif name == "long_running_with_checkpoints":
@@ -368,7 +369,7 @@ class ServerTest(Server):  # pragma: no cover
             elif name == "tool_with_standalone_stream_close":
                 # Test for GET stream reconnection
                 # 1. Send unsolicited notification via GET stream (no related_request_id)
-                await ctx.session.send_resource_updated(uri=AnyUrl("http://notification_1"))
+                await ctx.session.send_resource_updated(uri="http://notification_1")
 
                 # Small delay to ensure notification is flushed before closing
                 await anyio.sleep(0.1)
@@ -381,7 +382,7 @@ class ServerTest(Server):  # pragma: no cover
                 await anyio.sleep(1.5)
 
                 # 4. Send another notification on the new GET stream connection
-                await ctx.session.send_resource_updated(uri=AnyUrl("http://notification_2"))
+                await ctx.session.send_resource_updated(uri="http://notification_2")
 
                 return [TextContent(type="text", text="Standalone stream close test done")]
 
@@ -1009,9 +1010,9 @@ async def test_streamable_http_client_basic_connection(basic_server: None, basic
 @pytest.mark.anyio
 async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession):
     """Test client resource read functionality."""
-    response = await initialized_client_session.read_resource(uri=AnyUrl("foobar://test-resource"))
+    response = await initialized_client_session.read_resource(uri="foobar://test-resource")
     assert len(response.contents) == 1
-    assert response.contents[0].uri == AnyUrl("foobar://test-resource")
+    assert response.contents[0].uri == "foobar://test-resource"
     assert isinstance(response.contents[0], TextResourceContents)
     assert response.contents[0].text == "Read test-resource"
 
@@ -1035,7 +1036,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
-        await initialized_client_session.read_resource(uri=AnyUrl("unknown://test-error"))
+        await initialized_client_session.read_resource(uri="unknown://test-error")
     assert exc_info.value.error.code == 0
     assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
 
@@ -1061,7 +1062,7 @@ async def test_streamable_http_client_session_persistence(basic_server: None, ba
             assert len(tools.tools) == 10
 
             # Read a resource
-            resource = await session.read_resource(uri=AnyUrl("foobar://test-persist"))
+            resource = await session.read_resource(uri="foobar://test-persist")
             assert isinstance(resource.contents[0], TextResourceContents) is True
             content = resource.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1130,7 +1131,7 @@ async def test_streamable_http_client_get_stream(basic_server: None, basic_serve
             resource_update_found = False
             for notif in notifications_received:
                 if isinstance(notif.root, types.ResourceUpdatedNotification):  # pragma: no branch
-                    assert str(notif.root.params.uri) == "http://test_resource/"
+                    assert str(notif.root.params.uri) == "http://test_resource"
                     resource_update_found = True
 
             assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
@@ -2235,10 +2236,10 @@ async def test_standalone_get_stream_reconnection(
             assert result.content[0].text == "Standalone stream close test done"
 
             # Verify both notifications were received
-            assert "http://notification_1/" in received_notifications, (
+            assert "http://notification_1" in received_notifications, (
                 f"Should receive notification 1 (sent before GET stream close), got: {received_notifications}"
             )
-            assert "http://notification_2/" in received_notifications, (
+            assert "http://notification_2" in received_notifications, (
                 f"Should receive notification 2 after reconnect, got: {received_notifications}"
             )
 

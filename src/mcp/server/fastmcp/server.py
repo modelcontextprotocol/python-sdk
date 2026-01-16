@@ -4,14 +4,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import (
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Collection,
-    Iterable,
-    Sequence,
-)
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal
 
@@ -29,25 +22,11 @@ from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import (
-    BearerAuthBackend,
-    RequireAuthMiddleware,
-)
-from mcp.server.auth.provider import (
-    OAuthAuthorizationServerProvider,
-    ProviderTokenVerifier,
-    TokenVerifier,
-)
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.elicitation import (
-    ElicitationResult,
-    ElicitSchemaModelT,
-    UrlElicitationResult,
-    elicit_with_validation,
-)
-from mcp.server.elicitation import (
-    elicit_url as _elicit_url,
-)
+from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
+from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -116,10 +95,6 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # prompt settings
     warn_on_duplicate_prompts: bool
 
-    # TODO(Marcelo): Investigate if this is used. If it is, it's probably a good idea to remove it.
-    dependencies: list[str]
-    """A list of dependencies to install in the server environment."""
-
     lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
     """A async context manager that will be called when the server is started."""
 
@@ -172,7 +147,6 @@ class FastMCP(Generic[LifespanResultT]):
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
-        dependencies: Collection[str] = (),
         lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
         transport_security: TransportSecuritySettings | None = None,
@@ -199,7 +173,6 @@ class FastMCP(Generic[LifespanResultT]):
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
-            dependencies=list(dependencies),
             lifespan=lifespan,
             auth=auth,
             transport_security=transport_security,
@@ -238,7 +211,6 @@ class FastMCP(Generic[LifespanResultT]):
         self._event_store = event_store
         self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
-        self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
 
         # Set up MCP protocol handlers
@@ -835,8 +807,6 @@ class FastMCP(Generic[LifespanResultT]):
 
     def sse_app(self, mount_path: str | None = None) -> Starlette:
         """Return an instance of the SSE server app."""
-        from starlette.middleware import Middleware
-        from starlette.routing import Mount, Route
 
         # Update mount_path in settings if provided
         if mount_path is not None:
@@ -855,11 +825,7 @@ class FastMCP(Generic[LifespanResultT]):
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
 
-            async with sse.connect_sse(
-                scope,
-                receive,
-                send,
-            ) as streams:
+            async with sse.connect_sse(scope, receive, send) as streams:
                 await self._mcp_server.run(
                     streams[0],
                     streams[1],
