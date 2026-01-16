@@ -24,11 +24,6 @@ from starlette.types import Receive, Scope, Send
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
-from mcp.server.auth.routes import (
-    build_resource_metadata_url,
-    create_auth_routes,
-    create_protected_resource_routes,
-)
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
@@ -815,6 +810,8 @@ class FastMCP(Generic[LifespanResultT]):
 
             # Add auth endpoints if auth server provider is configured
             if self._auth_server_provider:
+                from mcp.server.auth.routes import create_auth_routes
+
                 routes.extend(
                     create_auth_routes(
                         provider=self._auth_server_provider,
@@ -830,6 +827,8 @@ class FastMCP(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
+                from mcp.server.auth.routes import build_resource_metadata_url
+
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
@@ -869,6 +868,8 @@ class FastMCP(Generic[LifespanResultT]):
             )
         # Add protected resource metadata endpoint if configured as RS
         if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
+            from mcp.server.auth.routes import create_protected_resource_routes
+
             routes.extend(
                 create_protected_resource_routes(
                     resource_url=self.settings.auth.resource_server_url,
@@ -885,6 +886,7 @@ class FastMCP(Generic[LifespanResultT]):
 
     def streamable_http_app(self) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
+        from starlette.middleware import Middleware
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:  # pragma: no branch
@@ -921,6 +923,8 @@ class FastMCP(Generic[LifespanResultT]):
 
             # Add auth endpoints if auth server provider is configured
             if self._auth_server_provider:
+                from mcp.server.auth.routes import create_auth_routes
+
                 routes.extend(
                     create_auth_routes(
                         provider=self._auth_server_provider,
@@ -936,6 +940,8 @@ class FastMCP(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
+                from mcp.server.auth.routes import build_resource_metadata_url
+
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
 
@@ -956,6 +962,8 @@ class FastMCP(Generic[LifespanResultT]):
 
         # Add protected resource metadata endpoint if configured as RS
         if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
+            from mcp.server.auth.routes import create_protected_resource_routes
+
             routes.extend(
                 create_protected_resource_routes(
                     resource_url=self.settings.auth.resource_server_url,
