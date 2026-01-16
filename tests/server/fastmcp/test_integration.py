@@ -51,8 +51,10 @@ from mcp.types import (
     NotificationParams,
     ProgressNotification,
     ProgressNotificationParams,
+    PromptReference,
     ReadResourceResult,
     ResourceListChangedNotification,
+    ResourceTemplateReference,
     ServerNotification,
     ServerRequest,
     TextContent,
@@ -583,8 +585,6 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             assert result.capabilities.prompts is not None
 
             # Test resource completion
-            from mcp.types import ResourceTemplateReference
-
             completion_result = await session.complete(
                 ref=ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
                 argument={"name": "repo", "value": ""},
@@ -600,8 +600,6 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             assert "specification" in completion_result.completion.values
 
             # Test prompt completion
-            from mcp.types import PromptReference
-
             completion_result = await session.complete(
                 ref=PromptReference(type="ref/prompt", name="review_code"),
                 argument={"name": "language", "value": "py"},
@@ -644,8 +642,6 @@ async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> Non
             assert tool_result.content[0].text == "30"
 
             # Test greeting resource directly
-            from pydantic import AnyUrl
-
             resource_result = await session.read_resource(AnyUrl("greeting://Alice"))
             assert len(resource_result.contents) == 1
             assert isinstance(resource_result.contents[0], TextResourceContents)

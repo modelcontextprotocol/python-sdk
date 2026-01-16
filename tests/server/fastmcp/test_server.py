@@ -5,9 +5,11 @@ from unittest.mock import patch
 
 import pytest
 from pydantic import BaseModel
+from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Audio, Image
@@ -51,8 +53,6 @@ class TestServer:
     @pytest.mark.anyio
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
-        from starlette.applications import Starlette
-
         mcp = FastMCP("test", host="0.0.0.0")  # Use 0.0.0.0 to avoid auto DNS protection
         app = mcp.sse_app()
 
@@ -616,8 +616,6 @@ class TestServerTools:
     @pytest.mark.anyio
     async def test_remove_nonexistent_tool(self):
         """Test that removing a non-existent tool raises ToolError."""
-        from mcp.server.fastmcp.exceptions import ToolError
-
         mcp = FastMCP()
 
         with pytest.raises(ToolError, match="Unknown tool: nonexistent"):

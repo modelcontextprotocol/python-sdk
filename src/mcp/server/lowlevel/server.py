@@ -74,6 +74,7 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from importlib.metadata import version as importlib_version
 from typing import Any, Generic, TypeAlias, cast
 
 import anyio
@@ -173,9 +174,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         def pkg_version(package: str) -> str:
             try:
-                from importlib.metadata import version
-
-                return version(package)
+                return importlib_version(package)
             except Exception:  # pragma: no cover
                 pass
 

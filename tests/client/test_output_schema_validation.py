@@ -1,8 +1,10 @@
+import inspect
 import logging
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
 
+import jsonschema
 import pytest
 
 from mcp.server.lowlevel import Server
@@ -19,15 +21,11 @@ def bypass_server_output_validation():
     This simulates a malicious or non-compliant server that doesn't validate
     its outputs, allowing us to test client-side validation.
     """
-    import jsonschema
-
     # Save the original validate function
     original_validate = jsonschema.validate
 
     # Create a mock that tracks which module is calling it
     def selective_mock(instance: Any = None, schema: Any = None, *args: Any, **kwargs: Any) -> None:
-        import inspect
-
         # Check the call stack to see where this is being called from
         for frame_info in inspect.stack():
             # If called from the server module, skip validation
