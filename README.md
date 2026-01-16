@@ -2272,6 +2272,56 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
 <!-- /snippet-source -->
 
+### Handling Server Notifications
+
+Servers may send notifications, which derive from the `ServerNotification` class. To handle these, follow the following steps:
+
+1. For each notification type you want to support, write a callback function that follows implements the matching protocol, such as `ToolListChangedFnT` for the tool list changed notification.
+2. Pass that function to the appropriate parameter when instantiating your client, e.g. `tool_list_changed_callback` for the tool list changed notification. This will be called every time your client receives the matching notification.
+
+<!-- snippet-source examples/snippets/clients/server_notification_client.py -->
+```python
+# Snippets demonstrating handling known and custom server notifications
+
+import asyncio
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+# Create dummy server parameters for stdio connection
+server_params = StdioServerParameters(
+    command="uv",
+    args=["run"],
+    env={},
+)
+
+
+# Create a custom handler for the resource list changed notification
+async def custom_resource_list_changed_handler() -> None:
+    """Custom handler for resource list changed notifications."""
+    print("RESOURCE LIST CHANGED")
+
+
+async def run():
+    async with stdio_client(server_params) as (read, write):
+        async with ClientSession(
+            read,
+            write,
+            resource_list_changed_callback=custom_resource_list_changed_handler,
+        ) as session:
+            # Initialize the connection
+            await session.initialize()
+
+            # Do client stuff here
+
+
+if __name__ == "__main__":
+    asyncio.run(run())
+```
+
+_Full example: [examples/snippets/clients/server_notification_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/server_notification_client.py)_
+<!-- /snippet-source -->
+
 ### Client Display Utilities
 
 When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:

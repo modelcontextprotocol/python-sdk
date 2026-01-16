@@ -34,6 +34,13 @@ class ElicitationFnT(Protocol):
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
+class ElicitCompleteFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.ElicitCompleteNotificationParams,
+    ) -> None: ...  # pragma: no branch
+
+
 class ListRootsFnT(Protocol):
     async def __call__(
         self, context: RequestContext["ClientSession", Any]
@@ -44,6 +51,38 @@ class LoggingFnT(Protocol):
     async def __call__(
         self,
         params: types.LoggingMessageNotificationParams,
+    ) -> None: ...  # pragma: no branch
+
+
+class ProgressNotificationFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.ProgressNotificationParams,
+    ) -> None: ...  # pragma: no branch
+
+
+class ResourceUpdatedFnT(Protocol):
+    async def __call__(
+        self,
+        params: types.ResourceUpdatedNotificationParams,
+    ) -> None: ...  # pragma: no branch
+
+
+class ResourceListChangedFnT(Protocol):
+    async def __call__(
+        self,
+    ) -> None: ...  # pragma: no branch
+
+
+class ToolListChangedFnT(Protocol):
+    async def __call__(
+        self,
+    ) -> None: ...  # pragma: no branch
+
+
+class PromptListChangedFnT(Protocol):
+    async def __call__(
+        self,
     ) -> None: ...  # pragma: no branch
 
 
@@ -80,6 +119,10 @@ async def _default_elicitation_callback(
     )
 
 
+async def _default_elicit_complete_callback(params: types.ElicitCompleteNotificationParams) -> None:
+    pass
+
+
 async def _default_list_roots_callback(
     context: RequestContext["ClientSession", Any],
 ) -> types.ListRootsResult | types.ErrorData:
@@ -92,6 +135,32 @@ async def _default_list_roots_callback(
 async def _default_logging_callback(
     params: types.LoggingMessageNotificationParams,
 ) -> None:
+    pass
+
+
+async def _default_progress_callback(
+    params: types.ProgressNotificationParams,
+) -> None:
+    """Note: Default progress handling happens in the BaseSession class. This callback will only be called after the
+    default progress handling has completed."""
+    pass
+
+
+async def _default_resource_updated_callback(
+    params: types.ResourceUpdatedNotificationParams,
+) -> None:
+    pass
+
+
+async def _default_resource_list_changed_callback() -> None:
+    pass
+
+
+async def _default_tool_list_changed_callback() -> None:
+    pass
+
+
+async def _default_prompt_list_changed_callback() -> None:
     pass
 
 
@@ -114,8 +183,14 @@ class ClientSession(
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
+        elicit_complete_callback: ElicitCompleteFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
+        progress_notification_callback: ProgressNotificationFnT | None = None,
+        resource_updated_callback: ResourceUpdatedFnT | None = None,
+        resource_list_changed_callback: ResourceListChangedFnT | None = None,
+        tool_list_changed_callback: ToolListChangedFnT | None = None,
+        prompt_list_changed_callback: PromptListChangedFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
@@ -133,8 +208,14 @@ class ClientSession(
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
+        self._elicit_complete_callback = elicit_complete_callback or _default_elicit_complete_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
+        self._progress_notification_callback = progress_notification_callback or _default_progress_callback
+        self._resource_updated_callback = resource_updated_callback or _default_resource_updated_callback
+        self._resource_list_changed_callback = resource_list_changed_callback or _default_resource_list_changed_callback
+        self._tool_list_changed_callback = tool_list_changed_callback or _default_tool_list_changed_callback
+        self._prompt_list_changed_callback = prompt_list_changed_callback or _default_prompt_list_changed_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
@@ -486,14 +567,25 @@ class ClientSession(
 
     async def _received_notification(self, notification: types.ServerNotification) -> None:
         """Handle notifications from the server."""
-        # Process specific notification types
         match notification.root:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
+            case types.ProgressNotification(params=params):
+                await self._progress_notification_callback(params)
+            case types.ResourceUpdatedNotification(params=params):
+                await self._resource_updated_callback(params)
+            case types.ResourceListChangedNotification():
+                await self._resource_list_changed_callback()
+            case types.ToolListChangedNotification():
+                await self._tool_list_changed_callback()
+            case types.PromptListChangedNotification():
+                await self._prompt_list_changed_callback()
             case types.ElicitCompleteNotification(params=params):
                 # Handle elicitation completion notification
                 # Clients MAY use this to retry requests or update UI
                 # The notification contains the elicitationId of the completed elicitation
-                pass
-            case _:
+                await self._elicit_complete_callback(params)
+            case _:  # pragma: no cover
+                # CancelledNotification is handled separately in shared/session.py
+                # and should never reach this point. This case is defensive.
                 pass

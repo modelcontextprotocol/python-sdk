@@ -12,7 +12,20 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.types as types
-from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import (
+    ClientSession,
+    ElicitationFnT,
+    ElicitCompleteFnT,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    ProgressNotificationFnT,
+    PromptListChangedFnT,
+    ResourceListChangedFnT,
+    ResourceUpdatedFnT,
+    SamplingFnT,
+    ToolListChangedFnT,
+)
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.message import SessionMessage
@@ -52,10 +65,16 @@ async def create_connected_server_and_client_session(
     sampling_callback: SamplingFnT | None = None,
     list_roots_callback: ListRootsFnT | None = None,
     logging_callback: LoggingFnT | None = None,
+    progress_notification_callback: ProgressNotificationFnT | None = None,
+    resource_updated_callback: ResourceUpdatedFnT | None = None,
+    resource_list_changed_callback: ResourceListChangedFnT | None = None,
+    tool_list_changed_callback: ToolListChangedFnT | None = None,
+    prompt_list_changed_callback: PromptListChangedFnT | None = None,
     message_handler: MessageHandlerFnT | None = None,
     client_info: types.Implementation | None = None,
     raise_exceptions: bool = False,
     elicitation_callback: ElicitationFnT | None = None,
+    elicit_complete_callback: ElicitCompleteFnT | None = None,
 ) -> AsyncGenerator[ClientSession, None]:
     """Creates a ClientSession that is connected to a running MCP server."""
 
@@ -87,9 +106,15 @@ async def create_connected_server_and_client_session(
                     sampling_callback=sampling_callback,
                     list_roots_callback=list_roots_callback,
                     logging_callback=logging_callback,
+                    progress_notification_callback=progress_notification_callback,
+                    resource_updated_callback=resource_updated_callback,
+                    resource_list_changed_callback=resource_list_changed_callback,
+                    tool_list_changed_callback=tool_list_changed_callback,
+                    prompt_list_changed_callback=prompt_list_changed_callback,
                     message_handler=message_handler,
                     client_info=client_info,
                     elicitation_callback=elicitation_callback,
+                    elicit_complete_callback=elicit_complete_callback,
                 ) as client_session:
                     await client_session.initialize()
                     yield client_session
