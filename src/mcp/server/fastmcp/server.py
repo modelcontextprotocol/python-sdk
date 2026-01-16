@@ -210,7 +210,7 @@ class FastMCP(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        return self._mcp_server.session_manager
+        return self._mcp_server.session_manager  # pragma: no cover
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...

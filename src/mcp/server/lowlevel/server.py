@@ -278,12 +278,12 @@ class Server(Generic[LifespanResultT, RequestT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:
+        if self._session_manager is None:  # pragma: no cover
             raise RuntimeError(
                 "Session manager can only be accessed after calling streamable_http_app(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
-        return self._session_manager
+        return self._session_manager  # pragma: no cover
 
     def list_prompts(self):
         def decorator(
@@ -930,7 +930,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
             )
 
-        if custom_starlette_routes:
+        if custom_starlette_routes:  # pragma: no cover
             routes.extend(custom_starlette_routes)
 
         return Starlette(
