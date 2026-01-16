@@ -21,7 +21,6 @@ import pytest
 import requests
 import uvicorn
 from httpx_sse import ServerSentEvent
-from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
@@ -1013,7 +1012,7 @@ async def test_streamable_http_client_resource_read(initialized_client_session: 
     """Test client resource read functionality."""
     response = await initialized_client_session.read_resource(uri="foobar://test-resource")
     assert len(response.contents) == 1
-    assert response.contents[0].uri == AnyUrl("foobar://test-resource")
+    assert response.contents[0].uri == "foobar://test-resource"
     assert isinstance(response.contents[0], TextResourceContents)
     assert response.contents[0].text == "Read test-resource"
 
@@ -1132,7 +1131,7 @@ async def test_streamable_http_client_get_stream(basic_server: None, basic_serve
             resource_update_found = False
             for notif in notifications_received:
                 if isinstance(notif.root, types.ResourceUpdatedNotification):  # pragma: no branch
-                    assert str(notif.root.params.uri) == "http://test_resource/"
+                    assert str(notif.root.params.uri) == "http://test_resource"
                     resource_update_found = True
 
             assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
@@ -2237,10 +2236,10 @@ async def test_standalone_get_stream_reconnection(
             assert result.content[0].text == "Standalone stream close test done"
 
             # Verify both notifications were received
-            assert "http://notification_1/" in received_notifications, (
+            assert "http://notification_1" in received_notifications, (
                 f"Should receive notification 1 (sent before GET stream close), got: {received_notifications}"
             )
-            assert "http://notification_2/" in received_notifications, (
+            assert "http://notification_2" in received_notifications, (
                 f"Should receive notification 2 after reconnect, got: {received_notifications}"
             )
 
