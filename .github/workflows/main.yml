@@ -1,4 +1,4 @@
-name: Main branch checks
+name: CI
 
 on:
   push:
@@ -8,6 +8,10 @@ on:
       - "v1.x"
     tags:
       - "v*.*.*"
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   checks:
