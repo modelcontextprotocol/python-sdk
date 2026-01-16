@@ -1,6 +1,7 @@
 import contextlib
 from unittest import mock
 
+import httpx
 import pytest
 
 import mcp
@@ -356,8 +357,6 @@ class TestClientSessionGroup:
                     assert isinstance(server_params_instance, StreamableHttpParameters)
                     # Verify streamable_http_client was called with url, httpx_client, and terminate_on_close
                     # The http_client is created by the real create_mcp_http_client
-                    import httpx
-
                     call_args = mock_specific_client_func.call_args
                     assert call_args.kwargs["url"] == server_params_instance.url
                     assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close

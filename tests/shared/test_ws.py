@@ -3,6 +3,7 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import anyio
 import pytest
@@ -50,8 +51,6 @@ class ServerTest(Server):  # pragma: no cover
 
         @self.read_resource()
         async def handle_read_resource(uri: str) -> str | bytes:
-            from urllib.parse import urlparse
-
             parsed = urlparse(uri)
             if parsed.scheme == "foobar":
                 return f"Read {parsed.netloc}"

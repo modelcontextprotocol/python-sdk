@@ -1258,8 +1258,6 @@ class TestAuthEndpoints:
         )
 
         # Send base64 without colon (invalid format)
-        import base64
-
         invalid_creds = base64.b64encode(b"no-colon-here").decode()
         response = await test_client.post(
             "/token",
@@ -1306,8 +1304,6 @@ class TestAuthEndpoints:
         )
 
         # Send different client_id in Basic auth header
-        import base64
-
         wrong_creds = base64.b64encode(f"wrong-client-id:{client_info['client_secret']}".encode()).decode()
         response = await test_client.post(
             "/token",

@@ -2,6 +2,9 @@
 Tests for OAuth error handling in the auth handlers.
 """
 
+import base64
+import hashlib
+import secrets
 import unittest.mock
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -14,6 +17,7 @@ from starlette.applications import Starlette
 
 from mcp.server.auth.provider import AuthorizeError, RegistrationError, TokenError
 from mcp.server.auth.routes import create_auth_routes
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from tests.server.fastmcp.auth.test_auth_integration import MockOAuthProvider
 
 
@@ -25,8 +29,6 @@ def oauth_provider():
 
 @pytest.fixture
 def app(oauth_provider: MockOAuthProvider):
-    from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-
     # Enable client registration
     client_registration_options = ClientRegistrationOptions(enabled=True)
     revocation_options = RevocationOptions(enabled=True)
@@ -53,10 +55,6 @@ def client(app: Starlette):
 @pytest.fixture
 def pkce_challenge():
     """Create a PKCE challenge with code_verifier and code_challenge."""
-    import base64
-    import hashlib
-    import secrets
-
     # Generate a code verifier
     code_verifier = secrets.token_urlsafe(64)[:128]
 

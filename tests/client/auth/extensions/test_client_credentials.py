@@ -1,4 +1,5 @@
 import urllib.parse
+import warnings
 
 import jwt
 import pytest
@@ -59,8 +60,6 @@ def rfc7523_oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: M
     async def callback_handler() -> tuple[str, str | None]:  # pragma: no cover
         """Mock callback handler."""
         return "test_auth_code", "test_state"
-
-    import warnings
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)

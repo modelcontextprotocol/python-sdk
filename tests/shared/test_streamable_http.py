@@ -10,6 +10,7 @@ import json
 import multiprocessing
 import socket
 import time
+import traceback
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock
@@ -462,8 +463,6 @@ def run_server(
     try:
         server.run()
     except Exception:
-        import traceback
-
         traceback.print_exc()
 
 
@@ -1100,8 +1099,6 @@ async def test_streamable_http_client_json_response(json_response_server: None, 
 @pytest.mark.anyio
 async def test_streamable_http_client_get_stream(basic_server: None, basic_server_url: str):
     """Test GET stream functionality for server-initiated messages."""
-    import mcp.types as types
-
     notifications_received: list[types.ServerNotification] = []
 
     # Define message handler to capture notifications

@@ -7,12 +7,20 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 
 import multiprocessing
 import socket
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
+from typing import Any
 
 import pytest
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import TextContent, Tool
 from tests.test_helpers import wait_for_server
 
 # Test constants with various Unicode characters
@@ -37,19 +45,7 @@ UNICODE_TEST_STRINGS = {
 
 def run_unicode_server(port: int) -> None:  # pragma: no cover
     """Run the Unicode test server in a separate process."""
-    # Import inside the function since this runs in a separate process
-    from collections.abc import AsyncGenerator
-    from contextlib import asynccontextmanager
-    from typing import Any
-
     import uvicorn
-    from starlette.applications import Starlette
-    from starlette.routing import Mount
-
-    import mcp.types as types
-    from mcp.server import Server
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-    from mcp.types import TextContent, Tool
 
     # Need to recreate the server setup in this process
     server = Server(name="unicode_test_server")

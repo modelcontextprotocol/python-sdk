@@ -2,10 +2,11 @@
 
 import anyio
 import pytest
+from pydantic import BaseModel, Field
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation
+from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
@@ -110,8 +111,6 @@ async def test_url_elicitation_cancel():
 @pytest.mark.anyio
 async def test_url_elicitation_helper_function():
     """Test the elicit_url helper function."""
-    from mcp.server.elicitation import elicit_url
-
     mcp = FastMCP(name="URLElicitationHelperServer")
 
     @mcp.tool(description="Tool using elicit_url helper")
@@ -180,8 +179,6 @@ async def test_url_no_content_in_response():
 @pytest.mark.anyio
 async def test_form_mode_still_works():
     """Ensure form mode elicitation still works after SEP 1036."""
-    from pydantic import BaseModel, Field
-
     mcp = FastMCP(name="FormModeBackwardCompatServer")
 
     class NameSchema(BaseModel):
@@ -267,8 +264,6 @@ async def test_url_elicitation_required_error_code():
 @pytest.mark.anyio
 async def test_elicit_url_typed_results():
     """Test that elicit_url returns properly typed result objects."""
-    from mcp.server.elicitation import elicit_url
-
     mcp = FastMCP(name="TypedResultsServer")
 
     @mcp.tool(description="Test declined result")
@@ -329,8 +324,6 @@ async def test_elicit_url_typed_results():
 @pytest.mark.anyio
 async def test_deprecated_elicit_method():
     """Test the deprecated elicit() method for backward compatibility."""
-    from pydantic import BaseModel, Field
-
     mcp = FastMCP(name="DeprecatedElicitServer")
 
     class EmailSchema(BaseModel):
