@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Sequence
 from http import HTTPStatus
 from typing import Any
 from uuid import uuid4
 
 import anyio
 from anyio.abc import TaskStatus
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import Receive, Scope, Send
+from starlette.routing import Mount, Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.streamable_http import (
@@ -295,3 +298,58 @@ class StreamableHTTPSessionManager:
                 media_type="application/json",
             )
             await response(scope, receive, send)
+
+
+class StreamableHTTPASGIApp:
+    """ASGI application for Streamable HTTP server transport."""
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await self.session_manager.handle_request(scope, receive, send)
+
+
+def create_streamable_http_app(
+    session_manager: StreamableHTTPSessionManager,
+    *,
+    endpoint_path: str = "/mcp",
+    debug: bool = False,
+    additional_routes: Sequence[Route | Mount] = (),
+    middleware: Sequence[Middleware] = (),
+    endpoint_wrapper: Callable[[ASGIApp], ASGIApp] | None = None,
+) -> Starlette:
+    """
+    Create a Starlette app for a StreamableHTTP session manager.
+
+    This is the low-level function for creating a StreamableHTTP server.
+    For most use cases, consider using FastMCP.streamable_http_app() instead.
+
+    Args:
+        session_manager: The session manager that handles MCP sessions.
+        endpoint_path: URL path for the MCP endpoint.
+        debug: Enable Starlette debug mode.
+        additional_routes: Extra routes to add to the app.
+        middleware: Middleware to add to the app.
+        endpoint_wrapper: Optional wrapper for the MCP endpoint (e.g., auth).
+
+    Returns:
+        A configured Starlette application.
+    """
+    streamable_http_app = StreamableHTTPASGIApp(session_manager)
+
+    endpoint: ASGIApp = streamable_http_app
+    if endpoint_wrapper is not None:
+        endpoint = endpoint_wrapper(streamable_http_app)
+
+    routes: list[Route | Mount] = [
+        Route(endpoint_path, endpoint=endpoint),
+    ]
+    routes.extend(additional_routes)
+
+    return Starlette(
+        debug=debug,
+        routes=routes,
+        middleware=list(middleware),
+        lifespan=lambda app: session_manager.run(),
+    )
