@@ -1,5 +1,4 @@
-"""
-Test for race condition fix in initialization flow.
+"""Test for race condition fix in initialization flow.
 
 This test verifies that requests can be processed immediately after
 responding to InitializeRequest, without waiting for InitializedNotification.
@@ -20,8 +19,7 @@ from mcp.types import ServerCapabilities, Tool
 
 @pytest.mark.anyio
 async def test_request_immediately_after_initialize_response():
-    """
-    Test that requests are accepted immediately after initialize response.
+    """Test that requests are accepted immediately after initialize response.
 
     This reproduces the race condition in stateful HTTP mode where:
     1. Client sends InitializeRequest

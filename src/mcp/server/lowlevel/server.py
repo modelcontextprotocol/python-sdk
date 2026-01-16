@@ -1,5 +1,4 @@
-"""
-MCP Server Module
+"""MCP Server Module
 
 This module provides a framework for creating an MCP (Model Context Protocol) server.
 It allows you to easily define and handle various types of requests and notifications

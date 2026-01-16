@@ -1,6 +1,4 @@
-"""
-Tests for refactored OAuth client authentication implementation.
-"""
+"""Tests for refactored OAuth client authentication implementation."""
 
 import base64
 import time

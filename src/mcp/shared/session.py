@@ -163,8 +163,7 @@ class BaseSession(
         ReceiveNotificationT,
     ],
 ):
-    """
-    Implements an MCP "session" on top of read/write streams, including features
+    """Implements an MCP "session" on top of read/write streams, including features
     like request/response linking, notifications, and progress.
 
     This class is an async context manager that automatically starts processing
@@ -199,8 +198,7 @@ class BaseSession(
         self._exit_stack = AsyncExitStack()
 
     def add_response_router(self, router: ResponseRouter) -> None:
-        """
-        Register a response router to handle responses for non-standard requests.
+        """Register a response router to handle responses for non-standard requests.
 
         Response routers are checked in order before falling back to the default
         response stream mechanism. This is used by TaskResultHandler to route
@@ -241,8 +239,7 @@ class BaseSession(
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
-        """
-        Sends a request and wait for a response. Raises an McpError if the
+        """Sends a request and wait for a response. Raises an McpError if the
         response contains an error. If a request read timeout is provided, it
         will take precedence over the session read timeout.
 
@@ -314,8 +311,7 @@ class BaseSession(
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
-        """
-        Emits a notification, which is a one-way message that does not expect
+        """Emits a notification, which is a one-way message that does not expect
         a response.
         """
         # Some transport implementations may need to set the related_request_id
@@ -454,8 +450,7 @@ class BaseSession(
                 self._response_streams.clear()
 
     def _normalize_request_id(self, response_id: RequestId) -> RequestId:
-        """
-        Normalize a response ID to match how request IDs are stored.
+        """Normalize a response ID to match how request IDs are stored.
 
         Since the client always sends integer IDs, we normalize string IDs
         to integers when possible. This matches the TypeScript SDK approach:
@@ -475,8 +470,7 @@ class BaseSession(
         return response_id
 
     async def _handle_response(self, message: SessionMessage) -> None:
-        """
-        Handle an incoming response or error message.
+        """Handle an incoming response or error message.
 
         Checks response routers first (e.g., for task-related responses),
         then falls back to the normal response stream mechanism.
@@ -514,8 +508,7 @@ class BaseSession(
             await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
-        """
-        Can be overridden by subclasses to handle a request without needing to
+        """Can be overridden by subclasses to handle a request without needing to
         listen on the message stream.
 
         If the request is responded to within this method, it will not be
@@ -523,8 +516,7 @@ class BaseSession(
         """
 
     async def _received_notification(self, notification: ReceiveNotificationT) -> None:
-        """
-        Can be overridden by subclasses to handle a notification without needing
+        """Can be overridden by subclasses to handle a notification without needing
         to listen on the message stream.
         """
 
@@ -535,8 +527,7 @@ class BaseSession(
         total: float | None = None,
         message: str | None = None,
     ) -> None:
-        """
-        Sends a progress notification for a request that is currently being
+        """Sends a progress notification for a request that is currently being
         processed.
         """
 

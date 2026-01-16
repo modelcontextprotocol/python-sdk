@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager  # pragma: no cover
 async def websocket_server(scope: Scope, receive: Receive, send: Send):
-    """
-    WebSocket server transport for MCP. This is an ASGI application, suitable to be
+    """WebSocket server transport for MCP. This is an ASGI application, suitable to be
     used with a framework like Starlette and a server like Hypercorn.
     """
 

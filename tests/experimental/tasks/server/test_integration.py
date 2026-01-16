@@ -62,8 +62,7 @@ class AppContext:
 
 @pytest.mark.anyio
 async def test_task_lifecycle_with_task_execution() -> None:
-    """
-    Test the complete task lifecycle using the task_execution pattern.
+    """Test the complete task lifecycle using the task_execution pattern.
 
     This demonstrates the recommended way to implement task-augmented tools:
     1. Create task in store

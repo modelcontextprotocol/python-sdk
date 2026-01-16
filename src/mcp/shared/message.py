@@ -1,5 +1,4 @@
-"""
-Message wrapper with metadata support.
+"""Message wrapper with metadata support.
 
 This module defines a wrapper type that combines JSONRPCMessage with metadata
 to support transport-specific features like resumability.

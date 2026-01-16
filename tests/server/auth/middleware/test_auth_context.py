@@ -1,6 +1,4 @@
-"""
-Tests for the AuthContext middleware components.
-"""
+"""Tests for the AuthContext middleware components."""
 
 import time
 

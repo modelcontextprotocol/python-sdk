@@ -1,5 +1,4 @@
-"""
-Example showing how to mount StreamableHTTP server using Host-based routing.
+"""Example showing how to mount StreamableHTTP server using Host-based routing.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload

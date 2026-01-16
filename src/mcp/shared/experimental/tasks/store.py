@@ -1,6 +1,4 @@
-"""
-TaskStore - Abstract interface for task state storage.
-"""
+"""TaskStore - Abstract interface for task state storage."""
 
 from abc import ABC, abstractmethod
 
@@ -8,8 +6,7 @@ from mcp.types import Result, Task, TaskMetadata, TaskStatus
 
 
 class TaskStore(ABC):
-    """
-    Abstract interface for task state storage.
+    """Abstract interface for task state storage.
 
     This is a pure storage interface - it doesn't manage execution.
     Implementations can use in-memory storage, databases, Redis, etc.
@@ -23,8 +20,7 @@ class TaskStore(ABC):
         metadata: TaskMetadata,
         task_id: str | None = None,
     ) -> Task:
-        """
-        Create a new task.
+        """Create a new task.
 
         Args:
             metadata: Task metadata (ttl, etc.)
@@ -39,8 +35,7 @@ class TaskStore(ABC):
 
     @abstractmethod
     async def get_task(self, task_id: str) -> Task | None:
-        """
-        Get a task by ID.
+        """Get a task by ID.
 
         Args:
             task_id: The task identifier
@@ -56,8 +51,7 @@ class TaskStore(ABC):
         status: TaskStatus | None = None,
         status_message: str | None = None,
     ) -> Task:
-        """
-        Update a task's status and/or message.
+        """Update a task's status and/or message.
 
         Args:
             task_id: The task identifier
@@ -76,8 +70,7 @@ class TaskStore(ABC):
 
     @abstractmethod
     async def store_result(self, task_id: str, result: Result) -> None:
-        """
-        Store the result for a task.
+        """Store the result for a task.
 
         Args:
             task_id: The task identifier
@@ -89,8 +82,7 @@ class TaskStore(ABC):
 
     @abstractmethod
     async def get_result(self, task_id: str) -> Result | None:
-        """
-        Get the stored result for a task.
+        """Get the stored result for a task.
 
         Args:
             task_id: The task identifier
@@ -104,8 +96,7 @@ class TaskStore(ABC):
         self,
         cursor: str | None = None,
     ) -> tuple[list[Task], str | None]:
-        """
-        List tasks with pagination.
+        """List tasks with pagination.
 
         Args:
             cursor: Optional cursor for pagination
@@ -116,8 +107,7 @@ class TaskStore(ABC):
 
     @abstractmethod
     async def delete_task(self, task_id: str) -> bool:
-        """
-        Delete a task.
+        """Delete a task.
 
         Args:
             task_id: The task identifier
@@ -128,8 +118,7 @@ class TaskStore(ABC):
 
     @abstractmethod
     async def wait_for_update(self, task_id: str) -> None:
-        """
-        Wait until the task status changes.
+        """Wait until the task status changes.
 
         This blocks until either:
         1. The task status changes
@@ -146,8 +135,7 @@ class TaskStore(ABC):
 
     @abstractmethod
     async def notify_update(self, task_id: str) -> None:
-        """
-        Signal that a task has been updated.
+        """Signal that a task has been updated.
 
         This wakes up any coroutines waiting in wait_for_update().
 

@@ -1,5 +1,4 @@
-"""
-Shared polling utilities for task operations.
+"""Shared polling utilities for task operations.
 
 This module provides generic polling logic that works for both client→server
 and server→client task polling.
@@ -20,8 +19,7 @@ async def poll_until_terminal(
     task_id: str,
     default_interval_ms: int = 500,
 ) -> AsyncIterator[GetTaskResult]:
-    """
-    Poll a task until it reaches terminal status.
+    """Poll a task until it reaches terminal status.
 
     This is a generic utility that works for both client→server and server→client
     polling. The caller provides the get_task function appropriate for their direction.

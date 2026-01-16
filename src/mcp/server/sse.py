@@ -1,5 +1,4 @@
-"""
-SSE Server Transport Module
+"""SSE Server Transport Module
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 
@@ -62,8 +61,7 @@ logger = logging.getLogger(__name__)
 
 
 class SseServerTransport:
-    """
-    SSE server transport for MCP. This class provides _two_ ASGI applications,
+    """SSE server transport for MCP. This class provides _two_ ASGI applications,
     suitable to be used with a framework like Starlette and a server like Hypercorn:
 
         1. connect_sse() is an ASGI application which receives incoming GET requests,
@@ -78,8 +76,7 @@ class SseServerTransport:
     _security: TransportSecurityMiddleware
 
     def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
-        """
-        Creates a new SSE server transport, which will direct the client to POST
+        """Creates a new SSE server transport, which will direct the client to POST
         messages to the relative path given.
 
         Args:
@@ -180,8 +177,7 @@ class SseServerTransport:
         async with anyio.create_task_group() as tg:
 
             async def response_wrapper(scope: Scope, receive: Receive, send: Send):
-                """
-                The EventSourceResponse returning signals a client close / disconnect.
+                """The EventSourceResponse returning signals a client close / disconnect.
                 In this case we close our side of the streams to signal the client that
                 the connection has been closed.
                 """

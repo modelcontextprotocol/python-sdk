@@ -1,6 +1,4 @@
-"""
-In-memory transports
-"""
+"""In-memory transports"""
 
 from __future__ import annotations
 
@@ -17,8 +15,7 @@ MessageStream = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], Mem
 
 @asynccontextmanager
 async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageStream, MessageStream], None]:
-    """
-    Creates a pair of bidirectional memory streams for client-server communication.
+    """Creates a pair of bidirectional memory streams for client-server communication.
 
     Returns:
         A tuple of (client_streams, server_streams) where each is a tuple of

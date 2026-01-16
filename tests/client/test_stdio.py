@@ -106,8 +106,7 @@ async def test_stdio_client_nonexistent_command():
 
 @pytest.mark.anyio
 async def test_stdio_client_universal_cleanup():
-    """
-    Test that stdio_client completes cleanup within reasonable time
+    """Test that stdio_client completes cleanup within reasonable time
     even when connected to processes that exit slowly.
     """
 
@@ -159,9 +158,7 @@ async def test_stdio_client_universal_cleanup():
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
 async def test_stdio_client_sigint_only_process():  # pragma: no cover
-    """
-    Test cleanup with a process that ignores SIGTERM but responds to SIGINT.
-    """
+    """Test cleanup with a process that ignores SIGTERM but responds to SIGINT."""
     # Create a Python script that ignores SIGTERM but handles SIGINT
     script_content = textwrap.dedent(
         """
@@ -225,8 +222,7 @@ async def test_stdio_client_sigint_only_process():  # pragma: no cover
 
 
 class TestChildProcessCleanup:
-    """
-    Tests for child process cleanup functionality using _terminate_process_tree.
+    """Tests for child process cleanup functionality using _terminate_process_tree.
 
     These tests verify that child processes are properly terminated when the parent
     is killed, addressing the issue where processes like npx spawn child processes
@@ -252,8 +248,7 @@ class TestChildProcessCleanup:
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_basic_child_process_cleanup(self):
-        """
-        Test basic parent-child process cleanup.
+        """Test basic parent-child process cleanup.
         Parent spawns a single child process that writes continuously to a file.
         """
         # Create a marker file for the child process to write to
@@ -344,8 +339,7 @@ class TestChildProcessCleanup:
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_nested_process_tree(self):
-        """
-        Test nested process tree cleanup (parent → child → grandchild).
+        """Test nested process tree cleanup (parent → child → grandchild).
         Each level writes to a different file to verify all processes are terminated.
         """
         # Create temporary files for each process level
@@ -440,8 +434,7 @@ class TestChildProcessCleanup:
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_early_parent_exit(self):
-        """
-        Test cleanup when parent exits during termination sequence.
+        """Test cleanup when parent exits during termination sequence.
         Tests the race condition where parent might die during our termination
         sequence but we can still clean up the children via the process group.
         """
@@ -517,8 +510,7 @@ class TestChildProcessCleanup:
 
 @pytest.mark.anyio
 async def test_stdio_client_graceful_stdin_exit():
-    """
-    Test that a process exits gracefully when stdin is closed,
+    """Test that a process exits gracefully when stdin is closed,
     without needing SIGTERM or SIGKILL.
     """
     # Create a Python script that exits when stdin is closed
@@ -573,8 +565,7 @@ async def test_stdio_client_graceful_stdin_exit():
 
 @pytest.mark.anyio
 async def test_stdio_client_stdin_close_ignored():
-    """
-    Test that when a process ignores stdin closure, the shutdown sequence
+    """Test that when a process ignores stdin closure, the shutdown sequence
     properly escalates to SIGTERM.
     """
     # Create a Python script that ignores stdin closure but responds to SIGTERM

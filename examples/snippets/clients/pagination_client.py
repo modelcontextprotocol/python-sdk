@@ -1,6 +1,4 @@
-"""
-Example of consuming paginated MCP endpoints from a client.
-"""
+"""Example of consuming paginated MCP endpoints from a client."""
 
 import asyncio
 

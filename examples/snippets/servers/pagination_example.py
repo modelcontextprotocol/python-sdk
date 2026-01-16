@@ -1,6 +1,4 @@
-"""
-Example of implementing pagination with MCP server decorators.
-"""
+"""Example of implementing pagination with MCP server decorators."""
 
 import mcp.types as types
 from mcp.server.lowlevel import Server

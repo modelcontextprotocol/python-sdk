@@ -1,6 +1,4 @@
-"""
-FastMCP Example showing parameter descriptions
-"""
+"""FastMCP Example showing parameter descriptions"""
 
 from pydantic import Field
 

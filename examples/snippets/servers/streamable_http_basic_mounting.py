@@ -1,5 +1,4 @@
-"""
-Basic example showing how to mount StreamableHTTP server in Starlette.
+"""Basic example showing how to mount StreamableHTTP server in Starlette.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload

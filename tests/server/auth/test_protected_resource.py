@@ -1,6 +1,4 @@
-"""
-Integration tests for MCP Oauth Protected Resource.
-"""
+"""Integration tests for MCP Oauth Protected Resource."""
 
 from urllib.parse import urlparse
 

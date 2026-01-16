@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-MCP Everything Server - Conformance Test Server
+"""MCP Everything Server - Conformance Test Server
 
 Server implementing all MCP features for conformance testing based on Conformance Server Specification.
 """

@@ -67,8 +67,7 @@ class Client:
         client_info: types.Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
     ) -> None:
-        """
-        Initialize the client with a server.
+        """Initialize the client with a server.
 
         Args:
             server: The MCP server to connect to (Server or FastMCP instance)
@@ -139,8 +138,7 @@ class Client:
 
     @property
     def session(self) -> ClientSession:
-        """
-        Get the underlying ClientSession.
+        """Get the underlying ClientSession.
 
         This provides access to the full ClientSession API for advanced use cases.
 
@@ -194,8 +192,7 @@ class Client:
         return await self.session.list_resource_templates(params=params)
 
     async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
-        """
-        Read a resource from the server.
+        """Read a resource from the server.
 
         Args:
             uri: The URI of the resource to read
@@ -222,8 +219,7 @@ class Client:
         *,
         meta: dict[str, Any] | None = None,
     ) -> types.CallToolResult:
-        """
-        Call a tool on the server.
+        """Call a tool on the server.
 
         Args:
             name: The name of the tool to call
@@ -255,8 +251,7 @@ class Client:
         name: str,
         arguments: dict[str, str] | None = None,
     ) -> types.GetPromptResult:
-        """
-        Get a prompt from the server.
+        """Get a prompt from the server.
 
         Args:
             name: The name of the prompt
@@ -273,8 +268,7 @@ class Client:
         argument: dict[str, str],
         context_arguments: dict[str, str] | None = None,
     ) -> types.CompleteResult:
-        """
-        Get completions for a prompt or resource template argument.
+        """Get completions for a prompt or resource template argument.
 
         Args:
             ref: Reference to the prompt or resource template

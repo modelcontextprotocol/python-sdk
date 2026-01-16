@@ -1,5 +1,4 @@
-"""
-ServerSession Module
+"""ServerSession Module
 
 This module provides the ServerSession class, which manages communication between the
 server and client in the MCP (Model Context Protocol) framework. It is most commonly

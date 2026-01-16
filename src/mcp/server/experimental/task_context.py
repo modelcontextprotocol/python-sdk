@@ -1,5 +1,4 @@
-"""
-ServerTaskContext - Server-integrated task context with elicitation and sampling.
+"""ServerTaskContext - Server-integrated task context with elicitation and sampling.
 
 This wraps the pure TaskContext and adds server-specific functionality:
 - Elicitation (task.elicit())
@@ -51,8 +50,7 @@ from mcp.types import (
 
 
 class ServerTaskContext:
-    """
-    Server-integrated task context with elicitation and sampling.
+    """Server-integrated task context with elicitation and sampling.
 
     This wraps a pure TaskContext and adds server-specific functionality:
     - elicit() for sending elicitation requests to the client
@@ -83,8 +81,7 @@ class ServerTaskContext:
         queue: TaskMessageQueue,
         handler: TaskResultHandler | None = None,
     ):
-        """
-        Create a ServerTaskContext.
+        """Create a ServerTaskContext.
 
         Args:
             task: The Task object
@@ -123,8 +120,7 @@ class ServerTaskContext:
     # Enhanced methods with notifications
 
     async def update_status(self, message: str, *, notify: bool = True) -> None:
-        """
-        Update the task's status message.
+        """Update the task's status message.
 
         Args:
             message: The new status message
@@ -135,8 +131,7 @@ class ServerTaskContext:
             await self._send_notification()
 
     async def complete(self, result: Result, *, notify: bool = True) -> None:
-        """
-        Mark the task as completed with the given result.
+        """Mark the task as completed with the given result.
 
         Args:
             result: The task result
@@ -147,8 +142,7 @@ class ServerTaskContext:
             await self._send_notification()
 
     async def fail(self, error: str, *, notify: bool = True) -> None:
-        """
-        Mark the task as failed with an error message.
+        """Mark the task as failed with an error message.
 
         Args:
             error: The error message
@@ -204,8 +198,7 @@ class ServerTaskContext:
         message: str,
         requested_schema: ElicitRequestedSchema,
     ) -> ElicitResult:
-        """
-        Send an elicitation request via the task message queue.
+        """Send an elicitation request via the task message queue.
 
         This method:
         1. Checks client capability
@@ -270,8 +263,7 @@ class ServerTaskContext:
         url: str,
         elicitation_id: str,
     ) -> ElicitResult:
-        """
-        Send a URL mode elicitation request via the task message queue.
+        """Send a URL mode elicitation request via the task message queue.
 
         This directs the user to an external URL for out-of-band interactions
         like OAuth flows, credential collection, or payment processing.
@@ -347,8 +339,7 @@ class ServerTaskContext:
         tools: list[Tool] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> CreateMessageResult:
-        """
-        Send a sampling request via the task message queue.
+        """Send a sampling request via the task message queue.
 
         This method:
         1. Checks client capability
@@ -434,8 +425,7 @@ class ServerTaskContext:
         *,
         ttl: int = 60000,
     ) -> ElicitResult:
-        """
-        Send a task-augmented elicitation via the queue, then poll client.
+        """Send a task-augmented elicitation via the queue, then poll client.
 
         This is for use inside a task-augmented tool call when you want the client
         to handle the elicitation as its own task. The elicitation request is queued
@@ -520,8 +510,7 @@ class ServerTaskContext:
         tools: list[Tool] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> CreateMessageResult:
-        """
-        Send a task-augmented sampling request via the queue, then poll client.
+        """Send a task-augmented sampling request via the queue, then poll client.
 
         This is for use inside a task-augmented tool call when you want the client
         to handle the sampling as its own task. The request is queued and delivered

@@ -1,5 +1,4 @@
-"""
-Tests for the StreamableHTTP server and client transport.
+"""Tests for the StreamableHTTP server and client transport.
 
 Contains tests for both server and client sides of the StreamableHTTP transport.
 """
@@ -2184,8 +2183,7 @@ async def test_streamable_http_multiple_reconnections(
 async def test_standalone_get_stream_reconnection(
     event_server: tuple[SimpleEventStore, str],
 ) -> None:
-    """
-    Test that standalone GET stream automatically reconnects after server closes it.
+    """Test that standalone GET stream automatically reconnects after server closes it.
 
     Verifies:
     1. Client receives notification 1 via GET stream

@@ -1,6 +1,5 @@
-"""
-cd to the `examples/snippets` directory and run:
-    uv run display-utilities-client
+"""cd to the `examples/snippets` directory and run:
+uv run display-utilities-client
 """
 
 import asyncio

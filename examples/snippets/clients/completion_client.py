@@ -1,6 +1,5 @@
-"""
-cd to the `examples/snippets` directory and run:
-    uv run completion-client
+"""cd to the `examples/snippets` directory and run:
+uv run completion-client
 """
 
 import asyncio

@@ -1,5 +1,4 @@
-"""
-Experimental task handler protocols for server -> client requests.
+"""Experimental task handler protocols for server -> client requests.
 
 This module provides Protocol types and default handlers for when servers
 send task-related requests to clients (the reverse of normal client -> server flow).

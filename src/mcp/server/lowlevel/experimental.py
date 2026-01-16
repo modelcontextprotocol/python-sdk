@@ -88,8 +88,7 @@ class ExperimentalHandlers:
         store: TaskStore | None = None,
         queue: TaskMessageQueue | None = None,
     ) -> TaskSupport:
-        """
-        Enable experimental task support.
+        """Enable experimental task support.
 
         This sets up the task infrastructure and auto-registers default handlers
         for tasks/get, tasks/result, tasks/list, and tasks/cancel.

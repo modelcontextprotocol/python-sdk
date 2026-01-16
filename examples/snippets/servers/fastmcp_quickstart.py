@@ -1,5 +1,4 @@
-"""
-FastMCP quickstart example.
+"""FastMCP quickstart example.
 
 Run from the repository root:
     uv run examples/snippets/servers/fastmcp_quickstart.py

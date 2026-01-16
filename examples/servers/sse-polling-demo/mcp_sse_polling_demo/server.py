@@ -1,5 +1,4 @@
-"""
-SSE Polling Demo Server
+"""SSE Polling Demo Server
 
 Demonstrates the SSE polling pattern with close_sse_stream() for long-running tasks.
 

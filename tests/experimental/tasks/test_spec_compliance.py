@@ -1,5 +1,4 @@
-"""
-Tasks Spec Compliance Tests
+"""Tasks Spec Compliance Tests
 ===========================
 
 Test structure mirrors: https://modelcontextprotocol.io/specification/draft/basic/utilities/tasks.md
@@ -72,8 +71,7 @@ def test_server_with_cancel_task_handler_declares_cancel_capability() -> None:
 
 
 def test_server_with_get_task_handler_declares_requests_tools_call_capability() -> None:
-    """
-    Server with get_task handler declares tasks.requests.tools.call capability.
+    """Server with get_task handler declares tasks.requests.tools.call capability.
     (get_task is required for task-augmented tools/call support)
     """
     server: Server = Server("test")
@@ -141,8 +139,7 @@ def test_server_with_all_task_handlers_has_full_capability() -> None:
 
 
 class TestClientCapabilities:
-    """
-    Clients declare:
+    """Clients declare:
     - tasks.list — supports listing operations
     - tasks.cancel — supports cancellation
     - tasks.requests.sampling.createMessage — task-augmented sampling
@@ -155,8 +152,7 @@ class TestClientCapabilities:
 
 
 class TestToolLevelNegotiation:
-    """
-    Tools in tools/list responses include execution.taskSupport with values:
+    """Tools in tools/list responses include execution.taskSupport with values:
     - Not present or "forbidden": No task augmentation allowed
     - "optional": Task augmentation allowed at requestor discretion
     - "required": Task augmentation is mandatory
@@ -188,8 +184,7 @@ class TestToolLevelNegotiation:
 
 
 class TestCapabilityNegotiation:
-    """
-    Requestors SHOULD only augment requests with a task if the corresponding
+    """Requestors SHOULD only augment requests with a task if the corresponding
     capability has been declared by the receiver.
 
     Receivers that do not declare the task capability for a request type
@@ -198,23 +193,20 @@ class TestCapabilityNegotiation:
     """
 
     def test_receiver_without_capability_ignores_task_metadata(self) -> None:
-        """
-        Receiver without task capability MUST process request normally,
+        """Receiver without task capability MUST process request normally,
         ignoring task-augmentation metadata.
         """
         pytest.skip("TODO")
 
     def test_receiver_with_capability_may_require_task_augmentation(self) -> None:
-        """
-        Receivers that declare task capability MAY return error (-32600)
+        """Receivers that declare task capability MAY return error (-32600)
         for non-task-augmented requests, requiring task augmentation.
         """
         pytest.skip("TODO")
 
 
 class TestTaskStatusLifecycle:
-    """
-    Tasks begin in working status and follow valid transitions:
+    """Tasks begin in working status and follow valid transitions:
       working → input_required → working → terminal
       working → terminal (directly)
       input_required → terminal (directly)
@@ -271,8 +263,7 @@ class TestTaskStatusLifecycle:
 
 
 class TestInputRequiredStatus:
-    """
-    When a receiver needs information to proceed, it moves the task to input_required.
+    """When a receiver needs information to proceed, it moves the task to input_required.
     The requestor should call tasks/result to retrieve input requests.
     The task must include io.modelcontextprotocol/related-task metadata in associated requests.
     """
@@ -282,16 +273,14 @@ class TestInputRequiredStatus:
         pytest.skip("TODO")
 
     def test_input_required_related_task_metadata_in_requests(self) -> None:
-        """
-        Task MUST include io.modelcontextprotocol/related-task metadata
+        """Task MUST include io.modelcontextprotocol/related-task metadata
         in associated requests.
         """
         pytest.skip("TODO")
 
 
 class TestCreatingTask:
-    """
-    Request structure:
+    """Request structure:
       {"method": "tools/call", "params": {"name": "...", "arguments": {...}, "task": {"ttl": 60000}}}
 
     Response (CreateTaskResult):
@@ -337,8 +326,7 @@ class TestCreatingTask:
         pytest.skip("TODO")
 
     def test_model_immediate_response_in_meta(self) -> None:
-        """
-        Receiver MAY include io.modelcontextprotocol/model-immediate-response
+        """Receiver MAY include io.modelcontextprotocol/model-immediate-response
         in _meta to provide immediate response while task executes.
         """
         # Verify the constant has the correct value per spec
@@ -372,8 +360,7 @@ class TestCreatingTask:
 
 
 class TestGettingTaskStatus:
-    """
-    Request: {"method": "tasks/get", "params": {"taskId": "..."}}
+    """Request: {"method": "tasks/get", "params": {"taskId": "..."}}
     Response: Returns full Task object with current status and pollInterval.
     """
 
@@ -399,8 +386,7 @@ class TestGettingTaskStatus:
 
 
 class TestRetrievingResults:
-    """
-    Request: {"method": "tasks/result", "params": {"taskId": "..."}}
+    """Request: {"method": "tasks/result", "params": {"taskId": "..."}}
     Response: The actual operation result structure (e.g., CallToolResult).
 
     This call blocks until terminal status.
@@ -423,8 +409,7 @@ class TestRetrievingResults:
         pytest.skip("TODO")
 
     def test_tasks_result_returns_error_for_failed_task(self) -> None:
-        """
-        tasks/result returns the same error the underlying request
+        """tasks/result returns the same error the underlying request
         would have produced for failed tasks.
         """
         pytest.skip("TODO")
@@ -435,8 +420,7 @@ class TestRetrievingResults:
 
 
 class TestListingTasks:
-    """
-    Request: {"method": "tasks/list", "params": {"cursor": "optional"}}
+    """Request: {"method": "tasks/list", "params": {"cursor": "optional"}}
     Response: Array of tasks with pagination support via nextCursor.
     """
 
@@ -462,8 +446,7 @@ class TestListingTasks:
 
 
 class TestCancellingTasks:
-    """
-    Request: {"method": "tasks/cancel", "params": {"taskId": "..."}}
+    """Request: {"method": "tasks/cancel", "params": {"taskId": "..."}}
     Response: Returns the task object with status: "cancelled".
     """
 
@@ -493,8 +476,7 @@ class TestCancellingTasks:
 
 
 class TestStatusNotifications:
-    """
-    Receivers MAY send: {"method": "notifications/tasks/status", "params": {...}}
+    """Receivers MAY send: {"method": "notifications/tasks/status", "params": {...}}
     These are optional; requestors MUST NOT rely on them and SHOULD continue polling.
     """
 
@@ -512,8 +494,7 @@ class TestStatusNotifications:
 
 
 class TestTaskManagement:
-    """
-    - Receivers generate unique task IDs as strings
+    """- Receivers generate unique task IDs as strings
     - Tasks must begin in working status
     - createdAt timestamps must be ISO 8601 formatted
     - Receivers may override requested ttl but must return actual value
@@ -535,8 +516,7 @@ class TestTaskManagement:
         pytest.skip("TODO")
 
     def test_related_task_metadata_in_task_messages(self) -> None:
-        """
-        All task-related messages MUST include io.modelcontextprotocol/related-task
+        """All task-related messages MUST include io.modelcontextprotocol/related-task
         in _meta.
         """
         pytest.skip("TODO")
@@ -555,8 +535,7 @@ class TestTaskManagement:
 
 
 class TestResultHandling:
-    """
-    - Receivers must return CreateTaskResult immediately upon accepting task-augmented requests
+    """- Receivers must return CreateTaskResult immediately upon accepting task-augmented requests
     - tasks/result must return exactly what the underlying request would return
     - tasks/result blocks for non-terminal tasks; must unblock upon reaching terminal status
     """
@@ -575,8 +554,7 @@ class TestResultHandling:
 
 
 class TestProgressTracking:
-    """
-    Task-augmented requests support progress notifications using the progressToken
+    """Task-augmented requests support progress notifications using the progressToken
     mechanism, which remains valid throughout the task lifetime.
     """
 
@@ -590,8 +568,7 @@ class TestProgressTracking:
 
 
 class TestProtocolErrors:
-    """
-    Protocol Errors (JSON-RPC standard codes):
+    """Protocol Errors (JSON-RPC standard codes):
     - -32600 (Invalid request): Non-task requests to endpoint requiring task augmentation
     - -32602 (Invalid params): Invalid/nonexistent taskId, invalid cursor, cancel terminal task
     - -32603 (Internal error): Server-side execution failures
@@ -623,8 +600,7 @@ class TestProtocolErrors:
 
 
 class TestTaskExecutionErrors:
-    """
-    When underlying requests fail, the task moves to failed status.
+    """When underlying requests fail, the task moves to failed status.
     - tasks/get response should include statusMessage explaining failure
     - tasks/result returns same error the underlying request would have produced
     - For tool calls, isError: true moves task to failed status
@@ -648,8 +624,7 @@ class TestTaskExecutionErrors:
 
 
 class TestTaskObject:
-    """
-    Task Object fields:
+    """Task Object fields:
     - taskId: String identifier
     - status: Current execution state
     - statusMessage: Optional human-readable description
@@ -684,8 +659,7 @@ class TestTaskObject:
 
 
 class TestRelatedTaskMetadata:
-    """
-    Related Task Metadata structure:
+    """Related Task Metadata structure:
     {"_meta": {"io.modelcontextprotocol/related-task": {"taskId": "..."}}}
     """
 
@@ -699,42 +673,34 @@ class TestRelatedTaskMetadata:
 
 
 class TestAccessAndIsolation:
-    """
-    - Task IDs enable access to sensitive results
+    """- Task IDs enable access to sensitive results
     - Authorization context binding is essential where available
     - For non-authorized environments: strong entropy IDs, strict TTL limits
     """
 
     def test_task_bound_to_authorization_context(self) -> None:
-        """
-        Receivers receiving authorization context MUST bind tasks to that context.
-        """
+        """Receivers receiving authorization context MUST bind tasks to that context."""
         pytest.skip("TODO")
 
     def test_reject_task_operations_outside_authorization_context(self) -> None:
-        """
-        Receivers MUST reject task operations for tasks outside
+        """Receivers MUST reject task operations for tasks outside
         requestor's authorization context.
         """
         pytest.skip("TODO")
 
     def test_non_authorized_environments_use_secure_ids(self) -> None:
-        """
-        For non-authorized environments, receivers SHOULD use
+        """For non-authorized environments, receivers SHOULD use
         cryptographically secure IDs.
         """
         pytest.skip("TODO")
 
     def test_non_authorized_environments_use_shorter_ttls(self) -> None:
-        """
-        For non-authorized environments, receivers SHOULD use shorter TTLs.
-        """
+        """For non-authorized environments, receivers SHOULD use shorter TTLs."""
         pytest.skip("TODO")
 
 
 class TestResourceLimits:
-    """
-    Receivers should:
+    """Receivers should:
     - Enforce concurrent task limits per requestor
     - Implement maximum TTL constraints
     - Clean up expired tasks promptly

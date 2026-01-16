@@ -1,5 +1,4 @@
-"""
-Stdio Server Transport Module
+"""Stdio Server Transport Module
 
 This module provides functionality for creating an stdio-based transport layer
 that can be used to communicate with an MCP client through standard input/output
@@ -35,8 +34,7 @@ async def stdio_server(
     stdin: anyio.AsyncFile[str] | None = None,
     stdout: anyio.AsyncFile[str] | None = None,
 ):
-    """
-    Server transport for stdio: this communicates with an MCP client by reading
+    """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
     # Purposely not using context managers for these, as we don't want to close

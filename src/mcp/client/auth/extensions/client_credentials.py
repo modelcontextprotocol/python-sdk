@@ -1,5 +1,4 @@
-"""
-OAuth client credential extensions for MCP.
+"""OAuth client credential extensions for MCP.
 
 Provides OAuth providers for machine-to-machine authentication flows:
 - ClientCredentialsOAuthProvider: For client_credentials with client_id + client_secret

@@ -1,5 +1,4 @@
-"""
-Experimental server session features for server→client task operations.
+"""Experimental server session features for server→client task operations.
 
 This module provides the server-side equivalent of ExperimentalClientFeatures,
 allowing the server to send task-augmented requests to the client and poll for results.
@@ -25,8 +24,7 @@ ResultT = TypeVar("ResultT", bound=types.Result)
 
 
 class ExperimentalServerSessionFeatures:
-    """
-    Experimental server session features for server→client task operations.
+    """Experimental server session features for server→client task operations.
 
     This provides the server-side equivalent of ExperimentalClientFeatures,
     allowing the server to send task-augmented requests to the client and
@@ -42,8 +40,7 @@ class ExperimentalServerSessionFeatures:
         self._session = session
 
     async def get_task(self, task_id: str) -> types.GetTaskResult:
-        """
-        Send tasks/get to the client to get task status.
+        """Send tasks/get to the client to get task status.
 
         Args:
             task_id: The task identifier
@@ -61,8 +58,7 @@ class ExperimentalServerSessionFeatures:
         task_id: str,
         result_type: type[ResultT],
     ) -> ResultT:
-        """
-        Send tasks/result to the client to retrieve the final result.
+        """Send tasks/result to the client to retrieve the final result.
 
         Args:
             task_id: The task identifier
@@ -77,8 +73,7 @@ class ExperimentalServerSessionFeatures:
         )
 
     async def poll_task(self, task_id: str) -> AsyncIterator[types.GetTaskResult]:
-        """
-        Poll a client task until it reaches terminal status.
+        """Poll a client task until it reaches terminal status.
 
         Yields GetTaskResult for each poll, allowing the caller to react to
         status changes. Exits when task reaches a terminal status.
@@ -101,8 +96,7 @@ class ExperimentalServerSessionFeatures:
         *,
         ttl: int = 60000,
     ) -> types.ElicitResult:
-        """
-        Send a task-augmented elicitation to the client and poll until complete.
+        """Send a task-augmented elicitation to the client and poll until complete.
 
         The client will create a local task, process the elicitation asynchronously,
         and return the result when ready. This method handles the full flow:
@@ -160,8 +154,7 @@ class ExperimentalServerSessionFeatures:
         tools: list[types.Tool] | None = None,
         tool_choice: types.ToolChoice | None = None,
     ) -> types.CreateMessageResult:
-        """
-        Send a task-augmented sampling request and poll until complete.
+        """Send a task-augmented sampling request and poll until complete.
 
         The client will create a local task, process the sampling request
         asynchronously, and return the result when ready.

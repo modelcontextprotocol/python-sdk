@@ -1,6 +1,4 @@
-"""
-FastMCP Echo Server with direct CallToolResult return
-"""
+"""FastMCP Echo Server with direct CallToolResult return"""
 
 from typing import Annotated
 

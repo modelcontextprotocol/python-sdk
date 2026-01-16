@@ -1,5 +1,4 @@
-"""
-SessionGroup concurrently manages multiple MCP session connections.
+"""SessionGroup concurrently manages multiple MCP session connections.
 
 Tools, resources, and prompts are aggregated across servers. Servers may
 be connected to or disconnected from at any point after initialization.

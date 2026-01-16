@@ -1,5 +1,4 @@
-"""
-FastMCP Weather Example with Structured Output
+"""FastMCP Weather Example with Structured Output
 
 Demonstrates how to use structured output with tools to return
 well-typed, validated data that clients can easily process.

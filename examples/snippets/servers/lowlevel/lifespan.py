@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/lifespan.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/lifespan.py
 """
 
 from collections.abc import AsyncIterator

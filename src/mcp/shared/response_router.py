@@ -1,5 +1,4 @@
-"""
-ResponseRouter - Protocol for pluggable response routing.
+"""ResponseRouter - Protocol for pluggable response routing.
 
 This module defines a protocol for routing JSON-RPC responses to alternative
 handlers before falling back to the default response stream mechanism.
@@ -20,8 +19,7 @@ from mcp.types import ErrorData, RequestId
 
 
 class ResponseRouter(Protocol):
-    """
-    Protocol for routing responses to alternative handlers.
+    """Protocol for routing responses to alternative handlers.
 
     Implementations check if they have a pending request for the given ID
     and deliver the response/error to the appropriate handler.
@@ -37,8 +35,7 @@ class ResponseRouter(Protocol):
     """
 
     def route_response(self, request_id: RequestId, response: dict[str, Any]) -> bool:
-        """
-        Try to route a response to a pending request handler.
+        """Try to route a response to a pending request handler.
 
         Args:
             request_id: The JSON-RPC request ID from the response
@@ -50,8 +47,7 @@ class ResponseRouter(Protocol):
         ...  # pragma: no cover
 
     def route_error(self, request_id: RequestId, error: ErrorData) -> bool:
-        """
-        Try to route an error to a pending request handler.
+        """Try to route an error to a pending request handler.
 
         Args:
             request_id: The JSON-RPC request ID from the error response

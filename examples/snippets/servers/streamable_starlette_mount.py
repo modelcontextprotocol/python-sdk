@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
+"""Run from the repository root:
+uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """
 
 import contextlib

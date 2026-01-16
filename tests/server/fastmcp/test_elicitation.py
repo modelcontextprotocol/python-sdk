@@ -1,6 +1,4 @@
-"""
-Test the elicitation feature using stdio transport.
-"""
+"""Test the elicitation feature using stdio transport."""
 
 from typing import Any
 

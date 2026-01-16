@@ -304,8 +304,7 @@ class FastMCP(Generic[LifespanResultT]):
         ]
 
     def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
-        """
-        Returns a Context object. Note that the context will only be valid
+        """Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
         """
         try:
@@ -683,8 +682,7 @@ class FastMCP(Generic[LifespanResultT]):
         name: str | None = None,
         include_in_schema: bool = True,
     ):
-        """
-        Decorator to register a custom HTTP route on the FastMCP server.
+        """Decorator to register a custom HTTP route on the FastMCP server.
 
         Allows adding arbitrary HTTP endpoints outside the standard MCP protocol,
         which can be useful for OAuth callbacks, health checks, or admin APIs.
@@ -1074,9 +1072,7 @@ class FastMCP(Generic[LifespanResultT]):
 
 
 class StreamableHTTPASGIApp:
-    """
-    ASGI application for Streamable HTTP server transport.
-    """
+    """ASGI application for Streamable HTTP server transport."""
 
     def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager

@@ -1,5 +1,4 @@
-"""
-Tests for Unicode handling in streamable HTTP transport.
+"""Tests for Unicode handling in streamable HTTP transport.
 
 Verifies that Unicode text is correctly transmitted and received in both directions
 (server→client and client→server) using the streamable HTTP transport.
