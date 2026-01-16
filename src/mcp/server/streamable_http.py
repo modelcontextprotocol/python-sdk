@@ -706,6 +706,12 @@ class StreamableHTTPServerTransport:
         # Create SSE stream
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
 
+        # Store writer reference so close_standalone_sse_stream() can close it
+        self._sse_stream_writers[GET_STREAM_KEY] = sse_stream_writer
+
+        # Get protocol version from header for priming event decision
+        protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
+
         async def standalone_sse_writer():
             try:
                 # Create a standalone message stream for server-initiated messages
@@ -714,6 +720,17 @@ class StreamableHTTPServerTransport:
                 standalone_stream_reader = self._request_streams[GET_STREAM_KEY][1]
 
                 async with sse_stream_writer, standalone_stream_reader:
+                    # Send an immediate event to establish connection and prevent hang
+                    # This is crucial for GET requests which have no initial data to send
+                    if self._event_store and protocol_version >= "2025-11-25":
+                        # Send proper priming event with resumability support
+                        await self._maybe_send_priming_event(GET_STREAM_KEY, sse_stream_writer, protocol_version)
+                    else:
+                        # Send a simple "open" event to confirm connection is established
+                        # Without this, GET requests hang waiting for data
+                        open_event: dict[str, str] = {"event": "open", "data": ""}
+                        await sse_stream_writer.send(open_event)
+
                     # Process messages from the standalone stream
                     async for event_message in standalone_stream_reader:
                         # For the standalone stream, we handle:
@@ -724,10 +741,14 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
+            except anyio.ClosedResourceError:
+                # Expected when close_standalone_sse_stream() is called
+                logger.debug("Standalone SSE stream closed by close_standalone_sse_stream()")
             except Exception:
                 logger.exception("Error in standalone SSE writer")
             finally:
                 logger.debug("Closing standalone SSE writer")
+                self._sse_stream_writers.pop(GET_STREAM_KEY, None)
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
 
         # Create and start EventSourceResponse

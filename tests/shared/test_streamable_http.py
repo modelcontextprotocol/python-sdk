@@ -2350,3 +2350,96 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+def test_get_request_receives_priming_event_with_event_store(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """
+    Test that GET requests to /mcp receive a priming event immediately.
+
+    This test verifies the fix for the issue where GET requests would hang
+    because the standalone_sse_writer didn't send a priming event before
+    entering the message loop.
+
+    With event_store configured and protocol version >= 2025-11-25, the server
+    should send a priming event (empty data with event id) immediately after
+    establishing the SSE connection, preventing the client from hanging.
+    """
+    event_store, server_url = event_server
+    mcp_url = f"{server_url}/mcp"
+
+    # Use latest protocol version (2025-11-25) to enable priming events
+    init_request_latest = {
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+            "clientInfo": {"name": "test-client", "version": "1.0"},
+            "protocolVersion": "2025-11-25",  # Must be >= 2025-11-25 for priming events
+            "capabilities": {},
+        },
+        "id": "init-1",
+    }
+
+    # First, initialize a session via POST
+    init_response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        },
+        json=init_request_latest,
+    )
+    assert init_response.status_code == 200
+
+    # Get session ID
+    session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+    assert session_id is not None
+
+    # Extract negotiated protocol version from SSE response
+    # Note: With event_store, the POST response includes priming event first (empty data)
+    # then the actual initialize response
+    negotiated_version = None
+    for line in init_response.text.splitlines():
+        if line.startswith("data: ") and line[6:].strip():  # Skip empty data (priming event)
+            try:
+                init_data = json.loads(line[6:])
+                if "result" in init_data and "protocolVersion" in init_data["result"]:
+                    negotiated_version = init_data["result"]["protocolVersion"]
+                    break
+            except json.JSONDecodeError:
+                continue
+    assert negotiated_version is not None, "Could not extract protocol version from init response"
+
+    # Now make a GET request to establish SSE stream with a short timeout
+    # Before the fix, this would hang indefinitely waiting for messages
+    # After the fix, we should get the priming event immediately
+    get_response = requests.get(
+        mcp_url,
+        headers={
+            "Accept": "text/event-stream",
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        },
+        stream=True,
+        timeout=3,  # 3 second timeout - priming event should arrive immediately
+    )
+
+    assert get_response.status_code == 200
+    assert get_response.headers.get("Content-Type") == "text/event-stream"
+
+    # Try to read the first chunk from the stream - should be the priming event
+    # The priming event format is: "id: <event_id>\ndata: \n\n"
+    try:
+        # Read up to 1KB to get the priming event
+        priming_received = False
+        for chunk in get_response.iter_content(chunk_size=1024, decode_unicode=True):
+            if chunk and ("id:" in chunk or "data:" in chunk):
+                priming_received = True
+                break
+
+        assert priming_received, (
+            "GET request should receive priming event immediately with event_store configured"
+        )
+    finally:
+        get_response.close()
