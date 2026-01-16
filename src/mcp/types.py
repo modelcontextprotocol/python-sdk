@@ -36,8 +36,7 @@ class MCPModel(BaseModel):
 
 
 class TaskMetadata(MCPModel):
-    """
-    Metadata for augmenting a request with task execution.
+    """Metadata for augmenting a request with task execution.
     Include this in the `task` field of the request parameters.
     """
 
@@ -262,8 +261,7 @@ class RootsCapability(MCPModel):
 
 
 class SamplingContextCapability(MCPModel):
-    """
-    Capability for context inclusion during sampling.
+    """Capability for context inclusion during sampling.
 
     Indicates support for non-'none' values in the includeContext parameter.
     SOFT-DEPRECATED: New implementations should use tools parameter instead.
@@ -271,8 +269,7 @@ class SamplingContextCapability(MCPModel):
 
 
 class SamplingToolsCapability(MCPModel):
-    """
-    Capability indicating support for tool calling during sampling.
+    """Capability indicating support for tool calling during sampling.
 
     When present in ClientCapabilities.sampling, indicates that the client
     supports the tools and toolChoice parameters in sampling requests.
@@ -301,9 +298,7 @@ class ElicitationCapability(MCPModel):
 
 
 class SamplingCapability(MCPModel):
-    """
-    Sampling capability structure, allowing fine-grained capability advertisement.
-    """
+    """Sampling capability structure, allowing fine-grained capability advertisement."""
 
     context: SamplingContextCapability | None = None
     """
@@ -469,8 +464,7 @@ TASK_STATUS_CANCELLED: Final[Literal["cancelled"]] = "cancelled"
 
 
 class RelatedTaskMetadata(MCPModel):
-    """
-    Metadata for associating messages with a task.
+    """Metadata for associating messages with a task.
 
     Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
     """
@@ -546,8 +540,7 @@ class GetTaskPayloadRequest(Request[GetTaskPayloadRequestParams, Literal["tasks/
 
 
 class GetTaskPayloadResult(Result):
-    """
-    The response to a tasks/result request.
+    """The response to a tasks/result request.
     The structure matches the result type of the original request.
     For example, a tools/call task would return the CallToolResult structure.
     """
@@ -586,8 +579,7 @@ class TaskStatusNotificationParams(NotificationParams, Task):
 
 
 class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal["notifications/tasks/status"]]):
-    """
-    An optional notification from the receiver to the requestor, informing them that a task's status has changed.
+    """An optional notification from the receiver to the requestor, informing them that a task's status has changed.
     Receivers are not required to send these notifications
     """
 
@@ -605,8 +597,7 @@ class InitializeRequestParams(RequestParams):
 
 
 class InitializeRequest(Request[InitializeRequestParams, Literal["initialize"]]):
-    """
-    This request is sent from the client to the server when it first connects, asking it
+    """This request is sent from the client to the server when it first connects, asking it
     to begin initialization.
     """
 
@@ -626,8 +617,7 @@ class InitializeResult(Result):
 
 
 class InitializedNotification(Notification[NotificationParams | None, Literal["notifications/initialized"]]):
-    """
-    This notification is sent from the client to the server after initialization has
+    """This notification is sent from the client to the server after initialization has
     finished.
     """
 
@@ -636,8 +626,7 @@ class InitializedNotification(Notification[NotificationParams | None, Literal["n
 
 
 class PingRequest(Request[RequestParams | None, Literal["ping"]]):
-    """
-    A ping, issued by either the server or the client, to check that the other party is
+    """A ping, issued by either the server or the client, to check that the other party is
     still alive.
     """
 
@@ -668,8 +657,7 @@ class ProgressNotificationParams(NotificationParams):
 
 
 class ProgressNotification(Notification[ProgressNotificationParams, Literal["notifications/progress"]]):
-    """
-    An out-of-band notification used to inform the receiver of a progress update for a
+    """An out-of-band notification used to inform the receiver of a progress update for a
     long-running request.
     """
 
@@ -814,8 +802,7 @@ class ReadResourceResult(Result):
 class ResourceListChangedNotification(
     Notification[NotificationParams | None, Literal["notifications/resources/list_changed"]]
 ):
-    """
-    An optional notification from the server to the client, informing it that the list
+    """An optional notification from the server to the client, informing it that the list
     of resources it can read from has changed.
     """
 
@@ -834,8 +821,7 @@ class SubscribeRequestParams(RequestParams):
 
 
 class SubscribeRequest(Request[SubscribeRequestParams, Literal["resources/subscribe"]]):
-    """
-    Sent from the client to request resources/updated notifications from the server
+    """Sent from the client to request resources/updated notifications from the server
     whenever a particular resource changes.
     """
 
@@ -851,8 +837,7 @@ class UnsubscribeRequestParams(RequestParams):
 
 
 class UnsubscribeRequest(Request[UnsubscribeRequestParams, Literal["resources/unsubscribe"]]):
-    """
-    Sent from the client to request cancellation of resources/updated notifications from
+    """Sent from the client to request cancellation of resources/updated notifications from
     the server.
     """
 
@@ -873,8 +858,7 @@ class ResourceUpdatedNotificationParams(NotificationParams):
 class ResourceUpdatedNotification(
     Notification[ResourceUpdatedNotificationParams, Literal["notifications/resources/updated"]]
 ):
-    """
-    A notification from the server to the client, informing it that a resource has
+    """A notification from the server to the client, informing it that a resource has
     changed and may need to be read again.
     """
 
@@ -990,8 +974,7 @@ class AudioContent(MCPModel):
 
 
 class ToolUseContent(MCPModel):
-    """
-    Content representing an assistant's request to invoke a tool.
+    """Content representing an assistant's request to invoke a tool.
 
     This content type appears in assistant messages when the LLM wants to call a tool
     during sampling. The server should execute the tool and return a ToolResultContent
@@ -1018,8 +1001,7 @@ class ToolUseContent(MCPModel):
 
 
 class ToolResultContent(MCPModel):
-    """
-    Content representing the result of a tool execution.
+    """Content representing the result of a tool execution.
 
     This content type appears in user messages as a response to a ToolUseContent
     from the assistant. It contains the output of executing the requested tool.
@@ -1083,8 +1065,7 @@ class SamplingMessage(MCPModel):
 
 
 class EmbeddedResource(MCPModel):
-    """
-    The contents of a resource, embedded into a prompt or tool call result.
+    """The contents of a resource, embedded into a prompt or tool call result.
 
     It is up to the client how best to render embedded resources for the benefit
     of the LLM and/or the user.
@@ -1101,8 +1082,7 @@ class EmbeddedResource(MCPModel):
 
 
 class ResourceLink(Resource):
-    """
-    A resource that the server is capable of reading, included in a prompt or tool call result.
+    """A resource that the server is capable of reading, included in a prompt or tool call result.
 
     Note: resource links returned by tools are not guaranteed to appear in the results of `resources/list` requests.
     """
@@ -1132,8 +1112,7 @@ class GetPromptResult(Result):
 class PromptListChangedNotification(
     Notification[NotificationParams | None, Literal["notifications/prompts/list_changed"]]
 ):
-    """
-    An optional notification from the server to the client, informing it that the list
+    """An optional notification from the server to the client, informing it that the list
     of prompts it offers has changed.
     """
 
@@ -1148,8 +1127,7 @@ class ListToolsRequest(PaginatedRequest[Literal["tools/list"]]):
 
 
 class ToolAnnotations(MCPModel):
-    """
-    Additional properties describing a Tool to clients.
+    """Additional properties describing a Tool to clients.
 
     NOTE: all properties in ToolAnnotations are **hints**.
     They are not guaranteed to provide a faithful description of
@@ -1266,8 +1244,7 @@ class CallToolResult(Result):
 
 
 class ToolListChangedNotification(Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]):
-    """
-    An optional notification from the server to the client, informing it that the list
+    """An optional notification from the server to the client, informing it that the list
     of tools it offers has changed.
     """
 
@@ -1324,8 +1301,7 @@ class ModelHint(MCPModel):
 
 
 class ModelPreferences(MCPModel):
-    """
-    The server's preferences for model selection, requested by the client during
+    """The server's preferences for model selection, requested by the client during
     sampling.
 
     Because LLMs can vary along multiple dimensions, choosing the "best" model is
@@ -1373,8 +1349,7 @@ class ModelPreferences(MCPModel):
 
 
 class ToolChoice(MCPModel):
-    """
-    Controls tool usage behavior during sampling.
+    """Controls tool usage behavior during sampling.
 
     Allows the server to specify whether and how the LLM should use tools
     in its response.
@@ -1550,8 +1525,7 @@ class CompleteResult(Result):
 
 
 class ListRootsRequest(Request[RequestParams | None, Literal["roots/list"]]):
-    """
-    Sent from the server to request a list of root URIs from the client. Roots allow
+    """Sent from the server to request a list of root URIs from the client. Roots allow
     servers to ask for specific directories or files to operate on. A common example
     for roots is providing a set of repositories or directories a server should operate
     on.
@@ -1587,8 +1561,7 @@ class Root(MCPModel):
 
 
 class ListRootsResult(Result):
-    """
-    The client's response to a roots/list request from the server.
+    """The client's response to a roots/list request from the server.
     This result contains an array of Root objects, each representing a root directory
     or file that the server can operate on.
     """
@@ -1599,8 +1572,7 @@ class ListRootsResult(Result):
 class RootsListChangedNotification(
     Notification[NotificationParams | None, Literal["notifications/roots/list_changed"]]
 ):
-    """
-    A notification from the client to the server, informing it that the list of
+    """A notification from the client to the server, informing it that the list of
     roots has changed.
 
     This notification should be sent whenever the client adds, removes, or
@@ -1628,8 +1600,7 @@ class CancelledNotificationParams(NotificationParams):
 
 
 class CancelledNotification(Notification[CancelledNotificationParams, Literal["notifications/cancelled"]]):
-    """
-    This notification can be sent by either side to indicate that it is canceling a
+    """This notification can be sent by either side to indicate that it is canceling a
     previously-issued request.
     """
 
@@ -1647,8 +1618,7 @@ class ElicitCompleteNotificationParams(NotificationParams):
 class ElicitCompleteNotification(
     Notification[ElicitCompleteNotificationParams, Literal["notifications/elicitation/complete"]]
 ):
-    """
-    A notification from the server to the client, informing it that a URL mode
+    """A notification from the server to the client, informing it that a URL mode
     elicitation has been completed.
 
     Clients MAY use the notification to automatically retry requests that received a

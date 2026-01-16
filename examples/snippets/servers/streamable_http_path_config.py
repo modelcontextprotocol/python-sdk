@@ -1,5 +1,4 @@
-"""
-Example showing path configuration when mounting FastMCP.
+"""Example showing path configuration when mounting FastMCP.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload

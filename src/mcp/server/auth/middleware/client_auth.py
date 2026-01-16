@@ -17,8 +17,7 @@ class AuthenticationError(Exception):
 
 
 class ClientAuthenticator:
-    """
-    ClientAuthenticator is a callable which validates requests from a client
+    """ClientAuthenticator is a callable which validates requests from a client
     application, used to verify /token calls.
     If, during registration, the client requested to be issued a secret, the
     authenticator asserts that /token calls must be authenticated with
@@ -28,8 +27,7 @@ class ClientAuthenticator:
     """
 
     def __init__(self, provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
-        """
-        Initialize the dependency.
+        """Initialize the dependency.
 
         Args:
             provider: Provider to look up client information
@@ -37,8 +35,7 @@ class ClientAuthenticator:
         self.provider = provider
 
     async def authenticate_request(self, request: Request) -> OAuthClientInformationFull:
-        """
-        Authenticate a client from an HTTP request.
+        """Authenticate a client from an HTTP request.
 
         Extracts client credentials from the appropriate location based on the
         client's registered authentication method and validates them.

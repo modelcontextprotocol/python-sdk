@@ -509,8 +509,7 @@ async def streamable_http_client(
     ],
     None,
 ]:
-    """
-    Client transport for StreamableHTTP.
+    """Client transport for StreamableHTTP.
 
     Args:
         url: The MCP server endpoint URL.

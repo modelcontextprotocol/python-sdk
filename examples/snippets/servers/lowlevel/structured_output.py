@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/structured_output.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/structured_output.py
 """
 
 import asyncio

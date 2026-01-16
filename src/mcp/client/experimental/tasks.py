@@ -1,5 +1,4 @@
-"""
-Experimental client-side task support.
+"""Experimental client-side task support.
 
 This module provides client methods for interacting with MCP tasks.
 
@@ -37,8 +36,7 @@ ResultT = TypeVar("ResultT", bound=types.Result)
 
 
 class ExperimentalClientFeatures:
-    """
-    Experimental client features for tasks and other experimental APIs.
+    """Experimental client features for tasks and other experimental APIs.
 
     WARNING: These APIs are experimental and may change without notice.
 
@@ -108,8 +106,7 @@ class ExperimentalClientFeatures:
         )
 
     async def get_task(self, task_id: str) -> types.GetTaskResult:
-        """
-        Get the current status of a task.
+        """Get the current status of a task.
 
         Args:
             task_id: The task identifier
@@ -131,8 +128,7 @@ class ExperimentalClientFeatures:
         task_id: str,
         result_type: type[ResultT],
     ) -> ResultT:
-        """
-        Get the result of a completed task.
+        """Get the result of a completed task.
 
         The result type depends on the original request type:
         - tools/call tasks return CallToolResult
@@ -158,8 +154,7 @@ class ExperimentalClientFeatures:
         self,
         cursor: str | None = None,
     ) -> types.ListTasksResult:
-        """
-        List all tasks.
+        """List all tasks.
 
         Args:
             cursor: Optional pagination cursor
@@ -176,8 +171,7 @@ class ExperimentalClientFeatures:
         )
 
     async def cancel_task(self, task_id: str) -> types.CancelTaskResult:
-        """
-        Cancel a running task.
+        """Cancel a running task.
 
         Args:
             task_id: The task identifier
@@ -195,8 +189,7 @@ class ExperimentalClientFeatures:
         )
 
     async def poll_task(self, task_id: str) -> AsyncIterator[types.GetTaskResult]:
-        """
-        Poll a task until it reaches a terminal status.
+        """Poll a task until it reaches a terminal status.
 
         Yields GetTaskResult for each poll, allowing the caller to react to
         status changes (e.g., handle input_required). Exits when task reaches

@@ -1,6 +1,4 @@
-"""
-Tests for completion handler with context functionality.
-"""
+"""Tests for completion handler with context functionality."""
 
 from typing import Any
 

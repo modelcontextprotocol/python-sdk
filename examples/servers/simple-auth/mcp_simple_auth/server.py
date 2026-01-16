@@ -1,5 +1,4 @@
-"""
-MCP Resource Server with Token Introspection.
+"""MCP Resource Server with Token Introspection.
 
 This server validates tokens via Authorization Server introspection and serves MCP resources.
 Demonstrates RFC 9728 Protected Resource Metadata for AS/RS separation.
@@ -47,8 +46,7 @@ class ResourceServerSettings(BaseSettings):
 
 
 def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
-    """
-    Create MCP Resource Server with token introspection.
+    """Create MCP Resource Server with token introspection.
 
     This server:
     1. Provides protected resource metadata (RFC 9728)
@@ -80,8 +78,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
-        """
-        Get the current server time.
+        """Get the current server time.
 
         This tool demonstrates that system information can be protected
         by OAuth authentication. User must be authenticated to access it.
@@ -114,8 +111,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     help="Enable RFC 8707 resource validation",
 )
 def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http"], oauth_strict: bool) -> int:
-    """
-    Run the MCP Resource Server.
+    """Run the MCP Resource Server.
 
     This server:
     - Provides RFC 9728 Protected Resource Metadata

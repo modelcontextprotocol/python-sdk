@@ -1,5 +1,4 @@
-"""
-In-memory implementation of TaskStore for demonstration purposes.
+"""In-memory implementation of TaskStore for demonstration purposes.
 
 This implementation stores all tasks in memory and provides automatic cleanup
 based on the TTL duration specified in the task metadata using lazy expiration.
@@ -29,8 +28,7 @@ class StoredTask:
 
 
 class InMemoryTaskStore(TaskStore):
-    """
-    A simple in-memory implementation of TaskStore.
+    """A simple in-memory implementation of TaskStore.
 
     Features:
     - Automatic TTL-based cleanup (lazy expiration)

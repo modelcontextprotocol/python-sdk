@@ -1,5 +1,4 @@
-"""
-Tasks capability checking utilities.
+"""Tasks capability checking utilities.
 
 This module provides functions for checking and requiring task-related
 capabilities. All tasks capability logic is centralized here to keep
@@ -21,8 +20,7 @@ def check_tasks_capability(
     required: ClientTasksCapability,
     client: ClientTasksCapability,
 ) -> bool:
-    """
-    Check if client's tasks capability matches the required capability.
+    """Check if client's tasks capability matches the required capability.
 
     Args:
         required: The capability being checked for
@@ -78,8 +76,7 @@ def has_task_augmented_sampling(caps: ClientCapabilities) -> bool:
 
 
 def require_task_augmented_elicitation(client_caps: ClientCapabilities | None) -> None:
-    """
-    Raise McpError if client doesn't support task-augmented elicitation.
+    """Raise McpError if client doesn't support task-augmented elicitation.
 
     Args:
         client_caps: The client's declared capabilities, or None if not initialized
@@ -97,8 +94,7 @@ def require_task_augmented_elicitation(client_caps: ClientCapabilities | None) -
 
 
 def require_task_augmented_sampling(client_caps: ClientCapabilities | None) -> None:
-    """
-    Raise McpError if client doesn't support task-augmented sampling.
+    """Raise McpError if client doesn't support task-augmented sampling.
 
     Args:
         client_caps: The client's declared capabilities, or None if not initialized

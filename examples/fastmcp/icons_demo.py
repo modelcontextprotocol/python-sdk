@@ -1,5 +1,4 @@
-"""
-FastMCP Icons Demo Server
+"""FastMCP Icons Demo Server
 
 Demonstrates using icons with tools, resources, prompts, and implementation.
 """

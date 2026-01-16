@@ -1,5 +1,4 @@
-"""
-Tests for the four elicitation scenarios with tasks.
+"""Tests for the four elicitation scenarios with tasks.
 
 This tests all combinations of tool call types and elicitation types:
 1. Normal tool call + Normal elicitation (session.elicit)
@@ -178,8 +177,7 @@ def create_sampling_task_handlers(
 
 @pytest.mark.anyio
 async def test_scenario1_normal_tool_normal_elicitation() -> None:
-    """
-    Scenario 1: Normal tool call with normal elicitation.
+    """Scenario 1: Normal tool call with normal elicitation.
 
     Server calls session.elicit() directly, client responds immediately.
     """
@@ -259,8 +257,7 @@ async def test_scenario1_normal_tool_normal_elicitation() -> None:
 
 @pytest.mark.anyio
 async def test_scenario2_normal_tool_task_augmented_elicitation() -> None:
-    """
-    Scenario 2: Normal tool call with task-augmented elicitation.
+    """Scenario 2: Normal tool call with task-augmented elicitation.
 
     Server calls session.experimental.elicit_as_task(), client creates a task
     for the elicitation and returns CreateTaskResult. Server polls client.
@@ -340,8 +337,7 @@ async def test_scenario2_normal_tool_task_augmented_elicitation() -> None:
 
 @pytest.mark.anyio
 async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
-    """
-    Scenario 3: Task-augmented tool call with normal elicitation.
+    """Scenario 3: Task-augmented tool call with normal elicitation.
 
     Client calls tool as task. Inside the task, server uses task.elicit()
     which queues the request and delivers via tasks/result.
@@ -442,8 +438,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
 
 @pytest.mark.anyio
 async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> None:
-    """
-    Scenario 4: Task-augmented tool call with task-augmented elicitation.
+    """Scenario 4: Task-augmented tool call with task-augmented elicitation.
 
     Client calls tool as task. Inside the task, server uses task.elicit_as_task()
     which sends task-augmented elicitation. Client creates its own task for the
@@ -553,8 +548,7 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
 
 @pytest.mark.anyio
 async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
-    """
-    Scenario 2 for sampling: Normal tool call with task-augmented sampling.
+    """Scenario 2 for sampling: Normal tool call with task-augmented sampling.
 
     Server calls session.experimental.create_message_as_task(), client creates
     a task for the sampling and returns CreateTaskResult. Server polls client.
@@ -636,8 +630,7 @@ async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
 
 @pytest.mark.anyio
 async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() -> None:
-    """
-    Scenario 4 for sampling: Task-augmented tool call with task-augmented sampling.
+    """Scenario 4 for sampling: Task-augmented tool call with task-augmented sampling.
 
     Client calls tool as task. Inside the task, server uses task.create_message_as_task()
     which sends task-augmented sampling. Client creates its own task for the sampling,

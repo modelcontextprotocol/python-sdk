@@ -1,5 +1,4 @@
-"""
-Legacy Combined Authorization Server + Resource Server for MCP.
+"""Legacy Combined Authorization Server + Resource Server for MCP.
 
 This server implements the old spec where MCP servers could act as both AS and RS.
 Used for backwards compatibility testing with the new split AS/RS architecture.
@@ -87,8 +86,7 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
-        """
-        Get the current server time.
+        """Get the current server time.
 
         This tool demonstrates that system information can be protected
         by OAuth authentication. User must be authenticated to access it.

@@ -1,6 +1,5 @@
-"""
-cd to the `examples/snippets/clients` directory and run:
-    uv run client
+"""cd to the `examples/snippets/clients` directory and run:
+uv run client
 """
 
 import asyncio

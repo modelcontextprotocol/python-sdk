@@ -1,5 +1,4 @@
-"""
-Integration tests for FastMCP server functionality.
+"""Integration tests for FastMCP server functionality.
 
 These tests validate the proper functioning of FastMCP features using focused,
 single-feature servers across different transports (SSE and StreamableHTTP).

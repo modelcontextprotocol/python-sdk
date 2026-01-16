@@ -51,8 +51,7 @@ async def test_jsonrpc_request():
 
 @pytest.mark.anyio
 async def test_method_initialization():
-    """
-    Test that the method is automatically set on object creation.
+    """Test that the method is automatically set on object creation.
     Testing just for InitializeRequest to keep the test simple, but should be set for other types as well.
     """
     initialize_request = InitializeRequest(

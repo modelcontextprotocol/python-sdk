@@ -448,8 +448,7 @@ def test_complex_function_json_schema():
 
 
 def test_str_vs_int():
-    """
-    Test that string values are kept as strings even when they contain numbers,
+    """Test that string values are kept as strings even when they contain numbers,
     while numbers are parsed correctly.
     """
 
@@ -463,8 +462,7 @@ def test_str_vs_int():
 
 
 def test_str_annotation_preserves_json_string():
-    """
-    Regression test for PR #1113: Ensure that when a parameter is annotated as str,
+    """Regression test for PR #1113: Ensure that when a parameter is annotated as str,
     valid JSON strings are NOT parsed into Python objects.
 
     This test would fail before the fix (JSON string would be parsed to dict)
@@ -514,8 +512,7 @@ def test_str_annotation_preserves_json_string():
 
 @pytest.mark.anyio
 async def test_str_annotation_runtime_validation():
-    """
-    Regression test for PR #1113: Test runtime validation with string parameters
+    """Regression test for PR #1113: Test runtime validation with string parameters
     containing valid JSON to ensure they are passed as strings, not parsed objects.
     """
 

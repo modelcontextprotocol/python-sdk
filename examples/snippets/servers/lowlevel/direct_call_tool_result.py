@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
 """
 
 import asyncio

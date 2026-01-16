@@ -22,8 +22,7 @@ from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
 
 def validate_issuer_url(url: AnyHttpUrl):
-    """
-    Validate that the issuer URL meets OAuth 2.0 requirements.
+    """Validate that the issuer URL meets OAuth 2.0 requirements.
 
     Args:
         url: The issuer URL to validate
@@ -188,8 +187,7 @@ def build_metadata(
 
 
 def build_resource_metadata_url(resource_server_url: AnyHttpUrl) -> AnyHttpUrl:
-    """
-    Build RFC 9728 compliant protected resource metadata URL.
+    """Build RFC 9728 compliant protected resource metadata URL.
 
     Inserts /.well-known/oauth-protected-resource between host and resource path
     as specified in RFC 9728 §3.1.
@@ -213,8 +211,7 @@ def create_protected_resource_routes(
     resource_name: str | None = None,
     resource_documentation: AnyHttpUrl | None = None,
 ) -> list[Route]:
-    """
-    Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
+    """Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
 
     Args:
         resource_url: The URL of this resource server

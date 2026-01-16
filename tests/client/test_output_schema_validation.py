@@ -14,8 +14,7 @@ from mcp.types import Tool
 
 @contextmanager
 def bypass_server_output_validation():
-    """
-    Context manager that bypasses server-side output validation.
+    """Context manager that bypasses server-side output validation.
     This simulates a malicious or non-compliant server that doesn't validate
     its outputs, allowing us to test client-side validation.
     """

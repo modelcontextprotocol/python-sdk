@@ -13,8 +13,7 @@ from mcp.client.stdio import stdio_client
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")  # pragma: no cover
 @pytest.mark.anyio
 async def test_windows_stdio_client_with_session():
-    """
-    Test the exact scenario from issue #552: Using ClientSession with stdio_client.
+    """Test the exact scenario from issue #552: Using ClientSession with stdio_client.
 
     This reproduces the original bug report where stdio_client hangs on Windows 11
     when used with ClientSession.

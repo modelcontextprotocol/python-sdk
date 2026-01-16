@@ -95,8 +95,7 @@ class FuncMetadata(BaseModel):
             return fn(**arguments_parsed_dict)
 
     def convert_result(self, result: Any) -> Any:
-        """
-        Convert the result of a function call to the appropriate format for
+        """Convert the result of a function call to the appropriate format for
          the lowlevel server tool call handler:
 
         - If output_model is None, return the unstructured content directly.
@@ -499,8 +498,7 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
 def _convert_to_content(
     result: Any,
 ) -> Sequence[ContentBlock]:
-    """
-    Convert a result to a sequence of content objects.
+    """Convert a result to a sequence of content objects.
 
     Note: This conversion logic comes from previous versions of FastMCP and is being
     retained for purposes of backwards compatibility. It produces different unstructured

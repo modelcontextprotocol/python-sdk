@@ -129,8 +129,7 @@ async def test_request_cancellation():
 
 @pytest.mark.anyio
 async def test_response_id_type_mismatch_string_to_int():
-    """
-    Test that responses with string IDs are correctly matched to requests sent with
+    """Test that responses with string IDs are correctly matched to requests sent with
     integer IDs.
 
     This handles the case where a server returns "id": "0" (string) but the client
@@ -185,8 +184,7 @@ async def test_response_id_type_mismatch_string_to_int():
 
 @pytest.mark.anyio
 async def test_error_response_id_type_mismatch_string_to_int():
-    """
-    Test that error responses with string IDs are correctly matched to requests
+    """Test that error responses with string IDs are correctly matched to requests
     sent with integer IDs.
 
     This handles the case where a server returns an error with "id": "0" (string)
@@ -242,8 +240,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
 
 @pytest.mark.anyio
 async def test_response_id_non_numeric_string_no_match():
-    """
-    Test that responses with non-numeric string IDs don't incorrectly match
+    """Test that responses with non-numeric string IDs don't incorrectly match
     integer request IDs.
 
     If a server returns "id": "abc" (non-numeric string), it should not match
@@ -295,9 +292,7 @@ async def test_response_id_non_numeric_string_no_match():
 
 @pytest.mark.anyio
 async def test_connection_closed():
-    """
-    Test that pending requests are cancelled when the connection is closed remotely.
-    """
+    """Test that pending requests are cancelled when the connection is closed remotely."""
 
     ev_closed = anyio.Event()
     ev_response = anyio.Event()

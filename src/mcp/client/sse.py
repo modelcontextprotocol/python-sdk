@@ -37,8 +37,7 @@ async def sse_client(
     auth: httpx.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
 ):
-    """
-    Client transport for SSE.
+    """Client transport for SSE.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.

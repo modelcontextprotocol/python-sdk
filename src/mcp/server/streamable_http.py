@@ -1,5 +1,4 @@
-"""
-StreamableHTTP Server Transport Module
+"""StreamableHTTP Server Transport Module
 
 This module implements an HTTP transport layer with Streamable HTTP.
 
@@ -71,9 +70,7 @@ EventId = str
 
 @dataclass
 class EventMessage:
-    """
-    A JSONRPCMessage with an optional event ID for stream resumability.
-    """
+    """A JSONRPCMessage with an optional event ID for stream resumability."""
 
     message: JSONRPCMessage
     event_id: str | None = None
@@ -83,14 +80,11 @@ EventCallback = Callable[[EventMessage], Awaitable[None]]
 
 
 class EventStore(ABC):
-    """
-    Interface for resumability support via event storage.
-    """
+    """Interface for resumability support via event storage."""
 
     @abstractmethod
     async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
-        """
-        Stores an event for later retrieval.
+        """Stores an event for later retrieval.
 
         Args:
             stream_id: ID of the stream the event belongs to
@@ -107,8 +101,7 @@ class EventStore(ABC):
         last_event_id: EventId,
         send_callback: EventCallback,
     ) -> StreamId | None:
-        """
-        Replays events that occurred after the specified event ID.
+        """Replays events that occurred after the specified event ID.
 
         Args:
             last_event_id: The ID of the last event the client received
@@ -121,8 +114,7 @@ class EventStore(ABC):
 
 
 class StreamableHTTPServerTransport:
-    """
-    HTTP server transport with event streaming support for MCP.
+    """HTTP server transport with event streaming support for MCP.
 
     Handles JSON-RPC messages in HTTP POST requests with SSE streaming.
     Supports optional JSON responses and session management.
@@ -143,8 +135,7 @@ class StreamableHTTPServerTransport:
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
     ) -> None:
-        """
-        Initialize a new StreamableHTTP server transport.
+        """Initialize a new StreamableHTTP server transport.
 
         Args:
             mcp_session_id: Optional session identifier for this connection.
@@ -655,8 +646,7 @@ class StreamableHTTPServerTransport:
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:  # pragma: no cover
-        """
-        Handle GET request to establish SSE.
+        """Handle GET request to establish SSE.
 
         This allows the server to communicate to the client without the client
         first sending data via HTTP POST. The server can send JSON-RPC requests
@@ -875,8 +865,7 @@ class StreamableHTTPServerTransport:
         return True
 
     async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:  # pragma: no cover
-        """
-        Replays events that would have been sent after the specified event ID.
+        """Replays events that would have been sent after the specified event ID.
         Only used when resumability is enabled.
         """
         event_store = self._event_store

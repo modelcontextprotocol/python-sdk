@@ -19,8 +19,7 @@ async def websocket_client(
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
 ]:
-    """
-    WebSocket client transport for MCP, symmetrical to the server version.
+    """WebSocket client transport for MCP, symmetrical to the server version.
 
     Connects to 'url' using the 'mcp' subprotocol, then yields:
         (read_stream, write_stream)
@@ -46,8 +45,7 @@ async def websocket_client(
     async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
 
         async def ws_reader():
-            """
-            Reads text messages from the WebSocket, parses them as JSON-RPC messages,
+            """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
             and sends them into read_stream_writer.
             """
             async with read_stream_writer:
@@ -61,8 +59,7 @@ async def websocket_client(
                         await read_stream_writer.send(exc)
 
         async def ws_writer():
-            """
-            Reads JSON-RPC messages from write_stream_reader and
+            """Reads JSON-RPC messages from write_stream_reader and
             sends them to the server.
             """
             async with write_stream_reader:

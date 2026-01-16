@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/clients/streamable_basic.py
+"""Run from the repository root:
+uv run examples/snippets/clients/streamable_basic.py
 """
 
 import asyncio

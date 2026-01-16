@@ -1,6 +1,4 @@
-"""
-Tests for OAuth error handling in the auth handlers.
-"""
+"""Tests for OAuth error handling in the auth handlers."""
 
 import base64
 import hashlib

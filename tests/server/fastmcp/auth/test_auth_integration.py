@@ -1,6 +1,4 @@
-"""
-Integration tests for MCP authorization components.
-"""
+"""Integration tests for MCP authorization components."""
 
 import base64
 import hashlib

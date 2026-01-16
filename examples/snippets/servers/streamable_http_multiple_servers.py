@@ -1,5 +1,4 @@
-"""
-Example showing how to mount multiple StreamableHTTP servers with path configuration.
+"""Example showing how to mount multiple StreamableHTTP servers with path configuration.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload

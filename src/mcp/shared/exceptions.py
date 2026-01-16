@@ -6,9 +6,7 @@ from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorDat
 
 
 class McpError(Exception):
-    """
-    Exception type raised when an error arrives over an MCP connection.
-    """
+    """Exception type raised when an error arrives over an MCP connection."""
 
     error: ErrorData
 
@@ -19,8 +17,7 @@ class McpError(Exception):
 
 
 class StatelessModeNotSupported(RuntimeError):
-    """
-    Raised when attempting to use a method that is not supported in stateless mode.
+    """Raised when attempting to use a method that is not supported in stateless mode.
 
     Server-to-client requests (sampling, elicitation, list_roots) are not
     supported in stateless HTTP mode because there is no persistent connection
@@ -37,8 +34,7 @@ class StatelessModeNotSupported(RuntimeError):
 
 
 class UrlElicitationRequiredError(McpError):
-    """
-    Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
+    """Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
 
     Servers can raise this error from tool handlers to indicate that the client
     must complete one or more URL elicitations before the request can be processed.

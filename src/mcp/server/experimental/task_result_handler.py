@@ -1,5 +1,4 @@
-"""
-TaskResultHandler - Integrated handler for tasks/result endpoint.
+"""TaskResultHandler - Integrated handler for tasks/result endpoint.
 
 This implements the dequeue-send-wait pattern from the MCP Tasks spec:
 1. Dequeue all pending messages for the task
@@ -36,8 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class TaskResultHandler:
-    """
-    Handler for tasks/result that implements the message queue pattern.
+    """Handler for tasks/result that implements the message queue pattern.
 
     This handler:
     1. Dequeues pending messages (elicitations, notifications) for the task
@@ -75,8 +73,7 @@ class TaskResultHandler:
         session: ServerSession,
         message: SessionMessage,
     ) -> None:
-        """
-        Send a message via the session.
+        """Send a message via the session.
 
         This is a helper for delivering queued task messages.
         """
@@ -88,8 +85,7 @@ class TaskResultHandler:
         session: ServerSession,
         request_id: RequestId,
     ) -> GetTaskPayloadResult:
-        """
-        Handle a tasks/result request.
+        """Handle a tasks/result request.
 
         This implements the dequeue-send-wait loop:
         1. Dequeue all pending messages
@@ -144,8 +140,7 @@ class TaskResultHandler:
         session: ServerSession,
         request_id: RequestId,
     ) -> None:
-        """
-        Dequeue and send all pending messages for a task.
+        """Dequeue and send all pending messages for a task.
 
         Each message is sent via the session's write stream with
         relatedRequestId set so responses route back to this stream.
@@ -172,8 +167,7 @@ class TaskResultHandler:
             await self.send_message(session, session_message)
 
     async def _wait_for_task_update(self, task_id: str) -> None:
-        """
-        Wait for task to be updated (status change or new message).
+        """Wait for task to be updated (status change or new message).
 
         Races between store update and queue message - first one wins.
         """
@@ -199,8 +193,7 @@ class TaskResultHandler:
             tg.start_soon(wait_for_queue)
 
     def route_response(self, request_id: RequestId, response: dict[str, Any]) -> bool:
-        """
-        Route a response back to the waiting resolver.
+        """Route a response back to the waiting resolver.
 
         This is called when a response arrives for a queued request.
 
@@ -218,8 +211,7 @@ class TaskResultHandler:
         return False
 
     def route_error(self, request_id: RequestId, error: ErrorData) -> bool:
-        """
-        Route an error back to the waiting resolver.
+        """Route an error back to the waiting resolver.
 
         Args:
             request_id: The request ID from the error response

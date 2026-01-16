@@ -1,5 +1,4 @@
-"""
-Tests for the simplified task API: enable_tasks() + run_task()
+"""Tests for the simplified task API: enable_tasks() + run_task()
 
 This tests the recommended user flow:
 1. server.experimental.enable_tasks() - one-line setup
@@ -45,8 +44,7 @@ from mcp.types import (
 
 @pytest.mark.anyio
 async def test_run_task_basic_flow() -> None:
-    """
-    Test the basic run_task flow without elicitation.
+    """Test the basic run_task flow without elicitation.
 
     1. enable_tasks() sets up handlers
     2. Client calls tool with task field
@@ -143,9 +141,7 @@ async def test_run_task_basic_flow() -> None:
 
 @pytest.mark.anyio
 async def test_run_task_auto_fails_on_exception() -> None:
-    """
-    Test that run_task automatically fails the task when work raises.
-    """
+    """Test that run_task automatically fails the task when work raises."""
     server = Server("test-run-task-fail")
     server.experimental.enable_tasks()
 
@@ -210,9 +206,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
 
 @pytest.mark.anyio
 async def test_enable_tasks_auto_registers_handlers() -> None:
-    """
-    Test that enable_tasks() auto-registers get_task, list_tasks, cancel_task handlers.
-    """
+    """Test that enable_tasks() auto-registers get_task, list_tasks, cancel_task handlers."""
     server = Server("test-enable-tasks")
 
     # Before enable_tasks, no task capabilities
