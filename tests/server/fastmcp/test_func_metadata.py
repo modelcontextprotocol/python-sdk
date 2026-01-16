@@ -850,7 +850,7 @@ def test_tool_call_result_annotated_is_structured_and_converted():
         name: str
 
     def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:  # pragma: no cover
-        return CallToolResult(content=[], structuredContent={"name": "Brandon"})
+        return CallToolResult(content=[], structured_content={"name": "Brandon"})
 
     meta = func_metadata(func_returning_annotated_tool_call_result)
 
@@ -870,7 +870,7 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
         name: str
 
     def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:  # pragma: no cover
-        return CallToolResult(content=[], structuredContent={"person": "Brandon"})
+        return CallToolResult(content=[], structured_content={"person": "Brandon"})
 
     meta = func_metadata(func_returning_annotated_tool_call_result)
 

@@ -301,7 +301,7 @@ class BaseSession(
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:
-                return result_type.model_validate(response_or_error.result)
+                return result_type.model_validate(response_or_error.result, by_name=False)
 
         finally:
             self._response_streams.pop(request_id, None)
@@ -356,7 +356,8 @@ class BaseSession(
                     elif isinstance(message.message.root, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                by_name=False,
                             )
                             responder = RequestResponder(
                                 request_id=message.message.root.id,
@@ -393,17 +394,18 @@ class BaseSession(
                     elif isinstance(message.message.root, JSONRPCNotification):
                         try:
                             notification = self._receive_notification_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                by_name=False,
                             )
                             # Handle cancellation notifications
                             if isinstance(notification.root, CancelledNotification):
-                                cancelled_id = notification.root.params.requestId
+                                cancelled_id = notification.root.params.request_id
                                 if cancelled_id in self._in_flight:  # pragma: no branch
                                     await self._in_flight[cancelled_id].cancel()
                             else:
                                 # Handle progress notifications callback
                                 if isinstance(notification.root, ProgressNotification):  # pragma: no cover
-                                    progress_token = notification.root.params.progressToken
+                                    progress_token = notification.root.params.progress_token
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
                                     if progress_token in self._progress_callbacks:

@@ -81,11 +81,11 @@ async def test_task_lifecycle_with_task_execution() -> None:
             Tool(
                 name="process_data",
                 description="Process data asynchronously",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {"input": {"type": "string"}},
                 },
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+                execution=ToolExecution(task_support=TASK_REQUIRED),
             )
         ]
 
@@ -101,11 +101,11 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
             # 2. Create event to signal completion (for testing)
             done_event = Event()
-            app.task_done_events[task.taskId] = done_event
+            app.task_done_events[task.task_id] = done_event
 
             # 3. Define work function using task_execution for safety
             async def do_work():
-                async with task_execution(task.taskId, app.store) as task_ctx:
+                async with task_execution(task.task_id, app.store) as task_ctx:
                     await task_ctx.update_status("Processing input...")
                     # Simulate work
                     input_value = arguments.get("input", "")
@@ -126,16 +126,16 @@ async def test_task_lifecycle_with_task_execution() -> None:
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.taskId)
-        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
+        task = await app.store.get_task(request.params.task_id)
+        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
         return GetTaskResult(
-            taskId=task.taskId,
+            task_id=task.task_id,
             status=task.status,
-            statusMessage=task.statusMessage,
-            createdAt=task.createdAt,
-            lastUpdatedAt=task.lastUpdatedAt,
+            status_message=task.status_message,
+            created_at=task.created_at,
+            last_updated_at=task.last_updated_at,
             ttl=task.ttl,
-            pollInterval=task.pollInterval,
+            poll_interval=task.poll_interval,
         )
 
     @server.experimental.get_task_result()
@@ -143,8 +143,8 @@ async def test_task_lifecycle_with_task_execution() -> None:
         request: GetTaskPayloadRequest,
     ) -> GetTaskPayloadResult:
         app = server.request_context.lifespan_context
-        result = await app.store.get_result(request.params.taskId)
-        assert result is not None, f"Test setup error: result for {request.params.taskId} should exist"
+        result = await app.store.get_result(request.params.task_id)
+        assert result is not None, f"Test setup error: result for {request.params.task_id} should exist"
         assert isinstance(result, CallToolResult)
         # Return as GetTaskPayloadResult (which accepts extra fields)
         return GetTaskPayloadResult(**result.model_dump())
@@ -205,22 +205,22 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
             assert isinstance(create_result, CreateTaskResult)
             assert create_result.task.status == "working"
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
 
             # === Step 2: Wait for task to complete ===
             await app_context.task_done_events[task_id].wait()
 
             task_status = await client_session.send_request(
-                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))),
+                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))),
                 GetTaskResult,
             )
 
-            assert task_status.taskId == task_id
+            assert task_status.task_id == task_id
             assert task_status.status == "completed"
 
             # === Step 3: Retrieve the actual result ===
             task_result = await client_session.send_request(
-                ClientRequest(GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task_id))),
+                ClientRequest(GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task_id))),
                 CallToolResult,
             )
 
@@ -245,7 +245,7 @@ async def test_task_auto_fails_on_exception() -> None:
             Tool(
                 name="failing_task",
                 description="A task that fails",
-                inputSchema={"type": "object", "properties": {}},
+                input_schema={"type": "object", "properties": {}},
             )
         ]
 
@@ -260,10 +260,10 @@ async def test_task_auto_fails_on_exception() -> None:
 
             # Create event to signal completion (for testing)
             done_event = Event()
-            app.task_done_events[task.taskId] = done_event
+            app.task_done_events[task.task_id] = done_event
 
             async def do_failing_work():
-                async with task_execution(task.taskId, app.store) as task_ctx:
+                async with task_execution(task.task_id, app.store) as task_ctx:
                     await task_ctx.update_status("About to fail...")
                     raise RuntimeError("Something went wrong!")
                     # Note: complete() is never called, but task_execution
@@ -279,16 +279,16 @@ async def test_task_auto_fails_on_exception() -> None:
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.taskId)
-        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
+        task = await app.store.get_task(request.params.task_id)
+        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
         return GetTaskResult(
-            taskId=task.taskId,
+            task_id=task.task_id,
             status=task.status,
-            statusMessage=task.statusMessage,
-            createdAt=task.createdAt,
-            lastUpdatedAt=task.lastUpdatedAt,
+            status_message=task.status_message,
+            created_at=task.created_at,
+            last_updated_at=task.last_updated_at,
             ttl=task.ttl,
-            pollInterval=task.pollInterval,
+            poll_interval=task.poll_interval,
         )
 
     # Set up streams
@@ -340,18 +340,18 @@ async def test_task_auto_fails_on_exception() -> None:
                 CreateTaskResult,
             )
 
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
 
             # Wait for task to complete (even though it fails)
             await app_context.task_done_events[task_id].wait()
 
             # Check that task was auto-failed
             task_status = await client_session.send_request(
-                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))),
+                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))),
                 GetTaskResult,
             )
 
             assert task_status.status == "failed"
-            assert task_status.statusMessage == "Something went wrong!"
+            assert task_status.status_message == "Something went wrong!"
 
             tg.cancel_scope.cancel()

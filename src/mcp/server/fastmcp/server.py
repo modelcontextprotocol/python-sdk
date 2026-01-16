@@ -305,8 +305,8 @@ class FastMCP(Generic[LifespanResultT]):
                 name=info.name,
                 title=info.title,
                 description=info.description,
-                inputSchema=info.parameters,
-                outputSchema=info.output_schema,
+                input_schema=info.parameters,
+                output_schema=info.output_schema,
                 annotations=info.annotations,
                 icons=info.icons,
                 _meta=info.meta,
@@ -340,7 +340,7 @@ class FastMCP(Generic[LifespanResultT]):
                 name=resource.name or "",
                 title=resource.title,
                 description=resource.description,
-                mimeType=resource.mime_type,
+                mime_type=resource.mime_type,
                 icons=resource.icons,
                 annotations=resource.annotations,
                 _meta=resource.meta,
@@ -352,11 +352,11 @@ class FastMCP(Generic[LifespanResultT]):
         templates = self._resource_manager.list_templates()
         return [
             MCPResourceTemplate(
-                uriTemplate=template.uri_template,
+                uri_template=template.uri_template,
                 name=template.name,
                 title=template.title,
                 description=template.description,
-                mimeType=template.mime_type,
+                mime_type=template.mime_type,
                 icons=template.icons,
                 annotations=template.annotations,
                 _meta=template.meta,
@@ -1104,7 +1104,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             total: Optional total value e.g. 100
             message: Optional message e.g. Starting render...
         """
-        progress_token = self.request_context.meta.progressToken if self.request_context.meta else None
+        progress_token = self.request_context.meta.progress_token if self.request_context.meta else None
 
         if progress_token is None:  # pragma: no cover
             return

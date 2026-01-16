@@ -15,8 +15,8 @@ async def test_task_context_properties() -> None:
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     ctx = TaskContext(task, store)
 
-    assert ctx.task_id == task.taskId
-    assert ctx.task.taskId == task.taskId
+    assert ctx.task_id == task.task_id
+    assert ctx.task.task_id == task.task_id
     assert ctx.task.status == "working"
     assert ctx.is_cancelled is False
 
@@ -33,9 +33,9 @@ async def test_task_context_update_status() -> None:
     await ctx.update_status("Processing step 1...")
 
     # Check status message was updated
-    updated = await store.get_task(task.taskId)
+    updated = await store.get_task(task.task_id)
     assert updated is not None
-    assert updated.statusMessage == "Processing step 1..."
+    assert updated.status_message == "Processing step 1..."
 
     store.cleanup()
 
@@ -51,12 +51,12 @@ async def test_task_context_complete() -> None:
     await ctx.complete(result)
 
     # Check task status
-    updated = await store.get_task(task.taskId)
+    updated = await store.get_task(task.task_id)
     assert updated is not None
     assert updated.status == "completed"
 
     # Check result is stored
-    stored_result = await store.get_result(task.taskId)
+    stored_result = await store.get_result(task.task_id)
     assert stored_result is not None
 
     store.cleanup()
@@ -72,10 +72,10 @@ async def test_task_context_fail() -> None:
     await ctx.fail("Something went wrong!")
 
     # Check task status
-    updated = await store.get_task(task.taskId)
+    updated = await store.get_task(task.task_id)
     assert updated is not None
     assert updated.status == "failed"
-    assert updated.statusMessage == "Something went wrong!"
+    assert updated.status_message == "Something went wrong!"
 
     store.cleanup()
 
@@ -101,13 +101,13 @@ def test_create_task_state_generates_id() -> None:
     task1 = create_task_state(TaskMetadata(ttl=60000))
     task2 = create_task_state(TaskMetadata(ttl=60000))
 
-    assert task1.taskId != task2.taskId
+    assert task1.task_id != task2.task_id
 
 
 def test_create_task_state_uses_provided_id() -> None:
     """create_task_state uses the provided task ID."""
     task = create_task_state(TaskMetadata(ttl=60000), task_id="my-task-123")
-    assert task.taskId == "my-task-123"
+    assert task.task_id == "my-task-123"
 
 
 def test_create_task_state_null_ttl() -> None:
@@ -119,7 +119,7 @@ def test_create_task_state_null_ttl() -> None:
 def test_create_task_state_has_created_at() -> None:
     """create_task_state sets createdAt timestamp."""
     task = create_task_state(TaskMetadata(ttl=60000))
-    assert task.createdAt is not None
+    assert task.created_at is not None
 
 
 @pytest.mark.anyio
@@ -148,7 +148,7 @@ async def test_task_execution_auto_fails_on_exception() -> None:
     failed_task = await store.get_task("exec-fail-1")
     assert failed_task is not None
     assert failed_task.status == "failed"
-    assert "Oops!" in (failed_task.statusMessage or "")
+    assert "Oops!" in (failed_task.status_message or "")
 
     store.cleanup()
 

@@ -49,7 +49,7 @@ class UrlElicitationRequiredError(McpError):
                 mode="url",
                 message="Authorization required for your files",
                 url="https://example.com/oauth/authorize",
-                elicitationId="auth-001"
+                elicitation_id="auth-001"
             )
         ])
     """

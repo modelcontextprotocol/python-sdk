@@ -32,7 +32,7 @@ async def test_url_elicitation_accept():
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.url == "https://example.com/api_key_setup"
-        assert params.elicitationId == "test-elicitation-001"
+        assert params.elicitation_id == "test-elicitation-001"
         assert params.message == "Please provide your API key to continue."
         return ElicitResult(action="accept")
 
@@ -160,9 +160,9 @@ async def test_url_no_content_in_response():
         # Verify that this is URL mode
         assert params.mode == "url"
         assert isinstance(params, types.ElicitRequestURLParams)
-        # URL params have url and elicitationId, not requestedSchema
+        # URL params have url and elicitation_id, not requested_schema
         assert params.url == "https://example.com/test"
-        assert params.elicitationId == "test-001"
+        assert params.elicitation_id == "test-001"
         # Return without content - this is correct for URL mode
         return ElicitResult(action="accept")
 
@@ -199,8 +199,8 @@ async def test_form_mode_still_works():
         # Verify form mode parameters
         assert params.mode == "form"
         assert isinstance(params, types.ElicitRequestFormParams)
-        # Form params have requestedSchema, not url/elicitationId
-        assert params.requestedSchema is not None
+        # Form params have requested_schema, not url/elicitation_id
+        assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"name": "Alice"})
 
     async with create_connected_server_and_client_session(
@@ -341,7 +341,7 @@ async def test_deprecated_elicit_method():
         # Use the deprecated elicit() method which should call elicit_form()
         result = await ctx.session.elicit(
             message="Enter your email",
-            requestedSchema=EmailSchema.model_json_schema(),
+            requested_schema=EmailSchema.model_json_schema(),
         )
 
         if result.action == "accept" and result.content:
@@ -351,7 +351,7 @@ async def test_deprecated_elicit_method():
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         # Verify this is form mode
         assert params.mode == "form"
-        assert params.requestedSchema is not None
+        assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"email": "test@example.com"})
 
     async with create_connected_server_and_client_session(
@@ -382,7 +382,7 @@ async def test_ctx_elicit_url_convenience_method():
 
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
-        assert params.elicitationId == "ctx-test-001"
+        assert params.elicitation_id == "ctx-test-001"
         return ElicitResult(action="accept")
 
     async with create_connected_server_and_client_session(

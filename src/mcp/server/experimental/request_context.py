@@ -122,7 +122,7 @@ class Experimental:
         Returns:
             None if valid, ErrorData if invalid and raise_error=False
         """
-        mode = tool.execution.taskSupport if tool.execution else None
+        mode = tool.execution.task_support if tool.execution else None
         return self.validate_task_mode(mode, raise_error=raise_error)
 
     def can_use_tool(self, tool_task_mode: TaskExecutionMode | None) -> bool:

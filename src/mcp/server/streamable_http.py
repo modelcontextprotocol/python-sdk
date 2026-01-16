@@ -471,7 +471,7 @@ class StreamableHTTPServerTransport:
                 return
 
             try:  # pragma: no cover
-                message = JSONRPCMessage.model_validate(raw_message)
+                message = JSONRPCMessage.model_validate(raw_message, by_name=False)
             except ValidationError as e:  # pragma: no cover
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",

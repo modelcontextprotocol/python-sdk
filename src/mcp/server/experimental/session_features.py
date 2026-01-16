@@ -52,7 +52,7 @@ class ExperimentalServerSessionFeatures:
             GetTaskResult containing the task status
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskRequest(params=types.GetTaskRequestParams(taskId=task_id))),
+            types.ServerRequest(types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id))),
             types.GetTaskResult,
         )
 
@@ -72,7 +72,7 @@ class ExperimentalServerSessionFeatures:
             The task result, validated against result_type
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(taskId=task_id))),
+            types.ServerRequest(types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(task_id=task_id))),
             result_type,
         )
 
@@ -97,7 +97,7 @@ class ExperimentalServerSessionFeatures:
     async def elicit_as_task(
         self,
         message: str,
-        requestedSchema: types.ElicitRequestedSchema,
+        requested_schema: types.ElicitRequestedSchema,
         *,
         ttl: int = 60000,
     ) -> types.ElicitResult:
@@ -113,7 +113,7 @@ class ExperimentalServerSessionFeatures:
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response
+            requested_schema: Schema defining the expected response
             ttl: Task time-to-live in milliseconds
 
         Returns:
@@ -130,7 +130,7 @@ class ExperimentalServerSessionFeatures:
                 types.ElicitRequest(
                     params=types.ElicitRequestFormParams(
                         message=message,
-                        requestedSchema=requestedSchema,
+                        requested_schema=requested_schema,
                         task=types.TaskMetadata(ttl=ttl),
                     )
                 )
@@ -138,7 +138,7 @@ class ExperimentalServerSessionFeatures:
             types.CreateTaskResult,
         )
 
-        task_id = create_result.task.taskId
+        task_id = create_result.task.task_id
 
         async for _ in self.poll_task(task_id):
             pass
@@ -196,15 +196,15 @@ class ExperimentalServerSessionFeatures:
                 types.CreateMessageRequest(
                     params=types.CreateMessageRequestParams(
                         messages=messages,
-                        maxTokens=max_tokens,
-                        systemPrompt=system_prompt,
-                        includeContext=include_context,
+                        max_tokens=max_tokens,
+                        system_prompt=system_prompt,
+                        include_context=include_context,
                         temperature=temperature,
-                        stopSequences=stop_sequences,
+                        stop_sequences=stop_sequences,
                         metadata=metadata,
-                        modelPreferences=model_preferences,
+                        model_preferences=model_preferences,
                         tools=tools,
-                        toolChoice=tool_choice,
+                        tool_choice=tool_choice,
                         task=types.TaskMetadata(ttl=ttl),
                     )
                 )
@@ -212,7 +212,7 @@ class ExperimentalServerSessionFeatures:
             types.CreateTaskResult,
         )
 
-        task_id = create_result.task.taskId
+        task_id = create_result.task.task_id
 
         async for _ in self.poll_task(task_id):
             pass

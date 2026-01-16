@@ -125,7 +125,7 @@ def test_resource_contents_uri_json_roundtrip():
         contents = types.TextResourceContents(
             uri=uri_str,
             text="data",
-            mimeType="text/plain",
+            mime_type="text/plain",
         )
         json_data = contents.model_dump(mode="json")
         restored = types.TextResourceContents.model_validate(json_data)

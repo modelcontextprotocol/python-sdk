@@ -129,7 +129,7 @@ class ServerSession(
         if capability.roots is not None:
             if client_caps.roots is None:
                 return False
-            if capability.roots.listChanged and not client_caps.roots.listChanged:
+            if capability.roots.list_changed and not client_caps.roots.list_changed:
                 return False
 
         if capability.sampling is not None:
@@ -165,23 +165,23 @@ class ServerSession(
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request.root:
             case types.InitializeRequest(params=params):
-                requested_version = params.protocolVersion
+                requested_version = params.protocol_version
                 self._initialization_state = InitializationState.Initializing
                 self._client_params = params
                 with responder:
                     await responder.respond(
                         types.ServerResult(
                             types.InitializeResult(
-                                protocolVersion=requested_version
+                                protocol_version=requested_version
                                 if requested_version in SUPPORTED_PROTOCOL_VERSIONS
                                 else types.LATEST_PROTOCOL_VERSION,
                                 capabilities=self._init_options.capabilities,
-                                serverInfo=types.Implementation(
+                                server_info=types.Implementation(
                                     name=self._init_options.server_name,
                                     title=self._init_options.title,
                                     description=self._init_options.description,
                                     version=self._init_options.server_version,
-                                    websiteUrl=self._init_options.website_url,
+                                    website_url=self._init_options.website_url,
                                     icons=self._init_options.icons,
                                 ),
                                 instructions=self._init_options.instructions,
@@ -327,15 +327,15 @@ class ServerSession(
             types.CreateMessageRequest(
                 params=types.CreateMessageRequestParams(
                     messages=messages,
-                    systemPrompt=system_prompt,
-                    includeContext=include_context,
+                    system_prompt=system_prompt,
+                    include_context=include_context,
                     temperature=temperature,
-                    maxTokens=max_tokens,
-                    stopSequences=stop_sequences,
+                    max_tokens=max_tokens,
+                    stop_sequences=stop_sequences,
                     metadata=metadata,
-                    modelPreferences=model_preferences,
+                    model_preferences=model_preferences,
                     tools=tools,
-                    toolChoice=tool_choice,
+                    tool_choice=tool_choice,
                 ),
             )
         )
@@ -366,14 +366,14 @@ class ServerSession(
     async def elicit(
         self,
         message: str,
-        requestedSchema: types.ElicitRequestedSchema,
+        requested_schema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
     ) -> types.ElicitResult:
         """Send a form mode elicitation/create request.
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response structure
+            requested_schema: Schema defining the expected response structure
             related_request_id: Optional ID of the request that triggered this elicitation
 
         Returns:
@@ -383,19 +383,19 @@ class ServerSession(
             This method is deprecated in favor of elicit_form(). It remains for
             backward compatibility but new code should use elicit_form().
         """
-        return await self.elicit_form(message, requestedSchema, related_request_id)
+        return await self.elicit_form(message, requested_schema, related_request_id)
 
     async def elicit_form(
         self,
         message: str,
-        requestedSchema: types.ElicitRequestedSchema,
+        requested_schema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
     ) -> types.ElicitResult:
         """Send a form mode elicitation/create request.
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response structure
+            requested_schema: Schema defining the expected response structure
             related_request_id: Optional ID of the request that triggered this elicitation
 
         Returns:
@@ -411,7 +411,7 @@ class ServerSession(
                 types.ElicitRequest(
                     params=types.ElicitRequestFormParams(
                         message=message,
-                        requestedSchema=requestedSchema,
+                        requested_schema=requested_schema,
                     ),
                 )
             ),
@@ -451,7 +451,7 @@ class ServerSession(
                     params=types.ElicitRequestURLParams(
                         message=message,
                         url=url,
-                        elicitationId=elicitation_id,
+                        elicitation_id=elicitation_id,
                     ),
                 )
             ),
@@ -479,7 +479,7 @@ class ServerSession(
             types.ServerNotification(
                 types.ProgressNotification(
                     params=types.ProgressNotificationParams(
-                        progressToken=progress_token,
+                        progress_token=progress_token,
                         progress=progress,
                         total=total,
                         message=message,
@@ -519,7 +519,7 @@ class ServerSession(
         await self.send_notification(
             types.ServerNotification(
                 types.ElicitCompleteNotification(
-                    params=types.ElicitCompleteNotificationParams(elicitationId=elicitation_id)
+                    params=types.ElicitCompleteNotificationParams(elicitation_id=elicitation_id)
                 )
             ),
             related_request_id,
@@ -528,7 +528,7 @@ class ServerSession(
     def _build_elicit_form_request(
         self,
         message: str,
-        requestedSchema: types.ElicitRequestedSchema,
+        requested_schema: types.ElicitRequestedSchema,
         related_task_id: str | None = None,
         task: types.TaskMetadata | None = None,
     ) -> types.JSONRPCRequest:
@@ -536,7 +536,7 @@ class ServerSession(
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response structure
+            requested_schema: Schema defining the expected response structure
             related_task_id: If provided, adds io.modelcontextprotocol/related-task metadata
             task: If provided, makes this a task-augmented request
 
@@ -545,7 +545,7 @@ class ServerSession(
         """
         params = types.ElicitRequestFormParams(
             message=message,
-            requestedSchema=requestedSchema,
+            requested_schema=requested_schema,
             task=task,
         )
         params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -556,7 +556,7 @@ class ServerSession(
             if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
-                taskId=related_task_id
+                task_id=related_task_id
             ).model_dump(by_alias=True)
 
         request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
@@ -591,7 +591,7 @@ class ServerSession(
         params = types.ElicitRequestURLParams(
             message=message,
             url=url,
-            elicitationId=elicitation_id,
+            elicitation_id=elicitation_id,
         )
         params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
 
@@ -601,7 +601,7 @@ class ServerSession(
             if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
-                taskId=related_task_id
+                task_id=related_task_id
             ).model_dump(by_alias=True)
 
         request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id
@@ -652,15 +652,15 @@ class ServerSession(
         """
         params = types.CreateMessageRequestParams(
             messages=messages,
-            systemPrompt=system_prompt,
-            includeContext=include_context,
+            system_prompt=system_prompt,
+            include_context=include_context,
             temperature=temperature,
-            maxTokens=max_tokens,
-            stopSequences=stop_sequences,
+            max_tokens=max_tokens,
+            stop_sequences=stop_sequences,
             metadata=metadata,
-            modelPreferences=model_preferences,
+            model_preferences=model_preferences,
             tools=tools,
-            toolChoice=tool_choice,
+            tool_choice=tool_choice,
             task=task,
         )
         params_data = params.model_dump(by_alias=True, mode="json", exclude_none=True)
@@ -671,7 +671,7 @@ class ServerSession(
             if "_meta" not in params_data:  # pragma: no cover
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
-                taskId=related_task_id
+                task_id=related_task_id
             ).model_dump(by_alias=True)
 
         request_id = f"task-{related_task_id}-{id(params)}" if related_task_id else self._request_id

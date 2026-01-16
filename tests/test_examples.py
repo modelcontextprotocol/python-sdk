@@ -55,8 +55,8 @@ async def test_direct_call_tool_result_return():
         content = result.content[0]
         assert isinstance(content, TextContent)
         assert content.text == "hello"
-        assert result.structuredContent
-        assert result.structuredContent["text"] == "hello"
+        assert result.structured_content
+        assert result.structured_content["text"] == "hello"
         assert isinstance(result.meta, dict)
         assert result.meta["some"] == "metadata"
 

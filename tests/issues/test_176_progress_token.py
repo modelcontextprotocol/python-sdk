@@ -17,7 +17,7 @@ async def test_progress_token_zero_first_call():
 
     # Create request context with progress token 0
     mock_meta = MagicMock()
-    mock_meta.progressToken = 0  # This is the key test case - token is 0
+    mock_meta.progress_token = 0  # This is the key test case - token is 0
 
     request_context = RequestContext(
         request_id="test-request",

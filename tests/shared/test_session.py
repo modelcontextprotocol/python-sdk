@@ -82,7 +82,7 @@ async def test_request_cancellation():
                 types.Tool(
                     name="slow_tool",
                     description="A slow tool that takes 10 seconds to complete",
-                    inputSchema={},
+                    input_schema={},
                 )
             ]
 

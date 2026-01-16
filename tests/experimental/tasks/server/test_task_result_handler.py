@@ -53,13 +53,13 @@ async def test_handle_returns_result_for_completed_task(
     """Test that handle() returns the stored result for a completed task."""
     task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
     result = CallToolResult(content=[TextContent(type="text", text="Done!")])
-    await store.store_result(task.taskId, result)
-    await store.update_task(task.taskId, status="completed")
+    await store.store_result(task.task_id, result)
+    await store.update_task(task.task_id, status="completed")
 
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
 
-    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task.taskId))
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
     response = await handler.handle(request, mock_session, "req-1")
 
     assert response is not None
@@ -73,7 +73,7 @@ async def test_handle_raises_for_nonexistent_task(
 ) -> None:
     """Test that handle() raises McpError for nonexistent task."""
     mock_session = Mock()
-    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId="nonexistent"))
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="nonexistent"))
 
     with pytest.raises(McpError) as exc_info:
         await handler.handle(request, mock_session, "req-1")
@@ -87,12 +87,12 @@ async def test_handle_returns_empty_result_when_no_result_stored(
 ) -> None:
     """Test that handle() returns minimal result when task completed without stored result."""
     task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
-    await store.update_task(task.taskId, status="completed")
+    await store.update_task(task.task_id, status="completed")
 
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
 
-    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task.taskId))
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
     response = await handler.handle(request, mock_session, "req-1")
 
     assert response is not None
@@ -116,8 +116,8 @@ async def test_handle_delivers_queued_messages(
             params={},
         ),
     )
-    await queue.enqueue(task.taskId, queued_msg)
-    await store.update_task(task.taskId, status="completed")
+    await queue.enqueue(task.task_id, queued_msg)
+    await store.update_task(task.task_id, status="completed")
 
     sent_messages: list[SessionMessage] = []
 
@@ -127,7 +127,7 @@ async def test_handle_delivers_queued_messages(
     mock_session = Mock()
     mock_session.send_message = track_send
 
-    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task.taskId))
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
     await handler.handle(request, mock_session, "req-1")
 
     assert len(sent_messages) == 1
@@ -143,7 +143,7 @@ async def test_handle_waits_for_task_completion(
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
 
-    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task.taskId))
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
     result_holder: list[GetTaskPayloadResult | None] = [None]
 
     async def run_handle() -> None:
@@ -153,11 +153,11 @@ async def test_handle_waits_for_task_completion(
         tg.start_soon(run_handle)
 
         # Wait for handler to start waiting (event gets created when wait starts)
-        while task.taskId not in store._update_events:
+        while task.task_id not in store._update_events:
             await anyio.sleep(0)
 
-        await store.store_result(task.taskId, CallToolResult(content=[TextContent(type="text", text="Done")]))
-        await store.update_task(task.taskId, status="completed")
+        await store.store_result(task.task_id, CallToolResult(content=[TextContent(type="text", text="Done")]))
+        await store.update_task(task.task_id, status="completed")
 
     assert result_holder[0] is not None
 
@@ -248,12 +248,12 @@ async def test_deliver_registers_resolver_for_request_messages(
         resolver=resolver,
         original_request_id="inner-req-1",
     )
-    await queue.enqueue(task.taskId, queued_msg)
+    await queue.enqueue(task.task_id, queued_msg)
 
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
 
-    await handler._deliver_queued_messages(task.taskId, mock_session, "outer-req-1")
+    await handler._deliver_queued_messages(task.task_id, mock_session, "outer-req-1")
 
     assert "inner-req-1" in handler._pending_requests
     assert handler._pending_requests["inner-req-1"] is resolver
@@ -278,12 +278,12 @@ async def test_deliver_skips_resolver_registration_when_no_original_id(
         resolver=resolver,
         original_request_id=None,  # No original request ID
     )
-    await queue.enqueue(task.taskId, queued_msg)
+    await queue.enqueue(task.task_id, queued_msg)
 
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
 
-    await handler._deliver_queued_messages(task.taskId, mock_session, "outer-req-1")
+    await handler._deliver_queued_messages(task.task_id, mock_session, "outer-req-1")
 
     # Resolver should NOT be registered since original_request_id is None
     assert len(handler._pending_requests) == 0
@@ -307,10 +307,10 @@ async def test_wait_for_task_update_handles_store_exception(
     # Queue a message to unblock the race via the queue path
     async def enqueue_later() -> None:
         # Wait for queue to start waiting (event gets created when wait starts)
-        while task.taskId not in queue._events:
+        while task.task_id not in queue._events:
             await anyio.sleep(0)
         await queue.enqueue(
-            task.taskId,
+            task.task_id,
             QueuedMessage(
                 type="notification",
                 message=JSONRPCRequest(
@@ -325,7 +325,7 @@ async def test_wait_for_task_update_handles_store_exception(
     async with anyio.create_task_group() as tg:
         tg.start_soon(enqueue_later)
         # This should complete via the queue path even though store raises
-        await handler._wait_for_task_update(task.taskId)
+        await handler._wait_for_task_update(task.task_id)
 
 
 @pytest.mark.anyio
@@ -344,11 +344,11 @@ async def test_wait_for_task_update_handles_queue_exception(
     # Update the store to unblock the race via the store path
     async def update_later() -> None:
         # Wait for store to start waiting (event gets created when wait starts)
-        while task.taskId not in store._update_events:
+        while task.task_id not in store._update_events:
             await anyio.sleep(0)
-        await store.update_task(task.taskId, status="completed")
+        await store.update_task(task.task_id, status="completed")
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(update_later)
         # This should complete via the store path even though queue raises
-        await handler._wait_for_task_update(task.taskId)
+        await handler._wait_for_task_update(task.task_id)

@@ -154,7 +154,7 @@ async def call_tool_with_error_handling(
         result = await session.call_tool(tool_name, arguments)
 
         # Check if the tool returned an error in the result
-        if result.isError:
+        if result.is_error:
             print(f"Tool returned error: {result.content}")
             return None
 

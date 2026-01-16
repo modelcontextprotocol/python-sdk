@@ -25,7 +25,7 @@ async def test_lowlevel_server_tool_annotations():
             Tool(
                 name="echo",
                 description="Echo a message back",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "message": {"type": "string"},
@@ -34,7 +34,7 @@ async def test_lowlevel_server_tool_annotations():
                 },
                 annotations=ToolAnnotations(
                     title="Echo Tool",
-                    readOnlyHint=True,
+                    read_only_hint=True,
                 ),
             )
         ]
@@ -98,4 +98,4 @@ async def test_lowlevel_server_tool_annotations():
     assert tools_result.tools[0].name == "echo"
     assert tools_result.tools[0].annotations is not None
     assert tools_result.tools[0].annotations.title == "Echo Tool"
-    assert tools_result.tools[0].annotations.readOnlyHint is True
+    assert tools_result.tools[0].annotations.read_only_hint is True

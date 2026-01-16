@@ -64,20 +64,20 @@ async def test_list_tasks_handler() -> None:
     now = datetime.now(timezone.utc)
     test_tasks = [
         Task(
-            taskId="task-1",
+            task_id="task-1",
             status="working",
-            createdAt=now,
-            lastUpdatedAt=now,
+            created_at=now,
+            last_updated_at=now,
             ttl=60000,
-            pollInterval=1000,
+            poll_interval=1000,
         ),
         Task(
-            taskId="task-2",
+            task_id="task-2",
             status="completed",
-            createdAt=now,
-            lastUpdatedAt=now,
+            created_at=now,
+            last_updated_at=now,
             ttl=60000,
-            pollInterval=1000,
+            poll_interval=1000,
         ),
     ]
 
@@ -92,8 +92,8 @@ async def test_list_tasks_handler() -> None:
     assert isinstance(result, ServerResult)
     assert isinstance(result.root, ListTasksResult)
     assert len(result.root.tasks) == 2
-    assert result.root.tasks[0].taskId == "task-1"
-    assert result.root.tasks[1].taskId == "task-2"
+    assert result.root.tasks[0].task_id == "task-1"
+    assert result.root.tasks[1].task_id == "task-2"
 
 
 @pytest.mark.anyio
@@ -105,24 +105,24 @@ async def test_get_task_handler() -> None:
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         now = datetime.now(timezone.utc)
         return GetTaskResult(
-            taskId=request.params.taskId,
+            task_id=request.params.task_id,
             status="working",
-            createdAt=now,
-            lastUpdatedAt=now,
+            created_at=now,
+            last_updated_at=now,
             ttl=60000,
-            pollInterval=1000,
+            poll_interval=1000,
         )
 
     handler = server.request_handlers[GetTaskRequest]
     request = GetTaskRequest(
         method="tasks/get",
-        params=GetTaskRequestParams(taskId="test-task-123"),
+        params=GetTaskRequestParams(task_id="test-task-123"),
     )
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
     assert isinstance(result.root, GetTaskResult)
-    assert result.root.taskId == "test-task-123"
+    assert result.root.task_id == "test-task-123"
     assert result.root.status == "working"
 
 
@@ -138,7 +138,7 @@ async def test_get_task_result_handler() -> None:
     handler = server.request_handlers[GetTaskPayloadRequest]
     request = GetTaskPayloadRequest(
         method="tasks/result",
-        params=GetTaskPayloadRequestParams(taskId="test-task-123"),
+        params=GetTaskPayloadRequestParams(task_id="test-task-123"),
     )
     result = await handler(request)
 
@@ -155,23 +155,23 @@ async def test_cancel_task_handler() -> None:
     async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
         now = datetime.now(timezone.utc)
         return CancelTaskResult(
-            taskId=request.params.taskId,
+            task_id=request.params.task_id,
             status="cancelled",
-            createdAt=now,
-            lastUpdatedAt=now,
+            created_at=now,
+            last_updated_at=now,
             ttl=60000,
         )
 
     handler = server.request_handlers[CancelTaskRequest]
     request = CancelTaskRequest(
         method="tasks/cancel",
-        params=CancelTaskRequestParams(taskId="test-task-123"),
+        params=CancelTaskRequestParams(task_id="test-task-123"),
     )
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
     assert isinstance(result.root, CancelTaskResult)
-    assert result.root.taskId == "test-task-123"
+    assert result.root.task_id == "test-task-123"
     assert result.root.status == "cancelled"
 
 
@@ -232,20 +232,20 @@ async def test_tool_with_task_execution_metadata() -> None:
             Tool(
                 name="quick_tool",
                 description="Fast tool",
-                inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(taskSupport=TASK_FORBIDDEN),
+                input_schema={"type": "object", "properties": {}},
+                execution=ToolExecution(task_support=TASK_FORBIDDEN),
             ),
             Tool(
                 name="long_tool",
                 description="Long running tool",
-                inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+                input_schema={"type": "object", "properties": {}},
+                execution=ToolExecution(task_support=TASK_REQUIRED),
             ),
             Tool(
                 name="flexible_tool",
                 description="Can be either",
-                inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(taskSupport=TASK_OPTIONAL),
+                input_schema={"type": "object", "properties": {}},
+                execution=ToolExecution(task_support=TASK_OPTIONAL),
             ),
         ]
 
@@ -258,11 +258,11 @@ async def test_tool_with_task_execution_metadata() -> None:
     tools = result.root.tools
 
     assert tools[0].execution is not None
-    assert tools[0].execution.taskSupport == TASK_FORBIDDEN
+    assert tools[0].execution.task_support == TASK_FORBIDDEN
     assert tools[1].execution is not None
-    assert tools[1].execution.taskSupport == TASK_REQUIRED
+    assert tools[1].execution.task_support == TASK_REQUIRED
     assert tools[2].execution is not None
-    assert tools[2].execution.taskSupport == TASK_OPTIONAL
+    assert tools[2].execution.task_support == TASK_OPTIONAL
 
 
 @pytest.mark.anyio
@@ -277,8 +277,8 @@ async def test_task_metadata_in_call_tool_request() -> None:
             Tool(
                 name="long_task",
                 description="A long running task",
-                inputSchema={"type": "object", "properties": {}},
-                execution=ToolExecution(taskSupport="optional"),
+                input_schema={"type": "object", "properties": {}},
+                execution=ToolExecution(task_support="optional"),
             )
         ]
 
@@ -361,7 +361,7 @@ async def test_task_metadata_is_task_property() -> None:
             Tool(
                 name="test_tool",
                 description="Test tool",
-                inputSchema={"type": "object", "properties": {}},
+                input_schema={"type": "object", "properties": {}},
             )
         ]
 
@@ -513,33 +513,33 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
                 ListTasksResult,
             )
             assert len(list_result.tasks) == 1
-            assert list_result.tasks[0].taskId == task.taskId
+            assert list_result.tasks[0].task_id == task.task_id
 
             # Test get_task (default handler - found)
             get_result = await client_session.send_request(
-                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(taskId=task.taskId))),
+                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id=task.task_id))),
                 GetTaskResult,
             )
-            assert get_result.taskId == task.taskId
+            assert get_result.task_id == task.task_id
             assert get_result.status == "working"
 
             # Test get_task (default handler - not found path)
             with pytest.raises(McpError, match="not found"):
                 await client_session.send_request(
-                    ClientRequest(GetTaskRequest(params=GetTaskRequestParams(taskId="nonexistent-task"))),
+                    ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id="nonexistent-task"))),
                     GetTaskResult,
                 )
 
             # Create a completed task to test get_task_result
             completed_task = await store.create_task(TaskMetadata(ttl=60000))
             await store.store_result(
-                completed_task.taskId, CallToolResult(content=[TextContent(type="text", text="Test result")])
+                completed_task.task_id, CallToolResult(content=[TextContent(type="text", text="Test result")])
             )
-            await store.update_task(completed_task.taskId, status="completed")
+            await store.update_task(completed_task.task_id, status="completed")
 
             # Test get_task_result (default handler)
             payload_result = await client_session.send_request(
-                ClientRequest(GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=completed_task.taskId))),
+                ClientRequest(GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=completed_task.task_id))),
                 GetTaskPayloadResult,
             )
             # The result should have the related-task metadata
@@ -548,10 +548,10 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 
             # Test cancel_task (default handler)
             cancel_result = await client_session.send_request(
-                ClientRequest(CancelTaskRequest(params=CancelTaskRequestParams(taskId=task.taskId))),
+                ClientRequest(CancelTaskRequest(params=CancelTaskRequestParams(task_id=task.task_id))),
                 CancelTaskResult,
             )
-            assert cancel_result.taskId == task.taskId
+            assert cancel_result.task_id == task.task_id
             assert cancel_result.status == "cancelled"
 
             tg.cancel_scope.cancel()
@@ -576,7 +576,7 @@ async def test_build_elicit_form_request() -> None:
             # Test without task_id
             request = server_session._build_elicit_form_request(
                 message="Test message",
-                requestedSchema={"type": "object", "properties": {"answer": {"type": "string"}}},
+                requested_schema={"type": "object", "properties": {"answer": {"type": "string"}}},
             )
             assert request.method == "elicitation/create"
             assert request.params is not None
@@ -585,7 +585,7 @@ async def test_build_elicit_form_request() -> None:
             # Test with related_task_id (adds related-task metadata)
             request_with_task = server_session._build_elicit_form_request(
                 message="Task message",
-                requestedSchema={"type": "object"},
+                requested_schema={"type": "object"},
                 related_task_id="test-task-123",
             )
             assert request_with_task.method == "elicitation/create"

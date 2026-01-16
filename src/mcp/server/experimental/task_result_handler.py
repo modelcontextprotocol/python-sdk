@@ -106,7 +106,7 @@ class TaskResultHandler:
         Returns:
             GetTaskPayloadResult with the task's final payload
         """
-        task_id = request.params.taskId
+        task_id = request.params.task_id
 
         while True:
             task = await self._store.get_task(task_id)
@@ -126,7 +126,7 @@ class TaskResultHandler:
                 # GetTaskPayloadResult is a Result with extra="allow"
                 # The stored result contains the actual payload data
                 # Per spec: tasks/result MUST include _meta with related-task metadata
-                related_task = RelatedTaskMetadata(taskId=task_id)
+                related_task = RelatedTaskMetadata(task_id=task_id)
                 related_task_meta: dict[str, Any] = {RELATED_TASK_METADATA_KEY: related_task.model_dump(by_alias=True)}
                 if result is not None:
                     result_data = result.model_dump(by_alias=True)

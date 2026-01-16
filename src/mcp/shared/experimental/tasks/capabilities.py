@@ -48,8 +48,8 @@ def check_tasks_capability(
     if required.requests.sampling is not None:
         if client.requests.sampling is None:
             return False
-        if required.requests.sampling.createMessage is not None:
-            if client.requests.sampling.createMessage is None:
+        if required.requests.sampling.create_message is not None:
+            if client.requests.sampling.create_message is None:
                 return False
 
     return True
@@ -74,7 +74,7 @@ def has_task_augmented_sampling(caps: ClientCapabilities) -> bool:
         return False
     if caps.tasks.requests.sampling is None:
         return False
-    return caps.tasks.requests.sampling.createMessage is not None
+    return caps.tasks.requests.sampling.create_message is not None
 
 
 def require_task_augmented_elicitation(client_caps: ClientCapabilities | None) -> None:

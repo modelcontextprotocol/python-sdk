@@ -41,7 +41,7 @@ class TaskContext:
     @property
     def task_id(self) -> str:
         """The task identifier."""
-        return self._task.taskId
+        return self._task.task_id
 
     @property
     def task(self) -> Task:

@@ -25,7 +25,7 @@ async def test_sampling_callback():
         role="assistant",
         content=TextContent(type="text", text="This is a response from the sampling callback"),
         model="test-model",
-        stopReason="endTurn",
+        stop_reason="endTurn",
     )
 
     async def sampling_callback(
@@ -47,7 +47,7 @@ async def test_sampling_callback():
     async with create_session(server._mcp_server, sampling_callback=sampling_callback) as client_session:
         # Make a request to trigger sampling callback
         result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
-        assert result.isError is False
+        assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
@@ -55,7 +55,7 @@ async def test_sampling_callback():
     async with create_session(server._mcp_server) as client_session:
         # Make a request to trigger sampling callback
         result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
-        assert result.isError is True
+        assert result.is_error is True
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"
 
@@ -72,7 +72,7 @@ async def test_create_message_backwards_compat_single_content():
         role="assistant",
         content=TextContent(type="text", text="Hello from LLM"),
         model="test-model",
-        stopReason="endTurn",
+        stop_reason="endTurn",
     )
 
     async def sampling_callback(
@@ -99,7 +99,7 @@ async def test_create_message_backwards_compat_single_content():
 
     async with create_session(server._mcp_server, sampling_callback=sampling_callback) as client_session:
         result = await client_session.call_tool("test_backwards_compat", {"message": "Test"})
-        assert result.isError is False
+        assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
@@ -112,7 +112,7 @@ async def test_create_message_result_with_tools_type():
         role="assistant",
         content=ToolUseContent(type="tool_use", id="call_123", name="get_weather", input={"city": "SF"}),
         model="test-model",
-        stopReason="toolUse",
+        stop_reason="toolUse",
     )
 
     # CreateMessageResultWithTools should have content_as_list
@@ -128,7 +128,7 @@ async def test_create_message_result_with_tools_type():
             ToolUseContent(type="tool_use", id="call_456", name="get_weather", input={"city": "NYC"}),
         ],
         model="test-model",
-        stopReason="toolUse",
+        stop_reason="toolUse",
     )
     content_list_array = result_array.content_as_list
     assert len(content_list_array) == 2
