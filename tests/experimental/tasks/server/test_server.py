@@ -539,7 +539,9 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 
             # Test get_task_result (default handler)
             payload_result = await client_session.send_request(
-                ClientRequest(GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=completed_task.task_id))),
+                ClientRequest(
+                    GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=completed_task.task_id))
+                ),
                 GetTaskPayloadResult,
             )
             # The result should have the related-task metadata

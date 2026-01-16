@@ -558,7 +558,8 @@ class TestServerTools:
             assert tool.output_schema["type"] == "object"
             # dict[str, Any] should have minimal schema
             assert (
-                "additionalProperties" not in tool.output_schema or tool.output_schema.get("additionalProperties") is True
+                "additionalProperties" not in tool.output_schema
+                or tool.output_schema.get("additionalProperties") is True
             )
 
             # Call tool
