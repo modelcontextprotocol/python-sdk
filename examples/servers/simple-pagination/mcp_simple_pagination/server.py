@@ -1,5 +1,4 @@
-"""
-Simple MCP server demonstrating pagination for tools, resources, and prompts.
+"""Simple MCP server demonstrating pagination for tools, resources, and prompts.
 
 This example shows how to use the paginated decorators to handle large lists
 of items that need to be split across multiple pages.
