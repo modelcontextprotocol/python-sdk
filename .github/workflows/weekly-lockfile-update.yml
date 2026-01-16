@@ -3,8 +3,8 @@ name: Weekly Lockfile Update
 on:
   workflow_dispatch:
   schedule:
-    # Every Monday at 8:00 UTC
-    - cron: "0 8 * * 1"
+    # Every Thursday at 8:00 UTC
+    - cron: "0 8 * * 4"
 
 permissions:
   contents: write
