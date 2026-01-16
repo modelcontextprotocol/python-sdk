@@ -13,7 +13,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("My App", json_response=True)
+mcp = FastMCP("My App")
 
 
 @mcp.tool()
@@ -30,9 +30,10 @@ async def lifespan(app: Starlette):
 
 
 # Mount the StreamableHTTP server to the existing ASGI server
+# Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Mount("/", app=mcp.streamable_http_app()),
+        Mount("/", app=mcp.streamable_http_app(json_response=True)),
     ],
     lifespan=lifespan,
 )

@@ -66,11 +66,11 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
         name="Simple Auth MCP Server",
         instructions="A simple MCP server with simple credential authentication",
         auth_server_provider=oauth_provider,
-        host=server_settings.host,
-        port=server_settings.port,
         debug=True,
         auth=mcp_auth_settings,
     )
+    # Store server settings for later use in run()
+    app._server_settings = server_settings  # type: ignore[attr-defined]
 
     @app.custom_route("/login", methods=["GET"])
     async def login_page_handler(request: Request) -> Response:
@@ -131,7 +131,7 @@ def main(port: int, transport: Literal["sse", "streamable-http"]) -> int:
 
     mcp_server = create_simple_mcp_server(server_settings, auth_settings)
     logger.info(f"🚀 MCP Legacy Server running on {server_url}")
-    mcp_server.run(transport=transport)
+    mcp_server.run(transport=transport, host=host, port=port)
     return 0
 
 

@@ -13,8 +13,8 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server", json_response=True)
-chat_mcp = FastMCP("Chat Server", json_response=True)
+api_mcp = FastMCP("API Server")
+chat_mcp = FastMCP("Chat Server")
 
 
 @api_mcp.tool()
@@ -29,12 +29,6 @@ def send_message(message: str) -> str:
     return f"Message sent: {message}"
 
 
-# Configure servers to mount at the root of each path
-# This means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
-api_mcp.settings.streamable_http_path = "/"
-chat_mcp.settings.streamable_http_path = "/"
-
-
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
@@ -44,11 +38,12 @@ async def lifespan(app: Starlette):
         yield
 
 
-# Mount the servers
+# Mount the servers with transport-specific options passed to streamable_http_app()
+# streamable_http_path="/" means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
 app = Starlette(
     routes=[
-        Mount("/api", app=api_mcp.streamable_http_app()),
-        Mount("/chat", app=chat_mcp.streamable_http_app()),
+        Mount("/api", app=api_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
+        Mount("/chat", app=chat_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
     ],
     lifespan=lifespan,
 )
