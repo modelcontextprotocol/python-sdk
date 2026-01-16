@@ -127,6 +127,7 @@ extend-exclude = ["README.md"]
 select = [
     "C4",   # flake8-comprehensions
     "C90",  # mccabe
+    "D212", # pydocstyle: multi-line docstring summary should start at the first line
     "E",    # pycodestyle
     "F",    # pyflakes
     "I",    # isort
@@ -135,7 +136,9 @@ select = [
     "UP",   # pyupgrade
 ]
 ignore = ["PERF203", "PLC0415", "PLR0402"]
-mccabe.max-complexity = 24 # Default is 10
+
+[tool.ruff.lint.mccabe]
+max-complexity = 24 # Default is 10
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
