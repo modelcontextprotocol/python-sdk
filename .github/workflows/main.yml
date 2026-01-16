@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "v1.x"]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: ["main", "v1.x"]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/shared.yml
+
+  all-green:
+    if: always()
+    needs: [checks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # v1.2.2
+        with:
+          jobs: ${{ toJSON(needs) }}
