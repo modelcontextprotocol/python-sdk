@@ -66,8 +66,9 @@ dev = [
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
-    "coverage[toml]>=7.13.1",
+    "coverage[toml]>=7.10.7,<=7.13",
     "pillow>=12.0",
+    "strict-no-cover",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -163,6 +164,7 @@ members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 
 [tool.pytest.ini_options]
 log_cli = true
@@ -198,7 +200,6 @@ branch = true
 patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
 source = ["src", "tests"]
-relative_files = true
 omit = [
     "src/mcp/client/__main__.py",
     "src/mcp/server/__main__.py",
@@ -215,6 +216,7 @@ ignore_errors = true
 precision = 2
 exclude_lines = [
     "pragma: no cover",
+    "pragma: lax no cover",
     "if TYPE_CHECKING:",
     "@overload",
     "raise NotImplementedError",
