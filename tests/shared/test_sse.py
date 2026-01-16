@@ -78,7 +78,7 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 )
             ]
 
@@ -184,7 +184,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -330,7 +330,7 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -366,12 +366,12 @@ class RequestContextServer(Server[object, Request]):  # pragma: no cover
                 Tool(
                     name="echo_headers",
                     description="Echoes request headers",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="echo_context",
                     description="Echoes request context",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {"request_id": {"type": "string"}},
                         "required": ["request_id"],
@@ -558,9 +558,9 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     """
     # Build a proper JSON-RPC response using types (not hardcoded strings)
     init_result = InitializeResult(
-        protocolVersion="2024-11-05",
+        protocol_version="2024-11-05",
         capabilities=ServerCapabilities(),
-        serverInfo=Implementation(name="test", version="1.0"),
+        server_info=Implementation(name="test", version="1.0"),
     )
     response = JSONRPCResponse(
         jsonrpc="2.0",

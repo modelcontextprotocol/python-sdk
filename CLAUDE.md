@@ -6,9 +6,9 @@ This document contains critical information about working with this codebase. Fo
 
 1. Package Management
    - ONLY use uv, NEVER pip
-   - Installation: `uv add package`
-   - Running tools: `uv run tool`
-   - Upgrading: `uv add --dev package --upgrade-package package`
+   - Installation: `uv add <package>`
+   - Running tools: `uv run <tool>`
+   - Upgrading: `uv lock --upgrade-package <package>`
    - FORBIDDEN: `uv pip install`, `@latest` syntax
 
 2. Code Quality
@@ -21,6 +21,7 @@ This document contains critical information about working with this codebase. Fo
 3. Testing Requirements
    - Framework: `uv run --frozen pytest`
    - Async testing: use anyio, not asyncio
+   - Do not use `Test` prefixed classes, use functions
    - Coverage: test edge cases and errors
    - New features require tests
    - Bug fixes require regression tests
@@ -77,12 +78,11 @@ rather than adding new standalone sections.
    - Line wrapping:
      - Strings: use parentheses
      - Function calls: multi-line with proper indent
-     - Imports: split into multiple lines
+     - Imports: try to use a single line
 
 2. Type Checking
    - Tool: `uv run --frozen pyright`
    - Requirements:
-     - Explicit None checks for Optional
      - Type narrowing for strings
      - Version warnings can be ignored if checks pass
 
@@ -117,10 +117,6 @@ rather than adding new standalone sections.
      - Add None checks
      - Narrow string types
      - Match existing patterns
-   - Pytest:
-     - If the tests aren't finding the anyio pytest mark, try adding PYTEST_DISABLE_PLUGIN_AUTOLOAD=""
-       to the start of the pytest run command eg:
-       `PYTEST_DISABLE_PLUGIN_AUTOLOAD="" uv run --frozen pytest`
 
 3. Best Practices
    - Check git status before commits
@@ -138,6 +134,4 @@ rather than adding new standalone sections.
   - File ops: `except (OSError, PermissionError):`
   - JSON: `except json.JSONDecodeError:`
   - Network: `except (ConnectionError, TimeoutError):`
-- **Only catch `Exception` for**:
-  - Top-level handlers that must not crash
-  - Cleanup blocks (log at debug level)
+- **FORBIDDEN** `except Exception:` - unless in top-level handlers

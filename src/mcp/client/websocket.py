@@ -53,7 +53,7 @@ async def websocket_client(
             async with read_stream_writer:
                 async for raw_text in ws:
                     try:
-                        message = types.JSONRPCMessage.model_validate_json(raw_text)
+                        message = types.JSONRPCMessage.model_validate_json(raw_text, by_name=False)
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
                     except ValidationError as exc:  # pragma: no cover

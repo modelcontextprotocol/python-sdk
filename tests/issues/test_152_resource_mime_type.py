@@ -45,19 +45,19 @@ async def test_fastmcp_resource_mime_type():
         bytes_resource = mapping["test://image_bytes"]
 
         # Verify mime types
-        assert string_resource.mimeType == "image/png", "String resource mime type not respected"
-        assert bytes_resource.mimeType == "image/png", "Bytes resource mime type not respected"
+        assert string_resource.mime_type == "image/png", "String resource mime type not respected"
+        assert bytes_resource.mime_type == "image/png", "Bytes resource mime type not respected"
 
         # Also verify the content can be read correctly
         string_result = await client.read_resource(AnyUrl("test://image"))
         assert len(string_result.contents) == 1
         assert getattr(string_result.contents[0], "text") == base64_string, "Base64 string mismatch"
-        assert string_result.contents[0].mimeType == "image/png", "String content mime type not preserved"
+        assert string_result.contents[0].mime_type == "image/png", "String content mime type not preserved"
 
         bytes_result = await client.read_resource(AnyUrl("test://image_bytes"))
         assert len(bytes_result.contents) == 1
         assert base64.b64decode(getattr(bytes_result.contents[0], "blob")) == image_bytes, "Bytes mismatch"
-        assert bytes_result.contents[0].mimeType == "image/png", "Bytes content mime type not preserved"
+        assert bytes_result.contents[0].mime_type == "image/png", "Bytes content mime type not preserved"
 
 
 async def test_lowlevel_resource_mime_type():
@@ -70,11 +70,11 @@ async def test_lowlevel_resource_mime_type():
 
     # Create test resources with specific mime types
     test_resources = [
-        types.Resource(uri="test://image", name="test image", mimeType="image/png"),
+        types.Resource(uri="test://image", name="test image", mime_type="image/png"),
         types.Resource(
             uri="test://image_bytes",
             name="test image bytes",
-            mimeType="image/png",
+            mime_type="image/png",
         ),
     ]
 
@@ -103,16 +103,16 @@ async def test_lowlevel_resource_mime_type():
         bytes_resource = mapping["test://image_bytes"]
 
         # Verify mime types
-        assert string_resource.mimeType == "image/png", "String resource mime type not respected"
-        assert bytes_resource.mimeType == "image/png", "Bytes resource mime type not respected"
+        assert string_resource.mime_type == "image/png", "String resource mime type not respected"
+        assert bytes_resource.mime_type == "image/png", "Bytes resource mime type not respected"
 
         # Also verify the content can be read correctly
         string_result = await client.read_resource(AnyUrl("test://image"))
         assert len(string_result.contents) == 1
         assert getattr(string_result.contents[0], "text") == base64_string, "Base64 string mismatch"
-        assert string_result.contents[0].mimeType == "image/png", "String content mime type not preserved"
+        assert string_result.contents[0].mime_type == "image/png", "String content mime type not preserved"
 
         bytes_result = await client.read_resource(AnyUrl("test://image_bytes"))
         assert len(bytes_result.contents) == 1
         assert base64.b64decode(getattr(bytes_result.contents[0], "blob")) == image_bytes, "Bytes mismatch"
-        assert bytes_result.contents[0].mimeType == "image/png", "Bytes content mime type not preserved"
+        assert bytes_result.contents[0].mime_type == "image/png", "Bytes content mime type not preserved"

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic.alias_generators import to_camel
 
 LATEST_PROTOCOL_VERSION = "2025-11-25"
 
@@ -31,7 +32,7 @@ TASK_REQUIRED: Final[Literal["required"]] = "required"
 class MCPModel(BaseModel):
     """Base class for all MCP protocol types. Allows extra fields for forward compatibility."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", alias_generator=to_camel, populate_by_name=True)
 
 
 class TaskMetadata(MCPModel):
@@ -46,7 +47,7 @@ class TaskMetadata(MCPModel):
 
 class RequestParams(MCPModel):
     class Meta(MCPModel):
-        progressToken: ProgressToken | None = None
+        progress_token: ProgressToken | None = None
         """
         If specified, the caller requests out-of-band progress notifications for
         this request (as represented by notifications/progress). The value of this
@@ -123,7 +124,7 @@ class Result(MCPModel):
 
 
 class PaginatedResult(Result):
-    nextCursor: Cursor | None = None
+    next_cursor: Cursor | None = None
     """
     An opaque token representing the pagination position after the last returned result.
     If present, there may be more results available.
@@ -228,7 +229,7 @@ class Icon(MCPModel):
     src: str
     """URL or data URI for the icon."""
 
-    mimeType: str | None = None
+    mime_type: str | None = None
     """Optional MIME type for the icon."""
 
     sizes: list[str] | None = None
@@ -246,7 +247,7 @@ class Implementation(BaseMetadata):
     description: str | None = None
     """An optional human-readable description of what this implementation does."""
 
-    websiteUrl: str | None = None
+    website_url: str | None = None
     """An optional URL of the website for this implementation."""
 
     icons: list[Icon] | None = None
@@ -256,7 +257,7 @@ class Implementation(BaseMetadata):
 class RootsCapability(MCPModel):
     """Capability for root operations."""
 
-    listChanged: bool | None = None
+    list_changed: bool | None = None
     """Whether the client supports notifications for changes to the roots list."""
 
 
@@ -331,7 +332,7 @@ class TasksCreateMessageCapability(MCPModel):
 class TasksSamplingCapability(MCPModel):
     """Capability for tasks sampling operations."""
 
-    createMessage: TasksCreateMessageCapability | None = None
+    create_message: TasksCreateMessageCapability | None = None
 
 
 class TasksCreateElicitationCapability(MCPModel):
@@ -386,7 +387,7 @@ class ClientCapabilities(MCPModel):
 class PromptsCapability(MCPModel):
     """Capability for prompts operations."""
 
-    listChanged: bool | None = None
+    list_changed: bool | None = None
     """Whether this server supports notifications for changes to the prompt list."""
 
 
@@ -395,14 +396,14 @@ class ResourcesCapability(MCPModel):
 
     subscribe: bool | None = None
     """Whether this server supports subscribing to resource updates."""
-    listChanged: bool | None = None
+    list_changed: bool | None = None
     """Whether this server supports notifications for changes to the resource list."""
 
 
 class ToolsCapability(MCPModel):
     """Capability for tools operations."""
 
-    listChanged: bool | None = None
+    list_changed: bool | None = None
     """Whether this server supports notifications for changes to the tool list."""
 
 
@@ -474,20 +475,20 @@ class RelatedTaskMetadata(MCPModel):
     Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
     """
 
-    taskId: str
+    task_id: str
     """The task identifier this message is associated with."""
 
 
 class Task(MCPModel):
     """Data associated with a task."""
 
-    taskId: str
+    task_id: str
     """The task identifier."""
 
     status: TaskStatus
     """Current task state."""
 
-    statusMessage: str | None = None
+    status_message: str | None = None
     """
     Optional human-readable message describing the current task state.
     This can provide context for any status, including:
@@ -496,16 +497,16 @@ class Task(MCPModel):
     - Diagnostic information for "failed" status (e.g., error details, what went wrong)
     """
 
-    createdAt: datetime  # Pydantic will enforce ISO 8601 and re-serialize as a string later
+    created_at: datetime  # Pydantic will enforce ISO 8601 and re-serialize as a string later
     """ISO 8601 timestamp when the task was created."""
 
-    lastUpdatedAt: datetime
+    last_updated_at: datetime
     """ISO 8601 timestamp when the task was last updated."""
 
     ttl: Annotated[int, Field(strict=True)] | None
     """Actual retention duration from creation in milliseconds, null for unlimited."""
 
-    pollInterval: Annotated[int, Field(strict=True)] | None = None
+    poll_interval: Annotated[int, Field(strict=True)] | None = None
     """Suggested polling interval in milliseconds."""
 
 
@@ -516,7 +517,7 @@ class CreateTaskResult(Result):
 
 
 class GetTaskRequestParams(RequestParams):
-    taskId: str
+    task_id: str
     """The task identifier to query."""
 
 
@@ -533,7 +534,7 @@ class GetTaskResult(Result, Task):
 
 
 class GetTaskPayloadRequestParams(RequestParams):
-    taskId: str
+    task_id: str
     """The task identifier to retrieve results for."""
 
 
@@ -553,7 +554,7 @@ class GetTaskPayloadResult(Result):
 
 
 class CancelTaskRequestParams(RequestParams):
-    taskId: str
+    task_id: str
     """The task identifier to cancel."""
 
 
@@ -597,10 +598,10 @@ class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal[
 class InitializeRequestParams(RequestParams):
     """Parameters for the initialize request."""
 
-    protocolVersion: str | int
+    protocol_version: str | int
     """The latest version of the Model Context Protocol that the client supports."""
     capabilities: ClientCapabilities
-    clientInfo: Implementation
+    client_info: Implementation
 
 
 class InitializeRequest(Request[InitializeRequestParams, Literal["initialize"]]):
@@ -616,10 +617,10 @@ class InitializeRequest(Request[InitializeRequestParams, Literal["initialize"]])
 class InitializeResult(Result):
     """After receiving an initialize request from the client, the server sends this."""
 
-    protocolVersion: str | int
+    protocol_version: str | int
     """The version of the Model Context Protocol that the server wants to use."""
     capabilities: ServerCapabilities
-    serverInfo: Implementation
+    server_info: Implementation
     instructions: str | None = None
     """Instructions describing how to use the server and its features."""
 
@@ -647,7 +648,7 @@ class PingRequest(Request[RequestParams | None, Literal["ping"]]):
 class ProgressNotificationParams(NotificationParams):
     """Parameters for progress notifications."""
 
-    progressToken: ProgressToken
+    progress_token: ProgressToken
     """
     The progress token which was given in the initial request, used to associate this
     notification with the request that is proceeding.
@@ -694,7 +695,7 @@ class Resource(BaseMetadata):
     """The URI of this resource."""
     description: str | None = None
     """A description of what this resource represents."""
-    mimeType: str | None = None
+    mime_type: str | None = None
     """The MIME type of this resource, if known."""
     size: int | None = None
     """
@@ -716,14 +717,14 @@ class Resource(BaseMetadata):
 class ResourceTemplate(BaseMetadata):
     """A template description for resources available on the server."""
 
-    uriTemplate: str
+    uri_template: str
     """
     A URI template (according to RFC 6570) that can be used to construct resource
     URIs.
     """
     description: str | None = None
     """A human-readable description of what this template is for."""
-    mimeType: str | None = None
+    mime_type: str | None = None
     """
     The MIME type for all resources that match this template. This should only be
     included if all resources matching this template have the same type.
@@ -753,7 +754,7 @@ class ListResourceTemplatesRequest(PaginatedRequest[Literal["resources/templates
 class ListResourceTemplatesResult(PaginatedResult):
     """The server's response to a resources/templates/list request from the client."""
 
-    resourceTemplates: list[ResourceTemplate]
+    resource_templates: list[ResourceTemplate]
 
 
 class ReadResourceRequestParams(RequestParams):
@@ -778,7 +779,7 @@ class ResourceContents(MCPModel):
 
     uri: str
     """The URI of this resource."""
-    mimeType: str | None = None
+    mime_type: str | None = None
     """The MIME type of this resource, if known."""
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
     """
@@ -956,7 +957,7 @@ class ImageContent(MCPModel):
     type: Literal["image"] = "image"
     data: str
     """The base64-encoded image data."""
-    mimeType: str
+    mime_type: str
     """
     The MIME type of the image. Different providers may support different
     image types.
@@ -975,7 +976,7 @@ class AudioContent(MCPModel):
     type: Literal["audio"] = "audio"
     data: str
     """The base64-encoded audio data."""
-    mimeType: str
+    mime_type: str
     """
     The MIME type of the audio. Different providers may support different
     audio types.
@@ -1027,7 +1028,7 @@ class ToolResultContent(MCPModel):
     type: Literal["tool_result"] = "tool_result"
     """Discriminator for tool result content."""
 
-    toolUseId: str
+    tool_use_id: str
     """The unique identifier that corresponds to the tool call's id field."""
 
     content: list[ContentBlock] = []
@@ -1036,12 +1037,12 @@ class ToolResultContent(MCPModel):
     Defaults to empty list if not provided.
     """
 
-    structuredContent: dict[str, Any] | None = None
+    structured_content: dict[str, Any] | None = None
     """
     Optional structured tool output that matches the tool's outputSchema (if defined).
     """
 
-    isError: bool | None = None
+    is_error: bool | None = None
     """Whether the tool execution resulted in an error."""
 
     meta: dict[str, Any] | None = Field(alias="_meta", default=None)
@@ -1161,29 +1162,29 @@ class ToolAnnotations(MCPModel):
     title: str | None = None
     """A human-readable title for the tool."""
 
-    readOnlyHint: bool | None = None
+    read_only_hint: bool | None = None
     """
     If true, the tool does not modify its environment.
     Default: false
     """
 
-    destructiveHint: bool | None = None
+    destructive_hint: bool | None = None
     """
     If true, the tool may perform destructive updates to its environment.
     If false, the tool performs only additive updates.
-    (This property is meaningful only when `readOnlyHint == false`)
+    (This property is meaningful only when `read_only_hint == false`)
     Default: true
     """
 
-    idempotentHint: bool | None = None
+    idempotent_hint: bool | None = None
     """
     If true, calling the tool repeatedly with the same arguments
     will have no additional effect on the its environment.
-    (This property is meaningful only when `readOnlyHint == false`)
+    (This property is meaningful only when `read_only_hint == false`)
     Default: false
     """
 
-    openWorldHint: bool | None = None
+    open_world_hint: bool | None = None
     """
     If true, this tool may interact with an "open world" of external
     entities. If false, the tool's domain of interaction is closed.
@@ -1196,7 +1197,7 @@ class ToolAnnotations(MCPModel):
 class ToolExecution(MCPModel):
     """Execution-related properties for a tool."""
 
-    taskSupport: TaskExecutionMode | None = None
+    task_support: TaskExecutionMode | None = None
     """
     Indicates whether this tool supports task-augmented execution.
     This allows clients to handle long-running operations through polling
@@ -1215,12 +1216,12 @@ class Tool(BaseMetadata):
 
     description: str | None = None
     """A human-readable description of the tool."""
-    inputSchema: dict[str, Any]
+    input_schema: dict[str, Any]
     """A JSON Schema object defining the expected parameters for the tool."""
-    outputSchema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None
     """
     An optional JSON Schema object defining the structure of the tool's output
-    returned in the structuredContent field of a CallToolResult.
+    returned in the structured_content field of a CallToolResult.
     """
     icons: list[Icon] | None = None
     """An optional list of icons for this tool."""
@@ -1259,9 +1260,9 @@ class CallToolResult(Result):
     """The server's response to a tool call."""
 
     content: list[ContentBlock]
-    structuredContent: dict[str, Any] | None = None
+    structured_content: dict[str, Any] | None = None
     """An optional JSON object that represents the structured result of the tool call."""
-    isError: bool = False
+    is_error: bool = False
 
 
 class ToolListChangedNotification(Notification[NotificationParams | None, Literal["notifications/tools/list_changed"]]):
@@ -1349,21 +1350,21 @@ class ModelPreferences(MCPModel):
     MAY still use the priorities to select from ambiguous matches.
     """
 
-    costPriority: float | None = None
+    cost_priority: float | None = None
     """
     How much to prioritize cost when selecting a model. A value of 0 means cost
     is not important, while a value of 1 means cost is the most important
     factor.
     """
 
-    speedPriority: float | None = None
+    speed_priority: float | None = None
     """
     How much to prioritize sampling speed (latency) when selecting a model. A
     value of 0 means speed is not important, while a value of 1 means speed is
     the most important factor.
     """
 
-    intelligencePriority: float | None = None
+    intelligence_priority: float | None = None
     """
     How much to prioritize intelligence and capabilities when selecting a
     model. A value of 0 means intelligence is not important, while a value of 1
@@ -1392,22 +1393,22 @@ class CreateMessageRequestParams(RequestParams):
     """Parameters for creating a message."""
 
     messages: list[SamplingMessage]
-    modelPreferences: ModelPreferences | None = None
+    model_preferences: ModelPreferences | None = None
     """
     The server's preferences for which model to select. The client MAY ignore
     these preferences.
     """
-    systemPrompt: str | None = None
+    system_prompt: str | None = None
     """An optional system prompt the server wants to use for sampling."""
-    includeContext: IncludeContext | None = None
+    include_context: IncludeContext | None = None
     """
     A request to include context from one or more MCP servers (including the caller), to
     be attached to the prompt.
     """
     temperature: float | None = None
-    maxTokens: int
+    max_tokens: int
     """The maximum number of tokens to sample, as requested by the server."""
-    stopSequences: list[str] | None = None
+    stop_sequences: list[str] | None = None
     metadata: dict[str, Any] | None = None
     """Optional metadata to pass through to the LLM provider."""
     tools: list[Tool] | None = None
@@ -1415,7 +1416,7 @@ class CreateMessageRequestParams(RequestParams):
     Tool definitions for the LLM to use during sampling.
     Requires clientCapabilities.sampling.tools to be present.
     """
-    toolChoice: ToolChoice | None = None
+    tool_choice: ToolChoice | None = None
     """
     Controls tool usage behavior.
     Requires clientCapabilities.sampling.tools and the tools parameter to be present.
@@ -1445,7 +1446,7 @@ class CreateMessageResult(Result):
     """Response content. Single content block (text, image, or audio)."""
     model: str
     """The name of the model that generated the message."""
-    stopReason: StopReason | None = None
+    stop_reason: StopReason | None = None
     """The reason why sampling stopped, if known."""
 
 
@@ -1460,11 +1461,11 @@ class CreateMessageResultWithTools(Result):
     content: SamplingMessageContentBlock | list[SamplingMessageContentBlock]
     """
     Response content. May be a single content block or an array.
-    May include ToolUseContent if stopReason is 'toolUse'.
+    May include ToolUseContent if stop_reason is 'toolUse'.
     """
     model: str
     """The name of the model that generated the message."""
-    stopReason: StopReason | None = None
+    stop_reason: StopReason | None = None
     """
     The reason why sampling stopped, if known.
     'toolUse' indicates the model wants to use a tool.
@@ -1535,7 +1536,7 @@ class Completion(MCPModel):
     The total number of completion options available. This can exceed the number of
     values actually sent in the response.
     """
-    hasMore: bool | None = None
+    has_more: bool | None = None
     """
     Indicates whether there are additional completion options beyond those provided in
     the current response, even if the exact total is unknown.
@@ -1614,7 +1615,7 @@ class RootsListChangedNotification(
 class CancelledNotificationParams(NotificationParams):
     """Parameters for cancellation notifications."""
 
-    requestId: RequestId | None = None
+    request_id: RequestId | None = None
     """
     The ID of the request to cancel.
 
@@ -1639,7 +1640,7 @@ class CancelledNotification(Notification[CancelledNotificationParams, Literal["n
 class ElicitCompleteNotificationParams(NotificationParams):
     """Parameters for elicitation completion notifications."""
 
-    elicitationId: str
+    elicitation_id: str
     """The unique identifier of the elicitation that was completed."""
 
 
@@ -1716,7 +1717,7 @@ class ElicitRequestFormParams(RequestParams):
     message: str
     """The message to present to the user describing what information is being requested."""
 
-    requestedSchema: ElicitRequestedSchema
+    requested_schema: ElicitRequestedSchema
     """
     A restricted subset of JSON Schema defining the structure of expected response.
     Only top-level properties are allowed, without nesting.
@@ -1739,7 +1740,7 @@ class ElicitRequestURLParams(RequestParams):
     url: str
     """The URL that the user should navigate to."""
 
-    elicitationId: str
+    elicitation_id: str
     """
     The ID of the elicitation, which must be unique within the context of the server.
     The client MUST treat this ID as an opaque value.

@@ -23,7 +23,7 @@ async def test_parameter_descriptions():
     tool = tools[0]
 
     # Check that parameter descriptions are present in the schema
-    properties = tool.inputSchema["properties"]
+    properties = tool.input_schema["properties"]
     assert "name" in properties
     assert properties["name"]["description"] == "The name to greet"
     assert "title" in properties

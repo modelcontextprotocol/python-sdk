@@ -110,7 +110,7 @@ async def sse_client(
                                             continue
                                         try:
                                             message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
-                                                sse.data
+                                                sse.data, by_name=False
                                             )
                                             logger.debug(f"Received server message: {message}")
                                         except Exception as exc:  # pragma: no cover

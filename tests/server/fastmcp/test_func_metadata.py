@@ -5,13 +5,14 @@
 # pyright: reportUnknownLambdaType=false
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Final, TypedDict
+from typing import Annotated, Any, Final, NamedTuple, TypedDict
 
 import annotated_types
 import pytest
 from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
+from mcp.server.fastmcp.exceptions import InvalidSignature
 from mcp.server.fastmcp.utilities.func_metadata import func_metadata
 from mcp.types import CallToolResult
 
@@ -558,7 +559,6 @@ async def test_str_annotation_runtime_validation():
 
 def test_structured_output_requires_return_annotation():
     """Test that structured_output=True requires a return annotation"""
-    from mcp.server.fastmcp.exceptions import InvalidSignature
 
     def func_no_annotation():  # pragma: no cover
         return "hello"
@@ -850,7 +850,7 @@ def test_tool_call_result_annotated_is_structured_and_converted():
         name: str
 
     def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:  # pragma: no cover
-        return CallToolResult(content=[], structuredContent={"name": "Brandon"})
+        return CallToolResult(content=[], structured_content={"name": "Brandon"})
 
     meta = func_metadata(func_returning_annotated_tool_call_result)
 
@@ -870,7 +870,7 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
         name: str
 
     def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:  # pragma: no cover
-        return CallToolResult(content=[], structuredContent={"person": "Brandon"})
+        return CallToolResult(content=[], structured_content={"person": "Brandon"})
 
     meta = func_metadata(func_returning_annotated_tool_call_result)
 
@@ -880,8 +880,6 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
 
 def test_tool_call_result_in_optional_is_rejected():
     """Test that Optional[CallToolResult] raises InvalidSignature"""
-
-    from mcp.server.fastmcp.exceptions import InvalidSignature
 
     def func_optional_call_tool_result() -> CallToolResult | None:  # pragma: no cover
         return CallToolResult(content=[])
@@ -896,8 +894,6 @@ def test_tool_call_result_in_optional_is_rejected():
 def test_tool_call_result_in_union_is_rejected():
     """Test that Union[str, CallToolResult] raises InvalidSignature"""
 
-    from mcp.server.fastmcp.exceptions import InvalidSignature
-
     def func_union_call_tool_result() -> str | CallToolResult:  # pragma: no cover
         return CallToolResult(content=[])
 
@@ -910,7 +906,6 @@ def test_tool_call_result_in_union_is_rejected():
 
 def test_tool_call_result_in_pipe_union_is_rejected():
     """Test that str | CallToolResult raises InvalidSignature"""
-    from mcp.server.fastmcp.exceptions import InvalidSignature
 
     def func_pipe_union_call_tool_result() -> str | CallToolResult:  # pragma: no cover
         return CallToolResult(content=[])
@@ -985,9 +980,6 @@ def test_structured_output_nested_models():
 
 def test_structured_output_unserializable_type_error():
     """Test error when structured_output=True is used with unserializable types"""
-    from typing import NamedTuple
-
-    from mcp.server.fastmcp.exceptions import InvalidSignature
 
     # Test with a class that has non-serializable default values
     class ConfigWithCallable:
@@ -1185,8 +1177,6 @@ def test_basemodel_reserved_names_with_json_preparsing():
 
 
 def test_disallowed_type_qualifier():
-    from mcp.server.fastmcp.exceptions import InvalidSignature
-
     def func_disallowed_qualifier() -> Final[int]:  # type: ignore
         pass  # pragma: no cover
 

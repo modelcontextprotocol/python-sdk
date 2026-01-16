@@ -3,6 +3,7 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import anyio
 import pytest
@@ -50,8 +51,6 @@ class ServerTest(Server):  # pragma: no cover
 
         @self.read_resource()
         async def handle_read_resource(uri: str) -> str | bytes:
-            from urllib.parse import urlparse
-
             parsed = urlparse(uri)
             if parsed.scheme == "foobar":
                 return f"Read {parsed.netloc}"
@@ -68,7 +67,7 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 )
             ]
 
@@ -135,7 +134,7 @@ async def initialized_ws_client_session(server: None, server_url: str) -> AsyncG
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -153,7 +152,7 @@ async def test_ws_client_basic_connection(server: None, server_url: str) -> None
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()

@@ -74,7 +74,7 @@ def main(
             types.Tool(
                 name="start-notification-stream",
                 description=("Sends a stream of notifications with configurable count and interval"),
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "required": ["interval", "count", "caller"],
                     "properties": {

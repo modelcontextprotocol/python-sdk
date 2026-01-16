@@ -85,10 +85,10 @@ async def test_resource_template_client_interaction():
         # List available resources
         resources = await session.list_resource_templates()
         assert isinstance(resources, ListResourceTemplatesResult)
-        assert len(resources.resourceTemplates) == 2
+        assert len(resources.resource_templates) == 2
 
         # Verify resource templates are listed correctly
-        templates = [r.uriTemplate for r in resources.resourceTemplates]
+        templates = [r.uri_template for r in resources.resource_templates]
         assert "resource://users/{user_id}/posts/{post_id}" in templates
         assert "resource://users/{user_id}/profile" in templates
 
@@ -97,14 +97,14 @@ async def test_resource_template_client_interaction():
         contents = result.contents[0]
         assert isinstance(contents, TextResourceContents)
         assert contents.text == "Post 456 by user 123"
-        assert contents.mimeType == "text/plain"
+        assert contents.mime_type == "text/plain"
 
         # Read another resource with valid parameters
         result = await session.read_resource(AnyUrl("resource://users/789/profile"))
         contents = result.contents[0]
         assert isinstance(contents, TextResourceContents)
         assert contents.text == "Profile for user 789"
-        assert contents.mimeType == "text/plain"
+        assert contents.mime_type == "text/plain"
 
         # Verify invalid resource URIs raise appropriate errors
         with pytest.raises(Exception):  # Specific exception type may vary

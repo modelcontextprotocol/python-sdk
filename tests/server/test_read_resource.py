@@ -45,7 +45,7 @@ async def test_read_resource_text(temp_file: Path):
     content = result.root.contents[0]
     assert isinstance(content, types.TextResourceContents)
     assert content.text == "Hello World"
-    assert content.mimeType == "text/plain"
+    assert content.mime_type == "text/plain"
 
 
 @pytest.mark.anyio
@@ -71,7 +71,7 @@ async def test_read_resource_binary(temp_file: Path):
 
     content = result.root.contents[0]
     assert isinstance(content, types.BlobResourceContents)
-    assert content.mimeType == "application/octet-stream"
+    assert content.mime_type == "application/octet-stream"
 
 
 @pytest.mark.anyio
@@ -103,4 +103,4 @@ async def test_read_resource_default_mime(temp_file: Path):
     content = result.root.contents[0]
     assert isinstance(content, types.TextResourceContents)
     assert content.text == "Hello World"
-    assert content.mimeType == "text/plain"
+    assert content.mime_type == "text/plain"

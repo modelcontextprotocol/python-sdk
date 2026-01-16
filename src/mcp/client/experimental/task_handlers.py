@@ -225,7 +225,7 @@ class ExperimentalTaskHandlers:
         requests_capability: types.ClientTasksRequestsCapability | None = None
         if has_sampling or has_elicitation:
             requests_capability = types.ClientTasksRequestsCapability(
-                sampling=types.TasksSamplingCapability(createMessage=types.TasksCreateMessageCapability())
+                sampling=types.TasksSamplingCapability(create_message=types.TasksCreateMessageCapability())
                 if has_sampling
                 else None,
                 elicitation=types.TasksElicitationCapability(create=types.TasksCreateElicitationCapability())

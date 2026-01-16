@@ -53,7 +53,7 @@ class TestValidateSamplingTools:
 
     def test_raises_when_tools_provided_but_no_capability(self) -> None:
         """Raises McpError when tools provided but client doesn't support."""
-        tool = Tool(name="test", inputSchema={"type": "object"})
+        tool = Tool(name="test", input_schema={"type": "object"})
         with pytest.raises(McpError) as exc_info:
             validate_sampling_tools(None, [tool], None)
         assert "sampling tools capability" in str(exc_info.value)
@@ -67,7 +67,7 @@ class TestValidateSamplingTools:
     def test_no_error_when_capability_present(self) -> None:
         """No error when client has sampling.tools capability."""
         caps = ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability()))
-        tool = Tool(name="test", inputSchema={"type": "object"})
+        tool = Tool(name="test", input_schema={"type": "object"})
         validate_sampling_tools(caps, [tool], ToolChoice(mode="auto"))  # Should not raise
 
 
@@ -92,7 +92,7 @@ class TestValidateToolUseResultMessages:
             SamplingMessage(
                 role="user",
                 content=[
-                    ToolResultContent(type="tool_result", toolUseId="123"),
+                    ToolResultContent(type="tool_result", tool_use_id="123"),
                     TextContent(type="text", text="also this"),
                 ],
             ),
@@ -105,7 +105,7 @@ class TestValidateToolUseResultMessages:
         messages = [
             SamplingMessage(
                 role="user",
-                content=ToolResultContent(type="tool_result", toolUseId="123"),
+                content=ToolResultContent(type="tool_result", tool_use_id="123"),
             ),
         ]
         with pytest.raises(ValueError, match="previous message containing tool_use"):
@@ -120,7 +120,7 @@ class TestValidateToolUseResultMessages:
             ),
             SamplingMessage(
                 role="user",
-                content=ToolResultContent(type="tool_result", toolUseId="tool-2"),
+                content=ToolResultContent(type="tool_result", tool_use_id="tool-2"),
             ),
         ]
         with pytest.raises(ValueError, match="do not match"):
@@ -135,7 +135,7 @@ class TestValidateToolUseResultMessages:
             ),
             SamplingMessage(
                 role="user",
-                content=ToolResultContent(type="tool_result", toolUseId="tool-1"),
+                content=ToolResultContent(type="tool_result", tool_use_id="tool-1"),
             ),
         ]
         validate_tool_use_result_messages(messages)  # Should not raise

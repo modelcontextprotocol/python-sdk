@@ -3,6 +3,7 @@ from typing import Any, Literal
 import pytest
 
 import mcp.types as types
+from mcp.server.fastmcp import FastMCP
 from mcp.shared.memory import (
     create_connected_server_and_client_session as create_session,
 )
@@ -23,8 +24,6 @@ class LoggingCollector:
 
 @pytest.mark.anyio
 async def test_logging_callback():
-    from mcp.server.fastmcp import FastMCP
-
     server = FastMCP("test")
     logging_collector = LoggingCollector()
 
@@ -78,7 +77,7 @@ async def test_logging_callback():
     ) as client_session:
         # First verify our test tool works
         result = await client_session.call_tool("test_tool", {})
-        assert result.isError is False
+        assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
@@ -101,8 +100,8 @@ async def test_logging_callback():
                 "extra_dict": {"a": 1, "b": 2, "c": 3},
             },
         )
-        assert log_result.isError is False
-        assert log_result_with_extra.isError is False
+        assert log_result.is_error is False
+        assert log_result_with_extra.is_error is False
         assert len(logging_collector.log_messages) == 2
         # Create meta object with related_request_id added dynamically
         log = logging_collector.log_messages[0]

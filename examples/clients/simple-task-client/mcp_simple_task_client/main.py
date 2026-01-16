@@ -25,13 +25,13 @@ async def run(url: str) -> None:
                 arguments={},
                 ttl=60000,
             )
-            task_id = result.task.taskId
+            task_id = result.task.task_id
             print(f"Task created: {task_id}")
 
             status = None
             # Poll until done (respects server's pollInterval hint)
             async for status in session.experimental.poll_task(task_id):
-                print(f"  Status: {status.status} - {status.statusMessage or ''}")
+                print(f"  Status: {status.status} - {status.status_message or ''}")
 
             # Check final status
             if status and status.status != "completed":

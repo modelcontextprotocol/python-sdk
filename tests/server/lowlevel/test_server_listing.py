@@ -80,7 +80,7 @@ async def test_list_tools_basic() -> None:
         Tool(
             name="tool1",
             description="First tool",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "message": {"type": "string"},
@@ -91,7 +91,7 @@ async def test_list_tools_basic() -> None:
         Tool(
             name="tool2",
             description="Second tool",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "count": {"type": "number"},

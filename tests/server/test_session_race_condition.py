@@ -49,7 +49,7 @@ async def test_request_immediately_after_initialize_response():
                 server_name="test-server",
                 server_version="1.0.0",
                 capabilities=ServerCapabilities(
-                    tools=types.ToolsCapability(listChanged=False),
+                    tools=types.ToolsCapability(list_changed=False),
                 ),
             ),
         ) as server_session:
@@ -70,7 +70,7 @@ async def test_request_immediately_after_initialize_response():
                                             Tool(
                                                 name="example_tool",
                                                 description="An example tool",
-                                                inputSchema={"type": "object", "properties": {}},
+                                                input_schema={"type": "object", "properties": {}},
                                             )
                                         ]
                                     )
@@ -95,9 +95,9 @@ async def test_request_immediately_after_initialize_response():
                         id=1,
                         method="initialize",
                         params=types.InitializeRequestParams(
-                            protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                            protocol_version=types.LATEST_PROTOCOL_VERSION,
                             capabilities=types.ClientCapabilities(),
-                            clientInfo=types.Implementation(name="test-client", version="1.0.0"),
+                            client_info=types.Implementation(name="test-client", version="1.0.0"),
                         ).model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )

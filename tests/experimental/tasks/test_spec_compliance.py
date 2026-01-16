@@ -346,10 +346,10 @@ class TestCreatingTask:
 
         # CreateTaskResult can include model-immediate-response in _meta
         task = Task(
-            taskId="test-123",
+            task_id="test-123",
             status="working",
-            createdAt=TEST_DATETIME,
-            lastUpdatedAt=TEST_DATETIME,
+            created_at=TEST_DATETIME,
+            last_updated_at=TEST_DATETIME,
             ttl=60000,
         )
         immediate_msg = "Task started, processing your request..."

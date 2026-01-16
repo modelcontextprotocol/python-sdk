@@ -59,9 +59,9 @@ async def test_request_id_match() -> None:
             id="init-1",
             method="initialize",
             params=InitializeRequestParams(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ClientCapabilities(),
-                clientInfo=Implementation(name="test-client", version="1.0.0"),
+                client_info=Implementation(name="test-client", version="1.0.0"),
             ).model_dump(by_alias=True, exclude_none=True),
             jsonrpc="2.0",
         )

@@ -44,7 +44,7 @@ def main(port: int, transport: str) -> int:
                 name="fetch",
                 title="Website Fetcher",
                 description="Fetches a website and returns its content",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "required": ["url"],
                     "properties": {

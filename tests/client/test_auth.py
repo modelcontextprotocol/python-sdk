@@ -5,7 +5,7 @@ Tests for refactored OAuth client authentication implementation.
 import base64
 import time
 from unittest import mock
-from urllib.parse import unquote
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import httpx
 import pytest
@@ -27,6 +27,8 @@ from mcp.client.auth.utils import (
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
 )
+from mcp.server.auth.routes import build_metadata
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -758,8 +760,6 @@ class TestProtectedResourceMetadata:
         content = request.content.decode()
         assert "resource=" in content
         # Check URL-encoded resource parameter
-        from urllib.parse import quote
-
         expected_resource = quote(oauth_provider.context.get_resource_url(), safe="")
         assert f"resource={expected_resource}" in content
 
@@ -1226,8 +1226,6 @@ class TestAuthFlow:
                 "%3A", ":"
             ).replace("+", " ")
             # Extract state from redirect URL
-            from urllib.parse import parse_qs, urlparse
-
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
             captured_state = params.get("state", [None])[0]
@@ -1336,9 +1334,6 @@ def test_build_metadata(
     registration_endpoint: str,
     revocation_endpoint: str,
 ):
-    from mcp.server.auth.routes import build_metadata
-    from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-
     metadata = build_metadata(
         issuer_url=AnyHttpUrl(issuer_url),
         service_documentation_url=AnyHttpUrl(service_documentation_url),

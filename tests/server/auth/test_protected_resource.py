@@ -2,6 +2,8 @@
 Integration tests for MCP Oauth Protected Resource.
 """
 
+from urllib.parse import urlparse
+
 import httpx
 import pytest
 from inline_snapshot import snapshot
@@ -159,8 +161,6 @@ class TestRouteConsistency:
         )
 
         # Extract path from metadata URL
-        from urllib.parse import urlparse
-
         metadata_path = urlparse(str(metadata_url)).path
 
         # Verify consistency
@@ -181,8 +181,6 @@ class TestRouteConsistency:
 
         # Test URL generation
         metadata_url = build_resource_metadata_url(resource_url_obj)
-        from urllib.parse import urlparse
-
         url_path = urlparse(str(metadata_url)).path
 
         # Test route creation

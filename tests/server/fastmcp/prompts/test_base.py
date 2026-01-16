@@ -96,7 +96,7 @@ class TestRenderPrompt:
                     resource=TextResourceContents(
                         uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )
@@ -109,7 +109,7 @@ class TestRenderPrompt:
                     resource=TextResourceContents(
                         uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )
@@ -128,7 +128,7 @@ class TestRenderPrompt:
                         resource=TextResourceContents(
                             uri="file://file.txt",
                             text="File contents",
-                            mimeType="text/plain",
+                            mime_type="text/plain",
                         ),
                     )
                 ),
@@ -144,7 +144,7 @@ class TestRenderPrompt:
                     resource=TextResourceContents(
                         uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             ),
@@ -176,7 +176,7 @@ class TestRenderPrompt:
                     resource=TextResourceContents(
                         uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )

@@ -119,9 +119,9 @@ class ClientSessionGroup:
     _exit_stack: contextlib.AsyncExitStack
     _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
-    # Optional fn consuming (component_name, serverInfo) for custom names.
+    # Optional fn consuming (component_name, server_info) for custom names.
     # This is provide a means to mitigate naming conflicts across servers.
-    # Example: (tool_name, serverInfo) => "{result.serverInfo.name}.{tool_name}"
+    # Example: (tool_name, server_info) => "{result.server_info.name}.{tool_name}"
     _ComponentNameHook: TypeAlias = Callable[[str, types.Implementation], str]
     _component_name_hook: _ComponentNameHook | None
 
@@ -324,7 +324,7 @@ class ClientSessionGroup:
             # main _exit_stack.
             await self._exit_stack.enter_async_context(session_stack)
 
-            return result.serverInfo, session
+            return result.server_info, session
         except Exception:  # pragma: no cover
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.

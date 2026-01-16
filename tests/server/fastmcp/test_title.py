@@ -26,10 +26,10 @@ async def test_server_name_title_description_version():
     # Start server and connect client
     async with create_connected_server_and_client_session(mcp._mcp_server) as client:
         init_result = await client.initialize()
-        assert init_result.serverInfo.name == "TestServer"
-        assert init_result.serverInfo.title == "Test Server Title"
-        assert init_result.serverInfo.description == "This is a test server description."
-        assert init_result.serverInfo.version == "1.0"
+        assert init_result.server_info.name == "TestServer"
+        assert init_result.server_info.title == "Test Server Title"
+        assert init_result.server_info.description == "This is a test server description."
+        assert init_result.server_info.version == "1.0"
 
 
 @pytest.mark.anyio
@@ -184,7 +184,7 @@ async def test_resource_title():
 
         # List resource templates
         templates_result = await client.list_resource_templates()
-        templates = {tpl.uriTemplate: tpl for tpl in templates_result.resourceTemplates}
+        templates = {tpl.uri_template: tpl for tpl in templates_result.resource_templates}
 
         # Verify dynamic resource template
         assert "resource://dynamic/{id}" in templates
@@ -203,17 +203,17 @@ async def test_get_display_name_utility():
     """Test the get_display_name utility function."""
 
     # Test tool precedence: title > annotations.title > name
-    tool_name_only = Tool(name="test_tool", inputSchema={})
+    tool_name_only = Tool(name="test_tool", input_schema={})
     assert get_display_name(tool_name_only) == "test_tool"
 
-    tool_with_title = Tool(name="test_tool", title="Test Tool", inputSchema={})
+    tool_with_title = Tool(name="test_tool", title="Test Tool", input_schema={})
     assert get_display_name(tool_with_title) == "Test Tool"
 
-    tool_with_annotations = Tool(name="test_tool", inputSchema={}, annotations=ToolAnnotations(title="Annotated Tool"))
+    tool_with_annotations = Tool(name="test_tool", input_schema={}, annotations=ToolAnnotations(title="Annotated Tool"))
     assert get_display_name(tool_with_annotations) == "Annotated Tool"
 
     tool_with_both = Tool(
-        name="test_tool", title="Primary Title", inputSchema={}, annotations=ToolAnnotations(title="Secondary Title")
+        name="test_tool", title="Primary Title", input_schema={}, annotations=ToolAnnotations(title="Secondary Title")
     )
     assert get_display_name(tool_with_both) == "Primary Title"
 
@@ -230,8 +230,8 @@ async def test_get_display_name_utility():
     prompt_with_title = Prompt(name="test_prompt", title="Test Prompt")
     assert get_display_name(prompt_with_title) == "Test Prompt"
 
-    template = ResourceTemplate(uriTemplate="file://{id}", name="test_template")
+    template = ResourceTemplate(uri_template="file://{id}", name="test_template")
     assert get_display_name(template) == "test_template"
 
-    template_with_title = ResourceTemplate(uriTemplate="file://{id}", name="test_template", title="Test Template")
+    template_with_title = ResourceTemplate(uri_template="file://{id}", name="test_template", title="Test Template")
     assert get_display_name(template_with_title) == "Test Template"
