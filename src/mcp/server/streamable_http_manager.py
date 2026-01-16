@@ -292,3 +292,13 @@ class StreamableHTTPSessionManager:
                 media_type="application/json",
             )
             await response(scope, receive, send)
+
+
+class StreamableHTTPASGIApp:
+    """ASGI application for Streamable HTTP server transport."""
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+        await self.session_manager.handle_request(scope, receive, send)
