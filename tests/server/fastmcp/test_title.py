@@ -1,7 +1,6 @@
 """Integration tests for title field functionality."""
 
 import pytest
-from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
@@ -134,7 +133,7 @@ async def test_resource_title():
         return "Basic data"
 
     basic_resource = FunctionResource(
-        uri=AnyUrl("resource://basic"),
+        uri="resource://basic",
         name="basic_resource",
         description="Basic resource",
         fn=get_basic_data,
@@ -146,7 +145,7 @@ async def test_resource_title():
         return "Titled data"
 
     titled_resource = FunctionResource(
-        uri=AnyUrl("resource://titled"),
+        uri="resource://titled",
         name="titled_resource",
         title="User-Friendly Resource",
         description="Resource with title",
@@ -219,10 +218,10 @@ async def test_get_display_name_utility():
     assert get_display_name(tool_with_both) == "Primary Title"
 
     # Test other types: title > name
-    resource = Resource(uri=AnyUrl("file://test"), name="test_res")
+    resource = Resource(uri="file://test", name="test_res")
     assert get_display_name(resource) == "test_res"
 
-    resource_with_title = Resource(uri=AnyUrl("file://test"), name="test_res", title="Test Resource")
+    resource_with_title = Resource(uri="file://test", name="test_res", title="Test Resource")
     assert get_display_name(resource_with_title) == "Test Resource"
 
     prompt = Prompt(name="test_prompt")

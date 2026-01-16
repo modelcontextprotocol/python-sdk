@@ -4,7 +4,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from pydantic import AnyUrl, BaseModel
+from pydantic import BaseModel
 from starlette.routing import Mount, Route
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -743,11 +743,11 @@ class TestServerResources:
         def get_text():
             return "Hello, world!"
 
-        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text)
+        resource = FunctionResource(uri="resource://test", name="test", fn=get_text)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://test"))
+            result = await client.read_resource("resource://test")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello, world!"
 
@@ -759,7 +759,7 @@ class TestServerResources:
             return b"Binary data"
 
         resource = FunctionResource(
-            uri=AnyUrl("resource://binary"),
+            uri="resource://binary",
             name="binary",
             fn=get_binary,
             mime_type="application/octet-stream",
@@ -767,7 +767,7 @@ class TestServerResources:
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://binary"))
+            result = await client.read_resource("resource://binary")
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary data").decode()
 
@@ -779,11 +779,11 @@ class TestServerResources:
         text_file = tmp_path / "test.txt"
         text_file.write_text("Hello from file!")
 
-        resource = FileResource(uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file)
+        resource = FileResource(uri="file://test.txt", name="test.txt", path=text_file)
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("file://test.txt"))
+            result = await client.read_resource("file://test.txt")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello from file!"
 
@@ -796,7 +796,7 @@ class TestServerResources:
         binary_file.write_bytes(b"Binary file data")
 
         resource = FileResource(
-            uri=AnyUrl("file://test.bin"),
+            uri="file://test.bin",
             name="test.bin",
             path=binary_file,
             mime_type="application/octet-stream",
@@ -804,7 +804,7 @@ class TestServerResources:
         mcp.add_resource(resource)
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("file://test.bin"))
+            result = await client.read_resource("file://test.bin")
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
@@ -822,7 +822,7 @@ class TestServerResources:
             assert len(resources.resources) == 1
             resource = resources.resources[0]
             assert resource.description == "get_data returns a string"
-            assert resource.uri == AnyUrl("function://test")
+            assert resource.uri == "function://test"
             assert resource.name == "test_get_data"
             assert resource.mimeType == "text/plain"
 
@@ -870,7 +870,7 @@ class TestServerResourceTemplates:
             return f"Data for {name}"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://test/data"))
+            result = await client.read_resource("resource://test/data")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for test"
 
@@ -895,7 +895,7 @@ class TestServerResourceTemplates:
             return f"Data for {org}/{repo}"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://cursor/fastmcp/data"))
+            result = await client.read_resource("resource://cursor/fastmcp/data")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/fastmcp"
 
@@ -918,7 +918,7 @@ class TestServerResourceTemplates:
             return "Static data"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://static"))
+            result = await client.read_resource("resource://static")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Static data"
 
@@ -958,7 +958,7 @@ class TestServerResourceTemplates:
         assert template.mimeType == "text/csv"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://bob/csv"))
+            result = await client.read_resource("resource://bob/csv")
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "csv for bob"
 
@@ -1020,7 +1020,7 @@ class TestServerResourceMetadata:
             return "test data"
 
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://data"))
+            result = await client.read_resource("resource://data")
 
             # Verify content and metadata in protocol response
             assert isinstance(result.contents[0], TextResourceContents)
@@ -1189,7 +1189,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://context/test"))
+            result = await client.read_resource("resource://context/test")
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1214,7 +1214,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://nocontext/test"))
+            result = await client.read_resource("resource://nocontext/test")
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1239,7 +1239,7 @@ class TestContextInjection:
 
         # Test via client
         async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://custom/123"))
+            result = await client.read_resource("resource://custom/123")
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1442,7 +1442,7 @@ class TestServerPrompts:
                 content=EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("file://file.txt"),
+                        uri="file://file.txt",
                         text="File contents",
                         mimeType="text/plain",
                     ),

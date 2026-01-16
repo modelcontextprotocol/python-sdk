@@ -2044,8 +2044,6 @@ For servers that need to handle large datasets, the low-level server provides pa
 Example of implementing pagination with MCP server decorators.
 """
 
-from pydantic import AnyUrl
-
 import mcp.types as types
 from mcp.server.lowlevel import Server
 
@@ -2070,7 +2068,7 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
 
     # Get page of resources
     page_items = [
-        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
+        types.Resource(uri=f"resource://items/{item}", name=item, description=f"Description for {item}")
         for item in ITEMS[start:end]
     ]
 

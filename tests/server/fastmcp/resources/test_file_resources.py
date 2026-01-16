@@ -3,7 +3,6 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import pytest
-from pydantic import FileUrl
 
 from mcp.server.fastmcp.resources import FileResource
 
@@ -31,7 +30,7 @@ class TestFileResource:
     def test_file_resource_creation(self, temp_file: Path):
         """Test creating a FileResource."""
         resource = FileResource(
-            uri=FileUrl(temp_file.as_uri()),
+            uri=temp_file.as_uri(),
             name="test",
             description="test file",
             path=temp_file,
@@ -46,7 +45,7 @@ class TestFileResource:
     def test_file_resource_str_path_conversion(self, temp_file: Path):
         """Test FileResource handles string paths."""
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=Path(str(temp_file)),
         )
@@ -57,7 +56,7 @@ class TestFileResource:
     async def test_read_text_file(self, temp_file: Path):
         """Test reading a text file."""
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=temp_file,
         )
@@ -69,7 +68,7 @@ class TestFileResource:
     async def test_read_binary_file(self, temp_file: Path):
         """Test reading a file as binary."""
         resource = FileResource(
-            uri=FileUrl(f"file://{temp_file}"),
+            uri=f"file://{temp_file}",
             name="test",
             path=temp_file,
             is_binary=True,
@@ -82,7 +81,7 @@ class TestFileResource:
         """Test error on relative path."""
         with pytest.raises(ValueError, match="Path must be absolute"):
             FileResource(
-                uri=FileUrl("file:///test.txt"),
+                uri="file:///test.txt",
                 name="test",
                 path=Path("test.txt"),
             )
@@ -93,7 +92,7 @@ class TestFileResource:
         # Create path to non-existent file
         missing = temp_file.parent / "missing.txt"
         resource = FileResource(
-            uri=FileUrl("file:///missing.txt"),
+            uri="file:///missing.txt",
             name="test",
             path=missing,
         )
@@ -107,7 +106,7 @@ class TestFileResource:
         temp_file.chmod(0o000)  # Remove all permissions
         try:
             resource = FileResource(
-                uri=FileUrl(temp_file.as_uri()),
+                uri=temp_file.as_uri(),
                 name="test",
                 path=temp_file,
             )

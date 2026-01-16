@@ -11,7 +11,7 @@ import anyio.to_thread
 import httpx
 import pydantic
 import pydantic_core
-from pydantic import AnyUrl, Field, ValidationInfo, validate_call
+from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.types import Annotations, Icon
@@ -94,7 +94,7 @@ class FunctionResource(Resource):
         fn = validate_call(fn)
 
         return cls(
-            uri=AnyUrl(uri),
+            uri=uri,
             name=func_name,
             title=title,
             description=description or fn.__doc__ or "",
