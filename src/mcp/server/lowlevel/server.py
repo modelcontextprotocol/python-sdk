@@ -79,15 +79,27 @@ from typing import Any, Generic, TypeAlias, cast
 import anyio
 import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
+from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.server.streamable_http import EventStore, StreamableHTTPASGIApp
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -162,6 +174,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
         self._experimental_handlers: ExperimentalHandlers | None = None
+        self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -257,6 +270,20 @@ class Server(Generic[LifespanResultT, RequestT]):
         if self._experimental_handlers is None:
             self._experimental_handlers = ExperimentalHandlers(self, self.request_handlers, self.notification_handlers)
         return self._experimental_handlers
+
+    @property
+    def session_manager(self) -> StreamableHTTPSessionManager:
+        """Get the StreamableHTTP session manager.
+
+        Raises:
+            RuntimeError: If called before streamable_http_app() has been called.
+        """
+        if self._session_manager is None:
+            raise RuntimeError(
+                "Session manager can only be accessed after calling streamable_http_app(). "
+                "The session manager is created lazily to avoid unnecessary initialization."
+            )
+        return self._session_manager
 
     def list_prompts(self):
         def decorator(
@@ -800,6 +827,118 @@ class Server(Generic[LifespanResultT, RequestT]):
                 await handler(notify)
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
+
+    def streamable_http_app(
+        self,
+        *,
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+        auth: AuthSettings | None = None,
+        token_verifier: TokenVerifier | None = None,
+        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
+        custom_starlette_routes: list[Route] | None = None,
+        debug: bool = False,
+    ) -> Starlette:
+        """Return an instance of the StreamableHTTP server app."""
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
+
+        session_manager = StreamableHTTPSessionManager(
+            app=self,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            json_response=json_response,
+            stateless=stateless_http,
+            security_settings=transport_security,
+        )
+        self._session_manager = session_manager
+
+        # Create the ASGI handler
+        streamable_http_app = StreamableHTTPASGIApp(session_manager)
+
+        # Create routes
+        routes: list[Route | Mount] = []
+        middleware: list[Middleware] = []
+        required_scopes: list[str] = []
+
+        # Set up auth if configured
+        if auth:  # pragma: no cover
+            required_scopes = auth.required_scopes or []
+
+            # Add auth middleware if token verifier is available
+            if token_verifier:
+                middleware = [
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=BearerAuthBackend(token_verifier),
+                    ),
+                    Middleware(AuthContextMiddleware),
+                ]
+
+            # Add auth endpoints if auth server provider is configured
+            if auth_server_provider:
+                routes.extend(
+                    create_auth_routes(
+                        provider=auth_server_provider,
+                        issuer_url=auth.issuer_url,
+                        service_documentation_url=auth.service_documentation_url,
+                        client_registration_options=auth.client_registration_options,
+                        revocation_options=auth.revocation_options,
+                    )
+                )
+
+        # Set up routes with or without auth
+        if token_verifier:  # pragma: no cover
+            # Determine resource metadata URL
+            resource_metadata_url = None
+            if auth and auth.resource_server_url:
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
+
+            routes.append(
+                Route(
+                    streamable_http_path,
+                    endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
+                )
+            )
+        else:
+            # Auth is disabled, no wrapper needed
+            routes.append(
+                Route(
+                    streamable_http_path,
+                    endpoint=streamable_http_app,
+                )
+            )
+
+        # Add protected resource metadata endpoint if configured as RS
+        if auth and auth.resource_server_url:  # pragma: no cover
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=auth.resource_server_url,
+                    authorization_servers=[auth.issuer_url],
+                    scopes_supported=auth.required_scopes,
+                )
+            )
+
+        if custom_starlette_routes:
+            routes.extend(custom_starlette_routes)
+
+        return Starlette(
+            debug=debug,
+            routes=routes,
+            middleware=middleware,
+            lifespan=lambda app: session_manager.run(),
+        )
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:

@@ -165,7 +165,6 @@ class FastMCP(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
-        self._session_manager: StreamableHTTPSessionManager | None = None
 
         # Set up MCP protocol handlers
         self._setup_handlers()
@@ -211,14 +210,7 @@ class FastMCP(Generic[LifespanResultT]):
         Raises:
             RuntimeError: If called before streamable_http_app() has been called.
         """
-        if self._session_manager is None:  # pragma: no cover
-            raise RuntimeError(
-                "Session manager can only be accessed after"
-                "calling streamable_http_app()."
-                "The session manager is created lazily"
-                "to avoid unnecessary initialization."
-            )
-        return self._session_manager  # pragma: no cover
+        return self._mcp_server.session_manager
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -929,107 +921,19 @@ class FastMCP(Generic[LifespanResultT]):
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
-        from starlette.middleware import Middleware
-
-        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
-        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
-            transport_security = TransportSecuritySettings(
-                enable_dns_rebinding_protection=True,
-                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
-                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
-            )
-
-        # Create session manager on first call (lazy initialization)
-        if self._session_manager is None:  # pragma: no branch
-            self._session_manager = StreamableHTTPSessionManager(
-                app=self._mcp_server,
-                event_store=event_store,
-                retry_interval=retry_interval,
-                json_response=json_response,
-                stateless=stateless_http,
-                security_settings=transport_security,
-            )
-
-        # Create the ASGI handler
-        streamable_http_app = StreamableHTTPASGIApp(self._session_manager)
-
-        # Create routes
-        routes: list[Route | Mount] = []
-        middleware: list[Middleware] = []
-        required_scopes: list[str] = []
-
-        # Set up auth if configured
-        if self.settings.auth:  # pragma: no cover
-            required_scopes = self.settings.auth.required_scopes or []
-
-            # Add auth middleware if token verifier is available
-            if self._token_verifier:
-                middleware = [
-                    Middleware(
-                        AuthenticationMiddleware,
-                        backend=BearerAuthBackend(self._token_verifier),
-                    ),
-                    Middleware(AuthContextMiddleware),
-                ]
-
-            # Add auth endpoints if auth server provider is configured
-            if self._auth_server_provider:
-                from mcp.server.auth.routes import create_auth_routes
-
-                routes.extend(
-                    create_auth_routes(
-                        provider=self._auth_server_provider,
-                        issuer_url=self.settings.auth.issuer_url,
-                        service_documentation_url=self.settings.auth.service_documentation_url,
-                        client_registration_options=self.settings.auth.client_registration_options,
-                        revocation_options=self.settings.auth.revocation_options,
-                    )
-                )
-
-        # Set up routes with or without auth
-        if self._token_verifier:  # pragma: no cover
-            # Determine resource metadata URL
-            resource_metadata_url = None
-            if self.settings.auth and self.settings.auth.resource_server_url:
-                from mcp.server.auth.routes import build_resource_metadata_url
-
-                # Build compliant metadata URL for WWW-Authenticate header
-                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
-
-            routes.append(
-                Route(
-                    streamable_http_path,
-                    endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
-                )
-            )
-        else:
-            # Auth is disabled, no wrapper needed
-            routes.append(
-                Route(
-                    streamable_http_path,
-                    endpoint=streamable_http_app,
-                )
-            )
-
-        # Add protected resource metadata endpoint if configured as RS
-        if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
-            from mcp.server.auth.routes import create_protected_resource_routes
-
-            routes.extend(
-                create_protected_resource_routes(
-                    resource_url=self.settings.auth.resource_server_url,
-                    authorization_servers=[self.settings.auth.issuer_url],
-                    scopes_supported=self.settings.auth.required_scopes,
-                )
-            )
-
-        routes.extend(self._custom_starlette_routes)
-
-        return Starlette(
+        return self._mcp_server.streamable_http_app(
+            streamable_http_path=streamable_http_path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            transport_security=transport_security,
+            host=host,
+            auth=self.settings.auth,
+            token_verifier=self._token_verifier,
+            auth_server_provider=self._auth_server_provider,
+            custom_starlette_routes=self._custom_starlette_routes,
             debug=self.settings.debug,
-            routes=routes,
-            middleware=middleware,
-            lifespan=lambda app: self.session_manager.run(),
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:
@@ -1069,16 +973,6 @@ class FastMCP(Generic[LifespanResultT]):
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
-
-
-class StreamableHTTPASGIApp:
-    """ASGI application for Streamable HTTP server transport."""
-
-    def __init__(self, session_manager: StreamableHTTPSessionManager):
-        self.session_manager = session_manager
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
-        await self.session_manager.handle_request(scope, receive, send)
 
 
 class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):

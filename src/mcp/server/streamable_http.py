@@ -14,7 +14,10 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -1054,3 +1057,13 @@ class StreamableHTTPServerTransport:
                 except Exception as e:  # pragma: no cover
                     # During cleanup, we catch all exceptions since streams might be in various states
                     logger.debug(f"Error closing streams: {e}")
+
+
+class StreamableHTTPASGIApp:
+    """ASGI application for Streamable HTTP server transport."""
+
+    def __init__(self, session_manager: "StreamableHTTPSessionManager"):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+        await self.session_manager.handle_request(scope, receive, send)
