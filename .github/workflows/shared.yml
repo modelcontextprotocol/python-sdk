@@ -39,8 +39,8 @@ jobs:
         dep-resolution:
           - name: lowest-direct
             install-flags: "--upgrade --resolution lowest-direct"
-          - name: highest
-            install-flags: "--upgrade --resolution highest"
+          - name: locked
+            install-flags: "--frozen"
         os: [ubuntu-latest, windows-latest]
 
     steps:
