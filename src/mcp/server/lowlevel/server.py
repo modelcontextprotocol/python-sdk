@@ -372,15 +372,20 @@ class Server(Generic[LifespanResultT, RequestT]):
                         )
                         content = create_content(data, None)
                     case Iterable() as contents:
-                        contents_list = [
-                            create_content(
-                                content_item.content, content_item.mime_type, getattr(content_item, "meta", None)
+                        contents_list = []
+                        result_meta = None
+                        for content_item in contents:
+                            item_meta = getattr(content_item, "meta", None)
+                            # Use first non-None meta as result-level _meta
+                            if result_meta is None and item_meta is not None:
+                                result_meta = item_meta
+                            contents_list.append(
+                                create_content(content_item.content, content_item.mime_type, item_meta)
                             )
-                            for content_item in contents
-                        ]
                         return types.ServerResult(
                             types.ReadResourceResult(
                                 contents=contents_list,
+                                _meta=result_meta,
                             )
                         )
                     case _:  # pragma: no cover
