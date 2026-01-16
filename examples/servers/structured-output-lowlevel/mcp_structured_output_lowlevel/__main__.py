@@ -27,12 +27,12 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_weather",
             description="Get weather information (simulated)",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"city": {"type": "string", "description": "City name"}},
                 "required": ["city"],
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "temperature": {"type": "number"},

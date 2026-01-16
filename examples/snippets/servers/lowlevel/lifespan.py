@@ -56,7 +56,7 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="query_db",
             description="Query the database",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
                 "required": ["query"],

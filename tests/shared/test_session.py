@@ -118,7 +118,7 @@ async def test_request_cancellation():
             await client_session.send_notification(
                 ClientNotification(
                     CancelledNotification(
-                        params=CancelledNotificationParams(requestId=request_id),
+                        params=CancelledNotificationParams(request_id=request_id),
                     )
                 )
             )

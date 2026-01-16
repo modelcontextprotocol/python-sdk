@@ -33,4 +33,4 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
     # Determine next cursor
     next_cursor = str(end) if end < len(ITEMS) else None
 
-    return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
+    return types.ListResourcesResult(resources=page_items, next_cursor=next_cursor)

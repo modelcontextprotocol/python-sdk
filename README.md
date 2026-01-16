@@ -442,7 +442,7 @@ def validated_tool() -> Annotated[CallToolResult, ValidationModel]:
     """Return CallToolResult with structured output validation."""
     return CallToolResult(
         content=[TextContent(type="text", text="Validated response")],
-        structuredContent={"status": "success", "data": {"result": 42}},
+        structured_content={"status": "success", "data": {"result": 42}},
         _meta={"internal": "metadata"},
     )
 
@@ -757,8 +757,8 @@ async def run():
             # List available resource templates
             templates = await session.list_resource_templates()
             print("Available resource templates:")
-            for template in templates.resourceTemplates:
-                print(f"  - {template.uriTemplate}")
+            for template in templates.resource_templates:
+                print(f"  - {template.uri_template}")
 
             # List available prompts
             prompts = await session.list_prompts()
@@ -767,20 +767,20 @@ async def run():
                 print(f"  - {prompt.name}")
 
             # Complete resource template arguments
-            if templates.resourceTemplates:
-                template = templates.resourceTemplates[0]
-                print(f"\nCompleting arguments for resource template: {template.uriTemplate}")
+            if templates.resource_templates:
+                template = templates.resource_templates[0]
+                print(f"\nCompleting arguments for resource template: {template.uri_template}")
 
                 # Complete without context
                 result = await session.complete(
-                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uri_template),
                     argument={"name": "owner", "value": "model"},
                 )
                 print(f"Completions for 'owner' starting with 'model': {result.completion.values}")
 
                 # Complete with context - repo suggestions based on owner
                 result = await session.complete(
-                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uri_template),
                     argument={"name": "repo", "value": ""},
                     context_arguments={"owner": "modelcontextprotocol"},
                 )
@@ -910,7 +910,7 @@ async def connect_service(service_name: str, ctx: Context[ServerSession, None]) 
                 mode="url",
                 message=f"Authorization required to connect to {service_name}",
                 url=f"https://{service_name}.example.com/oauth/authorize?elicit={elicitation_id}",
-                elicitationId=elicitation_id,
+                elicitation_id=elicitation_id,
             )
         ]
     )
@@ -1706,7 +1706,7 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="query_db",
             description="Query the database",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
                 "required": ["query"],
@@ -1867,12 +1867,12 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_weather",
             description="Get current weather for a city",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"city": {"type": "string", "description": "City name"}},
                 "required": ["city"],
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "temperature": {"type": "number", "description": "Temperature in Celsius"},
@@ -1970,7 +1970,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="advanced_tool",
             description="Tool with full control including _meta field",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"message": {"type": "string"}},
                 "required": ["message"],
@@ -1986,7 +1986,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallTo
         message = str(arguments.get("message", ""))
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Processed: {message}")],
-            structuredContent={"result": "success", "message": message},
+            structured_content={"result": "success", "message": message},
             _meta={"hidden": "data for client applications only"},
         )
 
@@ -2062,7 +2062,7 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
     # Determine next cursor
     next_cursor = str(end) if end < len(ITEMS) else None
 
-    return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
+    return types.ListResourcesResult(resources=page_items, next_cursor=next_cursor)
 ```
 
 _Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
@@ -2103,8 +2103,8 @@ async def list_all_resources() -> None:
                 print(f"Fetched {len(result.resources)} resources")
 
                 # Check if there are more pages
-                if result.nextCursor:
-                    cursor = result.nextCursor
+                if result.next_cursor:
+                    cursor = result.next_cursor
                 else:
                     break
 
@@ -2167,7 +2167,7 @@ async def handle_sampling_message(
             text="Hello, world! from model",
         ),
         model="gpt-3.5-turbo",
-        stopReason="endTurn",
+        stop_reason="endTurn",
     )
 
 
@@ -2205,7 +2205,7 @@ async def run():
             result_unstructured = result.content[0]
             if isinstance(result_unstructured, types.TextContent):
                 print(f"Tool result: {result_unstructured.text}")
-            result_structured = result.structuredContent
+            result_structured = result.structured_content
             print(f"Structured tool result: {result_structured}")
 
 
@@ -2306,7 +2306,7 @@ async def display_resources(session: ClientSession):
         print(f"Resource: {display_name} ({resource.uri})")
 
     templates_response = await session.list_resource_templates()
-    for template in templates_response.resourceTemplates:
+    for template in templates_response.resource_templates:
         display_name = get_display_name(template)
         print(f"Resource Template: {display_name}")
 

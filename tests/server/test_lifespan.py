@@ -76,9 +76,9 @@ async def test_lowlevel_server_lifespan():
 
         # Initialize the server
         params = InitializeRequestParams(
-            protocolVersion="2024-11-05",
+            protocol_version="2024-11-05",
             capabilities=ClientCapabilities(),
-            clientInfo=Implementation(name="test-client", version="0.1.0"),
+            client_info=Implementation(name="test-client", version="0.1.0"),
         )
         await send_stream1.send(
             SessionMessage(
@@ -182,9 +182,9 @@ async def test_fastmcp_server_lifespan():
 
         # Initialize the server
         params = InitializeRequestParams(
-            protocolVersion="2024-11-05",
+            protocol_version="2024-11-05",
             capabilities=ClientCapabilities(),
-            clientInfo=Implementation(name="test-client", version="0.1.0"),
+            client_info=Implementation(name="test-client", version="0.1.0"),
         )
         await send_stream1.send(
             SessionMessage(
