@@ -116,6 +116,12 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
+### `mount_path` parameter removed from FastMCP
+
+The `mount_path` parameter has been removed from `FastMCP.__init__()`, `FastMCP.run()`, `FastMCP.run_sse_async()`, and `FastMCP.sse_app()`. It was also removed from the `Settings` class.
+
+This parameter was redundant because the SSE transport already handles sub-path mounting via ASGI's standard `root_path` mechanism. When using Starlette's `Mount("/path", app=mcp.sse_app())`, Starlette automatically sets `root_path` in the ASGI scope, and the `SseServerTransport` uses this to construct the correct message endpoint path.
+
 ### Resource URI type changed from `AnyUrl` to `str`
 
 The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the [MCP specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) which defines URIs as plain strings (`uri: string`) without strict URL validation. This change allows relative paths like `users/me` that were previously rejected.

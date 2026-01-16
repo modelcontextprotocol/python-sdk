@@ -49,85 +49,23 @@ class TestServer:
         assert mcp.icons[0].src == "https://example.com/icon.png"
 
     @pytest.mark.anyio
-    async def test_normalize_path(self):
-        """Test path normalization for mount paths."""
-        mcp = FastMCP()
+    async def test_sse_app_returns_starlette_app(self):
+        """Test that sse_app returns a Starlette application with correct routes."""
+        from starlette.applications import Starlette
 
-        # Test root path
-        assert mcp._normalize_path("/", "/messages/") == "/messages/"
-
-        # Test path with trailing slash
-        assert mcp._normalize_path("/github/", "/messages/") == "/github/messages/"
-
-        # Test path without trailing slash
-        assert mcp._normalize_path("/github", "/messages/") == "/github/messages/"
-
-        # Test endpoint without leading slash
-        assert mcp._normalize_path("/github", "messages/") == "/github/messages/"
-
-        # Test both with trailing/leading slashes
-        assert mcp._normalize_path("/api/", "/v1/") == "/api/v1/"
-
-    @pytest.mark.anyio
-    async def test_sse_app_with_mount_path(self):
-        """Test SSE app creation with different mount paths."""
-        # Test with default mount path
-        mcp = FastMCP()
-        with patch.object(mcp, "_normalize_path", return_value="/messages/") as mock_normalize:
-            mcp.sse_app()
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/", "/messages/")
-
-        # Test with custom mount path in settings
-        mcp = FastMCP()
-        mcp.settings.mount_path = "/custom"
-        with patch.object(mcp, "_normalize_path", return_value="/custom/messages/") as mock_normalize:
-            mcp.sse_app()
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/custom", "/messages/")
-
-        # Test with mount_path parameter
-        mcp = FastMCP()
-        with patch.object(mcp, "_normalize_path", return_value="/param/messages/") as mock_normalize:
-            mcp.sse_app(mount_path="/param")
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/param", "/messages/")
-
-    @pytest.mark.anyio
-    async def test_starlette_routes_with_mount_path(self):
-        """Test that Starlette routes are correctly configured with mount path."""
-        # Test with mount path in settings
-        mcp = FastMCP()
-        mcp.settings.mount_path = "/api"
+        mcp = FastMCP("test", host="0.0.0.0")  # Use 0.0.0.0 to avoid auto DNS protection
         app = mcp.sse_app()
 
-        # Find routes by type
+        assert isinstance(app, Starlette)
+
+        # Verify routes exist
         sse_routes = [r for r in app.routes if isinstance(r, Route)]
         mount_routes = [r for r in app.routes if isinstance(r, Mount)]
 
-        # Verify routes exist
         assert len(sse_routes) == 1, "Should have one SSE route"
         assert len(mount_routes) == 1, "Should have one mount route"
-
-        # Verify path values
-        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
-
-        # Test with mount path as parameter
-        mcp = FastMCP()
-        app = mcp.sse_app(mount_path="/param")
-
-        # Find routes by type
-        sse_routes = [r for r in app.routes if isinstance(r, Route)]
-        mount_routes = [r for r in app.routes if isinstance(r, Mount)]
-
-        # Verify routes exist
-        assert len(sse_routes) == 1, "Should have one SSE route"
-        assert len(mount_routes) == 1, "Should have one mount route"
-
-        # Verify path values
-        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
+        assert sse_routes[0].path == "/sse"
+        assert mount_routes[0].path == "/messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):

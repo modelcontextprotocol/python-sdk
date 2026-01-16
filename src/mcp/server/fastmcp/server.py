@@ -76,7 +76,6 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # HTTP settings
     host: str
     port: int
-    mount_path: str
     sse_path: str
     message_path: str
     streamable_http_path: str
@@ -138,7 +137,6 @@ class FastMCP(Generic[LifespanResultT]):
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         host: str = "127.0.0.1",
         port: int = 8000,
-        mount_path: str = "/",
         sse_path: str = "/sse",
         message_path: str = "/messages/",
         streamable_http_path: str = "/mcp",
@@ -164,7 +162,6 @@ class FastMCP(Generic[LifespanResultT]):
             log_level=log_level,
             host=host,
             port=port,
-            mount_path=mount_path,
             sse_path=sse_path,
             message_path=message_path,
             streamable_http_path=streamable_http_path,
@@ -269,13 +266,11 @@ class FastMCP(Generic[LifespanResultT]):
     def run(
         self,
         transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
-        mount_path: str | None = None,
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
-            mount_path: Optional mount path for SSE transport
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
@@ -285,7 +280,7 @@ class FastMCP(Generic[LifespanResultT]):
             case "stdio":
                 anyio.run(self.run_stdio_async)
             case "sse":  # pragma: no cover
-                anyio.run(lambda: self.run_sse_async(mount_path))
+                anyio.run(self.run_sse_async)
             case "streamable-http":  # pragma: no cover
                 anyio.run(self.run_streamable_http_async)
 
@@ -749,11 +744,11 @@ class FastMCP(Generic[LifespanResultT]):
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self, mount_path: str | None = None) -> None:  # pragma: no cover
+    async def run_sse_async(self) -> None:  # pragma: no cover
         """Run the server using SSE transport."""
         import uvicorn
 
-        starlette_app = self.sse_app(mount_path)
+        starlette_app = self.sse_app()
 
         config = uvicorn.Config(
             starlette_app,
@@ -779,58 +774,16 @@ class FastMCP(Generic[LifespanResultT]):
         server = uvicorn.Server(config)
         await server.serve()
 
-    def _normalize_path(self, mount_path: str, endpoint: str) -> str:
-        """
-        Combine mount path and endpoint to return a normalized path.
-
-        Args:
-            mount_path: The mount path (e.g. "/github" or "/")
-            endpoint: The endpoint path (e.g. "/messages/")
-
-        Returns:
-            Normalized path (e.g. "/github/messages/")
-        """
-        # Special case: root path
-        if mount_path == "/":
-            return endpoint
-
-        # Remove trailing slash from mount path
-        if mount_path.endswith("/"):
-            mount_path = mount_path[:-1]
-
-        # Ensure endpoint starts with slash
-        if not endpoint.startswith("/"):
-            endpoint = "/" + endpoint
-
-        # Combine paths
-        return mount_path + endpoint
-
-    def sse_app(self, mount_path: str | None = None) -> Starlette:
+    def sse_app(self) -> Starlette:
         """Return an instance of the SSE server app."""
 
-        # Update mount_path in settings if provided
-        if mount_path is not None:
-            self.settings.mount_path = mount_path
-
-        # Create normalized endpoint considering the mount path
-        normalized_message_endpoint = self._normalize_path(self.settings.mount_path, self.settings.message_path)
-
-        # Set up auth context and dependencies
-
-        sse = SseServerTransport(
-            normalized_message_endpoint,
-            security_settings=self.settings.transport_security,
-        )
+        sse = SseServerTransport(self.settings.message_path, security_settings=self.settings.transport_security)
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(scope, receive, send) as streams:
-                await self._mcp_server.run(
-                    streams[0],
-                    streams[1],
-                    self._mcp_server.create_initialization_options(),
-                )
+                await self._mcp_server.run(streams[0], streams[1], self._mcp_server.create_initialization_options())
             return Response()
 
         # Create routes
