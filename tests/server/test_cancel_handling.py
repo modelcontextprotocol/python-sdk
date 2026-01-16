@@ -6,8 +6,7 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client._memory import InMemoryTransport
-from mcp.client.session import ClientSession
+from mcp import Client
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.types import (
@@ -55,61 +54,50 @@ async def test_server_remains_functional_after_cancel():
             return [types.TextContent(type="text", text=f"Call number: {call_count}")]
         raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
-    transport = InMemoryTransport(server)
-    async with transport.connect() as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as client:
-            await client.initialize()
-
-            # First request (will be cancelled)
-            async def first_request():
-                try:
-                    await client.send_request(
-                        ClientRequest(
-                            CallToolRequest(
-                                params=CallToolRequestParams(name="test_tool", arguments={}),
-                            )
-                        ),
-                        CallToolResult,
-                    )
-                    pytest.fail("First request should have been cancelled")  # pragma: no cover
-                except McpError:
-                    pass  # Expected
-
-            # Start first request
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(first_request)
-
-                # Wait for it to start
-                await ev_first_call.wait()
-
-                # Cancel it
-                assert first_request_id is not None
-                await client.send_notification(
-                    ClientNotification(
-                        CancelledNotification(
-                            params=CancelledNotificationParams(
-                                request_id=first_request_id,
-                                reason="Testing server recovery",
-                            ),
+    async with Client(server) as client:
+        # First request (will be cancelled)
+        async def first_request():
+            try:
+                await client.session.send_request(
+                    ClientRequest(
+                        CallToolRequest(
+                            params=CallToolRequestParams(name="test_tool", arguments={}),
                         )
+                    ),
+                    CallToolResult,
+                )
+                pytest.fail("First request should have been cancelled")  # pragma: no cover
+            except McpError:
+                pass  # Expected
+
+        # Start first request
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(first_request)
+
+            # Wait for it to start
+            await ev_first_call.wait()
+
+            # Cancel it
+            assert first_request_id is not None
+            await client.session.send_notification(
+                ClientNotification(
+                    CancelledNotification(
+                        params=CancelledNotificationParams(
+                            request_id=first_request_id,
+                            reason="Testing server recovery",
+                        ),
                     )
                 )
-
-            # Second request (should work normally)
-            result = await client.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(name="test_tool", arguments={}),
-                    )
-                ),
-                CallToolResult,
             )
 
-            # Verify second request completed successfully
-            assert len(result.content) == 1
-            # Type narrowing for pyright
-            content = result.content[0]
-            assert content.type == "text"
-            assert isinstance(content, types.TextContent)
-            assert content.text == "Call number: 2"
-            assert call_count == 2
+        # Second request (should work normally)
+        result = await client.call_tool("test_tool", {})
+
+        # Verify second request completed successfully
+        assert len(result.content) == 1
+        # Type narrowing for pyright
+        content = result.content[0]
+        assert content.type == "text"
+        assert isinstance(content, types.TextContent)
+        assert content.text == "Call number: 2"
+        assert call_count == 2
