@@ -1,11 +1,9 @@
 import pytest
 
+from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.context import RequestContext
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as create_session,
-)
 from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -43,17 +41,17 @@ async def test_sampling_callback():
         return True
 
     # Test with sampling callback
-    async with create_session(server._mcp_server, sampling_callback=sampling_callback) as client_session:
+    async with Client(server, sampling_callback=sampling_callback) as client:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
+        result = await client.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
     # Test without sampling callback
-    async with create_session(server._mcp_server) as client_session:
+    async with Client(server) as client:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool("test_sampling", {"message": "Test message for sampling"})
+        result = await client.call_tool("test_sampling", {"message": "Test message for sampling"})
         assert result.is_error is True
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Error executing tool test_sampling: Sampling not supported"
@@ -94,8 +92,8 @@ async def test_create_message_backwards_compat_single_content():
         assert not hasattr(result, "content_as_list") or not callable(getattr(result, "content_as_list", None))
         return True
 
-    async with create_session(server._mcp_server, sampling_callback=sampling_callback) as client_session:
-        result = await client_session.call_tool("test_backwards_compat", {"message": "Test"})
+    async with Client(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("test_backwards_compat", {"message": "Test"})
         assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"

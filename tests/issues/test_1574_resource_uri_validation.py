@@ -12,12 +12,9 @@ These tests verify the fix works end-to-end through the JSON-RPC protocol.
 
 import pytest
 
-from mcp import types
+from mcp import Client, types
 from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 
 pytestmark = pytest.mark.anyio
 
@@ -48,7 +45,7 @@ async def test_relative_uri_roundtrip():
             )
         ]
 
-    async with client_session(server) as client:
+    async with Client(server) as client:
         # List should return the exact URIs we specified
         resources = await client.list_resources()
         uri_map = {r.uri: r for r in resources.resources}
@@ -83,7 +80,7 @@ async def test_custom_scheme_uri_roundtrip():
     async def read_resource(uri: str):
         return [ReadResourceContents(content="data", mime_type="text/plain")]
 
-    async with client_session(server) as client:
+    async with Client(server) as client:
         resources = await client.list_resources()
         uri_map = {r.uri: r for r in resources.resources}
 

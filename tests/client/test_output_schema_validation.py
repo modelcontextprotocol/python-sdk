@@ -7,10 +7,8 @@ from unittest.mock import patch
 import jsonschema
 import pytest
 
+from mcp import Client
 from mcp.server.lowlevel import Server
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 from mcp.types import Tool
 
 
@@ -77,7 +75,7 @@ class TestClientOutputSchemaValidation:
 
         # Test that client validates the structured content
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("get_user", {})
@@ -114,7 +112,7 @@ class TestClientOutputSchemaValidation:
             return {"result": "not_a_number"}  # Invalid: should be int
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("calculate", {})
@@ -145,7 +143,7 @@ class TestClientOutputSchemaValidation:
             return {"alice": "100", "bob": "85"}  # Invalid: values should be int
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("get_scores", {})
@@ -180,7 +178,7 @@ class TestClientOutputSchemaValidation:
             return {"name": "John", "age": 30}  # Missing required 'email'
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("get_person", {})
@@ -205,7 +203,7 @@ class TestClientOutputSchemaValidation:
         caplog.set_level(logging.WARNING)
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # Call a tool that wasn't listed
                 result = await client.call_tool("mystery_tool", {})
                 assert result.structured_content == {"result": 42}

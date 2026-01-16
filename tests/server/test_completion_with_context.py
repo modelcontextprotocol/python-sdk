@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
+from mcp import Client
 from mcp.server.lowlevel import Server
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
     Completion,
     CompletionArgument,
@@ -38,7 +38,7 @@ async def test_completion_handler_receives_context():
         # Return test completion
         return Completion(values=["test-completion"], total=1, has_more=False)
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # Test with context
         result = await client.complete(
             ref=ResourceTemplateReference(type="ref/resource", uri="test://resource/{param}"),
@@ -70,7 +70,7 @@ async def test_completion_backward_compatibility():
 
         return Completion(values=["no-context-completion"], total=1, has_more=False)
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # Test without context
         result = await client.complete(
             ref=PromptReference(type="ref/prompt", name="test-prompt"), argument={"name": "arg", "value": "val"}
@@ -109,7 +109,7 @@ async def test_dependent_completion_scenario():
 
         return Completion(values=[], total=0, has_more=False)  # pragma: no cover
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # First, complete database
         db_result = await client.complete(
             ref=ResourceTemplateReference(type="ref/resource", uri="db://{database}/{table}"),
@@ -160,7 +160,7 @@ async def test_completion_error_on_missing_context():
 
         return Completion(values=[], total=0, has_more=False)  # pragma: no cover
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # Try to complete table without database context - should raise error
         with pytest.raises(Exception) as exc_info:
             await client.complete(

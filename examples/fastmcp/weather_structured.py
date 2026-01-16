@@ -14,8 +14,8 @@ from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
+from mcp.client import Client
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import create_connected_server_and_client_session as client_session
 
 # Create server
 mcp = FastMCP("Weather Service")
@@ -157,7 +157,7 @@ if __name__ == "__main__":
         print("Testing Weather Service Tools (via MCP protocol)\n")
         print("=" * 80)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Test get_weather
             result = await client.call_tool("get_weather", {"city": "London"})
             print("\nWeather in London:")

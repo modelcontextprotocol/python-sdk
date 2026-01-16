@@ -3,13 +3,10 @@ import base64
 import pytest
 from pydantic import AnyUrl
 
-from mcp import types
+from mcp import Client, types
 from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 
 pytestmark = pytest.mark.anyio
 
@@ -33,7 +30,7 @@ async def test_fastmcp_resource_mime_type():
         return image_bytes
 
     # Test that resources are listed with correct mime type
-    async with client_session(mcp._mcp_server) as client:
+    async with Client(mcp) as client:
         # List resources and verify mime types
         resources = await client.list_resources()
         assert resources.resources is not None
@@ -91,7 +88,7 @@ async def test_lowlevel_resource_mime_type():
         raise Exception(f"Resource not found: {uri}")  # pragma: no cover
 
     # Test that resources are listed with correct mime type
-    async with client_session(server) as client:
+    async with Client(server) as client:
         # List resources and verify mime types
         resources = await client.list_resources()
         assert resources.resources is not None

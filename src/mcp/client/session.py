@@ -407,7 +407,6 @@ class ClientSession(
         """Send a tools/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
         result = await self.send_request(

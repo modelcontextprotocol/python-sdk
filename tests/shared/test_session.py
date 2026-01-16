@@ -1,14 +1,14 @@
-from collections.abc import AsyncGenerator
 from typing import Any
 
 import anyio
 import pytest
 
 import mcp.types as types
+from mcp.client._memory import InMemoryTransport
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import create_client_server_memory_streams, create_connected_server_and_client_session
+from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     CancelledNotification,
@@ -30,25 +30,20 @@ def mcp_server() -> Server:
     return Server(name="test server")
 
 
-@pytest.fixture
-async def client_connected_to_server(
-    mcp_server: Server,
-) -> AsyncGenerator[ClientSession, None]:
-    async with create_connected_server_and_client_session(mcp_server) as client_session:
-        yield client_session
-
-
 @pytest.mark.anyio
-async def test_in_flight_requests_cleared_after_completion(
-    client_connected_to_server: ClientSession,
-):
+async def test_in_flight_requests_cleared_after_completion(mcp_server: Server):
     """Verify that _in_flight is empty after all requests complete."""
-    # Send a request and wait for response
-    response = await client_connected_to_server.send_ping()
-    assert isinstance(response, EmptyResult)
+    transport = InMemoryTransport(mcp_server)
+    async with transport.connect() as (read_stream, write_stream):
+        async with ClientSession(read_stream=read_stream, write_stream=write_stream) as session:
+            await session.initialize()
 
-    # Verify _in_flight is empty
-    assert len(client_connected_to_server._in_flight) == 0
+            # Send a request and wait for response
+            response = await session.send_ping()
+            assert isinstance(response, EmptyResult)
+
+            # Verify _in_flight is empty
+            assert len(session._in_flight) == 0
 
 
 @pytest.mark.anyio
@@ -88,10 +83,10 @@ async def test_request_cancellation():
 
         return server
 
-    async def make_request(client_session: ClientSession):
+    async def make_request(session: ClientSession):
         nonlocal ev_cancelled
         try:
-            await client_session.send_request(
+            await session.send_request(
                 ClientRequest(
                     types.CallToolRequest(
                         params=types.CallToolRequestParams(name="slow_tool", arguments={}),
@@ -105,28 +100,31 @@ async def test_request_cancellation():
             assert "Request cancelled" in str(e)
             ev_cancelled.set()
 
-    async with create_connected_server_and_client_session(make_server()) as client_session:
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(make_request, client_session)
+    transport = InMemoryTransport(make_server())
+    async with transport.connect() as (read_stream, write_stream):
+        async with ClientSession(read_stream=read_stream, write_stream=write_stream) as session:
+            await session.initialize()
+            async with anyio.create_task_group() as tg:  # pragma: no branch
+                tg.start_soon(make_request, session)
 
-            # Wait for the request to be in-flight
-            with anyio.fail_after(1):  # Timeout after 1 second
-                await ev_tool_called.wait()
+                # Wait for the request to be in-flight
+                with anyio.fail_after(1):  # Timeout after 1 second
+                    await ev_tool_called.wait()
 
-            # Send cancellation notification
-            assert request_id is not None
-            await client_session.send_notification(
-                ClientNotification(
-                    CancelledNotification(
-                        params=CancelledNotificationParams(request_id=request_id),
+                # Send cancellation notification
+                assert request_id is not None
+                await session.send_notification(
+                    ClientNotification(
+                        CancelledNotification(
+                            params=CancelledNotificationParams(request_id=request_id),
+                        )
                     )
                 )
-            )
 
-            # Give cancellation time to process
-            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-            with anyio.fail_after(1):  # pragma: no cover
-                await ev_cancelled.wait()
+                # Give cancellation time to process
+                # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+                with anyio.fail_after(1):  # pragma: no cover
+                    await ev_cancelled.wait()
 
 
 @pytest.mark.anyio
