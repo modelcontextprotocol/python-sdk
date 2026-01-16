@@ -108,6 +108,7 @@ class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[
 class Notification(MCPModel, Generic[NotificationParamsT, MethodT]):
     """Base class for JSON-RPC notifications."""
 
+    jsonrpc: Literal["2.0"] = "2.0"
     method: MethodT
     params: NotificationParamsT
 
@@ -142,7 +143,6 @@ class JSONRPCRequest(Request[dict[str, Any] | None, str]):
 class JSONRPCNotification(Notification[dict[str, Any] | None, str]):
     """A notification which does not expect a response."""
 
-    jsonrpc: Literal["2.0"]
     params: dict[str, Any] | None = None
 
 

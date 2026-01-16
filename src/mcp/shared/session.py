@@ -320,8 +320,8 @@ class BaseSession(
         """
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
+        # Note: notification already has jsonrpc="2.0" from base Notification class
         jsonrpc_notification = JSONRPCNotification(
-            jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
         session_message = SessionMessage(  # pragma: no cover
