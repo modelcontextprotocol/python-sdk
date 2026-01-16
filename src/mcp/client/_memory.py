@@ -16,8 +16,7 @@ from mcp.shared.message import SessionMessage
 
 
 class InMemoryTransport:
-    """
-    In-memory transport for testing MCP servers without network overhead.
+    """In-memory transport for testing MCP servers without network overhead.
 
     This transport starts the server in a background task and provides
     streams for client-side communication. The server is automatically
@@ -43,8 +42,7 @@ class InMemoryTransport:
         *,
         raise_exceptions: bool = False,
     ) -> None:
-        """
-        Initialize the in-memory transport.
+        """Initialize the in-memory transport.
 
         Args:
             server: The MCP server to connect to (Server or FastMCP instance)
@@ -63,8 +61,7 @@ class InMemoryTransport:
         ],
         None,
     ]:
-        """
-        Connect to the server and return streams for communication.
+        """Connect to the server and return streams for communication.
 
         Yields:
             A tuple of (read_stream, write_stream) for bidirectional communication
