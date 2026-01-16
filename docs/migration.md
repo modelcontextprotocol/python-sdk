@@ -165,6 +165,60 @@ The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_re
 
 ## New Features
 
+### Low-level StreamableHTTP server APIs
+
+New exports from `mcp.server` for building custom StreamableHTTP servers without FastMCP:
+
+- `StreamableHTTPSessionManager` - Manages MCP sessions for StreamableHTTP transport
+- `create_streamable_http_app()` - Creates a configured Starlette app from a session manager
+
+```python
+from mcp.server import Server, StreamableHTTPSessionManager, create_streamable_http_app
+
+server = Server("my-server")
+# ... configure handlers ...
+
+session_manager = StreamableHTTPSessionManager(
+    app=server,
+    event_store=my_event_store,  # Optional, for resumability
+    json_response=False,
+    stateless=False,
+)
+
+app = create_streamable_http_app(
+    session_manager,
+    endpoint_path="/mcp",
+    additional_routes=[...],
+    middleware=[...],
+)
+```
+
+### Reusable auth components
+
+New exports from `mcp.server.auth` for adding OAuth 2.0 authentication to custom servers:
+
+- `AuthComponents` - Dataclass containing middleware, endpoint wrapper, and routes
+- `build_auth_components()` - Builds auth components from configuration
+
+```python
+from mcp.server.auth import build_auth_components
+
+auth = build_auth_components(
+    token_verifier=my_verifier,
+    issuer_url="https://auth.example.com",
+    required_scopes=["mcp:read"],
+    resource_server_url="https://api.example.com",  # Optional
+    auth_server_provider=my_provider,  # Optional, if acting as OAuth AS
+)
+
+app = create_streamable_http_app(
+    session_manager,
+    additional_routes=auth.routes,
+    middleware=auth.middleware,
+    endpoint_wrapper=auth.endpoint_wrapper,
+)
+```
+
 <!-- Add new features below -->
 
 ## Need Help?
