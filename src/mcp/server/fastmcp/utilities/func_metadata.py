@@ -1,10 +1,13 @@
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
+from functools import partial
 from itertools import chain
 from types import GenericAlias
 from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 
+import anyio
+import anyio.to_thread
 import pydantic_core
 from pydantic import (
     BaseModel,
@@ -92,7 +95,7 @@ class FuncMetadata(BaseModel):
         if fn_is_async:
             return await fn(**arguments_parsed_dict)
         else:
-            return fn(**arguments_parsed_dict)
+            return await anyio.to_thread.run_sync(partial(fn, **arguments_parsed_dict))
 
     def convert_result(self, result: Any) -> Any:
         """Convert the result of a function call to the appropriate format for
