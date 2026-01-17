@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.utilities.context_injection import find_context_parameter
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata, func_metadata
-from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.shared.exceptions import McpError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
 
@@ -109,10 +109,13 @@ class Tool(BaseModel):
                 result = self.fn_metadata.convert_result(result)
 
             return result
-        except UrlElicitationRequiredError:
-            # Re-raise UrlElicitationRequiredError so it can be properly handled
-            # as an MCP error response with code -32042
-            raise
+        except McpError as e:
+            # Re-raise protocol flow-control exceptions so they can be properly handled
+            # as MCP error responses (e.g., code -32042 for URL elicitation)
+            if e.propagate_through_tool_handlers:
+                raise
+            # Other MCP errors should be wrapped as ToolError
+            raise ToolError(f"Error executing tool {self.name}: {e}") from e
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
 
