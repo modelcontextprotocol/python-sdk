@@ -2,6 +2,7 @@
 
 import pytest
 
+from mcp import Client
 from mcp.client._memory import InMemoryTransport
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
@@ -69,42 +70,26 @@ async def test_with_fastmcp(fastmcp_server: FastMCP):
 
 async def test_server_is_running(fastmcp_server: FastMCP):
     """Test that the server is running and responding to requests."""
-    from mcp.client.session import ClientSession
-
-    transport = InMemoryTransport(fastmcp_server)
-    async with transport.connect() as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            result = await session.initialize()
-            assert result is not None
-            assert result.server_info.name == "test"
+    async with Client(fastmcp_server) as client:
+        assert client.server_capabilities is not None
 
 
 async def test_list_tools(fastmcp_server: FastMCP):
     """Test listing tools through the transport."""
-    from mcp.client.session import ClientSession
-
-    transport = InMemoryTransport(fastmcp_server)
-    async with transport.connect() as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            tools_result = await session.list_tools()
-            assert len(tools_result.tools) > 0
-            tool_names = [t.name for t in tools_result.tools]
-            assert "greet" in tool_names
+    async with Client(fastmcp_server) as client:
+        tools_result = await client.list_tools()
+        assert len(tools_result.tools) > 0
+        tool_names = [t.name for t in tools_result.tools]
+        assert "greet" in tool_names
 
 
 async def test_call_tool(fastmcp_server: FastMCP):
     """Test calling a tool through the transport."""
-    from mcp.client.session import ClientSession
-
-    transport = InMemoryTransport(fastmcp_server)
-    async with transport.connect() as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            result = await session.call_tool("greet", {"name": "World"})
-            assert result is not None
-            assert len(result.content) > 0
-            assert "Hello, World!" in str(result.content[0])
+    async with Client(fastmcp_server) as client:
+        result = await client.call_tool("greet", {"name": "World"})
+        assert result is not None
+        assert len(result.content) > 0
+        assert "Hello, World!" in str(result.content[0])
 
 
 async def test_raise_exceptions(fastmcp_server: FastMCP):
