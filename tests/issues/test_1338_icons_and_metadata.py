@@ -1,11 +1,18 @@
 """Test icon and metadata support (SEP-973)."""
 
+import sys
+
 import pytest
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Icon
 
-pytestmark = pytest.mark.anyio
+pytestmark = [
+    pytest.mark.anyio,
+    pytest.mark.filterwarnings(
+        "ignore::pytest.PytestUnraisableExceptionWarning" if sys.platform == "win32" else "default"
+    ),
+]
 
 
 async def test_icons_and_website_url():

@@ -414,7 +414,7 @@ class TestServerTools:
 
         # TODO(Marcelo): It seems if we add the proper type hint, it generates an invalid JSON schema.
         # We need to fix this.
-        def mixed_list_fn() -> list:  # type: ignore
+        def mixed_list_fn() -> list[str | Image | Audio | dict[str, str] | TextContent]:  # type: ignore
             return [  # type: ignore
                 "text message",
                 Image(image_path),

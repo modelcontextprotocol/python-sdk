@@ -244,6 +244,16 @@ def test_structured_output_dict_str_types():
     assert meta.output_schema is not None
     assert "result" in meta.output_schema["properties"]
 
+    # Test Annotated dict[str, int] with Field metadata on the root type
+    def func_dict_annotated() -> Annotated[dict[str, int], Field(description="User scores")]:  # pragma: no cover
+        return {"alice": 10, "bob": 20}
+
+    meta = func_metadata(func_dict_annotated)
+    assert meta.output_schema is not None
+    assert meta.output_schema["type"] == "object"
+    assert meta.output_schema["title"] == "func_dict_annotatedDictOutput"
+    assert meta.output_schema.get("description") == "User scores"
+
 
 @pytest.mark.anyio
 async def test_lambda_function():
