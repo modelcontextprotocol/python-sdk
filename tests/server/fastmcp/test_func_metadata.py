@@ -1196,8 +1196,7 @@ def test_preserves_pydantic_metadata():
 
 @pytest.mark.anyio
 async def test_sync_tool_does_not_block_event_loop() -> None:
-    """
-    Regression test: sync tools must not run inline on the event loop.
+    """Regression test: sync tools must not run inline on the event loop.
 
     If sync tools run inline, this test will fail because `fast_probe`
     won't get scheduled until after `time.sleep`.
@@ -1245,8 +1244,7 @@ async def test_sync_tool_does_not_block_event_loop() -> None:
 
 @pytest.mark.anyio
 async def test_sync_function_runs_in_worker_thread():
-    """
-    Ensure synchronous tools are executed in a worker thread via anyio.to_thread.run_sync,
+    """Ensure synchronous tools are executed in a worker thread via anyio.to_thread.run_sync,
     instead of blocking the event loop thread.
     """
 
