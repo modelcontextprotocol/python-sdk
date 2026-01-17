@@ -29,7 +29,7 @@ dependencies = [
     "pydantic>=2.12.0; python_version >= '3.14'",
     "pydantic>=2.11.0; python_version < '3.14'",
     "starlette>=0.48.0; python_version >= '3.14'",
-    "starlette>=0.27; python_version < '3.14'",
+    "starlette>=0.40.0; python_version < '3.14'",
     "python-multipart>=0.0.9",
     "sse-starlette>=1.6.1",
     "pydantic-settings>=2.5.2",
