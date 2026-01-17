@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
@@ -72,14 +74,8 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
-        session: """BaseSession[
-            SendRequestT,
-            SendNotificationT,
-            SendResultT,
-            ReceiveRequestT,
-            ReceiveNotificationT
-        ]""",
-        on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
+        session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
+        on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
     ) -> None:
         self.request_id = request_id
@@ -92,7 +88,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._on_complete = on_complete
         self._entered = False  # Track if we're in a context manager
 
-    def __enter__(self) -> "RequestResponder[ReceiveRequestT, SendResultT]":
+    def __enter__(self) -> RequestResponder[ReceiveRequestT, SendResultT]:
         """Enter the context manager, enabling request cancellation tracking."""
         self._entered = True
         self._cancel_scope = anyio.CancelScope()
@@ -167,8 +163,7 @@ class BaseSession(
         ReceiveNotificationT,
     ],
 ):
-    """
-    Implements an MCP "session" on top of read/write streams, including features
+    """Implements an MCP "session" on top of read/write streams, including features
     like request/response linking, notifications, and progress.
 
     This class is an async context manager that automatically starts processing
@@ -179,7 +174,7 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
-    _response_routers: list["ResponseRouter"]
+    _response_routers: list[ResponseRouter]
 
     def __init__(
         self,
@@ -203,14 +198,14 @@ class BaseSession(
         self._exit_stack = AsyncExitStack()
 
     def add_response_router(self, router: ResponseRouter) -> None:
-        """
-        Register a response router to handle responses for non-standard requests.
+        """Register a response router to handle responses for non-standard requests.
 
         Response routers are checked in order before falling back to the default
         response stream mechanism. This is used by TaskResultHandler to route
         responses for queued task requests back to their resolvers.
 
-        WARNING: This is an experimental API that may change without notice.
+        !!! warning
+            This is an experimental API that may change without notice.
 
         Args:
             router: A ResponseRouter implementation
@@ -244,8 +239,7 @@ class BaseSession(
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
-        """
-        Sends a request and wait for a response. Raises an McpError if the
+        """Sends a request and wait for a response. Raises an McpError if the
         response contains an error. If a request read timeout is provided, it
         will take precedence over the session read timeout.
 
@@ -304,7 +298,7 @@ class BaseSession(
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:
-                return result_type.model_validate(response_or_error.result)
+                return result_type.model_validate(response_or_error.result, by_name=False)
 
         finally:
             self._response_streams.pop(request_id, None)
@@ -317,8 +311,7 @@ class BaseSession(
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
-        """
-        Emits a notification, which is a one-way message that does not expect
+        """Emits a notification, which is a one-way message that does not expect
         a response.
         """
         # Some transport implementations may need to set the related_request_id
@@ -359,7 +352,8 @@ class BaseSession(
                     elif isinstance(message.message.root, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                by_name=False,
                             )
                             responder = RequestResponder(
                                 request_id=message.message.root.id,
@@ -396,17 +390,18 @@ class BaseSession(
                     elif isinstance(message.message.root, JSONRPCNotification):
                         try:
                             notification = self._receive_notification_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                by_name=False,
                             )
                             # Handle cancellation notifications
                             if isinstance(notification.root, CancelledNotification):
-                                cancelled_id = notification.root.params.requestId
+                                cancelled_id = notification.root.params.request_id
                                 if cancelled_id in self._in_flight:  # pragma: no branch
                                     await self._in_flight[cancelled_id].cancel()
                             else:
                                 # Handle progress notifications callback
                                 if isinstance(notification.root, ProgressNotification):  # pragma: no cover
-                                    progress_token = notification.root.params.progressToken
+                                    progress_token = notification.root.params.progress_token
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
                                     if progress_token in self._progress_callbacks:
@@ -455,8 +450,7 @@ class BaseSession(
                 self._response_streams.clear()
 
     def _normalize_request_id(self, response_id: RequestId) -> RequestId:
-        """
-        Normalize a response ID to match how request IDs are stored.
+        """Normalize a response ID to match how request IDs are stored.
 
         Since the client always sends integer IDs, we normalize string IDs
         to integers when possible. This matches the TypeScript SDK approach:
@@ -476,8 +470,7 @@ class BaseSession(
         return response_id
 
     async def _handle_response(self, message: SessionMessage) -> None:
-        """
-        Handle an incoming response or error message.
+        """Handle an incoming response or error message.
 
         Checks response routers first (e.g., for task-related responses),
         then falls back to the normal response stream mechanism.
@@ -515,8 +508,7 @@ class BaseSession(
             await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
-        """
-        Can be overridden by subclasses to handle a request without needing to
+        """Can be overridden by subclasses to handle a request without needing to
         listen on the message stream.
 
         If the request is responded to within this method, it will not be
@@ -524,8 +516,7 @@ class BaseSession(
         """
 
     async def _received_notification(self, notification: ReceiveNotificationT) -> None:
-        """
-        Can be overridden by subclasses to handle a notification without needing
+        """Can be overridden by subclasses to handle a notification without needing
         to listen on the message stream.
         """
 
@@ -536,8 +527,7 @@ class BaseSession(
         total: float | None = None,
         message: str | None = None,
     ) -> None:
-        """
-        Sends a progress notification for a request that is currently being
+        """Sends a progress notification for a request that is currently being
         processed.
         """
 

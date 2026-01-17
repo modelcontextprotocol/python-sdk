@@ -101,7 +101,7 @@ async def test_server_capabilities():
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
-    assert caps.prompts == PromptsCapability(listChanged=False)
+    assert caps.prompts == PromptsCapability(list_changed=False)
     assert caps.resources is None
     assert caps.completions is None
 
@@ -111,8 +111,8 @@ async def test_server_capabilities():
         return []
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
-    assert caps.prompts == PromptsCapability(listChanged=False)
-    assert caps.resources == ResourcesCapability(subscribe=False, listChanged=False)
+    assert caps.prompts == PromptsCapability(list_changed=False)
+    assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)
     assert caps.completions is None
 
     # Add a complete handler
@@ -127,8 +127,8 @@ async def test_server_capabilities():
         )
 
     caps = server.get_capabilities(notification_options, experimental_capabilities)
-    assert caps.prompts == PromptsCapability(listChanged=False)
-    assert caps.resources == ResourcesCapability(subscribe=False, listChanged=False)
+    assert caps.prompts == PromptsCapability(list_changed=False)
+    assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)
     assert caps.completions == CompletionsCapability()
 
 
@@ -175,9 +175,9 @@ async def test_server_session_initialize_with_older_protocol_version():
                         id=1,
                         method="initialize",
                         params=types.InitializeRequestParams(
-                            protocolVersion="2024-11-05",
+                            protocol_version="2024-11-05",
                             capabilities=types.ClientCapabilities(),
-                            clientInfo=types.Implementation(name="test-client", version="1.0.0"),
+                            client_info=types.Implementation(name="test-client", version="1.0.0"),
                         ).model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
@@ -191,7 +191,7 @@ async def test_server_session_initialize_with_older_protocol_version():
         init_result = types.InitializeResult.model_validate(result_data)
 
         # Check that the server responded with the requested protocol version
-        received_protocol_version = init_result.protocolVersion
+        received_protocol_version = init_result.protocol_version
         assert received_protocol_version == "2024-11-05"
 
         # Send initialized notification
@@ -312,17 +312,17 @@ async def test_create_message_tool_result_validation():
         ) as session:
             # Set up client params with sampling.tools capability for the test
             session._client_params = types.InitializeRequestParams(
-                protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                protocol_version=types.LATEST_PROTOCOL_VERSION,
                 capabilities=types.ClientCapabilities(
                     sampling=types.SamplingCapability(tools=types.SamplingToolsCapability())
                 ),
-                clientInfo=types.Implementation(name="test", version="1.0"),
+                client_info=types.Implementation(name="test", version="1.0"),
             )
 
-            tool = types.Tool(name="test_tool", inputSchema={"type": "object"})
+            tool = types.Tool(name="test_tool", input_schema={"type": "object"})
             text = types.TextContent(type="text", text="hello")
             tool_use = types.ToolUseContent(type="tool_use", id="call_1", name="test_tool", input={})
-            tool_result = types.ToolResultContent(type="tool_result", toolUseId="call_1", content=[])
+            tool_result = types.ToolResultContent(type="tool_result", tool_use_id="call_1", content=[])
 
             # Case 1: tool_result mixed with other content
             with pytest.raises(ValueError, match="only tool_result content"):
@@ -363,7 +363,7 @@ async def test_create_message_tool_result_validation():
                         types.SamplingMessage(role="assistant", content=tool_use),
                         types.SamplingMessage(
                             role="user",
-                            content=types.ToolResultContent(type="tool_result", toolUseId="wrong_id", content=[]),
+                            content=types.ToolResultContent(type="tool_result", tool_use_id="wrong_id", content=[]),
                         ),
                     ],
                     max_tokens=100,
@@ -410,11 +410,9 @@ async def test_create_message_tool_result_validation():
 
             # Case 8: empty messages list - skips validation entirely
             # Covers the `if messages:` branch (line 280->302)
-            with anyio.move_on_after(0.01):
-                await session.create_message(
-                    messages=[],
-                    max_tokens=100,
-                )
+            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+            with anyio.move_on_after(0.01):  # pragma: no cover
+                await session.create_message(messages=[], max_tokens=100)
 
 
 @pytest.mark.anyio
@@ -440,12 +438,12 @@ async def test_create_message_without_tools_capability():
         ) as session:
             # Set up client params WITHOUT sampling.tools capability
             session._client_params = types.InitializeRequestParams(
-                protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                protocol_version=types.LATEST_PROTOCOL_VERSION,
                 capabilities=types.ClientCapabilities(sampling=types.SamplingCapability()),
-                clientInfo=types.Implementation(name="test", version="1.0"),
+                client_info=types.Implementation(name="test", version="1.0"),
             )
 
-            tool = types.Tool(name="test_tool", inputSchema={"type": "object"})
+            tool = types.Tool(name="test_tool", input_schema={"type": "object"})
             text = types.TextContent(type="text", text="hello")
 
             # Should raise McpError when tools are provided but client lacks capability

@@ -1,6 +1,7 @@
 import contextlib
 from unittest import mock
 
+import httpx
 import pytest
 
 import mcp
@@ -59,7 +60,7 @@ class TestClientSessionGroup:
             return f"{(server_info.name)}-{name}"
 
         mcp_session_group = ClientSessionGroup(component_name_hook=hook)
-        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", inputSchema={})}
+        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", input_schema={})}
         mcp_session_group._tool_to_session = {"server1-my_tool": mock_session}
         text_content = types.TextContent(type="text", text="OK")
         mock_session.call_tool.return_value = types.CallToolResult(content=[text_content])
@@ -77,7 +78,7 @@ class TestClientSessionGroup:
         assert result.content == [text_content]
         mock_session.call_tool.assert_called_once_with(
             "my_tool",
-            {"name": "value1", "args": {}},
+            arguments={"name": "value1", "args": {}},
             read_timeout_seconds=None,
             progress_callback=None,
             meta=None,
@@ -324,7 +325,7 @@ class TestClientSessionGroup:
 
                 # Mock session.initialize()
                 mock_initialize_result = mock.AsyncMock(name="InitializeResult")
-                mock_initialize_result.serverInfo = types.Implementation(name="foo", version="1")
+                mock_initialize_result.server_info = types.Implementation(name="foo", version="1")
                 mock_entered_session.initialize.return_value = mock_initialize_result
 
                 # --- Test Execution ---
@@ -356,8 +357,6 @@ class TestClientSessionGroup:
                     assert isinstance(server_params_instance, StreamableHttpParameters)
                     # Verify streamable_http_client was called with url, httpx_client, and terminate_on_close
                     # The http_client is created by the real create_mcp_http_client
-                    import httpx
-
                     call_args = mock_specific_client_func.call_args
                     assert call_args.kwargs["url"] == server_params_instance.url
                     assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
@@ -381,5 +380,5 @@ class TestClientSessionGroup:
                 mock_entered_session.initialize.assert_awaited_once()
 
                 # 3. Assert returned values
-                assert returned_server_info is mock_initialize_result.serverInfo
+                assert returned_server_info is mock_initialize_result.server_info
                 assert returned_session is mock_entered_session

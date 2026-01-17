@@ -1,19 +1,12 @@
 """FastMCP - A more ergonomic interface for MCP servers."""
 
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import (
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Collection,
-    Iterable,
-    Sequence,
-)
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal
+from typing import Any, Generic, Literal, overload
 
 import anyio
 import pydantic_core
@@ -29,25 +22,11 @@ from starlette.routing import Mount, Route
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import (
-    BearerAuthBackend,
-    RequireAuthMiddleware,
-)
-from mcp.server.auth.provider import (
-    OAuthAuthorizationServerProvider,
-    ProviderTokenVerifier,
-    TokenVerifier,
-)
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.elicitation import (
-    ElicitationResult,
-    ElicitSchemaModelT,
-    UrlElicitationResult,
-    elicit_with_validation,
-)
-from mcp.server.elicitation import (
-    elicit_url as _elicit_url,
-)
+from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
+from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.fastmcp.exceptions import ResourceError
 from mcp.server.fastmcp.prompts import Prompt, PromptManager
 from mcp.server.fastmcp.resources import FunctionResource, Resource, ResourceManager
@@ -94,19 +73,6 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     debug: bool
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
-    # HTTP settings
-    host: str
-    port: int
-    mount_path: str
-    sse_path: str
-    message_path: str
-    streamable_http_path: str
-
-    # StreamableHTTP settings
-    json_response: bool
-    stateless_http: bool
-    """Define if the server should create a new transport per request."""
-
     # resource settings
     warn_on_duplicate_resources: bool
 
@@ -116,17 +82,10 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # prompt settings
     warn_on_duplicate_prompts: bool
 
-    # TODO(Marcelo): Investigate if this is used. If it is, it's probably a good idea to remove it.
-    dependencies: list[str]
-    """A list of dependencies to install in the server environment."""
-
     lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
     """A async context manager that will be called when the server is started."""
 
     auth: AuthSettings | None
-
-    # Transport security settings (DNS rebinding protection)
-    transport_security: TransportSecuritySettings | None
 
 
 def lifespan_wrapper(
@@ -144,69 +103,45 @@ def lifespan_wrapper(
 
 
 class FastMCP(Generic[LifespanResultT]):
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[Icon] | None = None,
+        version: str | None = None,
         auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
         token_verifier: TokenVerifier | None = None,
-        event_store: EventStore | None = None,
-        retry_interval: int | None = None,
         *,
         tools: list[Tool] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
-        host: str = "127.0.0.1",
-        port: int = 8000,
-        mount_path: str = "/",
-        sse_path: str = "/sse",
-        message_path: str = "/messages/",
-        streamable_http_path: str = "/mcp",
-        json_response: bool = False,
-        stateless_http: bool = False,
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
-        dependencies: Collection[str] = (),
         lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
         auth: AuthSettings | None = None,
-        transport_security: TransportSecuritySettings | None = None,
     ):
-        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
-        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
-            transport_security = TransportSecuritySettings(
-                enable_dns_rebinding_protection=True,
-                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
-                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
-            )
-
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
-            host=host,
-            port=port,
-            mount_path=mount_path,
-            sse_path=sse_path,
-            message_path=message_path,
-            streamable_http_path=streamable_http_path,
-            json_response=json_response,
-            stateless_http=stateless_http,
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
-            dependencies=list(dependencies),
             lifespan=lifespan,
             auth=auth,
-            transport_security=transport_security,
         )
 
         self._mcp_server = MCPServer(
             name=name or "FastMCP",
+            title=title,
+            description=description,
             instructions=instructions,
             website_url=website_url,
             icons=icons,
+            version=version,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an FastMCP and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -229,10 +164,7 @@ class FastMCP(Generic[LifespanResultT]):
         # Create token verifier from provider if needed (backwards compatibility)
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
-        self._event_store = event_store
-        self._retry_interval = retry_interval
         self._custom_starlette_routes: list[Route] = []
-        self.dependencies = self.settings.dependencies
         self._session_manager: StreamableHTTPSessionManager | None = None
 
         # Set up MCP protocol handlers
@@ -246,6 +178,14 @@ class FastMCP(Generic[LifespanResultT]):
         return self._mcp_server.name
 
     @property
+    def title(self) -> str | None:
+        return self._mcp_server.title
+
+    @property
+    def description(self) -> str | None:
+        return self._mcp_server.description
+
+    @property
     def instructions(self) -> str | None:
         return self._mcp_server.instructions
 
@@ -256,6 +196,10 @@ class FastMCP(Generic[LifespanResultT]):
     @property
     def icons(self) -> list[Icon] | None:
         return self._mcp_server.icons
+
+    @property
+    def version(self) -> str | None:
+        return self._mcp_server.version
 
     @property
     def session_manager(self) -> StreamableHTTPSessionManager:
@@ -276,16 +220,46 @@ class FastMCP(Generic[LifespanResultT]):
             )
         return self._session_manager  # pragma: no cover
 
+    @overload
+    def run(self, transport: Literal["stdio"] = ...) -> None: ...
+
+    @overload
+    def run(
+        self,
+        transport: Literal["sse"],
+        *,
+        host: str = ...,
+        port: int = ...,
+        sse_path: str = ...,
+        message_path: str = ...,
+        transport_security: TransportSecuritySettings | None = ...,
+    ) -> None: ...
+
+    @overload
+    def run(
+        self,
+        transport: Literal["streamable-http"],
+        *,
+        host: str = ...,
+        port: int = ...,
+        streamable_http_path: str = ...,
+        json_response: bool = ...,
+        stateless_http: bool = ...,
+        event_store: EventStore | None = ...,
+        retry_interval: int | None = ...,
+        transport_security: TransportSecuritySettings | None = ...,
+    ) -> None: ...
+
     def run(
         self,
         transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
-        mount_path: str | None = None,
+        **kwargs: Any,
     ) -> None:
         """Run the FastMCP server. Note this is a synchronous function.
 
         Args:
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
-            mount_path: Optional mount path for SSE transport
+            **kwargs: Transport-specific options (see overloads for details)
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
@@ -295,9 +269,9 @@ class FastMCP(Generic[LifespanResultT]):
             case "stdio":
                 anyio.run(self.run_stdio_async)
             case "sse":  # pragma: no cover
-                anyio.run(lambda: self.run_sse_async(mount_path))
+                anyio.run(lambda: self.run_sse_async(**kwargs))
             case "streamable-http":  # pragma: no cover
-                anyio.run(self.run_streamable_http_async)
+                anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
     def _setup_handlers(self) -> None:
         """Set up core MCP protocol handlers."""
@@ -320,8 +294,8 @@ class FastMCP(Generic[LifespanResultT]):
                 name=info.name,
                 title=info.title,
                 description=info.description,
-                inputSchema=info.parameters,
-                outputSchema=info.output_schema,
+                input_schema=info.parameters,
+                output_schema=info.output_schema,
                 annotations=info.annotations,
                 icons=info.icons,
                 _meta=info.meta,
@@ -330,8 +304,7 @@ class FastMCP(Generic[LifespanResultT]):
         ]
 
     def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
-        """
-        Returns a Context object. Note that the context will only be valid
+        """Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
         """
         try:
@@ -355,9 +328,10 @@ class FastMCP(Generic[LifespanResultT]):
                 name=resource.name or "",
                 title=resource.title,
                 description=resource.description,
-                mimeType=resource.mime_type,
+                mime_type=resource.mime_type,
                 icons=resource.icons,
                 annotations=resource.annotations,
+                _meta=resource.meta,
             )
             for resource in resources
         ]
@@ -366,13 +340,14 @@ class FastMCP(Generic[LifespanResultT]):
         templates = self._resource_manager.list_templates()
         return [
             MCPResourceTemplate(
-                uriTemplate=template.uri_template,
+                uri_template=template.uri_template,
                 name=template.name,
                 title=template.title,
                 description=template.description,
-                mimeType=template.mime_type,
+                mime_type=template.mime_type,
                 icons=template.icons,
                 annotations=template.annotations,
+                _meta=template.meta,
             )
             for template in templates
         ]
@@ -387,7 +362,7 @@ class FastMCP(Generic[LifespanResultT]):
 
         try:
             content = await resource.read()
-            return [ReadResourceContents(content=content, mime_type=resource.mime_type)]
+            return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as e:  # pragma: no cover
             logger.exception(f"Error reading resource {uri}")
             raise ResourceError(str(e))
@@ -539,6 +514,7 @@ class FastMCP(Generic[LifespanResultT]):
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> Callable[[AnyFunction], AnyFunction]:
         """Decorator to register a function as a resource.
 
@@ -557,6 +533,7 @@ class FastMCP(Generic[LifespanResultT]):
             title: Optional human-readable title for the resource
             description: Optional description of the resource
             mime_type: Optional MIME type for the resource
+            meta: Optional metadata dictionary for the resource
 
         Example:
             @server.resource("resource://my-resource")
@@ -615,6 +592,7 @@ class FastMCP(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    meta=meta,
                 )
             else:
                 # Register as regular resource
@@ -627,6 +605,7 @@ class FastMCP(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    meta=meta,
                 )
                 self.add_resource(resource)
             return fn
@@ -703,8 +682,7 @@ class FastMCP(Generic[LifespanResultT]):
         name: str | None = None,
         include_in_schema: bool = True,
     ):
-        """
-        Decorator to register a custom HTTP route on the FastMCP server.
+        """Decorator to register a custom HTTP route on the FastMCP server.
 
         Allows adding arbitrary HTTP endpoints outside the standard MCP protocol,
         which can be useful for OAuth callbacks, health checks, or admin APIs.
@@ -753,100 +731,98 @@ class FastMCP(Generic[LifespanResultT]):
                 self._mcp_server.create_initialization_options(),
             )
 
-    async def run_sse_async(self, mount_path: str | None = None) -> None:  # pragma: no cover
+    async def run_sse_async(  # pragma: no cover
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        sse_path: str = "/sse",
+        message_path: str = "/messages/",
+        transport_security: TransportSecuritySettings | None = None,
+    ) -> None:
         """Run the server using SSE transport."""
         import uvicorn
 
-        starlette_app = self.sse_app(mount_path)
+        starlette_app = self.sse_app(
+            sse_path=sse_path,
+            message_path=message_path,
+            transport_security=transport_security,
+            host=host,
+        )
 
         config = uvicorn.Config(
             starlette_app,
-            host=self.settings.host,
-            port=self.settings.port,
+            host=host,
+            port=port,
             log_level=self.settings.log_level.lower(),
         )
         server = uvicorn.Server(config)
         await server.serve()
 
-    async def run_streamable_http_async(self) -> None:  # pragma: no cover
+    async def run_streamable_http_async(  # pragma: no cover
+        self,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+    ) -> None:
         """Run the server using StreamableHTTP transport."""
         import uvicorn
 
-        starlette_app = self.streamable_http_app()
+        starlette_app = self.streamable_http_app(
+            streamable_http_path=streamable_http_path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            transport_security=transport_security,
+            host=host,
+        )
 
         config = uvicorn.Config(
             starlette_app,
-            host=self.settings.host,
-            port=self.settings.port,
+            host=host,
+            port=port,
             log_level=self.settings.log_level.lower(),
         )
         server = uvicorn.Server(config)
         await server.serve()
 
-    def _normalize_path(self, mount_path: str, endpoint: str) -> str:
-        """
-        Combine mount path and endpoint to return a normalized path.
-
-        Args:
-            mount_path: The mount path (e.g. "/github" or "/")
-            endpoint: The endpoint path (e.g. "/messages/")
-
-        Returns:
-            Normalized path (e.g. "/github/messages/")
-        """
-        # Special case: root path
-        if mount_path == "/":
-            return endpoint
-
-        # Remove trailing slash from mount path
-        if mount_path.endswith("/"):
-            mount_path = mount_path[:-1]
-
-        # Ensure endpoint starts with slash
-        if not endpoint.startswith("/"):
-            endpoint = "/" + endpoint
-
-        # Combine paths
-        return mount_path + endpoint
-
-    def sse_app(self, mount_path: str | None = None) -> Starlette:
+    def sse_app(
+        self,
+        *,
+        sse_path: str = "/sse",
+        message_path: str = "/messages/",
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+    ) -> Starlette:
         """Return an instance of the SSE server app."""
-        from starlette.middleware import Middleware
-        from starlette.routing import Mount, Route
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
 
-        # Update mount_path in settings if provided
-        if mount_path is not None:
-            self.settings.mount_path = mount_path
-
-        # Create normalized endpoint considering the mount path
-        normalized_message_endpoint = self._normalize_path(self.settings.mount_path, self.settings.message_path)
-
-        # Set up auth context and dependencies
-
-        sse = SseServerTransport(
-            normalized_message_endpoint,
-            security_settings=self.settings.transport_security,
-        )
+        sse = SseServerTransport(message_path, security_settings=transport_security)
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
 
-            async with sse.connect_sse(
-                scope,
-                receive,
-                send,
-            ) as streams:
-                await self._mcp_server.run(
-                    streams[0],
-                    streams[1],
-                    self._mcp_server.create_initialization_options(),
-                )
+            async with sse.connect_sse(scope, receive, send) as streams:
+                await self._mcp_server.run(streams[0], streams[1], self._mcp_server.create_initialization_options())
             return Response()
 
         # Create routes
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
-        required_scopes = []
+        required_scopes: list[str] = []
 
         # Set up auth if configured
         if self.settings.auth:  # pragma: no cover
@@ -892,14 +868,14 @@ class FastMCP(Generic[LifespanResultT]):
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
                 Route(
-                    self.settings.sse_path,
+                    sse_path,
                     endpoint=RequireAuthMiddleware(handle_sse, required_scopes, resource_metadata_url),
                     methods=["GET"],
                 )
             )
             routes.append(
                 Mount(
-                    self.settings.message_path,
+                    message_path,
                     app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
@@ -912,14 +888,14 @@ class FastMCP(Generic[LifespanResultT]):
 
             routes.append(
                 Route(
-                    self.settings.sse_path,
+                    sse_path,
                     endpoint=sse_endpoint,
                     methods=["GET"],
                 )
             )
             routes.append(
                 Mount(
-                    self.settings.message_path,
+                    message_path,
                     app=sse.handle_post_message,
                 )
             )
@@ -941,19 +917,37 @@ class FastMCP(Generic[LifespanResultT]):
         # Create Starlette app with routes and middleware
         return Starlette(debug=self.settings.debug, routes=routes, middleware=middleware)
 
-    def streamable_http_app(self) -> Starlette:
+    def streamable_http_app(
+        self,
+        *,
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+    ) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
         from starlette.middleware import Middleware
+
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
 
         # Create session manager on first call (lazy initialization)
         if self._session_manager is None:  # pragma: no branch
             self._session_manager = StreamableHTTPSessionManager(
                 app=self._mcp_server,
-                event_store=self._event_store,
-                retry_interval=self._retry_interval,
-                json_response=self.settings.json_response,
-                stateless=self.settings.stateless_http,  # Use the stateless setting
-                security_settings=self.settings.transport_security,
+                event_store=event_store,
+                retry_interval=retry_interval,
+                json_response=json_response,
+                stateless=stateless_http,
+                security_settings=transport_security,
             )
 
         # Create the ASGI handler
@@ -962,7 +956,7 @@ class FastMCP(Generic[LifespanResultT]):
         # Create routes
         routes: list[Route | Mount] = []
         middleware: list[Middleware] = []
-        required_scopes = []
+        required_scopes: list[str] = []
 
         # Set up auth if configured
         if self.settings.auth:  # pragma: no cover
@@ -1004,7 +998,7 @@ class FastMCP(Generic[LifespanResultT]):
 
             routes.append(
                 Route(
-                    self.settings.streamable_http_path,
+                    streamable_http_path,
                     endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
                 )
             )
@@ -1012,7 +1006,7 @@ class FastMCP(Generic[LifespanResultT]):
             # Auth is disabled, no wrapper needed
             routes.append(
                 Route(
-                    self.settings.streamable_http_path,
+                    streamable_http_path,
                     endpoint=streamable_http_app,
                 )
             )
@@ -1078,9 +1072,7 @@ class FastMCP(Generic[LifespanResultT]):
 
 
 class StreamableHTTPASGIApp:
-    """
-    ASGI application for Streamable HTTP server transport.
-    """
+    """ASGI application for Streamable HTTP server transport."""
 
     def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager
@@ -1161,7 +1153,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             total: Optional total value e.g. 100
             message: Optional message e.g. Starting render...
         """
-        progress_token = self.request_context.meta.progressToken if self.request_context.meta else None
+        progress_token = self.request_context.meta.progress_token if self.request_context.meta else None
 
         if progress_token is None:  # pragma: no cover
             return

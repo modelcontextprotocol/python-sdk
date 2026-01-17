@@ -1,5 +1,4 @@
-"""
-Tests for StreamableHTTP client transport with non-SDK servers.
+"""Tests for StreamableHTTP client transport with non-SDK servers.
 
 These tests verify client behavior when interacting with servers
 that don't follow SDK conventions.
@@ -110,8 +109,7 @@ def non_sdk_server(non_sdk_server_port: int) -> Generator[None, None, None]:
 
 @pytest.mark.anyio
 async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk_server_port: int) -> None:
-    """
-    This test verifies that the client ignores unexpected responses to notifications: the spec states they should
+    """This test verifies that the client ignores unexpected responses to notifications: the spec states they should
     either be 202 + no response body, or 4xx + optional error body
     (https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server),
     but some servers wrongly return other 2xx codes (e.g. 204). For now we simply ignore unexpected responses

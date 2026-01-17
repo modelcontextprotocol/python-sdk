@@ -24,13 +24,13 @@ async def test_create_and_get(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore create and get operations."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
-    assert task.taskId is not None
+    assert task.task_id is not None
     assert task.status == "working"
     assert task.ttl == 60000
 
-    retrieved = await store.get_task(task.taskId)
+    retrieved = await store.get_task(task.task_id)
     assert retrieved is not None
-    assert retrieved.taskId == task.taskId
+    assert retrieved.task_id == task.task_id
     assert retrieved.status == "working"
 
 
@@ -42,12 +42,12 @@ async def test_create_with_custom_id(store: InMemoryTaskStore) -> None:
         task_id="my-custom-id",
     )
 
-    assert task.taskId == "my-custom-id"
+    assert task.task_id == "my-custom-id"
     assert task.status == "working"
 
     retrieved = await store.get_task("my-custom-id")
     assert retrieved is not None
-    assert retrieved.taskId == "my-custom-id"
+    assert retrieved.task_id == "my-custom-id"
 
 
 @pytest.mark.anyio
@@ -71,15 +71,15 @@ async def test_update_status(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore status updates."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
-    updated = await store.update_task(task.taskId, status="completed", status_message="All done!")
+    updated = await store.update_task(task.task_id, status="completed", status_message="All done!")
 
     assert updated.status == "completed"
-    assert updated.statusMessage == "All done!"
+    assert updated.status_message == "All done!"
 
-    retrieved = await store.get_task(task.taskId)
+    retrieved = await store.get_task(task.task_id)
     assert retrieved is not None
     assert retrieved.status == "completed"
-    assert retrieved.statusMessage == "All done!"
+    assert retrieved.status_message == "All done!"
 
 
 @pytest.mark.anyio
@@ -96,10 +96,10 @@ async def test_store_and_get_result(store: InMemoryTaskStore) -> None:
 
     # Store result
     result = CallToolResult(content=[TextContent(type="text", text="Result data")])
-    await store.store_result(task.taskId, result)
+    await store.store_result(task.task_id, result)
 
     # Retrieve result
-    retrieved_result = await store.get_result(task.taskId)
+    retrieved_result = await store.get_result(task.task_id)
     assert retrieved_result == result
 
 
@@ -114,7 +114,7 @@ async def test_get_result_nonexistent_returns_none(store: InMemoryTaskStore) -> 
 async def test_get_result_no_result_returns_none(store: InMemoryTaskStore) -> None:
     """Test that getting result when none stored returns None."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    result = await store.get_result(task.taskId)
+    result = await store.get_result(task.task_id)
     assert result is None
 
 
@@ -172,14 +172,14 @@ async def test_delete_task(store: InMemoryTaskStore) -> None:
     """Test InMemoryTaskStore delete operation."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
-    deleted = await store.delete_task(task.taskId)
+    deleted = await store.delete_task(task.task_id)
     assert deleted is True
 
-    retrieved = await store.get_task(task.taskId)
+    retrieved = await store.get_task(task.task_id)
     assert retrieved is None
 
     # Delete non-existent
-    deleted = await store.delete_task(task.taskId)
+    deleted = await store.delete_task(task.task_id)
     assert deleted is False
 
 
@@ -210,7 +210,7 @@ async def test_create_task_with_null_ttl(store: InMemoryTaskStore) -> None:
     assert task.ttl is None
 
     # Task should persist (not expire)
-    retrieved = await store.get_task(task.taskId)
+    retrieved = await store.get_task(task.task_id)
     assert retrieved is not None
 
 
@@ -221,19 +221,19 @@ async def test_task_expiration_cleanup(store: InMemoryTaskStore) -> None:
     task = await store.create_task(metadata=TaskMetadata(ttl=1))  # 1ms TTL
 
     # Manually force the expiry to be in the past
-    stored = store._tasks.get(task.taskId)
+    stored = store._tasks.get(task.task_id)
     assert stored is not None
     stored.expires_at = datetime.now(timezone.utc) - timedelta(seconds=10)
 
     # Task should still exist in internal dict but be expired
-    assert task.taskId in store._tasks
+    assert task.task_id in store._tasks
 
     # Any access operation should clean up expired tasks
     # list_tasks triggers cleanup
     tasks, _ = await store.list_tasks()
 
     # Expired task should be cleaned up
-    assert task.taskId not in store._tasks
+    assert task.task_id not in store._tasks
     assert len(tasks) == 0
 
 
@@ -244,17 +244,17 @@ async def test_task_with_null_ttl_never_expires(store: InMemoryTaskStore) -> Non
     task = await store.create_task(metadata=TaskMetadata(ttl=None))
 
     # Verify internal storage has no expiry
-    stored = store._tasks.get(task.taskId)
+    stored = store._tasks.get(task.task_id)
     assert stored is not None
     assert stored.expires_at is None
 
     # Access operations should NOT remove this task
     await store.list_tasks()
-    await store.get_task(task.taskId)
+    await store.get_task(task.task_id)
 
     # Task should still exist
-    assert task.taskId in store._tasks
-    retrieved = await store.get_task(task.taskId)
+    assert task.task_id in store._tasks
+    retrieved = await store.get_task(task.task_id)
     assert retrieved is not None
 
 
@@ -265,13 +265,13 @@ async def test_terminal_task_ttl_reset(store: InMemoryTaskStore) -> None:
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))  # 60s
 
     # Get the initial expiry
-    stored = store._tasks.get(task.taskId)
+    stored = store._tasks.get(task.task_id)
     assert stored is not None
     initial_expiry = stored.expires_at
     assert initial_expiry is not None
 
     # Update to terminal state (completed)
-    await store.update_task(task.taskId, status="completed")
+    await store.update_task(task.task_id, status="completed")
 
     # Expiry should be reset to a new time (from now + TTL)
     new_expiry = stored.expires_at
@@ -291,16 +291,16 @@ async def test_terminal_status_transition_rejected(store: InMemoryTaskStore) -> 
         task = await store.create_task(metadata=TaskMetadata(ttl=60000))
 
         # Move to terminal state
-        await store.update_task(task.taskId, status=terminal_status)
+        await store.update_task(task.task_id, status=terminal_status)
 
         # Attempting to transition to any other status should raise
         with pytest.raises(ValueError, match="Cannot transition from terminal status"):
-            await store.update_task(task.taskId, status="working")
+            await store.update_task(task.task_id, status="working")
 
         # Also test transitioning to another terminal state
         other_terminal = "failed" if terminal_status != "failed" else "completed"
         with pytest.raises(ValueError, match="Cannot transition from terminal status"):
-            await store.update_task(task.taskId, status=other_terminal)
+            await store.update_task(task.task_id, status=other_terminal)
 
 
 @pytest.mark.anyio
@@ -310,15 +310,15 @@ async def test_terminal_status_allows_same_status(store: InMemoryTaskStore) -> N
     This is not a transition, so it should be allowed (no-op).
     """
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    await store.update_task(task.taskId, status="completed")
+    await store.update_task(task.task_id, status="completed")
 
     # Setting the same status should not raise
-    updated = await store.update_task(task.taskId, status="completed")
+    updated = await store.update_task(task.task_id, status="completed")
     assert updated.status == "completed"
 
     # Updating just the message should also work
-    updated = await store.update_task(task.taskId, status_message="Updated message")
-    assert updated.statusMessage == "Updated message"
+    updated = await store.update_task(task.task_id, status_message="Updated message")
+    assert updated.status_message == "Updated message"
 
 
 @pytest.mark.anyio
@@ -334,13 +334,13 @@ async def test_cancel_task_succeeds_for_working_task(store: InMemoryTaskStore) -
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     assert task.status == "working"
 
-    result = await cancel_task(store, task.taskId)
+    result = await cancel_task(store, task.task_id)
 
-    assert result.taskId == task.taskId
+    assert result.task_id == task.task_id
     assert result.status == "cancelled"
 
     # Verify store is updated
-    retrieved = await store.get_task(task.taskId)
+    retrieved = await store.get_task(task.task_id)
     assert retrieved is not None
     assert retrieved.status == "cancelled"
 
@@ -359,10 +359,10 @@ async def test_cancel_task_rejects_nonexistent_task(store: InMemoryTaskStore) ->
 async def test_cancel_task_rejects_completed_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task raises McpError with INVALID_PARAMS for completed task."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    await store.update_task(task.taskId, status="completed")
+    await store.update_task(task.task_id, status="completed")
 
     with pytest.raises(McpError) as exc_info:
-        await cancel_task(store, task.taskId)
+        await cancel_task(store, task.task_id)
 
     assert exc_info.value.error.code == INVALID_PARAMS
     assert "terminal state 'completed'" in exc_info.value.error.message
@@ -372,10 +372,10 @@ async def test_cancel_task_rejects_completed_task(store: InMemoryTaskStore) -> N
 async def test_cancel_task_rejects_failed_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task raises McpError with INVALID_PARAMS for failed task."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    await store.update_task(task.taskId, status="failed")
+    await store.update_task(task.task_id, status="failed")
 
     with pytest.raises(McpError) as exc_info:
-        await cancel_task(store, task.taskId)
+        await cancel_task(store, task.task_id)
 
     assert exc_info.value.error.code == INVALID_PARAMS
     assert "terminal state 'failed'" in exc_info.value.error.message
@@ -385,10 +385,10 @@ async def test_cancel_task_rejects_failed_task(store: InMemoryTaskStore) -> None
 async def test_cancel_task_rejects_already_cancelled_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task raises McpError with INVALID_PARAMS for already cancelled task."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    await store.update_task(task.taskId, status="cancelled")
+    await store.update_task(task.task_id, status="cancelled")
 
     with pytest.raises(McpError) as exc_info:
-        await cancel_task(store, task.taskId)
+        await cancel_task(store, task.task_id)
 
     assert exc_info.value.error.code == INVALID_PARAMS
     assert "terminal state 'cancelled'" in exc_info.value.error.message
@@ -398,9 +398,9 @@ async def test_cancel_task_rejects_already_cancelled_task(store: InMemoryTaskSto
 async def test_cancel_task_succeeds_for_input_required_task(store: InMemoryTaskStore) -> None:
     """Test cancel_task helper succeeds for a task in input_required status."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    await store.update_task(task.taskId, status="input_required")
+    await store.update_task(task.task_id, status="input_required")
 
-    result = await cancel_task(store, task.taskId)
+    result = await cancel_task(store, task.task_id)
 
-    assert result.taskId == task.taskId
+    assert result.task_id == task.task_id
     assert result.status == "cancelled"

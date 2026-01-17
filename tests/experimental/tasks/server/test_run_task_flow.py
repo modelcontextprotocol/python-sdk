@@ -1,5 +1,4 @@
-"""
-Tests for the simplified task API: enable_tasks() + run_task()
+"""Tests for the simplified task API: enable_tasks() + run_task()
 
 This tests the recommended user flow:
 1. server.experimental.enable_tasks() - one-line setup
@@ -45,8 +44,7 @@ from mcp.types import (
 
 @pytest.mark.anyio
 async def test_run_task_basic_flow() -> None:
-    """
-    Test the basic run_task flow without elicitation.
+    """Test the basic run_task flow without elicitation.
 
     1. enable_tasks() sets up handlers
     2. Client calls tool with task field
@@ -69,8 +67,8 @@ async def test_run_task_basic_flow() -> None:
             Tool(
                 name="simple_task",
                 description="A simple task",
-                inputSchema={"type": "object", "properties": {"input": {"type": "string"}}},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+                input_schema={"type": "object", "properties": {"input": {"type": "string"}}},
+                execution=ToolExecution(task_support=TASK_REQUIRED),
             )
         ]
 
@@ -119,7 +117,7 @@ async def test_run_task_basic_flow() -> None:
             )
 
             # Should get CreateTaskResult
-            task_id = result.task.taskId
+            task_id = result.task.task_id
             assert result.task.status == "working"
 
             # Wait for work to complete
@@ -143,9 +141,7 @@ async def test_run_task_basic_flow() -> None:
 
 @pytest.mark.anyio
 async def test_run_task_auto_fails_on_exception() -> None:
-    """
-    Test that run_task automatically fails the task when work raises.
-    """
+    """Test that run_task automatically fails the task when work raises."""
     server = Server("test-run-task-fail")
     server.experimental.enable_tasks()
 
@@ -157,8 +153,8 @@ async def test_run_task_auto_fails_on_exception() -> None:
             Tool(
                 name="failing_task",
                 description="A task that fails",
-                inputSchema={"type": "object"},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+                input_schema={"type": "object"},
+                execution=ToolExecution(task_support=TASK_REQUIRED),
             )
         ]
 
@@ -188,7 +184,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
             await client_session.initialize()
 
             result = await client_session.experimental.call_tool_as_task("failing_task", {})
-            task_id = result.task.taskId
+            task_id = result.task.task_id
 
             # Wait for work to fail
             with anyio.fail_after(5):
@@ -201,7 +197,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
                     if task_status.status == "failed":  # pragma: no branch
                         break
 
-            assert "Something went wrong" in (task_status.statusMessage or "")
+            assert "Something went wrong" in (task_status.status_message or "")
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_server)
@@ -210,9 +206,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
 
 @pytest.mark.anyio
 async def test_enable_tasks_auto_registers_handlers() -> None:
-    """
-    Test that enable_tasks() auto-registers get_task, list_tasks, cancel_task handlers.
-    """
+    """Test that enable_tasks() auto-registers get_task, list_tasks, cancel_task handlers."""
     server = Server("test-enable-tasks")
 
     # Before enable_tasks, no task capabilities
@@ -227,6 +221,10 @@ async def test_enable_tasks_auto_registers_handlers() -> None:
     assert caps_after.tasks is not None
     assert caps_after.tasks.list is not None
     assert caps_after.tasks.cancel is not None
+    # Verify nested call capability is present
+    assert caps_after.tasks.requests is not None
+    assert caps_after.tasks.requests.tools is not None
+    assert caps_after.tasks.requests.tools.call is not None
 
 
 @pytest.mark.anyio
@@ -359,8 +357,8 @@ async def test_run_task_with_model_immediate_response() -> None:
             Tool(
                 name="task_with_immediate",
                 description="A task with immediate response",
-                inputSchema={"type": "object"},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+                input_schema={"type": "object"},
+                execution=ToolExecution(task_support=TASK_REQUIRED),
             )
         ]
 
@@ -418,8 +416,8 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
             Tool(
                 name="manual_complete_task",
                 description="A task that manually completes",
-                inputSchema={"type": "object"},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+                input_schema={"type": "object"},
+                execution=ToolExecution(task_support=TASK_REQUIRED),
             )
         ]
 
@@ -453,7 +451,7 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
             await client_session.initialize()
 
             result = await client_session.experimental.call_tool_as_task("manual_complete_task", {})
-            task_id = result.task.taskId
+            task_id = result.task.task_id
 
             with anyio.fail_after(5):
                 await work_completed.wait()
@@ -484,8 +482,8 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
             Tool(
                 name="manual_cancel_task",
                 description="A task that manually cancels then raises",
-                inputSchema={"type": "object"},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
+                input_schema={"type": "object"},
+                execution=ToolExecution(task_support=TASK_REQUIRED),
             )
         ]
 
@@ -518,7 +516,7 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
             await client_session.initialize()
 
             result = await client_session.experimental.call_tool_as_task("manual_cancel_task", {})
-            task_id = result.task.taskId
+            task_id = result.task.task_id
 
             with anyio.fail_after(5):
                 await work_completed.wait()
@@ -531,7 +529,7 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
                         break
 
             # Task should still be failed (from manual fail, not auto-fail from exception)
-            assert status.statusMessage == "Manually failed"  # Not "This error should not change status"
+            assert status.status_message == "Manually failed"  # Not "This error should not change status"
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_server)

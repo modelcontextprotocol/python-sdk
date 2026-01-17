@@ -2,11 +2,10 @@
 
 import pytest
 
-from mcp import types
+from mcp import Client, types
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
-from mcp.shared.memory import create_connected_server_and_client_session
 
 
 @pytest.mark.anyio
@@ -23,17 +22,15 @@ async def test_url_elicitation_error_thrown_from_tool():
                     mode="url",
                     message=f"Authorization required to connect to {service_name}",
                     url=f"https://{service_name}.example.com/oauth/authorize",
-                    elicitationId=f"{service_name}-auth-001",
+                    elicitation_id=f"{service_name}-auth-001",
                 )
             ]
         )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client_session:
-        await client_session.initialize()
-
+    async with Client(mcp) as client:
         # Call the tool - it should raise McpError with URL_ELICITATION_REQUIRED code
         with pytest.raises(McpError) as exc_info:
-            await client_session.call_tool("connect_service", {"service_name": "github"})
+            await client.call_tool("connect_service", {"service_name": "github"})
 
         # Verify the error details
         error = exc_info.value.error
@@ -63,23 +60,21 @@ async def test_url_elicitation_error_from_error():
                     mode="url",
                     message="GitHub authorization required",
                     url="https://github.example.com/oauth",
-                    elicitationId="github-auth",
+                    elicitation_id="github-auth",
                 ),
                 types.ElicitRequestURLParams(
                     mode="url",
                     message="Google Drive authorization required",
                     url="https://drive.google.com/oauth",
-                    elicitationId="gdrive-auth",
+                    elicitation_id="gdrive-auth",
                 ),
             ]
         )
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client_session:
-        await client_session.initialize()
-
+    async with Client(mcp) as client:
         # Call the tool and catch the error
         with pytest.raises(McpError) as exc_info:
-            await client_session.call_tool("multi_auth", {})
+            await client.call_tool("multi_auth", {})
 
         # Reconstruct the typed error
         mcp_error = exc_info.value
@@ -89,25 +84,23 @@ async def test_url_elicitation_error_from_error():
 
         # Verify the reconstructed error has both elicitations
         assert len(url_error.elicitations) == 2
-        assert url_error.elicitations[0].elicitationId == "github-auth"
-        assert url_error.elicitations[1].elicitationId == "gdrive-auth"
+        assert url_error.elicitations[0].elicitation_id == "github-auth"
+        assert url_error.elicitations[1].elicitation_id == "gdrive-auth"
 
 
 @pytest.mark.anyio
 async def test_normal_exceptions_still_return_error_result():
-    """Test that normal exceptions still return CallToolResult with isError=True."""
+    """Test that normal exceptions still return CallToolResult with is_error=True."""
     mcp = FastMCP(name="NormalErrorServer")
 
     @mcp.tool(description="A tool that raises a normal exception")
     async def failing_tool(ctx: Context[ServerSession, None]) -> str:
         raise ValueError("Something went wrong")
 
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client_session:
-        await client_session.initialize()
-
+    async with Client(mcp) as client:
         # Normal exceptions should be returned as error results, not McpError
-        result = await client_session.call_tool("failing_tool", {})
-        assert result.isError is True
+        result = await client.call_tool("failing_tool", {})
+        assert result.is_error is True
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
         assert "Something went wrong" in result.content[0].text

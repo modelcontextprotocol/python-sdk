@@ -1,5 +1,4 @@
-"""
-Example showing how to mount StreamableHTTP server using Host-based routing.
+"""Example showing how to mount StreamableHTTP server using Host-based routing.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
@@ -13,7 +12,7 @@ from starlette.routing import Host
 from mcp.server.fastmcp import FastMCP
 
 # Create MCP server
-mcp = FastMCP("MCP Host App", json_response=True)
+mcp = FastMCP("MCP Host App")
 
 
 @mcp.tool()
@@ -30,9 +29,10 @@ async def lifespan(app: Starlette):
 
 
 # Mount using Host-based routing
+# Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Host("mcp.acme.corp", app=mcp.streamable_http_app()),
+        Host("mcp.acme.corp", app=mcp.streamable_http_app(json_response=True)),
     ],
     lifespan=lifespan,
 )

@@ -2,14 +2,14 @@
 
 import anyio
 import pytest
+from pydantic import BaseModel, Field
 
-from mcp import types
+from mcp import Client, types
 from mcp.client.session import ClientSession
-from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation
+from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 
@@ -32,16 +32,12 @@ async def test_url_elicitation_accept():
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.url == "https://example.com/api_key_setup"
-        assert params.elicitationId == "test-elicitation-001"
+        assert params.elicitation_id == "test-elicitation-001"
         assert params.message == "Please provide your API key to continue."
         return ElicitResult(action="accept")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("request_api_key", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("request_api_key", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "User accept"
@@ -66,12 +62,8 @@ async def test_url_elicitation_decline():
         assert params.mode == "url"
         return ElicitResult(action="decline")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("oauth_flow", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("oauth_flow", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "User decline authorization"
@@ -96,12 +88,8 @@ async def test_url_elicitation_cancel():
         assert params.mode == "url"
         return ElicitResult(action="cancel")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("payment_flow", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("payment_flow", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "User cancel payment"
@@ -110,8 +98,6 @@ async def test_url_elicitation_cancel():
 @pytest.mark.anyio
 async def test_url_elicitation_helper_function():
     """Test the elicit_url helper function."""
-    from mcp.server.elicitation import elicit_url
-
     mcp = FastMCP(name="URLElicitationHelperServer")
 
     @mcp.tool(description="Tool using elicit_url helper")
@@ -128,12 +114,8 @@ async def test_url_elicitation_helper_function():
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         return ElicitResult(action="accept")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("setup_credentials", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("setup_credentials", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "AcceptedUrlElicitation"
@@ -160,18 +142,14 @@ async def test_url_no_content_in_response():
         # Verify that this is URL mode
         assert params.mode == "url"
         assert isinstance(params, types.ElicitRequestURLParams)
-        # URL params have url and elicitationId, not requestedSchema
+        # URL params have url and elicitation_id, not requested_schema
         assert params.url == "https://example.com/test"
-        assert params.elicitationId == "test-001"
+        assert params.elicitation_id == "test-001"
         # Return without content - this is correct for URL mode
         return ElicitResult(action="accept")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("check_url_response", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("check_url_response", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert "Content: None" in result.content[0].text
@@ -180,8 +158,6 @@ async def test_url_no_content_in_response():
 @pytest.mark.anyio
 async def test_form_mode_still_works():
     """Ensure form mode elicitation still works after SEP 1036."""
-    from pydantic import BaseModel, Field
-
     mcp = FastMCP(name="FormModeBackwardCompatServer")
 
     class NameSchema(BaseModel):
@@ -199,16 +175,12 @@ async def test_form_mode_still_works():
         # Verify form mode parameters
         assert params.mode == "form"
         assert isinstance(params, types.ElicitRequestFormParams)
-        # Form params have requestedSchema, not url/elicitationId
-        assert params.requestedSchema is not None
+        # Form params have requested_schema, not url/elicitation_id
+        assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"name": "Alice"})
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("ask_name", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("ask_name", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Hello, Alice!"
@@ -238,12 +210,8 @@ async def test_elicit_complete_notification():
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         return ElicitResult(action="accept")  # pragma: no cover
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("trigger_elicitation", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("trigger_elicitation", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Elicitation completed"
@@ -267,8 +235,6 @@ async def test_url_elicitation_required_error_code():
 @pytest.mark.anyio
 async def test_elicit_url_typed_results():
     """Test that elicit_url returns properly typed result objects."""
-    from mcp.server.elicitation import elicit_url
-
     mcp = FastMCP(name="TypedResultsServer")
 
     @mcp.tool(description="Test declined result")
@@ -301,12 +267,8 @@ async def test_elicit_url_typed_results():
     async def decline_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         return ElicitResult(action="decline")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=decline_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("test_decline", {})
+    async with Client(mcp, elicitation_callback=decline_callback) as client:
+        result = await client.call_tool("test_decline", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Declined"
@@ -315,12 +277,8 @@ async def test_elicit_url_typed_results():
     async def cancel_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         return ElicitResult(action="cancel")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=cancel_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("test_cancel", {})
+    async with Client(mcp, elicitation_callback=cancel_callback) as client:
+        result = await client.call_tool("test_cancel", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Cancelled"
@@ -329,8 +287,6 @@ async def test_elicit_url_typed_results():
 @pytest.mark.anyio
 async def test_deprecated_elicit_method():
     """Test the deprecated elicit() method for backward compatibility."""
-    from pydantic import BaseModel, Field
-
     mcp = FastMCP(name="DeprecatedElicitServer")
 
     class EmailSchema(BaseModel):
@@ -341,7 +297,7 @@ async def test_deprecated_elicit_method():
         # Use the deprecated elicit() method which should call elicit_form()
         result = await ctx.session.elicit(
             message="Enter your email",
-            requestedSchema=EmailSchema.model_json_schema(),
+            requested_schema=EmailSchema.model_json_schema(),
         )
 
         if result.action == "accept" and result.content:
@@ -351,15 +307,11 @@ async def test_deprecated_elicit_method():
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         # Verify this is form mode
         assert params.mode == "form"
-        assert params.requestedSchema is not None
+        assert params.requested_schema is not None
         return ElicitResult(action="accept", content={"email": "test@example.com"})
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool("use_deprecated_elicit", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("use_deprecated_elicit", {})
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Email: test@example.com"
@@ -382,13 +334,10 @@ async def test_ctx_elicit_url_convenience_method():
 
     async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
-        assert params.elicitationId == "ctx-test-001"
+        assert params.elicitation_id == "ctx-test-001"
         return ElicitResult(action="accept")
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-        result = await client_session.call_tool("direct_elicit_url", {})
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool("direct_elicit_url", {})
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Result: accept"

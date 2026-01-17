@@ -20,13 +20,13 @@ def make_task_result(
     """Create GetTaskResult with sensible defaults."""
     now = datetime.now(timezone.utc)
     return GetTaskResult(
-        taskId=task_id,
+        task_id=task_id,
         status=status,
-        statusMessage=status_message,
-        createdAt=now,
-        lastUpdatedAt=now,
+        status_message=status_message,
+        created_at=now,
+        last_updated_at=now,
         ttl=60000,
-        pollInterval=poll_interval,
+        poll_interval=poll_interval,
     )
 
 
@@ -117,5 +117,5 @@ async def test_poll_task_yields_full_result(features: ExperimentalClientFeatures
 
     assert len(results) == 1
     assert results[0].status == "completed"
-    assert results[0].statusMessage == "All done!"
-    assert results[0].taskId == "test-task"
+    assert results[0].status_message == "All done!"
+    assert results[0].task_id == "test-task"

@@ -98,8 +98,7 @@ class FuncMetadata(BaseModel):
             return await anyio.to_thread.run_sync(partial(fn, **arguments_parsed_dict))
 
     def convert_result(self, result: Any) -> Any:
-        """
-        Convert the result of a function call to the appropriate format for
+        """Convert the result of a function call to the appropriate format for
          the lowlevel server tool call handler:
 
         - If output_model is None, return the unstructured content directly.
@@ -116,7 +115,7 @@ class FuncMetadata(BaseModel):
         if isinstance(result, CallToolResult):
             if self.output_schema is not None:
                 assert self.output_model is not None, "Output model must be set if output schema is defined"
-                self.output_model.model_validate(result.structuredContent)
+                self.output_model.model_validate(result.structured_content)
             return result
 
         unstructured_content = _convert_to_content(result)
@@ -502,8 +501,7 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
 def _convert_to_content(
     result: Any,
 ) -> Sequence[ContentBlock]:
-    """
-    Convert a result to a sequence of content objects.
+    """Convert a result to a sequence of content objects.
 
     Note: This conversion logic comes from previous versions of FastMCP and is being
     retained for purposes of backwards compatibility. It produces different unstructured

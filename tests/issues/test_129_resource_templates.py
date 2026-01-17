@@ -27,16 +27,16 @@ async def test_resource_templates():
         types.ListResourceTemplatesRequest(params=None)
     )
     assert isinstance(result.root, types.ListResourceTemplatesResult)
-    templates = result.root.resourceTemplates
+    templates = result.root.resource_templates
 
     # Verify we get both templates back
     assert len(templates) == 2
 
     # Verify template details
     greeting_template = next(t for t in templates if t.name == "get_greeting")  # pragma: no cover
-    assert greeting_template.uriTemplate == "greeting://{name}"
+    assert greeting_template.uri_template == "greeting://{name}"
     assert greeting_template.description == "Get a personalized greeting"
 
     profile_template = next(t for t in templates if t.name == "get_user_profile")  # pragma: no cover
-    assert profile_template.uriTemplate == "users://{user_id}/profile"
+    assert profile_template.uri_template == "users://{user_id}/profile"
     assert profile_template.description == "Dynamic user data"

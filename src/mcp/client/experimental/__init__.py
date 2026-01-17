@@ -1,5 +1,4 @@
-"""
-Experimental client features.
+"""Experimental client features.
 
 WARNING: These APIs are experimental and may change without notice.
 """

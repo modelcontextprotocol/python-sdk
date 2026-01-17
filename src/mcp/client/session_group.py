@@ -1,11 +1,9 @@
-"""
-SessionGroup concurrently manages multiple MCP session connections.
+"""SessionGroup concurrently manages multiple MCP session connections.
 
 Tools, resources, and prompts are aggregated across servers. Servers may
 be connected to or disconnected from at any point after initialization.
 
-This abstractions can handle naming collisions using a custom user-provided
-hook.
+This abstractions can handle naming collisions using a custom user-provided hook.
 """
 
 import contextlib
@@ -13,12 +11,12 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, TypeAlias, overload
+from typing import Any, TypeAlias
 
 import anyio
 import httpx
 from pydantic import BaseModel
-from typing_extensions import Self, deprecated
+from typing_extensions import Self
 
 import mcp
 from mcp import types
@@ -120,9 +118,9 @@ class ClientSessionGroup:
     _exit_stack: contextlib.AsyncExitStack
     _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
-    # Optional fn consuming (component_name, serverInfo) for custom names.
+    # Optional fn consuming (component_name, server_info) for custom names.
     # This is provide a means to mitigate naming conflicts across servers.
-    # Example: (tool_name, serverInfo) => "{result.serverInfo.name}.{tool_name}"
+    # Example: (tool_name, server_info) => "{result.server_info.name}.{tool_name}"
     _ComponentNameHook: TypeAlias = Callable[[str, types.Implementation], str]
     _component_name_hook: _ComponentNameHook | None
 
@@ -191,29 +189,6 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
-    @overload
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any],
-        read_timeout_seconds: float | None = None,
-        progress_callback: ProgressFnT | None = None,
-        *,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
-    @overload
-    @deprecated("The 'args' parameter is deprecated. Use 'arguments' instead.")
-    async def call_tool(
-        self,
-        name: str,
-        *,
-        args: dict[str, Any],
-        read_timeout_seconds: float | None = None,
-        progress_callback: ProgressFnT | None = None,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
     async def call_tool(
         self,
         name: str,
@@ -222,14 +197,13 @@ class ClientSessionGroup:
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
-        args: dict[str, Any] | None = None,
     ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
         return await session.call_tool(
             session_tool_name,
-            arguments if args is None else args,
+            arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
@@ -349,7 +323,7 @@ class ClientSessionGroup:
             # main _exit_stack.
             await self._exit_stack.enter_async_context(session_stack)
 
-            return result.serverInfo, session
+            return result.server_info, session
         except Exception:  # pragma: no cover
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.

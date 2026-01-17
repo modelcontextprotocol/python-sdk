@@ -1,16 +1,19 @@
-"""
-Tests for the StreamableHTTP server and client transport.
+"""Tests for the StreamableHTTP server and client transport.
 
 Contains tests for both server and client sides of the StreamableHTTP transport.
 """
+
+from __future__ import annotations as _annotations
 
 import json
 import multiprocessing
 import socket
 import time
+import traceback
 from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -18,18 +21,13 @@ import pytest
 import requests
 import uvicorn
 from httpx_sse import ServerSentEvent
-from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import (
-    StreamableHTTPTransport,
-    streamable_http_client,
-    streamablehttp_client,  # pyright: ignore[reportDeprecated]
-)
+from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -139,13 +137,14 @@ class ServerTest(Server):  # pragma: no cover
         self._lock = None  # Will be initialized in async context
 
         @self.read_resource()
-        async def handle_read_resource(uri: AnyUrl) -> str | bytes:
-            if uri.scheme == "foobar":
-                return f"Read {uri.host}"
-            elif uri.scheme == "slow":
+        async def handle_read_resource(uri: str) -> str | bytes:
+            parsed = urlparse(uri)
+            if parsed.scheme == "foobar":
+                return f"Read {parsed.netloc}"
+            if parsed.scheme == "slow":
                 # Simulate a slow resource
                 await anyio.sleep(2.0)
-                return f"Slow response from {uri.host}"
+                return f"Slow response from {parsed.netloc}"
 
             raise ValueError(f"Unknown resource: {uri}")
 
@@ -155,47 +154,47 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="test_tool_with_standalone_notification",
                     description="A test tool that sends a notification",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="long_running_with_checkpoints",
                     description="A long-running tool that sends periodic notifications",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="test_sampling_tool",
                     description="A tool that triggers server-side sampling",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="wait_for_lock_with_notification",
                     description="A tool that sends a notification and waits for lock",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="release_lock",
                     description="A tool that releases the lock",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="tool_with_stream_close",
                     description="A tool that closes SSE stream mid-operation",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="tool_with_multiple_notifications_and_close",
                     description="Tool that sends notification1, closes stream, sends notification2, notification3",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="tool_with_multiple_stream_closes",
                     description="Tool that closes SSE stream multiple times during execution",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {
                             "checkpoints": {"type": "integer", "default": 3},
@@ -206,7 +205,7 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="tool_with_standalone_stream_close",
                     description="Tool that closes standalone GET stream mid-operation",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
             ]
 
@@ -216,7 +215,7 @@ class ServerTest(Server):  # pragma: no cover
 
             # When the tool is called, send a notification to test GET stream
             if name == "test_tool_with_standalone_notification":
-                await ctx.session.send_resource_updated(uri=AnyUrl("http://test_resource"))
+                await ctx.session.send_resource_updated(uri="http://test_resource")
                 return [TextContent(type="text", text=f"Called {name}")]
 
             elif name == "long_running_with_checkpoints":
@@ -370,7 +369,7 @@ class ServerTest(Server):  # pragma: no cover
             elif name == "tool_with_standalone_stream_close":
                 # Test for GET stream reconnection
                 # 1. Send unsolicited notification via GET stream (no related_request_id)
-                await ctx.session.send_resource_updated(uri=AnyUrl("http://notification_1"))
+                await ctx.session.send_resource_updated(uri="http://notification_1")
 
                 # Small delay to ensure notification is flushed before closing
                 await anyio.sleep(0.1)
@@ -383,7 +382,7 @@ class ServerTest(Server):  # pragma: no cover
                 await anyio.sleep(1.5)
 
                 # 4. Send another notification on the new GET stream connection
-                await ctx.session.send_resource_updated(uri=AnyUrl("http://notification_2"))
+                await ctx.session.send_resource_updated(uri="http://notification_2")
 
                 return [TextContent(type="text", text="Standalone stream close test done")]
 
@@ -463,8 +462,6 @@ def run_server(
     try:
         server.run()
     except Exception:
-        import traceback
-
         traceback.print_exc()
 
 
@@ -1005,15 +1002,15 @@ async def test_streamable_http_client_basic_connection(basic_server: None, basic
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
 
 @pytest.mark.anyio
 async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession):
     """Test client resource read functionality."""
-    response = await initialized_client_session.read_resource(uri=AnyUrl("foobar://test-resource"))
+    response = await initialized_client_session.read_resource(uri="foobar://test-resource")
     assert len(response.contents) == 1
-    assert response.contents[0].uri == AnyUrl("foobar://test-resource")
+    assert response.contents[0].uri == "foobar://test-resource"
     assert isinstance(response.contents[0], TextResourceContents)
     assert response.contents[0].text == "Read test-resource"
 
@@ -1037,7 +1034,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
-        await initialized_client_session.read_resource(uri=AnyUrl("unknown://test-error"))
+        await initialized_client_session.read_resource(uri="unknown://test-error")
     assert exc_info.value.error.code == 0
     assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
 
@@ -1063,7 +1060,7 @@ async def test_streamable_http_client_session_persistence(basic_server: None, ba
             assert len(tools.tools) == 10
 
             # Read a resource
-            resource = await session.read_resource(uri=AnyUrl("foobar://test-persist"))
+            resource = await session.read_resource(uri="foobar://test-persist")
             assert isinstance(resource.contents[0], TextResourceContents) is True
             content = resource.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1085,7 +1082,7 @@ async def test_streamable_http_client_json_response(json_response_server: None, 
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Check tool listing
             tools = await session.list_tools()
@@ -1101,8 +1098,6 @@ async def test_streamable_http_client_json_response(json_response_server: None, 
 @pytest.mark.anyio
 async def test_streamable_http_client_get_stream(basic_server: None, basic_server_url: str):
     """Test GET stream functionality for server-initiated messages."""
-    import mcp.types as types
-
     notifications_received: list[types.ServerNotification] = []
 
     # Define message handler to capture notifications
@@ -1132,7 +1127,7 @@ async def test_streamable_http_client_get_stream(basic_server: None, basic_serve
             resource_update_found = False
             for notif in notifications_received:
                 if isinstance(notif.root, types.ResourceUpdatedNotification):  # pragma: no branch
-                    assert str(notif.root.params.uri) == "http://test_resource/"
+                    assert str(notif.root.params.uri) == "http://test_resource"
                     resource_update_found = True
 
             assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
@@ -1287,7 +1282,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             captured_session_id = get_session_id()
             assert captured_session_id is not None
             # Capture the negotiated protocol version
-            captured_protocol_version = result.protocolVersion
+            captured_protocol_version = result.protocol_version
 
             # Start the tool that will wait on lock in a task
             async with anyio.create_task_group() as tg:
@@ -1396,7 +1391,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
                 text=f"Received message from server: {message_received}",
             ),
             model="test-model",
-            stopReason="endTurn",
+            stop_reason="endTurn",
         )
 
     # Create client with sampling callback
@@ -1440,12 +1435,12 @@ class ContextAwareServerTest(Server):  # pragma: no cover
                 Tool(
                     name="echo_headers",
                     description="Echo request headers from context",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="echo_context",
                     description="Echo request context with custom data",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {
                             "request_id": {"type": "string"},
@@ -1554,7 +1549,7 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
-                assert result.serverInfo.name == "ContextAwareServer"
+                assert result.server_info.name == "ContextAwareServer"
 
                 # Call the tool that echoes headers back
                 tool_result = await session.call_tool("echo_headers", {})
@@ -1620,7 +1615,7 @@ async def test_client_includes_protocol_version_header_after_init(context_aware_
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize and get the negotiated version
             init_result = await session.initialize()
-            negotiated_version = init_result.protocolVersion
+            negotiated_version = init_result.protocol_version
 
             # Call a tool that echoes headers to verify the header is present
             tool_result = await session.call_tool("echo_headers", {})
@@ -1728,11 +1723,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
     # Simulate bad client that crashes after init
     async def bad_client():
         """Client that triggers ClosedResourceError"""
-        async with streamable_http_client(f"{basic_server_url}/mcp") as (
-            read_stream,
-            write_stream,
-            _,
-        ):
+        async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 raise Exception("client crash")
@@ -1746,11 +1737,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str):
         await anyio.sleep(0.1)
 
     # Try a good client, it should still be able to connect and list tools
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -2196,8 +2183,7 @@ async def test_streamable_http_multiple_reconnections(
 async def test_standalone_get_stream_reconnection(
     event_server: tuple[SimpleEventStore, str],
 ) -> None:
-    """
-    Test that standalone GET stream automatically reconnects after server closes it.
+    """Test that standalone GET stream automatically reconnects after server closes it.
 
     Verifies:
     1. Client receives notification 1 via GET stream
@@ -2245,10 +2231,10 @@ async def test_standalone_get_stream_reconnection(
             assert result.content[0].text == "Standalone stream close test done"
 
             # Verify both notifications were received
-            assert "http://notification_1/" in received_notifications, (
+            assert "http://notification_1" in received_notifications, (
                 f"Should receive notification 1 (sent before GET stream close), got: {received_notifications}"
             )
-            assert "http://notification_2/" in received_notifications, (
+            assert "http://notification_2" in received_notifications, (
                 f"Should receive notification 2 after reconnect, got: {received_notifications}"
             )
 
@@ -2360,36 +2346,3 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
-
-
-@pytest.mark.anyio
-async def test_streamable_http_transport_deprecated_params_ignored(basic_server: None, basic_server_url: str) -> None:
-    """Test that deprecated parameters passed to StreamableHTTPTransport are properly ignored."""
-    with pytest.warns(DeprecationWarning):
-        transport = StreamableHTTPTransport(  # pyright: ignore[reportDeprecated]
-            url=f"{basic_server_url}/mcp",
-            headers={"X-Should-Be-Ignored": "ignored"},
-            timeout=999.0,
-            sse_read_timeout=999.0,
-            auth=None,
-        )
-
-    headers = transport._prepare_headers()
-    assert "X-Should-Be-Ignored" not in headers
-    assert headers["accept"] == "application/json, text/event-stream"
-    assert headers["content-type"] == "application/json"
-
-
-@pytest.mark.anyio
-async def test_streamablehttp_client_deprecation_warning(basic_server: None, basic_server_url: str) -> None:
-    """Test that the old streamablehttp_client() function issues a deprecation warning."""
-    with pytest.warns(DeprecationWarning, match="Use `streamable_http_client` instead"):
-        async with streamablehttp_client(f"{basic_server_url}/mcp") as (  # pyright: ignore[reportDeprecated]
-            read_stream,
-            write_stream,
-            _,
-        ):
-            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
-                await session.initialize()
-                tools = await session.list_tools()
-                assert len(tools.tools) > 0

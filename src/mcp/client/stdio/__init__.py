@@ -49,8 +49,7 @@ PROCESS_TERMINATION_TIMEOUT = 2.0
 
 
 def get_default_environment() -> dict[str, str]:
-    """
-    Returns a default environment object including only environment variables deemed
+    """Returns a default environment object including only environment variables deemed
     safe to inherit.
     """
     env: dict[str, str] = {}
@@ -104,8 +103,7 @@ class StdioServerParameters(BaseModel):
 
 @asynccontextmanager
 async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
-    """
-    Client transport for stdio: this will connect to a server by spawning a
+    """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
@@ -152,7 +150,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
                     for line in lines:
                         try:
-                            message = types.JSONRPCMessage.model_validate_json(line)
+                            message = types.JSONRPCMessage.model_validate_json(line, by_name=False)
                         except Exception as exc:  # pragma: no cover
                             logger.exception("Failed to parse JSONRPC message from server")
                             await read_stream_writer.send(exc)
@@ -217,8 +215,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
 
 def _get_executable_command(command: str) -> str:
-    """
-    Get the correct executable command normalized for the current platform.
+    """Get the correct executable command normalized for the current platform.
 
     Args:
         command: Base command (e.g., 'uvx', 'npx')
@@ -239,8 +236,7 @@ async def _create_platform_compatible_process(
     errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
 ):
-    """
-    Creates a subprocess in a platform-compatible way.
+    """Creates a subprocess in a platform-compatible way.
 
     Unix: Creates process in a new session/process group for killpg support
     Windows: Creates process in a Job Object for reliable child termination
@@ -260,8 +256,7 @@ async def _create_platform_compatible_process(
 
 
 async def _terminate_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
-    """
-    Terminate a process and all its children using platform-specific methods.
+    """Terminate a process and all its children using platform-specific methods.
 
     Unix: Uses os.killpg() for atomic process group termination
     Windows: Uses Job Objects via pywin32 for reliable child process cleanup

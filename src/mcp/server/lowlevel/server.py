@@ -1,5 +1,4 @@
-"""
-MCP Server Module
+"""MCP Server Module
 
 This module provides a framework for creating an MCP (Model Context Protocol) server.
 It allows you to easily define and handle various types of requests and notifications
@@ -65,7 +64,7 @@ notifications. It automatically manages the request context and handles incoming
 messages from the client.
 """
 
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
 import base64
 import contextvars
@@ -74,12 +73,12 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from importlib.metadata import version as importlib_version
 from typing import Any, Generic, TypeAlias, cast
 
 import anyio
 import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
@@ -139,6 +138,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         self,
         name: str,
         version: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
@@ -149,6 +150,8 @@ class Server(Generic[LifespanResultT, RequestT]):
     ):
         self.name = name
         self.version = version
+        self.title = title
+        self.description = description
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
@@ -170,9 +173,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         def pkg_version(package: str) -> str:
             try:
-                from importlib.metadata import version
-
-                return version(package)
+                return importlib_version(package)
             except Exception:  # pragma: no cover
                 pass
 
@@ -181,6 +182,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         return InitializationOptions(
             server_name=self.name,
             server_version=self.version if self.version else pkg_version("mcp"),
+            title=self.title,
+            description=self.description,
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},
@@ -204,17 +207,17 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         # Set prompt capabilities if handler exists
         if types.ListPromptsRequest in self.request_handlers:
-            prompts_capability = types.PromptsCapability(listChanged=notification_options.prompts_changed)
+            prompts_capability = types.PromptsCapability(list_changed=notification_options.prompts_changed)
 
         # Set resource capabilities if handler exists
         if types.ListResourcesRequest in self.request_handlers:
             resources_capability = types.ResourcesCapability(
-                subscribe=False, listChanged=notification_options.resources_changed
+                subscribe=False, list_changed=notification_options.resources_changed
             )
 
         # Set tool capabilities if handler exists
         if types.ListToolsRequest in self.request_handlers:
-            tools_capability = types.ToolsCapability(listChanged=notification_options.tools_changed)
+            tools_capability = types.ToolsCapability(list_changed=notification_options.tools_changed)
 
         # Set logging capabilities if handler exists
         if types.SetLevelRequest in self.request_handlers:  # pragma: no cover
@@ -322,7 +325,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 templates = await func()
-                return types.ServerResult(types.ListResourceTemplatesResult(resourceTemplates=templates))
+                return types.ServerResult(types.ListResourceTemplatesResult(resource_templates=templates))
 
             self.request_handlers[types.ListResourceTemplatesRequest] = handler
             return func
@@ -331,26 +334,30 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def read_resource(self):
         def decorator(
-            func: Callable[[AnyUrl], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
+            func: Callable[[str], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
             async def handler(req: types.ReadResourceRequest):
                 result = await func(req.params.uri)
 
-                def create_content(data: str | bytes, mime_type: str | None):
+                def create_content(data: str | bytes, mime_type: str | None, meta: dict[str, Any] | None = None):
+                    # Note: ResourceContents uses Field(alias="_meta"), so we must use the alias key
+                    meta_kwargs: dict[str, Any] = {"_meta": meta} if meta is not None else {}
                     match data:
                         case str() as data:
                             return types.TextResourceContents(
                                 uri=req.params.uri,
                                 text=data,
-                                mimeType=mime_type or "text/plain",
+                                mime_type=mime_type or "text/plain",
+                                **meta_kwargs,
                             )
                         case bytes() as data:  # pragma: no cover
                             return types.BlobResourceContents(
                                 uri=req.params.uri,
                                 blob=base64.b64encode(data).decode(),
-                                mimeType=mime_type or "application/octet-stream",
+                                mime_type=mime_type or "application/octet-stream",
+                                **meta_kwargs,
                             )
 
                 match result:
@@ -364,7 +371,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                         content = create_content(data, None)
                     case Iterable() as contents:
                         contents_list = [
-                            create_content(content_item.content, content_item.mime_type) for content_item in contents
+                            create_content(
+                                content_item.content, content_item.mime_type, getattr(content_item, "meta", None)
+                            )
+                            for content_item in contents
                         ]
                         return types.ServerResult(
                             types.ReadResourceResult(
@@ -399,7 +409,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def subscribe_resource(self):  # pragma: no cover
-        def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
+        def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for SubscribeRequest")
 
             async def handler(req: types.SubscribeRequest):
@@ -412,7 +422,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return decorator
 
     def unsubscribe_resource(self):  # pragma: no cover
-        def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
+        def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for UnsubscribeRequest")
 
             async def handler(req: types.UnsubscribeRequest):
@@ -462,7 +472,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return types.ServerResult(
             types.CallToolResult(
                 content=[types.TextContent(type="text", text=error_message)],
-                isError=True,
+                is_error=True,
             )
         )
 
@@ -499,7 +509,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         def decorator(
             func: Callable[
-                ...,
+                [str, dict[str, Any]],
                 Awaitable[
                     UnstructuredContent
                     | StructuredContent
@@ -520,7 +530,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # input validation
                     if validate_input and tool:
                         try:
-                            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+                            jsonschema.validate(instance=arguments, schema=tool.input_schema)
                         except jsonschema.ValidationError as e:
                             return self._make_error_result(f"Input validation error: {e.message}")
 
@@ -550,14 +560,14 @@ class Server(Generic[LifespanResultT, RequestT]):
                         return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
 
                     # output validation
-                    if tool and tool.outputSchema is not None:
+                    if tool and tool.output_schema is not None:
                         if maybe_structured_content is None:
                             return self._make_error_result(
                                 "Output validation error: outputSchema defined but no structured output returned"
                             )
                         else:
                             try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                                jsonschema.validate(instance=maybe_structured_content, schema=tool.output_schema)
                             except jsonschema.ValidationError as e:
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
@@ -565,8 +575,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                     return types.ServerResult(
                         types.CallToolResult(
                             content=list(unstructured_content),
-                            structuredContent=maybe_structured_content,
-                            isError=False,
+                            structured_content=maybe_structured_content,
+                            is_error=False,
                         )
                     )
                 except UrlElicitationRequiredError:
@@ -589,7 +599,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.ProgressNotification):
                 await func(
-                    req.params.progressToken,
+                    req.params.progress_token,
                     req.params.progress,
                     req.params.total,
                     req.params.message,
@@ -621,7 +631,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     types.CompleteResult(
                         completion=completion
                         if completion is not None
-                        else types.Completion(values=[], total=None, hasMore=None),
+                        else types.Completion(values=[], total=None, has_more=None),
                     )
                 )
 
