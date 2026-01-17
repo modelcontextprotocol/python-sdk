@@ -222,6 +222,22 @@ Affected types:
 
 The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` methods now accept both `str` and `AnyUrl` for backwards compatibility.
 
+### `StreamableHTTPASGIApp` moved to `streamable_http_manager` module
+
+The `StreamableHTTPASGIApp` class has been moved from `mcp.server.fastmcp.server` to `mcp.server.streamable_http_manager`.
+
+**Before (v1):**
+
+```python
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
+```
+
+**After (v2):**
+
+```python
+from mcp.server.streamable_http_manager import StreamableHTTPASGIApp
+```
+
 ## Deprecations
 
 <!-- Add deprecations below -->
