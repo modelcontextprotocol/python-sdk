@@ -1,11 +1,15 @@
 import inspect
 import json
+import logging
+import re
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import contextmanager
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type_hints
 
 import pydantic_core
+from griffe import Docstring, DocstringSectionKind, GoogleOptions
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -224,6 +228,8 @@ def func_metadata(
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
     dynamic_pydantic_model_params: dict[str, Any] = {}
+    param_descriptions = get_param_descriptions(func)
+
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
             raise InvalidSignature(f"Parameter {param.name} of {func.__name__} cannot start with '_'")
@@ -244,6 +250,10 @@ def func_metadata(
             field_kwargs["alias"] = field_name
             # Use a prefixed field name
             field_name = f"field_{field_name}"
+
+        param_description = param_descriptions.get(param.name)
+        if not has_description(param.annotation) and param_description:
+            field_kwargs["description"] = param_description
 
         if param.default is not inspect.Parameter.empty:
             dynamic_pydantic_model_params[field_name] = (
@@ -325,6 +335,19 @@ def func_metadata(
         output_model=output_model,
         wrap_output=wrap_output,
     )
+
+def has_description(tp: type) -> bool:
+    """
+    given a type, check if it has already been given a description.
+    for example like:
+        var: Annotated[int, Field(description="hey")]
+    """
+    if get_origin(tp) is not Annotated:
+        return False
+    for meta in get_args(tp):
+        if isinstance(meta, FieldInfo) and meta.description is not None:
+            return True
+    return False
 
 
 def _try_create_model_and_schema(
@@ -529,3 +552,137 @@ def _convert_to_content(
         result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
     return [TextContent(type="text", text=result)]
+
+
+DocstringStyle = Literal["google", "numpy", "sphinx"]
+
+
+@contextmanager
+def _disable_griffe_logging():
+    """disables griffe logging"""
+    # Hacky, but suggested here: https://github.com/mkdocstrings/griffe/issues/293#issuecomment-2167668117
+    old_level = logging.root.getEffectiveLevel()
+    logging.root.setLevel(logging.ERROR)
+    yield
+    logging.root.setLevel(old_level)
+
+
+def get_param_descriptions(func: Callable[..., Any]) -> dict[str, str]:
+    """
+    given a function, return a dictionary of all parameters in the doc string of the function,
+    and their respective description. 
+    the docstring formats supported are google, sphinx and numpy.
+    the implementation is taken from pedantic AI.
+    """
+    doc = inspect.getdoc(func)
+    if doc is None:
+        return {}
+
+    docstring_style = _infer_docstring_style(doc)
+    parser_options = (
+        GoogleOptions(returns_named_value=False, returns_multiple_items=False) if docstring_style == "google" else None
+    )
+    docstring = Docstring(
+        doc,
+        lineno=1,
+        parser=docstring_style,
+        parser_options=parser_options,
+    )
+
+    with _disable_griffe_logging():
+        sections = docstring.parse()
+
+    params = {}
+    if parameters := next((p for p in sections if p.kind == DocstringSectionKind.parameters), None):
+        params = {p.name: p.description for p in parameters.value}
+
+    return params
+
+
+def _infer_docstring_style(doc: str) -> DocstringStyle:
+    """Simplistic docstring style inference."""
+    for pattern, replacements, style in _docstring_style_patterns:
+        matches = (
+            re.search(pattern.format(replacement), doc, re.IGNORECASE | re.MULTILINE) for replacement in replacements
+        )
+        if any(matches):
+            return style
+    # fallback to google style
+    return "google"
+
+
+# See https://github.com/mkdocstrings/griffe/issues/329#issuecomment-2425017804
+_docstring_style_patterns: list[tuple[str, list[str], DocstringStyle]] = [
+    (
+        r"\n[ \t]*:{0}([ \t]+\w+)*:([ \t]+.+)?\n",
+        [
+            "param",
+            "parameter",
+            "arg",
+            "argument",
+            "key",
+            "keyword",
+            "type",
+            "var",
+            "ivar",
+            "cvar",
+            "vartype",
+            "returns",
+            "return",
+            "rtype",
+            "raises",
+            "raise",
+            "except",
+            "exception",
+        ],
+        "sphinx",
+    ),
+    (
+        r"\n[ \t]*{0}:([ \t]+.+)?\n[ \t]+.+",
+        [
+            "args",
+            "arguments",
+            "params",
+            "parameters",
+            "keyword args",
+            "keyword arguments",
+            "other args",
+            "other arguments",
+            "other params",
+            "other parameters",
+            "raises",
+            "exceptions",
+            "returns",
+            "yields",
+            "receives",
+            "examples",
+            "attributes",
+            "functions",
+            "methods",
+            "classes",
+            "modules",
+            "warns",
+            "warnings",
+        ],
+        "google",
+    ),
+    (
+        r"\n[ \t]*{0}\n[ \t]*---+\n",
+        [
+            "deprecated",
+            "parameters",
+            "other parameters",
+            "returns",
+            "yields",
+            "receives",
+            "raises",
+            "warns",
+            "attributes",
+            "functions",
+            "methods",
+            "classes",
+            "modules",
+        ],
+        "numpy",
+    ),
+]
