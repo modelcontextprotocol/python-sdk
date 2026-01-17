@@ -5,7 +5,7 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client._memory import InMemoryTransport
+from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
@@ -369,30 +369,20 @@ async def test_progress_callback_exception_logging():
 
     # Test with mocked logging
     with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
-        transport = InMemoryTransport(server)
-        async with transport.connect() as (read_stream, write_stream):
-            async with ClientSession(  # pragma: no branch
-                read_stream=read_stream, write_stream=write_stream
-            ) as session:
-                await session.initialize()
-                # Send a request with a failing progress callback
-                result = await session.send_request(
-                    types.ClientRequest(
-                        types.CallToolRequest(
-                            method="tools/call",
-                            params=types.CallToolRequestParams(name="progress_tool", arguments={}),
-                        )
-                    ),
-                    types.CallToolResult,
-                    progress_callback=failing_progress_callback,
-                )
+        async with Client(server) as client:
+            # Call tool with a failing progress callback
+            result = await client.call_tool(
+                "progress_tool",
+                arguments={},
+                progress_callback=failing_progress_callback,
+            )
 
-                # Verify the request completed successfully despite the callback failure
-                assert len(result.content) == 1
-                content = result.content[0]
-                assert isinstance(content, types.TextContent)
-                assert content.text == "progress_result"
+            # Verify the request completed successfully despite the callback failure
+            assert len(result.content) == 1
+            content = result.content[0]
+            assert isinstance(content, types.TextContent)
+            assert content.text == "progress_result"
 
-                # Check that a warning was logged for the progress callback exception
-                assert len(logged_errors) > 0
-                assert any("Progress callback raised an exception" in warning for warning in logged_errors)
+            # Check that a warning was logged for the progress callback exception
+            assert len(logged_errors) > 0
+            assert any("Progress callback raised an exception" in warning for warning in logged_errors)

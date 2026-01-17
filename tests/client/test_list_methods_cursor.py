@@ -3,8 +3,7 @@ from collections.abc import Callable
 import pytest
 
 import mcp.types as types
-from mcp.client._memory import InMemoryTransport
-from mcp.client.session import ClientSession
+from mcp import Client
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ListToolsRequest, ListToolsResult
@@ -66,49 +65,43 @@ async def test_list_methods_params_parameter(
 
     See: https://modelcontextprotocol.io/specification/2025-03-26/server/utilities/pagination#request-format
     """
-    transport = InMemoryTransport(full_featured_server)
-    async with transport.connect() as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            spies = stream_spy()
+    async with Client(full_featured_server) as client:
+        spies = stream_spy()
 
-            # Test without params (omitted)
-            method = getattr(session, method_name)
-            _ = await method()
-            requests = spies.get_client_requests(method=request_method)
-            assert len(requests) == 1
-            assert requests[0].params is None
+        # Test without params (omitted)
+        method = getattr(client, method_name)
+        _ = await method()
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is None
 
-            spies.clear()
+        spies.clear()
 
-            # Test with params containing cursor
-            _ = await method(params=types.PaginatedRequestParams(cursor="from_params"))
-            requests = spies.get_client_requests(method=request_method)
-            assert len(requests) == 1
-            assert requests[0].params is not None
-            assert requests[0].params["cursor"] == "from_params"
+        # Test with params containing cursor
+        _ = await method(params=types.PaginatedRequestParams(cursor="from_params"))
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        assert requests[0].params is not None
+        assert requests[0].params["cursor"] == "from_params"
 
-            spies.clear()
+        spies.clear()
 
-            # Test with empty params
-            _ = await method(params=types.PaginatedRequestParams())
-            requests = spies.get_client_requests(method=request_method)
-            assert len(requests) == 1
-            # Empty params means no cursor
-            assert requests[0].params is None or "cursor" not in requests[0].params
+        # Test with empty params
+        _ = await method(params=types.PaginatedRequestParams())
+        requests = spies.get_client_requests(method=request_method)
+        assert len(requests) == 1
+        # Empty params means no cursor
+        assert requests[0].params is None or "cursor" not in requests[0].params
 
 
 async def test_list_tools_with_strict_server_validation(
     full_featured_server: FastMCP,
 ):
     """Test pagination with a server that validates request format strictly."""
-    transport = InMemoryTransport(full_featured_server)
-    async with transport.connect() as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            result = await session.list_tools(params=types.PaginatedRequestParams())
-            assert isinstance(result, ListToolsResult)
-            assert len(result.tools) > 0
+    async with Client(full_featured_server) as client:
+        result = await client.list_tools(params=types.PaginatedRequestParams())
+        assert isinstance(result, ListToolsResult)
+        assert len(result.tools) > 0
 
 
 async def test_list_tools_with_lowlevel_server():
@@ -129,13 +122,9 @@ async def test_list_tools_with_lowlevel_server():
             ]
         )
 
-    transport = InMemoryTransport(server)
-    async with transport.connect() as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
+    async with Client(server) as client:
+        result = await client.list_tools(params=types.PaginatedRequestParams())
+        assert result.tools[0].description == "cursor=None"
 
-            result = await session.list_tools(params=types.PaginatedRequestParams())
-            assert result.tools[0].description == "cursor=None"
-
-            result = await session.list_tools(params=types.PaginatedRequestParams(cursor="page2"))
-            assert result.tools[0].description == "cursor=page2"
+        result = await client.list_tools(params=types.PaginatedRequestParams(cursor="page2"))
+        assert result.tools[0].description == "cursor=page2"
