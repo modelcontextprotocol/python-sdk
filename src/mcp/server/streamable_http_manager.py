@@ -6,7 +6,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from http import HTTPStatus
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import anyio
@@ -15,7 +15,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
     EventStore,
@@ -23,6 +22,9 @@ from mcp.server.streamable_http import (
 )
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
+
+if TYPE_CHECKING:
+    from mcp.server.lowlevel.server import Server as MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -290,3 +292,13 @@ class StreamableHTTPSessionManager:
                 media_type="application/json",
             )
             await response(scope, receive, send)
+
+
+class StreamableHTTPASGIApp:
+    """ASGI application for Streamable HTTP server transport."""
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+        await self.session_manager.handle_request(scope, receive, send)

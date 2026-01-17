@@ -222,13 +222,51 @@ Affected types:
 
 The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` methods now accept both `str` and `AnyUrl` for backwards compatibility.
 
+### `StreamableHTTPASGIApp` moved to `streamable_http_manager` module
+
+The `StreamableHTTPASGIApp` class has been moved from `mcp.server.fastmcp.server` to `mcp.server.streamable_http_manager`.
+
+**Before (v1):**
+
+```python
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
+```
+
+**After (v2):**
+
+```python
+from mcp.server.streamable_http_manager import StreamableHTTPASGIApp
+```
+
 ## Deprecations
 
 <!-- Add deprecations below -->
 
 ## New Features
 
-<!-- Add new features below -->
+### `streamable_http_app()` available on lowlevel Server
+
+The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `FastMCP`. This allows using the streamable HTTP transport without the FastMCP wrapper.
+
+```python
+from mcp.server.lowlevel.server import Server
+
+server = Server("my-server")
+
+# Register handlers...
+@server.list_tools()
+async def list_tools():
+    return [...]
+
+# Create a Starlette app for streamable HTTP
+app = server.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=False,
+    stateless_http=False,
+)
+```
+
+The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
 
 ## Need Help?
 
