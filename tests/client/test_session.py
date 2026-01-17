@@ -772,8 +772,7 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
 
 @pytest.mark.anyio
 async def test_initialize_without_context_manager_raises_error():
-    """Test that calling initialize() without entering the context manager raises RuntimeError.
-    """
+    """Test that calling initialize() without entering the context manager raises RuntimeError."""
     send_stream, receive_stream = anyio.create_memory_object_stream[Any](0)
 
     read_stream = cast(Any, receive_stream)
