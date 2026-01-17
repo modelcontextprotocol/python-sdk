@@ -3,6 +3,7 @@
 import importlib.metadata
 import importlib.util
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -275,8 +276,15 @@ def dev(
 
         # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
+        cmd_args = [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd
+
+        if shell:
+            # On Windows with shell=True, we need to quote arguments to prevent injection
+            # and join them into a single string, as passing a list with shell=True is unsafe/undefined behavior
+            cmd_args = " ".join(shlex.quote(arg) for arg in cmd_args)
+
         process = subprocess.run(
-            [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
+            cmd_args,
             check=True,
             shell=shell,
             env=dict(os.environ.items()),  # Convert to list of tuples for env update
