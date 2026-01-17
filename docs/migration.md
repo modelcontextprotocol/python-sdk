@@ -244,7 +244,29 @@ from mcp.server.streamable_http_manager import StreamableHTTPASGIApp
 
 ## New Features
 
-<!-- Add new features below -->
+### `streamable_http_app()` available on lowlevel Server
+
+The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `FastMCP`. This allows using the streamable HTTP transport without the FastMCP wrapper.
+
+```python
+from mcp.server.lowlevel.server import Server
+
+server = Server("my-server")
+
+# Register handlers...
+@server.list_tools()
+async def list_tools():
+    return [...]
+
+# Create a Starlette app for streamable HTTP
+app = server.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=False,
+    stateless_http=False,
+)
+```
+
+The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
 
 ## Need Help?
 
