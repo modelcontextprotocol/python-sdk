@@ -768,3 +768,73 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_client_session_capability_extensions():
+    """Test that capability_extensions are included in the initialize request."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    received_capabilities = None
+
+    # Define capability extensions (e.g., UI extension)
+    capability_extensions = {"extensions": {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}
+
+    async def mock_server():
+        nonlocal received_capabilities
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        request = ClientRequest.model_validate(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request.root, InitializeRequest)
+        received_capabilities = request.root.params.capabilities
+
+        result = ServerResult(
+            InitializeResult(
+                protocol_version=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            capability_extensions=capability_extensions,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Assert that the capability extensions were included in the request
+    assert received_capabilities is not None
+    # The extensions should be present via Pydantic's extra fields
+    caps_dict = received_capabilities.model_dump()
+    assert "extensions" in caps_dict
+    assert "io.modelcontextprotocol/ui" in caps_dict["extensions"]
+    assert caps_dict["extensions"]["io.modelcontextprotocol/ui"]["mimeTypes"] == ["text/html;profile=mcp-app"]

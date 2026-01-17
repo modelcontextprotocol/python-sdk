@@ -121,6 +121,7 @@ class ClientSession(
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+        capability_extensions: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -142,6 +143,10 @@ class ClientSession(
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
+
+        # Capability extensions to include in initialize request
+        # These are merged into ClientCapabilities using Pydantic's extra fields
+        self._capability_extensions = capability_extensions or {}
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
@@ -177,6 +182,7 @@ class ClientSession(
                             experimental=None,
                             roots=roots,
                             tasks=self._task_handlers.build_capability(),
+                            **self._capability_extensions,
                         ),
                         client_info=self._client_info,
                     ),
