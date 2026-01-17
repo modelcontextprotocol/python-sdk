@@ -49,7 +49,7 @@ async def test_client_session_initialize():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(
                     logging=None,
                     resources=None,
@@ -57,7 +57,7 @@ async def test_client_session_initialize():
                     experimental=None,
                     prompts=None,
                 ),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
                 instructions="The server instructions.",
             )
         )
@@ -105,9 +105,9 @@ async def test_client_session_initialize():
 
     # Assert the result
     assert isinstance(result, InitializeResult)
-    assert result.protocolVersion == LATEST_PROTOCOL_VERSION
+    assert result.protocol_version == LATEST_PROTOCOL_VERSION
     assert isinstance(result.capabilities, ServerCapabilities)
-    assert result.serverInfo == Implementation(name="mock-server", version="0.1.0")
+    assert result.server_info == Implementation(name="mock-server", version="0.1.0")
     assert result.instructions == "The server instructions."
 
     # Check that the client sent the initialized notification
@@ -133,13 +133,13 @@ async def test_client_session_custom_client_info():
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
         assert isinstance(request.root, InitializeRequest)
-        received_client_info = request.root.params.clientInfo
+        received_client_info = request.root.params.client_info
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -194,13 +194,13 @@ async def test_client_session_default_client_info():
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
         assert isinstance(request.root, InitializeRequest)
-        received_client_info = request.root.params.clientInfo
+        received_client_info = request.root.params.client_info
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -254,14 +254,14 @@ async def test_client_session_version_negotiation_success():
         assert isinstance(request.root, InitializeRequest)
 
         # Verify client sent the latest protocol version
-        assert request.root.params.protocolVersion == LATEST_PROTOCOL_VERSION
+        assert request.root.params.protocol_version == LATEST_PROTOCOL_VERSION
 
         # Server responds with a supported older version
         result = ServerResult(
             InitializeResult(
-                protocolVersion="2024-11-05",
+                protocol_version="2024-11-05",
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -296,8 +296,8 @@ async def test_client_session_version_negotiation_success():
 
     # Assert the result with negotiated version
     assert isinstance(result, InitializeResult)
-    assert result.protocolVersion == "2024-11-05"
-    assert result.protocolVersion in SUPPORTED_PROTOCOL_VERSIONS
+    assert result.protocol_version == "2024-11-05"
+    assert result.protocol_version in SUPPORTED_PROTOCOL_VERSIONS
 
 
 @pytest.mark.anyio
@@ -318,9 +318,9 @@ async def test_client_session_version_negotiation_failure():
         # Server responds with an unsupported version
         result = ServerResult(
             InitializeResult(
-                protocolVersion="2020-01-01",  # Unsupported old version
+                protocol_version="2020-01-01",  # Unsupported old version
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -377,9 +377,9 @@ async def test_client_capabilities_default():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -455,9 +455,9 @@ async def test_client_capabilities_with_custom_callbacks():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -503,7 +503,7 @@ async def test_client_capabilities_with_custom_callbacks():
     assert received_capabilities.roots is not None
     assert isinstance(received_capabilities.roots, types.RootsCapability)
     # Should be True for custom callback
-    assert received_capabilities.roots.listChanged is True
+    assert received_capabilities.roots.list_changed is True
 
 
 @pytest.mark.anyio
@@ -538,9 +538,9 @@ async def test_client_capabilities_with_sampling_tools():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -592,9 +592,9 @@ async def test_get_server_capabilities():
 
     expected_capabilities = ServerCapabilities(
         logging=types.LoggingCapability(),
-        prompts=types.PromptsCapability(listChanged=True),
-        resources=types.ResourcesCapability(subscribe=True, listChanged=True),
-        tools=types.ToolsCapability(listChanged=False),
+        prompts=types.PromptsCapability(list_changed=True),
+        resources=types.ResourcesCapability(subscribe=True, list_changed=True),
+        tools=types.ToolsCapability(list_changed=False),
     )
 
     async def mock_server():
@@ -608,9 +608,9 @@ async def test_get_server_capabilities():
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=expected_capabilities,
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -649,11 +649,11 @@ async def test_get_server_capabilities():
         assert capabilities == expected_capabilities
         assert capabilities.logging is not None
         assert capabilities.prompts is not None
-        assert capabilities.prompts.listChanged is True
+        assert capabilities.prompts.list_changed is True
         assert capabilities.resources is not None
         assert capabilities.resources.subscribe is True
         assert capabilities.tools is not None
-        assert capabilities.tools.listChanged is False
+        assert capabilities.tools.list_changed is False
 
 
 @pytest.mark.anyio
@@ -663,7 +663,7 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
-    mocked_tool = types.Tool(name="sample_tool", inputSchema={})
+    mocked_tool = types.Tool(name="sample_tool", input_schema={})
 
     async def mock_server():
         # Receive initialization request from client
@@ -677,9 +677,9 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
 
         result = ServerResult(
             InitializeResult(
-                protocolVersion=LATEST_PROTOCOL_VERSION,
+                protocol_version=LATEST_PROTOCOL_VERSION,
                 capabilities=ServerCapabilities(),
-                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+                server_info=Implementation(name="mock-server", version="0.1.0"),
             )
         )
 
@@ -712,7 +712,7 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
             assert jsonrpc_request.root.params["_meta"] == meta
 
         result = ServerResult(
-            CallToolResult(content=[TextContent(type="text", text="Called successfully")], isError=False)
+            CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
         )
 
         # Send the tools/call result

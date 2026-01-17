@@ -51,15 +51,14 @@ async def test_jsonrpc_request():
 
 @pytest.mark.anyio
 async def test_method_initialization():
-    """
-    Test that the method is automatically set on object creation.
+    """Test that the method is automatically set on object creation.
     Testing just for InitializeRequest to keep the test simple, but should be set for other types as well.
     """
     initialize_request = InitializeRequest(
         params=InitializeRequestParams(
-            protocolVersion=LATEST_PROTOCOL_VERSION,
+            protocol_version=LATEST_PROTOCOL_VERSION,
             capabilities=ClientCapabilities(),
-            clientInfo=Implementation(
+            client_info=Implementation(
                 name="mcp",
                 version="0.1.0",
             ),
@@ -68,7 +67,7 @@ async def test_method_initialization():
 
     assert initialize_request.method == "initialize", "method should be set to 'initialize'"
     assert initialize_request.params is not None
-    assert initialize_request.params.protocolVersion == LATEST_PROTOCOL_VERSION
+    assert initialize_request.params.protocol_version == LATEST_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio
@@ -105,9 +104,9 @@ async def test_tool_result_content():
 
     tool_result = ToolResultContent.model_validate(tool_result_data)
     assert tool_result.type == "tool_result"
-    assert tool_result.toolUseId == "call_abc123"
+    assert tool_result.tool_use_id == "call_abc123"
     assert len(tool_result.content) == 1
-    assert tool_result.isError is False
+    assert tool_result.is_error is False
 
     # Test with empty content (should default to [])
     minimal_result_data = {"type": "tool_result", "toolUseId": "call_xyz"}
@@ -221,21 +220,21 @@ async def test_create_message_request_params_with_tools():
     tool = Tool(
         name="get_weather",
         description="Get weather information",
-        inputSchema={"type": "object", "properties": {"location": {"type": "string"}}},
+        input_schema={"type": "object", "properties": {"location": {"type": "string"}}},
     )
 
     params = CreateMessageRequestParams(
         messages=[SamplingMessage(role="user", content=TextContent(type="text", text="What's the weather?"))],
-        maxTokens=1000,
+        max_tokens=1000,
         tools=[tool],
-        toolChoice=ToolChoice(mode="auto"),
+        tool_choice=ToolChoice(mode="auto"),
     )
 
     assert params.tools is not None
     assert len(params.tools) == 1
     assert params.tools[0].name == "get_weather"
-    assert params.toolChoice is not None
-    assert params.toolChoice.mode == "auto"
+    assert params.tool_choice is not None
+    assert params.tool_choice.mode == "auto"
 
 
 @pytest.mark.anyio
@@ -252,7 +251,7 @@ async def test_create_message_result_with_tool_use():
     result = CreateMessageResultWithTools.model_validate(result_data)
     assert result.role == "assistant"
     assert isinstance(result.content, ToolUseContent)
-    assert result.stopReason == "toolUse"
+    assert result.stop_reason == "toolUse"
     assert result.model == "claude-3"
 
     # Test content_as_list with single content (covers else branch)
@@ -276,7 +275,7 @@ async def test_create_message_result_basic():
     assert result.role == "assistant"
     assert isinstance(result.content, TextContent)
     assert result.content.text == "Hello!"
-    assert result.stopReason == "endTurn"
+    assert result.stop_reason == "endTurn"
     assert result.model == "claude-3"
 
 
@@ -322,13 +321,13 @@ def test_tool_preserves_json_schema_2020_12_fields():
         "additionalProperties": False,
     }
 
-    tool = Tool(name="test_tool", description="A test tool", inputSchema=input_schema)
+    tool = Tool(name="test_tool", description="A test tool", input_schema=input_schema)
 
     # Verify fields are preserved in the model
-    assert tool.inputSchema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert "$defs" in tool.inputSchema
-    assert "address" in tool.inputSchema["$defs"]
-    assert tool.inputSchema["additionalProperties"] is False
+    assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert "$defs" in tool.input_schema
+    assert "address" in tool.input_schema["$defs"]
+    assert tool.input_schema["additionalProperties"] is False
 
     # Verify fields survive serialization round-trip
     serialized = tool.model_dump(mode="json", by_alias=True)
@@ -358,6 +357,6 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     result = ListToolsResult.model_validate(raw_response)
     tool = result.tools[0]
 
-    assert tool.inputSchema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert "$defs" in tool.inputSchema
-    assert tool.inputSchema["additionalProperties"] is False
+    assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert "$defs" in tool.input_schema
+    assert tool.input_schema["additionalProperties"] is False

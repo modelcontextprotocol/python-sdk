@@ -58,7 +58,7 @@ async def test_session_experimental_get_task() -> None:
 
     @server.list_tools()
     async def list_tools():
-        return [Tool(name="test_tool", description="Test", inputSchema={"type": "object"})]
+        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
 
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
@@ -70,10 +70,10 @@ async def test_session_experimental_get_task() -> None:
             task = await app.store.create_task(task_metadata)
 
             done_event = Event()
-            app.task_done_events[task.taskId] = done_event
+            app.task_done_events[task.task_id] = done_event
 
             async def do_work():
-                async with task_execution(task.taskId, app.store) as task_ctx:
+                async with task_execution(task.task_id, app.store) as task_ctx:
                     await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text="Done")]))
                 done_event.set()
 
@@ -85,16 +85,16 @@ async def test_session_experimental_get_task() -> None:
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.taskId)
-        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
+        task = await app.store.get_task(request.params.task_id)
+        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
         return GetTaskResult(
-            taskId=task.taskId,
+            task_id=task.task_id,
             status=task.status,
-            statusMessage=task.statusMessage,
-            createdAt=task.createdAt,
-            lastUpdatedAt=task.lastUpdatedAt,
+            status_message=task.status_message,
+            created_at=task.created_at,
+            last_updated_at=task.last_updated_at,
             ttl=task.ttl,
-            pollInterval=task.pollInterval,
+            poll_interval=task.poll_interval,
         )
 
     # Set up streams
@@ -145,7 +145,7 @@ async def test_session_experimental_get_task() -> None:
                 ),
                 CreateTaskResult,
             )
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
 
             # Wait for task to complete
             await app_context.task_done_events[task_id].wait()
@@ -153,7 +153,7 @@ async def test_session_experimental_get_task() -> None:
             # Use session.experimental to get task status
             task_status = await client_session.experimental.get_task(task_id)
 
-            assert task_status.taskId == task_id
+            assert task_status.task_id == task_id
             assert task_status.status == "completed"
 
             tg.cancel_scope.cancel()
@@ -167,7 +167,7 @@ async def test_session_experimental_get_task_result() -> None:
 
     @server.list_tools()
     async def list_tools():
-        return [Tool(name="test_tool", description="Test", inputSchema={"type": "object"})]
+        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
 
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
@@ -179,10 +179,10 @@ async def test_session_experimental_get_task_result() -> None:
             task = await app.store.create_task(task_metadata)
 
             done_event = Event()
-            app.task_done_events[task.taskId] = done_event
+            app.task_done_events[task.task_id] = done_event
 
             async def do_work():
-                async with task_execution(task.taskId, app.store) as task_ctx:
+                async with task_execution(task.task_id, app.store) as task_ctx:
                     await task_ctx.complete(
                         CallToolResult(content=[TextContent(type="text", text="Task result content")])
                     )
@@ -198,8 +198,8 @@ async def test_session_experimental_get_task_result() -> None:
         request: GetTaskPayloadRequest,
     ) -> GetTaskPayloadResult:
         app = server.request_context.lifespan_context
-        result = await app.store.get_result(request.params.taskId)
-        assert result is not None, f"Test setup error: result for {request.params.taskId} should exist"
+        result = await app.store.get_result(request.params.task_id)
+        assert result is not None, f"Test setup error: result for {request.params.task_id} should exist"
         assert isinstance(result, CallToolResult)
         return GetTaskPayloadResult(**result.model_dump())
 
@@ -251,7 +251,7 @@ async def test_session_experimental_get_task_result() -> None:
                 ),
                 CreateTaskResult,
             )
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
 
             # Wait for task to complete
             await app_context.task_done_events[task_id].wait()
@@ -275,7 +275,7 @@ async def test_session_experimental_list_tasks() -> None:
 
     @server.list_tools()
     async def list_tools():
-        return [Tool(name="test_tool", description="Test", inputSchema={"type": "object"})]
+        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
 
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
@@ -287,10 +287,10 @@ async def test_session_experimental_list_tasks() -> None:
             task = await app.store.create_task(task_metadata)
 
             done_event = Event()
-            app.task_done_events[task.taskId] = done_event
+            app.task_done_events[task.task_id] = done_event
 
             async def do_work():
-                async with task_execution(task.taskId, app.store) as task_ctx:
+                async with task_execution(task.task_id, app.store) as task_ctx:
                     await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text="Done")]))
                 done_event.set()
 
@@ -303,7 +303,7 @@ async def test_session_experimental_list_tasks() -> None:
     async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
         app = server.request_context.lifespan_context
         tasks_list, next_cursor = await app.store.list_tasks(cursor=request.params.cursor if request.params else None)
-        return ListTasksResult(tasks=tasks_list, nextCursor=next_cursor)
+        return ListTasksResult(tasks=tasks_list, next_cursor=next_cursor)
 
     # Set up streams
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -354,7 +354,7 @@ async def test_session_experimental_list_tasks() -> None:
                     ),
                     CreateTaskResult,
                 )
-                await app_context.task_done_events[create_result.task.taskId].wait()
+                await app_context.task_done_events[create_result.task.task_id].wait()
 
             # Use TaskClient to list tasks
             list_result = await client_session.experimental.list_tasks()
@@ -372,7 +372,7 @@ async def test_session_experimental_cancel_task() -> None:
 
     @server.list_tools()
     async def list_tools():
-        return [Tool(name="test_tool", description="Test", inputSchema={"type": "object"})]
+        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
 
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
@@ -390,32 +390,32 @@ async def test_session_experimental_cancel_task() -> None:
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
         app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.taskId)
-        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
+        task = await app.store.get_task(request.params.task_id)
+        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
         return GetTaskResult(
-            taskId=task.taskId,
+            task_id=task.task_id,
             status=task.status,
-            statusMessage=task.statusMessage,
-            createdAt=task.createdAt,
-            lastUpdatedAt=task.lastUpdatedAt,
+            status_message=task.status_message,
+            created_at=task.created_at,
+            last_updated_at=task.last_updated_at,
             ttl=task.ttl,
-            pollInterval=task.pollInterval,
+            poll_interval=task.poll_interval,
         )
 
     @server.experimental.cancel_task()
     async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
         app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.taskId)
-        assert task is not None, f"Test setup error: task {request.params.taskId} should exist"
-        await app.store.update_task(request.params.taskId, status="cancelled")
+        task = await app.store.get_task(request.params.task_id)
+        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
+        await app.store.update_task(request.params.task_id, status="cancelled")
         # CancelTaskResult extends Task, so we need to return the updated task info
-        updated_task = await app.store.get_task(request.params.taskId)
+        updated_task = await app.store.get_task(request.params.task_id)
         assert updated_task is not None
         return CancelTaskResult(
-            taskId=updated_task.taskId,
+            task_id=updated_task.task_id,
             status=updated_task.status,
-            createdAt=updated_task.createdAt,
-            lastUpdatedAt=updated_task.lastUpdatedAt,
+            created_at=updated_task.created_at,
+            last_updated_at=updated_task.last_updated_at,
             ttl=updated_task.ttl,
         )
 
@@ -467,7 +467,7 @@ async def test_session_experimental_cancel_task() -> None:
                 ),
                 CreateTaskResult,
             )
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
 
             # Verify task is working
             status_before = await client_session.experimental.get_task(task_id)

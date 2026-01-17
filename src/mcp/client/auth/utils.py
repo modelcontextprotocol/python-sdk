@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
-    """
-    Extract field from WWW-Authenticate header.
+    """Extract field from WWW-Authenticate header.
 
     Returns:
         Field value if found in WWW-Authenticate header, None otherwise
@@ -42,8 +41,7 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
 
 
 def extract_scope_from_www_auth(response: Response) -> str | None:
-    """
-    Extract scope parameter from WWW-Authenticate header as per RFC6750.
+    """Extract scope parameter from WWW-Authenticate header as per RFC6750.
 
     Returns:
         Scope string if found in WWW-Authenticate header, None otherwise
@@ -52,8 +50,7 @@ def extract_scope_from_www_auth(response: Response) -> str | None:
 
 
 def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
-    """
-    Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
+    """Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
 
     Returns:
         Resource metadata URL if found in WWW-Authenticate header, None otherwise
@@ -65,8 +62,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
-    """
-    Build ordered list of URLs to try for protected resource metadata discovery.
+    """Build ordered list of URLs to try for protected resource metadata discovery.
 
     Per SEP-985, the client MUST:
     1. Try resource_metadata from WWW-Authenticate header (if present)
@@ -127,8 +123,7 @@ def get_client_metadata_scopes(
 
 
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
-    """
-    Generate ordered list of (url, type) tuples for discovery attempts.
+    """Generate ordered list of (url, type) tuples for discovery attempts.
 
     Args:
         auth_server_url: URL for the OAuth Authorization Metadata URL if found, otherwise None
@@ -173,8 +168,7 @@ def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: st
 async def handle_protected_resource_response(
     response: Response,
 ) -> ProtectedResourceMetadata | None:
-    """
-    Handle protected resource metadata discovery response.
+    """Handle protected resource metadata discovery response.
 
     Per SEP-985, supports fallback when discovery fails at one URL.
 

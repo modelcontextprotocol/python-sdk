@@ -15,9 +15,7 @@ from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvid
 
 
 class RevocationRequest(BaseModel):
-    """
-    # See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1
-    """
+    """# See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1"""
 
     token: str
     token_type_hint: Literal["access_token", "refresh_token"] | None = None
@@ -36,9 +34,7 @@ class RevocationHandler:
     client_authenticator: ClientAuthenticator
 
     async def handle(self, request: Request) -> Response:
-        """
-        Handler for the OAuth 2.0 Token Revocation endpoint.
-        """
+        """Handler for the OAuth 2.0 Token Revocation endpoint."""
         try:
             client = await self.client_authenticator.authenticate_request(request)
         except AuthenticationError as e:  # pragma: no cover

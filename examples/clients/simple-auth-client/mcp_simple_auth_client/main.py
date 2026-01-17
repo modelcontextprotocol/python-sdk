@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simple MCP client example with OAuth authentication support.
+"""Simple MCP client example with OAuth authentication support.
 
 This client connects to an MCP server using streamable HTTP transport with OAuth.
 

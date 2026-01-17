@@ -1,5 +1,4 @@
-"""
-SSE Polling Demo Client
+"""SSE Polling Demo Client
 
 Demonstrates the client-side auto-reconnect for SSE polling pattern.
 

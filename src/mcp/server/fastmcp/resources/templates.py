@@ -6,6 +6,7 @@ import inspect
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote
 
 from pydantic import BaseModel, Field, validate_call
 
@@ -83,12 +84,16 @@ class ResourceTemplate(BaseModel):
         )
 
     def matches(self, uri: str) -> dict[str, Any] | None:
-        """Check if URI matches template and extract parameters."""
+        """Check if URI matches template and extract parameters.
+
+        Extracted parameters are URL-decoded to handle percent-encoded characters.
+        """
         # Convert template to regex pattern
         pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
         match = re.match(f"^{pattern}$", uri)
         if match:
-            return match.groupdict()
+            # URL-decode all extracted parameter values
+            return {key: unquote(value) for key, value in match.groupdict().items()}
         return None
 
     async def create_resource(

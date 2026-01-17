@@ -123,11 +123,13 @@ def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
             yield (client_read, spy_client_write), (server_read, spy_server_write)
 
     # Apply the patch for the duration of the test
+    # Patch both locations since InMemoryTransport imports it directly
     with patch("mcp.shared.memory.create_client_server_memory_streams", patched_create_streams):
-        # Return a collection with helper methods
-        def get_spy_collection() -> StreamSpyCollection:
-            assert client_spy is not None, "client_spy was not initialized"
-            assert server_spy is not None, "server_spy was not initialized"
-            return StreamSpyCollection(client_spy, server_spy)
+        with patch("mcp.client._memory.create_client_server_memory_streams", patched_create_streams):
+            # Return a collection with helper methods
+            def get_spy_collection() -> StreamSpyCollection:
+                assert client_spy is not None, "client_spy was not initialized"
+                assert server_spy is not None, "server_spy was not initialized"
+                return StreamSpyCollection(client_spy, server_spy)
 
-        yield get_spy_collection
+            yield get_spy_collection

@@ -42,12 +42,12 @@ async def test_notification_validation_error(tmp_path: Path):
             types.Tool(
                 name="slow",
                 description="A slow tool",
-                inputSchema={"type": "object"},
+                input_schema={"type": "object"},
             ),
             types.Tool(
                 name="fast",
                 description="A fast tool",
-                inputSchema={"type": "object"},
+                input_schema={"type": "object"},
             ),
         ]
 

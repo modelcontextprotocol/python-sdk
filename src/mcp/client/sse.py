@@ -37,8 +37,7 @@ async def sse_client(
     auth: httpx.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
 ):
-    """
-    Client transport for SSE.
+    """Client transport for SSE.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
@@ -110,7 +109,7 @@ async def sse_client(
                                             continue
                                         try:
                                             message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
-                                                sse.data
+                                                sse.data, by_name=False
                                             )
                                             logger.debug(f"Received server message: {message}")
                                         except Exception as exc:  # pragma: no cover

@@ -82,7 +82,7 @@ class TestCheckTasksCapability:
         """When sampling.createMessage is required but client doesn't have it."""
         required = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         client = ClientTasksCapability(
@@ -96,12 +96,12 @@ class TestCheckTasksCapability:
         """When sampling.createMessage is required and client has it."""
         required = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         client = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         assert check_tasks_capability(required, client) is True
@@ -111,13 +111,13 @@ class TestCheckTasksCapability:
         required = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
                 elicitation=TasksElicitationCapability(create=TasksCreateElicitationCapability()),
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability()),
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability()),
             )
         )
         client = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
                 elicitation=TasksElicitationCapability(create=TasksCreateElicitationCapability()),
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability()),
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability()),
             )
         )
         assert check_tasks_capability(required, client) is True
@@ -145,7 +145,7 @@ class TestCheckTasksCapability:
         )
         client = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         assert check_tasks_capability(required, client) is True
@@ -220,7 +220,7 @@ class TestHasTaskAugmentedSampling:
         caps = ClientCapabilities(
             tasks=ClientTasksCapability(
                 requests=ClientTasksRequestsCapability(
-                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                    sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
                 )
             )
         )
@@ -276,7 +276,7 @@ class TestRequireTaskAugmentedSampling:
         caps = ClientCapabilities(
             tasks=ClientTasksCapability(
                 requests=ClientTasksRequestsCapability(
-                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                    sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
                 )
             )
         )

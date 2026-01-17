@@ -1,5 +1,4 @@
-"""
-FastMCP Desktop Example
+"""FastMCP Desktop Example
 
 A simple example that exposes the desktop directory as a resource.
 """

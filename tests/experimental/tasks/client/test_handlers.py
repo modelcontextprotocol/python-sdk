@@ -117,17 +117,17 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
             nonlocal received_task_id
-            received_task_id = params.taskId
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
+            received_task_id = params.task_id
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
-                taskId=task.taskId,
+                task_id=task.task_id,
                 status=task.status,
-                statusMessage=task.statusMessage,
-                createdAt=task.createdAt,
-                lastUpdatedAt=task.lastUpdatedAt,
+                status_message=task.status_message,
+                created_at=task.created_at,
+                last_updated_at=task.last_updated_at,
                 ttl=task.ttl,
-                pollInterval=task.pollInterval,
+                poll_interval=task.poll_interval,
             )
 
         await store.create_task(TaskMetadata(ttl=60000), task_id="test-task-123")
@@ -150,7 +150,7 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskRequest(params=GetTaskRequestParams(taskId="test-task-123"))
+            typed_request = GetTaskRequest(params=GetTaskRequestParams(task_id="test-task-123"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-1",
@@ -164,7 +164,7 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
             assert response.id == "req-1"
 
             result = GetTaskResult.model_validate(response.result)
-            assert result.taskId == "test-task-123"
+            assert result.task_id == "test-task-123"
             assert result.status == "working"
             assert received_task_id == "test-task-123"
 
@@ -183,8 +183,8 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
             context: RequestContext[ClientSession, None],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.taskId)
-            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
+            result = await store.get_result(params.task_id)
+            assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, types.CallToolResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -213,7 +213,7 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId="test-task-456"))
+            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="test-task-456"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-2",
@@ -248,7 +248,7 @@ async def test_client_handles_list_tasks_request(client_streams: ClientTestStrea
         ) -> ListTasksResult | ErrorData:
             cursor = params.cursor if params else None
             tasks_list, next_cursor = await store.list_tasks(cursor=cursor)
-            return ListTasksResult(tasks=tasks_list, nextCursor=next_cursor)
+            return ListTasksResult(tasks=tasks_list, next_cursor=next_cursor)
 
         await store.create_task(TaskMetadata(ttl=60000), task_id="task-1")
         await store.create_task(TaskMetadata(ttl=60000), task_id="task-2")
@@ -301,16 +301,16 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
             context: RequestContext[ClientSession, None],
             params: CancelTaskRequestParams,
         ) -> CancelTaskResult | ErrorData:
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
-            await store.update_task(params.taskId, status="cancelled")
-            updated = await store.get_task(params.taskId)
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
+            await store.update_task(params.task_id, status="cancelled")
+            updated = await store.get_task(params.task_id)
             assert updated is not None
             return CancelTaskResult(
-                taskId=updated.taskId,
+                task_id=updated.task_id,
                 status=updated.status,
-                createdAt=updated.createdAt,
-                lastUpdatedAt=updated.lastUpdatedAt,
+                created_at=updated.created_at,
+                last_updated_at=updated.last_updated_at,
                 ttl=updated.ttl,
             )
 
@@ -334,7 +334,7 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(taskId="task-to-cancel"))
+            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(task_id="task-to-cancel"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-4",
@@ -347,7 +347,7 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
             assert isinstance(response, types.JSONRPCResponse)
 
             result = CancelTaskResult.model_validate(response.result)
-            assert result.taskId == "task-to-cancel"
+            assert result.task_id == "task-to-cancel"
             assert result.status == "cancelled"
 
             tg.cancel_scope.cancel()
@@ -370,17 +370,17 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             task_metadata: TaskMetadata,
         ) -> CreateTaskResult:
             task = await store.create_task(task_metadata)
-            created_task_id[0] = task.taskId
+            created_task_id[0] = task.task_id
 
             async def do_sampling() -> None:
                 result = CreateMessageResult(
                     role="assistant",
                     content=TextContent(type="text", text="Sampled response"),
                     model="test-model",
-                    stopReason="endTurn",
+                    stop_reason="endTurn",
                 )
-                await store.store_result(task.taskId, result)
-                await store.update_task(task.taskId, status="completed")
+                await store.store_result(task.task_id, result)
+                await store.update_task(task.task_id, status="completed")
                 sampling_completed.set()
 
             assert background_tg[0] is not None
@@ -391,24 +391,24 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             context: RequestContext[ClientSession, None],
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
-                taskId=task.taskId,
+                task_id=task.task_id,
                 status=task.status,
-                statusMessage=task.statusMessage,
-                createdAt=task.createdAt,
-                lastUpdatedAt=task.lastUpdatedAt,
+                status_message=task.status_message,
+                created_at=task.created_at,
+                last_updated_at=task.last_updated_at,
                 ttl=task.ttl,
-                pollInterval=task.pollInterval,
+                poll_interval=task.poll_interval,
             )
 
         async def get_task_result_handler(
             context: RequestContext[ClientSession, None],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.taskId)
-            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
+            result = await store.get_result(params.task_id)
+            assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, CreateMessageResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -439,7 +439,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             typed_request = CreateMessageRequest(
                 params=CreateMessageRequestParams(
                     messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-                    maxTokens=100,
+                    max_tokens=100,
                     task=TaskMetadata(ttl=60000),
                 )
             )
@@ -456,14 +456,14 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             assert isinstance(response, types.JSONRPCResponse)
 
             task_result = CreateTaskResult.model_validate(response.result)
-            task_id = task_result.task.taskId
+            task_id = task_result.task.task_id
             assert task_id == created_task_id[0]
 
             # Step 3: Wait for background sampling
             await sampling_completed.wait()
 
             # Step 4: Server polls task status
-            typed_poll = GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))
+            typed_poll = GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))
             poll_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-poll",
@@ -479,7 +479,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             assert status.status == "completed"
 
             # Step 5: Server gets result
-            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task_id))
+            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task_id))
             result_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-result",
@@ -514,13 +514,13 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             task_metadata: TaskMetadata,
         ) -> CreateTaskResult | ErrorData:
             task = await store.create_task(task_metadata)
-            created_task_id[0] = task.taskId
+            created_task_id[0] = task.task_id
 
             async def do_elicitation() -> None:
                 # Simulate user providing elicitation response
                 result = ElicitResult(action="accept", content={"name": "Test User"})
-                await store.store_result(task.taskId, result)
-                await store.update_task(task.taskId, status="completed")
+                await store.store_result(task.task_id, result)
+                await store.update_task(task.task_id, status="completed")
                 elicitation_completed.set()
 
             assert background_tg[0] is not None
@@ -531,24 +531,24 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             context: RequestContext[ClientSession, None],
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
-                taskId=task.taskId,
+                task_id=task.task_id,
                 status=task.status,
-                statusMessage=task.statusMessage,
-                createdAt=task.createdAt,
-                lastUpdatedAt=task.lastUpdatedAt,
+                status_message=task.status_message,
+                created_at=task.created_at,
+                last_updated_at=task.last_updated_at,
                 ttl=task.ttl,
-                pollInterval=task.pollInterval,
+                poll_interval=task.poll_interval,
             )
 
         async def get_task_result_handler(
             context: RequestContext[ClientSession, None],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.taskId)
-            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
+            result = await store.get_result(params.task_id)
+            assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, ElicitResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -579,7 +579,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             typed_request = ElicitRequest(
                 params=ElicitRequestFormParams(
                     message="What is your name?",
-                    requestedSchema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    requested_schema={"type": "object", "properties": {"name": {"type": "string"}}},
                     task=TaskMetadata(ttl=60000),
                 )
             )
@@ -596,14 +596,14 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             assert isinstance(response, types.JSONRPCResponse)
 
             task_result = CreateTaskResult.model_validate(response.result)
-            task_id = task_result.task.taskId
+            task_id = task_result.task.task_id
             assert task_id == created_task_id[0]
 
             # Step 3: Wait for background elicitation
             await elicitation_completed.wait()
 
             # Step 4: Server polls task status
-            typed_poll = GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))
+            typed_poll = GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))
             poll_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-poll",
@@ -619,7 +619,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             assert status.status == "completed"
 
             # Step 5: Server gets result
-            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task_id))
+            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task_id))
             result_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-result",
@@ -661,7 +661,7 @@ async def test_client_returns_error_for_unhandled_task_request(client_streams: C
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskRequest(params=GetTaskRequestParams(taskId="nonexistent"))
+            typed_request = GetTaskRequest(params=GetTaskRequestParams(task_id="nonexistent"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-unhandled",
@@ -700,7 +700,7 @@ async def test_client_returns_error_for_unhandled_task_result_request(client_str
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId="nonexistent"))
+            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="nonexistent"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-result",
@@ -772,7 +772,7 @@ async def test_client_returns_error_for_unhandled_cancel_task_request(client_str
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(taskId="nonexistent"))
+            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(task_id="nonexistent"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-cancel",
@@ -813,7 +813,7 @@ async def test_client_returns_error_for_unhandled_task_augmented_sampling(client
             typed_request = CreateMessageRequest(
                 params=CreateMessageRequestParams(
                     messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-                    maxTokens=100,
+                    max_tokens=100,
                     task=TaskMetadata(ttl=60000),
                 )
             )
@@ -859,7 +859,7 @@ async def test_client_returns_error_for_unhandled_task_augmented_elicitation(
             typed_request = ElicitRequest(
                 params=ElicitRequestFormParams(
                     message="What is your name?",
-                    requestedSchema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    requested_schema={"type": "object", "properties": {"name": {"type": "string"}}},
                     task=TaskMetadata(ttl=60000),
                 )
             )

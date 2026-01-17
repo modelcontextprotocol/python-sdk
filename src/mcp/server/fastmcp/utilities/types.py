@@ -51,7 +51,7 @@ class Image:
         else:  # pragma: no cover
             raise ValueError("No image data available")
 
-        return ImageContent(type="image", data=data, mimeType=self._mime_type)
+        return ImageContent(type="image", data=data, mime_type=self._mime_type)
 
 
 class Audio:
@@ -98,4 +98,4 @@ class Audio:
         else:  # pragma: no cover
             raise ValueError("No audio data available")
 
-        return AudioContent(type="audio", data=data, mimeType=self._mime_type)
+        return AudioContent(type="audio", data=data, mime_type=self._mime_type)

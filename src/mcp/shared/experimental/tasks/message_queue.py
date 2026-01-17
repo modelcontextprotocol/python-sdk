@@ -1,5 +1,4 @@
-"""
-TaskMessageQueue - FIFO queue for task-related messages.
+"""TaskMessageQueue - FIFO queue for task-related messages.
 
 This implements the core message queue pattern from the MCP Tasks spec.
 When a handler needs to send a request (like elicitation) during a task-augmented
@@ -25,8 +24,7 @@ from mcp.types import JSONRPCNotification, JSONRPCRequest, RequestId
 
 @dataclass
 class QueuedMessage:
-    """
-    A message queued for delivery via tasks/result.
+    """A message queued for delivery via tasks/result.
 
     Messages are stored with their type and a resolver for requests
     that expect responses.
@@ -49,8 +47,7 @@ class QueuedMessage:
 
 
 class TaskMessageQueue(ABC):
-    """
-    Abstract interface for task message queuing.
+    """Abstract interface for task message queuing.
 
     This is a FIFO queue that stores messages to be delivered via `tasks/result`.
     When a task-augmented handler calls elicit() or sends a notification, the
@@ -65,8 +62,7 @@ class TaskMessageQueue(ABC):
 
     @abstractmethod
     async def enqueue(self, task_id: str, message: QueuedMessage) -> None:
-        """
-        Add a message to the queue for a task.
+        """Add a message to the queue for a task.
 
         Args:
             task_id: The task identifier
@@ -75,8 +71,7 @@ class TaskMessageQueue(ABC):
 
     @abstractmethod
     async def dequeue(self, task_id: str) -> QueuedMessage | None:
-        """
-        Remove and return the next message from the queue.
+        """Remove and return the next message from the queue.
 
         Args:
             task_id: The task identifier
@@ -87,8 +82,7 @@ class TaskMessageQueue(ABC):
 
     @abstractmethod
     async def peek(self, task_id: str) -> QueuedMessage | None:
-        """
-        Return the next message without removing it.
+        """Return the next message without removing it.
 
         Args:
             task_id: The task identifier
@@ -99,8 +93,7 @@ class TaskMessageQueue(ABC):
 
     @abstractmethod
     async def is_empty(self, task_id: str) -> bool:
-        """
-        Check if the queue is empty for a task.
+        """Check if the queue is empty for a task.
 
         Args:
             task_id: The task identifier
@@ -111,8 +104,7 @@ class TaskMessageQueue(ABC):
 
     @abstractmethod
     async def clear(self, task_id: str) -> list[QueuedMessage]:
-        """
-        Remove and return all messages from the queue.
+        """Remove and return all messages from the queue.
 
         This is useful for cleanup when a task is cancelled or completed.
 
@@ -125,8 +117,7 @@ class TaskMessageQueue(ABC):
 
     @abstractmethod
     async def wait_for_message(self, task_id: str) -> None:
-        """
-        Wait until a message is available in the queue.
+        """Wait until a message is available in the queue.
 
         This blocks until either:
         1. A message is enqueued for this task
@@ -138,8 +129,7 @@ class TaskMessageQueue(ABC):
 
     @abstractmethod
     async def notify_message_available(self, task_id: str) -> None:
-        """
-        Signal that a message is available for a task.
+        """Signal that a message is available for a task.
 
         This wakes up any coroutines waiting in wait_for_message().
 
@@ -149,8 +139,7 @@ class TaskMessageQueue(ABC):
 
 
 class InMemoryTaskMessageQueue(TaskMessageQueue):
-    """
-    In-memory implementation of TaskMessageQueue.
+    """In-memory implementation of TaskMessageQueue.
 
     This is suitable for single-process servers. For distributed systems,
     implement TaskMessageQueue with Redis, RabbitMQ, etc.
@@ -227,8 +216,7 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
             self._events[task_id].set()
 
     def cleanup(self, task_id: str | None = None) -> None:
-        """
-        Clean up queues and events.
+        """Clean up queues and events.
 
         Args:
             task_id: If provided, clean up only this task. Otherwise clean up all.

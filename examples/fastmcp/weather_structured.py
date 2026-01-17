@@ -1,5 +1,4 @@
-"""
-FastMCP Weather Example with Structured Output
+"""FastMCP Weather Example with Structured Output
 
 Demonstrates how to use structured output with tools to return
 well-typed, validated data that clients can easily process.
@@ -14,8 +13,8 @@ from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
+from mcp.client import Client
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import create_connected_server_and_client_session as client_session
 
 # Create server
 mcp = FastMCP("Weather Service")
@@ -157,36 +156,36 @@ if __name__ == "__main__":
         print("Testing Weather Service Tools (via MCP protocol)\n")
         print("=" * 80)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Test get_weather
             result = await client.call_tool("get_weather", {"city": "London"})
             print("\nWeather in London:")
-            print(json.dumps(result.structuredContent, indent=2))
+            print(json.dumps(result.structured_content, indent=2))
 
             # Test get_weather_summary
             result = await client.call_tool("get_weather_summary", {"city": "Paris"})
             print("\nWeather summary for Paris:")
-            print(json.dumps(result.structuredContent, indent=2))
+            print(json.dumps(result.structured_content, indent=2))
 
             # Test get_weather_metrics
             result = await client.call_tool("get_weather_metrics", {"cities": ["Tokyo", "Sydney", "Mumbai"]})
             print("\nWeather metrics:")
-            print(json.dumps(result.structuredContent, indent=2))
+            print(json.dumps(result.structured_content, indent=2))
 
             # Test get_weather_alerts
             result = await client.call_tool("get_weather_alerts", {"region": "California"})
             print("\nWeather alerts for California:")
-            print(json.dumps(result.structuredContent, indent=2))
+            print(json.dumps(result.structured_content, indent=2))
 
             # Test get_temperature
             result = await client.call_tool("get_temperature", {"city": "Berlin", "unit": "fahrenheit"})
             print("\nTemperature in Berlin:")
-            print(json.dumps(result.structuredContent, indent=2))
+            print(json.dumps(result.structured_content, indent=2))
 
             # Test get_weather_stats
             result = await client.call_tool("get_weather_stats", {"city": "Seattle", "days": 30})
             print("\nWeather stats for Seattle (30 days):")
-            print(json.dumps(result.structuredContent, indent=2))
+            print(json.dumps(result.structured_content, indent=2))
 
             # Also show the text content for comparison
             print("\nText content for last result:")
@@ -204,11 +203,11 @@ if __name__ == "__main__":
             print(f"\nTool: {tool.name}")
             print(f"Description: {tool.description}")
             print("Input Schema:")
-            print(json.dumps(tool.inputSchema, indent=2))
+            print(json.dumps(tool.input_schema, indent=2))
 
-            if tool.outputSchema:
+            if tool.output_schema:
                 print("Output Schema:")
-                print(json.dumps(tool.outputSchema, indent=2))
+                print(json.dumps(tool.output_schema, indent=2))
             else:
                 print("Output Schema: None (returns unstructured content)")
 

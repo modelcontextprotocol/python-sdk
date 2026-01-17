@@ -1,18 +1,15 @@
-"""
-Test the elicitation feature using stdio transport.
-"""
+"""Test the elicitation feature using stdio transport."""
 
 from typing import Any
 
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp import types
+from mcp import Client, types
 from mcp.client.session import ClientSession, ElicitationFnT
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 
@@ -47,12 +44,8 @@ async def call_tool_and_assert(
     text_contains: list[str] | None = None,
 ):
     """Helper to create session, call tool, and assert result."""
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
-        result = await client_session.call_tool(tool_name, args)
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
+        result = await client.call_tool(tool_name, args)
         assert len(result.content) == 1
         assert isinstance(result.content[0], TextContent)
 
@@ -134,14 +127,10 @@ async def test_elicitation_schema_validation():
     ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
-    async with create_connected_server_and_client_session(
-        mcp._mcp_server, elicitation_callback=elicitation_callback
-    ) as client_session:
-        await client_session.initialize()
-
+    async with Client(mcp, elicitation_callback=elicitation_callback) as client:
         # Test both invalid schemas
         for tool_name, field_name in [("invalid_list", "numbers"), ("nested_model", "nested")]:
-            result = await client_session.call_tool(tool_name, {})
+            result = await client.call_tool(tool_name, {})
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
             assert "Validation failed as expected" in result.content[0].text
@@ -290,7 +279,7 @@ async def test_elicitation_with_default_values():
     async def callback_schema_verify(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         # Verify the schema includes defaults
         assert isinstance(params, types.ElicitRequestFormParams), "Expected form mode elicitation"
-        schema = params.requestedSchema
+        schema = params.requested_schema
         props = schema["properties"]
 
         assert props["name"]["default"] == "Guest"

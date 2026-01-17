@@ -1,5 +1,4 @@
-"""
-Shared polling utilities for task operations.
+"""Shared polling utilities for task operations.
 
 This module provides generic polling logic that works for both client→server
 and server→client task polling.
@@ -20,8 +19,7 @@ async def poll_until_terminal(
     task_id: str,
     default_interval_ms: int = 500,
 ) -> AsyncIterator[GetTaskResult]:
-    """
-    Poll a task until it reaches terminal status.
+    """Poll a task until it reaches terminal status.
 
     This is a generic utility that works for both client→server and server→client
     polling. The caller provides the get_task function appropriate for their direction.
@@ -41,5 +39,5 @@ async def poll_until_terminal(
         if is_terminal(status.status):
             break
 
-        interval_ms = status.pollInterval if status.pollInterval is not None else default_interval_ms
+        interval_ms = status.poll_interval if status.poll_interval is not None else default_interval_ms
         await anyio.sleep(interval_ms / 1000)

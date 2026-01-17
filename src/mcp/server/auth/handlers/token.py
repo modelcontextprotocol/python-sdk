@@ -55,9 +55,7 @@ class TokenRequest(
 
 
 class TokenErrorResponse(BaseModel):
-    """
-    See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
-    """
+    """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2"""
 
     error: TokenErrorCode
     error_description: str | None = None

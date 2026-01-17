@@ -76,7 +76,7 @@ async def test_elicit_form_fails_in_stateless_mode(stateless_session: ServerSess
     with pytest.raises(StatelessModeNotSupported, match="elicitation"):
         await stateless_session.elicit_form(
             message="Please provide input",
-            requestedSchema={"type": "object", "properties": {}},
+            requested_schema={"type": "object", "properties": {}},
         )
 
 
@@ -97,7 +97,7 @@ async def test_elicit_deprecated_fails_in_stateless_mode(stateless_session: Serv
     with pytest.raises(StatelessModeNotSupported, match="elicitation"):
         await stateless_session.elicit(
             message="Please provide input",
-            requestedSchema={"type": "object", "properties": {}},
+            requested_schema={"type": "object", "properties": {}},
         )
 
 

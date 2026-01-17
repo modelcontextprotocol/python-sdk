@@ -28,8 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class StreamableHTTPSessionManager:
-    """
-    Manages StreamableHTTP sessions with optional resumability via event store.
+    """Manages StreamableHTTP sessions with optional resumability via event store.
 
     This class abstracts away the complexity of session management, event storage,
     and request handling for StreamableHTTP transports. It handles:
@@ -85,8 +84,7 @@ class StreamableHTTPSessionManager:
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[None]:
-        """
-        Run the session manager with proper lifecycle management.
+        """Run the session manager with proper lifecycle management.
 
         This creates and manages the task group for all session operations.
 
@@ -130,8 +128,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process ASGI request with proper session handling and transport setup.
+        """Process ASGI request with proper session handling and transport setup.
 
         Dispatches to the appropriate handler based on stateless mode.
 
@@ -155,8 +152,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process request in stateless mode - creating a new transport for each request.
+        """Process request in stateless mode - creating a new transport for each request.
 
         Args:
             scope: ASGI scope
@@ -204,8 +200,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process request in stateful mode - maintaining session state between requests.
+        """Process request in stateful mode - maintaining session state between requests.
 
         Args:
             scope: ASGI scope

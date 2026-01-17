@@ -1,6 +1,4 @@
-"""
-Request context for MCP handlers.
-"""
+"""Request context for MCP handlers."""
 
 from dataclasses import dataclass, field
 from typing import Any, Generic

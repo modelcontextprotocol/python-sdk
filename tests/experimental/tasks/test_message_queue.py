@@ -1,6 +1,4 @@
-"""
-Tests for TaskMessageQueue and InMemoryTaskMessageQueue.
-"""
+"""Tests for TaskMessageQueue and InMemoryTaskMessageQueue."""
 
 from datetime import datetime, timezone
 

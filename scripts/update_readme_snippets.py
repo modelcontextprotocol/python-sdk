@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Update README.md with live code snippets from example files.
+"""Update README.md with live code snippets from example files.
 
 This script finds specially marked code blocks in README.md and updates them
 with the actual code from the referenced files.

@@ -1,3 +1,4 @@
+from .client.client import Client
 from .client.session import ClientSession
 from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
@@ -66,6 +67,7 @@ from .types import Role as SamplingRole
 
 __all__ = [
     "CallToolRequest",
+    "Client",
     "ClientCapabilities",
     "ClientNotification",
     "ClientRequest",

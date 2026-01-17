@@ -1,5 +1,4 @@
 import pytest
-from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource, Resource
@@ -9,35 +8,35 @@ from mcp.types import Annotations
 class TestResourceValidation:
     """Test base Resource validation."""
 
-    def test_resource_uri_validation(self):
-        """Test URI validation."""
+    def test_resource_uri_accepts_any_string(self):
+        """Test that URI field accepts any string per MCP spec."""
 
         def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         # Valid URI
         resource = FunctionResource(
-            uri=AnyUrl("http://example.com/data"),
+            uri="http://example.com/data",
             name="test",
             fn=dummy_func,
         )
-        assert str(resource.uri) == "http://example.com/data"
+        assert resource.uri == "http://example.com/data"
 
-        # Missing protocol
-        with pytest.raises(ValueError, match="Input should be a valid URL"):
-            FunctionResource(
-                uri=AnyUrl("invalid"),
-                name="test",
-                fn=dummy_func,
-            )
+        # Relative path - now accepted per MCP spec
+        resource = FunctionResource(
+            uri="users/me",
+            name="test",
+            fn=dummy_func,
+        )
+        assert resource.uri == "users/me"
 
-        # Missing host
-        with pytest.raises(ValueError, match="Input should be a valid URL"):
-            FunctionResource(
-                uri=AnyUrl("http://"),
-                name="test",
-                fn=dummy_func,
-            )
+        # Custom scheme
+        resource = FunctionResource(
+            uri="custom://resource",
+            name="test",
+            fn=dummy_func,
+        )
+        assert resource.uri == "custom://resource"
 
     def test_resource_name_from_uri(self):
         """Test name is extracted from URI if not provided."""
@@ -46,7 +45,7 @@ class TestResourceValidation:
             return "data"
 
         resource = FunctionResource(
-            uri=AnyUrl("resource://my-resource"),
+            uri="resource://my-resource",
             fn=dummy_func,
         )
         assert resource.name == "resource://my-resource"
@@ -65,7 +64,7 @@ class TestResourceValidation:
 
         # Explicit name takes precedence over URI
         resource = FunctionResource(
-            uri=AnyUrl("resource://uri-name"),
+            uri="resource://uri-name",
             name="explicit-name",
             fn=dummy_func,
         )
@@ -79,14 +78,14 @@ class TestResourceValidation:
 
         # Default mime type
         resource = FunctionResource(
-            uri=AnyUrl("resource://test"),
+            uri="resource://test",
             fn=dummy_func,
         )
         assert resource.mime_type == "text/plain"
 
         # Custom mime type
         resource = FunctionResource(
-            uri=AnyUrl("resource://test"),
+            uri="resource://test",
             fn=dummy_func,
             mime_type="application/json",
         )
@@ -100,7 +99,7 @@ class TestResourceValidation:
             pass
 
         with pytest.raises(TypeError, match="abstract method"):
-            ConcreteResource(uri=AnyUrl("test://test"), name="test")  # type: ignore
+            ConcreteResource(uri="test://test", name="test")  # type: ignore
 
 
 class TestResourceAnnotations:
@@ -207,7 +206,7 @@ class TestResourceMetadata:
         metadata = {"version": "1.0", "category": "test"}
 
         resource = FunctionResource(
-            uri=AnyUrl("resource://test"),
+            uri="resource://test",
             name="test",
             fn=dummy_func,
             meta=metadata,
@@ -225,7 +224,7 @@ class TestResourceMetadata:
             return "data"
 
         resource = FunctionResource(
-            uri=AnyUrl("resource://test"),
+            uri="resource://test",
             name="test",
             fn=dummy_func,
         )

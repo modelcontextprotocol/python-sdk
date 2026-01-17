@@ -5,6 +5,7 @@ import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from urllib.parse import urlparse
 
 import anyio
 import httpx
@@ -12,7 +13,6 @@ import pytest
 import uvicorn
 from httpx_sse import ServerSentEvent
 from inline_snapshot import snapshot
-from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
@@ -61,13 +61,14 @@ class ServerTest(Server):  # pragma: no cover
         super().__init__(SERVER_NAME)
 
         @self.read_resource()
-        async def handle_read_resource(uri: AnyUrl) -> str | bytes:
-            if uri.scheme == "foobar":
-                return f"Read {uri.host}"
-            elif uri.scheme == "slow":
+        async def handle_read_resource(uri: str) -> str | bytes:
+            parsed = urlparse(uri)
+            if parsed.scheme == "foobar":
+                return f"Read {parsed.netloc}"
+            if parsed.scheme == "slow":
                 # Simulate a slow resource
                 await anyio.sleep(2.0)
-                return f"Slow response from {uri.host}"
+                return f"Slow response from {parsed.netloc}"
 
             raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
@@ -77,7 +78,7 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 )
             ]
 
@@ -183,7 +184,7 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -254,7 +255,7 @@ async def test_sse_client_happy_request_and_response(
     initialized_sse_client_session: ClientSession,
 ) -> None:
     session = initialized_sse_client_session
-    response = await session.read_resource(uri=AnyUrl("foobar://should-work"))
+    response = await session.read_resource(uri="foobar://should-work")
     assert len(response.contents) == 1
     assert isinstance(response.contents[0], TextResourceContents)
     assert response.contents[0].text == "Read should-work"
@@ -266,7 +267,7 @@ async def test_sse_client_exception_handling(
 ) -> None:
     session = initialized_sse_client_session
     with pytest.raises(McpError, match="OOPS! no resource with that URI was found"):
-        await session.read_resource(uri=AnyUrl("xxx://will-not-work"))
+        await session.read_resource(uri="xxx://will-not-work")
 
 
 @pytest.mark.anyio
@@ -277,12 +278,12 @@ async def test_sse_client_timeout(  # pragma: no cover
     session = initialized_sse_client_session
 
     # sanity check that normal, fast responses are working
-    response = await session.read_resource(uri=AnyUrl("foobar://1"))
+    response = await session.read_resource(uri="foobar://1")
     assert isinstance(response, ReadResourceResult)
 
     with anyio.move_on_after(3):
         with pytest.raises(McpError, match="Read timed out"):
-            response = await session.read_resource(uri=AnyUrl("slow://2"))
+            response = await session.read_resource(uri="slow://2")
             # we should receive an error here
         return
 
@@ -329,7 +330,7 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -365,12 +366,12 @@ class RequestContextServer(Server[object, Request]):  # pragma: no cover
                 Tool(
                     name="echo_headers",
                     description="Echoes request headers",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="echo_context",
                     description="Echoes request context",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {"request_id": {"type": "string"}},
                         "required": ["request_id"],
@@ -557,9 +558,9 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
     """
     # Build a proper JSON-RPC response using types (not hardcoded strings)
     init_result = InitializeResult(
-        protocolVersion="2024-11-05",
+        protocol_version="2024-11-05",
         capabilities=ServerCapabilities(),
-        serverInfo=Implementation(name="test", version="1.0"),
+        server_info=Implementation(name="test", version="1.0"),
     )
     response = JSONRPCResponse(
         jsonrpc="2.0",

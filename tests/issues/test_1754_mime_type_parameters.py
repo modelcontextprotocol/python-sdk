@@ -7,10 +7,8 @@ with parameters like 'text/html;profile=mcp-app' which are valid per RFC 2045.
 import pytest
 from pydantic import AnyUrl
 
+from mcp import Client
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 
 pytestmark = pytest.mark.anyio
 
@@ -26,7 +24,7 @@ async def test_mime_type_with_parameters():
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
-    assert resources[0].mimeType == "text/html;profile=mcp-app"
+    assert resources[0].mime_type == "text/html;profile=mcp-app"
 
 
 async def test_mime_type_with_parameters_and_space():
@@ -39,7 +37,7 @@ async def test_mime_type_with_parameters_and_space():
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
-    assert resources[0].mimeType == "application/json; charset=utf-8"
+    assert resources[0].mime_type == "application/json; charset=utf-8"
 
 
 async def test_mime_type_with_multiple_parameters():
@@ -52,7 +50,7 @@ async def test_mime_type_with_multiple_parameters():
 
     resources = await mcp.list_resources()
     assert len(resources) == 1
-    assert resources[0].mimeType == "text/plain; charset=utf-8; format=fixed"
+    assert resources[0].mime_type == "text/plain; charset=utf-8; format=fixed"
 
 
 async def test_mime_type_preserved_in_read_resource():
@@ -63,8 +61,8 @@ async def test_mime_type_preserved_in_read_resource():
     def my_widget() -> str:
         return "<html><body>Hello MCP-UI</body></html>"
 
-    async with client_session(mcp._mcp_server) as client:
+    async with Client(mcp) as client:
         # Read the resource
         result = await client.read_resource(AnyUrl("ui://my-widget"))
         assert len(result.contents) == 1
-        assert result.contents[0].mimeType == "text/html;profile=mcp-app"
+        assert result.contents[0].mime_type == "text/html;profile=mcp-app"

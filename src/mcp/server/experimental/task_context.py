@@ -1,5 +1,4 @@
-"""
-ServerTaskContext - Server-integrated task context with elicitation and sampling.
+"""ServerTaskContext - Server-integrated task context with elicitation and sampling.
 
 This wraps the pure TaskContext and adds server-specific functionality:
 - Elicitation (task.elicit())
@@ -51,8 +50,7 @@ from mcp.types import (
 
 
 class ServerTaskContext:
-    """
-    Server-integrated task context with elicitation and sampling.
+    """Server-integrated task context with elicitation and sampling.
 
     This wraps a pure TaskContext and adds server-specific functionality:
     - elicit() for sending elicitation requests to the client
@@ -65,7 +63,7 @@ class ServerTaskContext:
 
             result = await task.elicit(
                 message="Continue?",
-                requestedSchema={"type": "object", "properties": {"ok": {"type": "boolean"}}}
+                requested_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}}
             )
 
             if result.content.get("ok"):
@@ -83,8 +81,7 @@ class ServerTaskContext:
         queue: TaskMessageQueue,
         handler: TaskResultHandler | None = None,
     ):
-        """
-        Create a ServerTaskContext.
+        """Create a ServerTaskContext.
 
         Args:
             task: The Task object
@@ -123,8 +120,7 @@ class ServerTaskContext:
     # Enhanced methods with notifications
 
     async def update_status(self, message: str, *, notify: bool = True) -> None:
-        """
-        Update the task's status message.
+        """Update the task's status message.
 
         Args:
             message: The new status message
@@ -135,8 +131,7 @@ class ServerTaskContext:
             await self._send_notification()
 
     async def complete(self, result: Result, *, notify: bool = True) -> None:
-        """
-        Mark the task as completed with the given result.
+        """Mark the task as completed with the given result.
 
         Args:
             result: The task result
@@ -147,8 +142,7 @@ class ServerTaskContext:
             await self._send_notification()
 
     async def fail(self, error: str, *, notify: bool = True) -> None:
-        """
-        Mark the task as failed with an error message.
+        """Mark the task as failed with an error message.
 
         Args:
             error: The error message
@@ -165,13 +159,13 @@ class ServerTaskContext:
             ServerNotification(
                 TaskStatusNotification(
                     params=TaskStatusNotificationParams(
-                        taskId=task.taskId,
+                        task_id=task.task_id,
                         status=task.status,
-                        statusMessage=task.statusMessage,
-                        createdAt=task.createdAt,
-                        lastUpdatedAt=task.lastUpdatedAt,
+                        status_message=task.status_message,
+                        created_at=task.created_at,
+                        last_updated_at=task.last_updated_at,
                         ttl=task.ttl,
-                        pollInterval=task.pollInterval,
+                        poll_interval=task.poll_interval,
                     )
                 )
             )
@@ -202,10 +196,9 @@ class ServerTaskContext:
     async def elicit(
         self,
         message: str,
-        requestedSchema: ElicitRequestedSchema,
+        requested_schema: ElicitRequestedSchema,
     ) -> ElicitResult:
-        """
-        Send an elicitation request via the task message queue.
+        """Send an elicitation request via the task message queue.
 
         This method:
         1. Checks client capability
@@ -217,7 +210,7 @@ class ServerTaskContext:
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response structure
+            requested_schema: Schema defining the expected response structure
 
         Returns:
             The client's response
@@ -236,7 +229,7 @@ class ServerTaskContext:
         # Build the request using session's helper
         request = self._session._build_elicit_form_request(  # pyright: ignore[reportPrivateUsage]
             message=message,
-            requestedSchema=requestedSchema,
+            requested_schema=requested_schema,
             related_task_id=self.task_id,
         )
         request_id: RequestId = request.id
@@ -270,8 +263,7 @@ class ServerTaskContext:
         url: str,
         elicitation_id: str,
     ) -> ElicitResult:
-        """
-        Send a URL mode elicitation request via the task message queue.
+        """Send a URL mode elicitation request via the task message queue.
 
         This directs the user to an external URL for out-of-band interactions
         like OAuth flows, credential collection, or payment processing.
@@ -347,8 +339,7 @@ class ServerTaskContext:
         tools: list[Tool] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> CreateMessageResult:
-        """
-        Send a sampling request via the task message queue.
+        """Send a sampling request via the task message queue.
 
         This method:
         1. Checks client capability
@@ -430,12 +421,11 @@ class ServerTaskContext:
     async def elicit_as_task(
         self,
         message: str,
-        requestedSchema: ElicitRequestedSchema,
+        requested_schema: ElicitRequestedSchema,
         *,
         ttl: int = 60000,
     ) -> ElicitResult:
-        """
-        Send a task-augmented elicitation via the queue, then poll client.
+        """Send a task-augmented elicitation via the queue, then poll client.
 
         This is for use inside a task-augmented tool call when you want the client
         to handle the elicitation as its own task. The elicitation request is queued
@@ -444,7 +434,7 @@ class ServerTaskContext:
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response structure
+            requested_schema: Schema defining the expected response structure
             ttl: Task time-to-live in milliseconds for the client's task
 
         Returns:
@@ -465,7 +455,7 @@ class ServerTaskContext:
 
         request = self._session._build_elicit_form_request(  # pyright: ignore[reportPrivateUsage]
             message=message,
-            requestedSchema=requestedSchema,
+            requested_schema=requested_schema,
             related_task_id=self.task_id,
             task=TaskMetadata(ttl=ttl),
         )
@@ -486,7 +476,7 @@ class ServerTaskContext:
             # Wait for initial response (CreateTaskResult from client)
             response_data = await resolver.wait()
             create_result = CreateTaskResult.model_validate(response_data)
-            client_task_id = create_result.task.taskId
+            client_task_id = create_result.task.task_id
 
             # Poll the client's task using session.experimental
             async for _ in self._session.experimental.poll_task(client_task_id):
@@ -520,8 +510,7 @@ class ServerTaskContext:
         tools: list[Tool] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> CreateMessageResult:
-        """
-        Send a task-augmented sampling request via the queue, then poll client.
+        """Send a task-augmented sampling request via the queue, then poll client.
 
         This is for use inside a task-augmented tool call when you want the client
         to handle the sampling as its own task. The request is queued and delivered
@@ -592,7 +581,7 @@ class ServerTaskContext:
             # Wait for initial response (CreateTaskResult from client)
             response_data = await resolver.wait()
             create_result = CreateTaskResult.model_validate(response_data)
-            client_task_id = create_result.task.taskId
+            client_task_id = create_result.task.task_id
 
             # Poll the client's task using session.experimental
             async for _ in self._session.experimental.poll_task(client_task_id):

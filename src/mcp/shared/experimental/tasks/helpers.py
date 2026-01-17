@@ -1,5 +1,4 @@
-"""
-Helper functions for pure task management.
+"""Helper functions for pure task management.
 
 These helpers work with pure TaskContext and don't require server dependencies.
 For server-integrated task helpers, use mcp.server.experimental.
@@ -36,8 +35,7 @@ RELATED_TASK_METADATA_KEY = "io.modelcontextprotocol/related-task"
 
 
 def is_terminal(status: TaskStatus) -> bool:
-    """
-    Check if a task status represents a terminal state.
+    """Check if a task status represents a terminal state.
 
     Terminal states are those where the task has finished and will not change.
 
@@ -54,8 +52,7 @@ async def cancel_task(
     store: TaskStore,
     task_id: str,
 ) -> CancelTaskResult:
-    """
-    Cancel a task with spec-compliant validation.
+    """Cancel a task with spec-compliant validation.
 
     Per spec: "Receivers MUST reject cancellation of terminal status tasks
     with -32602 (Invalid params)"
@@ -111,8 +108,7 @@ def create_task_state(
     metadata: TaskMetadata,
     task_id: str | None = None,
 ) -> Task:
-    """
-    Create a Task object with initial state.
+    """Create a Task object with initial state.
 
     This is a helper for TaskStore implementations.
 
@@ -125,12 +121,12 @@ def create_task_state(
     """
     now = datetime.now(timezone.utc)
     return Task(
-        taskId=task_id or generate_task_id(),
+        task_id=task_id or generate_task_id(),
         status=TASK_STATUS_WORKING,
-        createdAt=now,
-        lastUpdatedAt=now,
+        created_at=now,
+        last_updated_at=now,
         ttl=metadata.ttl,
-        pollInterval=500,  # Default 500ms poll interval
+        poll_interval=500,  # Default 500ms poll interval
     )
 
 
@@ -139,8 +135,7 @@ async def task_execution(
     task_id: str,
     store: TaskStore,
 ) -> AsyncIterator[TaskContext]:
-    """
-    Context manager for safe task execution (pure, no server dependencies).
+    """Context manager for safe task execution (pure, no server dependencies).
 
     Loads a task from the store and provides a TaskContext for the work.
     If an unhandled exception occurs, the task is automatically marked as failed

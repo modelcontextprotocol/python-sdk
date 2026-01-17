@@ -93,7 +93,7 @@ async def connect_service(service_name: str, ctx: Context[ServerSession, None]) 
                 mode="url",
                 message=f"Authorization required to connect to {service_name}",
                 url=f"https://{service_name}.example.com/oauth/authorize?elicit={elicitation_id}",
-                elicitationId=elicitation_id,
+                elicitation_id=elicitation_id,
             )
         ]
     )

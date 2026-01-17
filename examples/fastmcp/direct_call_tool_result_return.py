@@ -1,6 +1,4 @@
-"""
-FastMCP Echo Server with direct CallToolResult return
-"""
+"""FastMCP Echo Server with direct CallToolResult return"""
 
 from typing import Annotated
 
@@ -20,5 +18,5 @@ class EchoResponse(BaseModel):
 def echo(text: str) -> Annotated[CallToolResult, EchoResponse]:
     """Echo the input text with structure and metadata"""
     return CallToolResult(
-        content=[TextContent(type="text", text=text)], structuredContent={"text": text}, _meta={"some": "metadata"}
+        content=[TextContent(type="text", text=text)], structured_content={"text": text}, _meta={"some": "metadata"}
     )

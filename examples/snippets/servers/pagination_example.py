@@ -1,8 +1,4 @@
-"""
-Example of implementing pagination with MCP server decorators.
-"""
-
-from pydantic import AnyUrl
+"""Example of implementing pagination with MCP server decorators."""
 
 import mcp.types as types
 from mcp.server.lowlevel import Server
@@ -28,11 +24,11 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
 
     # Get page of resources
     page_items = [
-        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
+        types.Resource(uri=f"resource://items/{item}", name=item, description=f"Description for {item}")
         for item in ITEMS[start:end]
     ]
 
     # Determine next cursor
     next_cursor = str(end) if end < len(ITEMS) else None
 
-    return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
+    return types.ListResourcesResult(resources=page_items, next_cursor=next_cursor)

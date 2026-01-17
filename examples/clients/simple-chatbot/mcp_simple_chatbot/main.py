@@ -112,7 +112,7 @@ class Server:
 
         for item in tools_response:
             if item[0] == "tools":
-                tools.extend(Tool(tool.name, tool.description, tool.inputSchema, tool.title) for tool in item[1])
+                tools.extend(Tool(tool.name, tool.description, tool.input_schema, tool.title) for tool in item[1])
 
         return tools
 

@@ -1,5 +1,4 @@
-"""
-Shared validation functions for server requests.
+"""Shared validation functions for server requests.
 
 This module provides validation logic for sampling and elicitation requests
 that is shared across normal and task-augmented code paths.
@@ -17,8 +16,7 @@ from mcp.types import (
 
 
 def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> bool:
-    """
-    Check if the client supports sampling tools capability.
+    """Check if the client supports sampling tools capability.
 
     Args:
         client_caps: The client's declared capabilities
@@ -40,8 +38,7 @@ def validate_sampling_tools(
     tools: list[Tool] | None,
     tool_choice: ToolChoice | None,
 ) -> None:
-    """
-    Validate that the client supports sampling tools if tools are being used.
+    """Validate that the client supports sampling tools if tools are being used.
 
     Args:
         client_caps: The client's declared capabilities
@@ -62,8 +59,7 @@ def validate_sampling_tools(
 
 
 def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
-    """
-    Validate tool_use/tool_result message structure per SEP-1577.
+    """Validate tool_use/tool_result message structure per SEP-1577.
 
     This validation ensures:
     1. Messages with tool_result content contain ONLY tool_result content
@@ -99,6 +95,6 @@ def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
 
     if has_previous_tool_use and previous_content:
         tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
-        tool_result_ids = {c.toolUseId for c in last_content if c.type == "tool_result"}
+        tool_result_ids = {c.tool_use_id for c in last_content if c.type == "tool_result"}
         if tool_use_ids != tool_result_ids:
             raise ValueError("ids of tool_result blocks and tool_use blocks from previous message do not match")

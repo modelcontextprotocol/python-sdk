@@ -1,5 +1,4 @@
-"""
-In-memory implementation of TaskStore for demonstration purposes.
+"""In-memory implementation of TaskStore for demonstration purposes.
 
 This implementation stores all tasks in memory and provides automatic cleanup
 based on the TTL duration specified in the task metadata using lazy expiration.
@@ -29,8 +28,7 @@ class StoredTask:
 
 
 class InMemoryTaskStore(TaskStore):
-    """
-    A simple in-memory implementation of TaskStore.
+    """A simple in-memory implementation of TaskStore.
 
     Features:
     - Automatic TTL-based cleanup (lazy expiration)
@@ -79,14 +77,14 @@ class InMemoryTaskStore(TaskStore):
 
         task = create_task_state(metadata, task_id)
 
-        if task.taskId in self._tasks:
-            raise ValueError(f"Task with ID {task.taskId} already exists")
+        if task.task_id in self._tasks:
+            raise ValueError(f"Task with ID {task.task_id} already exists")
 
         stored = StoredTask(
             task=task,
             expires_at=self._calculate_expiry(metadata.ttl),
         )
-        self._tasks[task.taskId] = stored
+        self._tasks[task.task_id] = stored
 
         # Return a copy to prevent external modification
         return Task(**task.model_dump())
@@ -124,10 +122,10 @@ class InMemoryTaskStore(TaskStore):
             status_changed = True
 
         if status_message is not None:
-            stored.task.statusMessage = status_message
+            stored.task.status_message = status_message
 
-        # Update lastUpdatedAt on any change
-        stored.task.lastUpdatedAt = datetime.now(timezone.utc)
+        # Update last_updated_at on any change
+        stored.task.last_updated_at = datetime.now(timezone.utc)
 
         # If task is now terminal and has TTL, reset expiry timer
         if status is not None and is_terminal(status) and stored.task.ttl is not None:

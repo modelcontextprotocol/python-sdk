@@ -15,14 +15,14 @@ class TestUrlElicitationRequiredError:
             mode="url",
             message="Auth required",
             url="https://example.com/auth",
-            elicitationId="test-123",
+            elicitation_id="test-123",
         )
         error = UrlElicitationRequiredError([elicitation])
 
         assert error.error.code == URL_ELICITATION_REQUIRED
         assert error.error.message == "URL elicitation required"
         assert len(error.elicitations) == 1
-        assert error.elicitations[0].elicitationId == "test-123"
+        assert error.elicitations[0].elicitation_id == "test-123"
 
     def test_create_with_multiple_elicitations(self) -> None:
         """Test creating error with multiple elicitations uses plural message."""
@@ -31,13 +31,13 @@ class TestUrlElicitationRequiredError:
                 mode="url",
                 message="Auth 1",
                 url="https://example.com/auth1",
-                elicitationId="test-1",
+                elicitation_id="test-1",
             ),
             ElicitRequestURLParams(
                 mode="url",
                 message="Auth 2",
                 url="https://example.com/auth2",
-                elicitationId="test-2",
+                elicitation_id="test-2",
             ),
         ]
         error = UrlElicitationRequiredError(elicitations)
@@ -51,7 +51,7 @@ class TestUrlElicitationRequiredError:
             mode="url",
             message="Auth required",
             url="https://example.com/auth",
-            elicitationId="test-123",
+            elicitation_id="test-123",
         )
         error = UrlElicitationRequiredError([elicitation], message="Custom message")
 
@@ -77,7 +77,7 @@ class TestUrlElicitationRequiredError:
         error = UrlElicitationRequiredError.from_error(error_data)
 
         assert len(error.elicitations) == 1
-        assert error.elicitations[0].elicitationId == "test-123"
+        assert error.elicitations[0].elicitation_id == "test-123"
         assert error.elicitations[0].url == "https://example.com/auth"
 
     def test_from_error_data_wrong_code(self) -> None:
@@ -99,7 +99,7 @@ class TestUrlElicitationRequiredError:
                     mode="url",
                     message="Auth required",
                     url="https://example.com/auth",
-                    elicitationId="test-123",
+                    elicitation_id="test-123",
                 )
             ]
         )
@@ -110,7 +110,7 @@ class TestUrlElicitationRequiredError:
         # Reconstruct
         reconstructed = UrlElicitationRequiredError.from_error(error_data)
 
-        assert reconstructed.elicitations[0].elicitationId == original.elicitations[0].elicitationId
+        assert reconstructed.elicitations[0].elicitation_id == original.elicitations[0].elicitation_id
         assert reconstructed.elicitations[0].url == original.elicitations[0].url
         assert reconstructed.elicitations[0].message == original.elicitations[0].message
 
@@ -120,7 +120,7 @@ class TestUrlElicitationRequiredError:
             mode="url",
             message="Please authenticate",
             url="https://example.com/oauth",
-            elicitationId="oauth-flow-1",
+            elicitation_id="oauth-flow-1",
         )
         error = UrlElicitationRequiredError([elicitation])
 
@@ -138,7 +138,7 @@ class TestUrlElicitationRequiredError:
             mode="url",
             message="Auth required",
             url="https://example.com/auth",
-            elicitationId="test-123",
+            elicitation_id="test-123",
         )
         error = UrlElicitationRequiredError([elicitation])
 
@@ -151,7 +151,7 @@ class TestUrlElicitationRequiredError:
             mode="url",
             message="Auth required",
             url="https://example.com/auth",
-            elicitationId="test-123",
+            elicitation_id="test-123",
         )
         error = UrlElicitationRequiredError([elicitation])
 

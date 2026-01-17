@@ -108,8 +108,8 @@ def test_validate_for_tool_with_execution_required() -> None:
     tool = Tool(
         name="test",
         description="test",
-        inputSchema={"type": "object"},
-        execution=ToolExecution(taskSupport=TASK_REQUIRED),
+        input_schema={"type": "object"},
+        execution=ToolExecution(task_support=TASK_REQUIRED),
     )
     error = exp.validate_for_tool(tool, raise_error=False)
     assert error is not None
@@ -121,7 +121,7 @@ def test_validate_for_tool_without_execution() -> None:
     tool = Tool(
         name="test",
         description="test",
-        inputSchema={"type": "object"},
+        input_schema={"type": "object"},
         execution=None,
     )
     error = exp.validate_for_tool(tool, raise_error=False)
@@ -134,8 +134,8 @@ def test_validate_for_tool_optional_with_task() -> None:
     tool = Tool(
         name="test",
         description="test",
-        inputSchema={"type": "object"},
-        execution=ToolExecution(taskSupport=TASK_OPTIONAL),
+        input_schema={"type": "object"},
+        execution=ToolExecution(task_support=TASK_OPTIONAL),
     )
     error = exp.validate_for_tool(tool, raise_error=False)
     assert error is None

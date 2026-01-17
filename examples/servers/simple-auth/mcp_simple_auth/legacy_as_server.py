@@ -1,5 +1,4 @@
-"""
-Legacy Combined Authorization Server + Resource Server for MCP.
+"""Legacy Combined Authorization Server + Resource Server for MCP.
 
 This server implements the old spec where MCP servers could act as both AS and RS.
 Used for backwards compatibility testing with the new split AS/RS architecture.
@@ -66,11 +65,11 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
         name="Simple Auth MCP Server",
         instructions="A simple MCP server with simple credential authentication",
         auth_server_provider=oauth_provider,
-        host=server_settings.host,
-        port=server_settings.port,
         debug=True,
         auth=mcp_auth_settings,
     )
+    # Store server settings for later use in run()
+    app._server_settings = server_settings  # type: ignore[attr-defined]
 
     @app.custom_route("/login", methods=["GET"])
     async def login_page_handler(request: Request) -> Response:
@@ -87,8 +86,7 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
-        """
-        Get the current server time.
+        """Get the current server time.
 
         This tool demonstrates that system information can be protected
         by OAuth authentication. User must be authenticated to access it.
@@ -131,7 +129,7 @@ def main(port: int, transport: Literal["sse", "streamable-http"]) -> int:
 
     mcp_server = create_simple_mcp_server(server_settings, auth_settings)
     logger.info(f"🚀 MCP Legacy Server running on {server_url}")
-    mcp_server.run(transport=transport)
+    mcp_server.run(transport=transport, host=host, port=port)
     return 0
 
 

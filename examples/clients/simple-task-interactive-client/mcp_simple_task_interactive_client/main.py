@@ -91,7 +91,7 @@ async def run(url: str) -> None:
             print("Calling confirm_delete tool...")
 
             elicit_task = await session.experimental.call_tool_as_task("confirm_delete", {"filename": "important.txt"})
-            elicit_task_id = elicit_task.task.taskId
+            elicit_task_id = elicit_task.task.task_id
             print(f"Task created: {elicit_task_id}")
 
             # Poll until terminal, calling tasks/result on input_required
@@ -112,7 +112,7 @@ async def run(url: str) -> None:
             print("Calling write_haiku tool...")
 
             sampling_task = await session.experimental.call_tool_as_task("write_haiku", {"topic": "autumn leaves"})
-            sampling_task_id = sampling_task.task.taskId
+            sampling_task_id = sampling_task.task.task_id
             print(f"Task created: {sampling_task_id}")
 
             # Poll until terminal, calling tasks/result on input_required

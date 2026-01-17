@@ -1,5 +1,4 @@
-"""
-Run from the repository root:
+"""Run from the repository root:
 uv run examples/snippets/servers/lowlevel/basic.py
 """
 

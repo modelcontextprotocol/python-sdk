@@ -184,7 +184,7 @@ class ClientSession(
             # TODO: Should this be based on whether we
             # _will_ send notifications, or only whether
             # they're supported?
-            types.RootsCapability(listChanged=True)
+            types.RootsCapability(list_changed=True)
             if self._list_roots_callback is not _default_list_roots_callback
             else None
         )
@@ -193,7 +193,7 @@ class ClientSession(
             types.ClientRequest(
                 types.InitializeRequest(
                     params=types.InitializeRequestParams(
-                        protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                        protocol_version=types.LATEST_PROTOCOL_VERSION,
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
                             elicitation=elicitation,
@@ -201,15 +201,15 @@ class ClientSession(
                             roots=roots,
                             tasks=self._task_handlers.build_capability(),
                         ),
-                        clientInfo=self._client_info,
+                        client_info=self._client_info,
                     ),
                 )
             ),
             types.InitializeResult,
         )
 
-        if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
-            raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
+        if result.protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
         self._server_capabilities = result.capabilities
 
@@ -258,7 +258,7 @@ class ClientSession(
             types.ClientNotification(
                 types.ProgressNotification(
                     params=types.ProgressNotificationParams(
-                        progressToken=progress_token,
+                        progress_token=progress_token,
                         progress=progress,
                         total=total,
                         message=message,
@@ -302,24 +302,24 @@ class ClientSession(
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
-            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=uri))),
+            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=str(uri)))),
             types.ReadResourceResult,
         )
 
-    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri))),
+            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=str(uri)))),
             types.EmptyResult,
         )
 
-    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri))),
+            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=str(uri)))),
             types.EmptyResult,
         )
 
@@ -349,7 +349,7 @@ class ClientSession(
             progress_callback=progress_callback,
         )
 
-        if not result.isError:
+        if not result.is_error:
             await self._validate_tool_result(name, result)
 
         return result
@@ -369,12 +369,12 @@ class ClientSession(
         if output_schema is not None:
             from jsonschema import SchemaError, ValidationError, validate
 
-            if result.structuredContent is None:
+            if result.structured_content is None:
                 raise RuntimeError(
                     f"Tool {name} has an output schema but did not return structured content"
                 )  # pragma: no cover
             try:
-                validate(result.structuredContent, output_schema)
+                validate(result.structured_content, output_schema)
             except ValidationError as e:
                 raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")  # pragma: no cover
             except SchemaError as e:  # pragma: no cover
@@ -430,7 +430,6 @@ class ClientSession(
         """Send a tools/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
         result = await self.send_request(
@@ -441,7 +440,7 @@ class ClientSession(
         # Cache tool output schemas for future validation
         # Note: don't clear the cache, as we may be using a cursor
         for tool in result.tools:
-            self._tool_output_schemas[tool.name] = tool.outputSchema
+            self._tool_output_schemas[tool.name] = tool.output_schema
 
         return result
 

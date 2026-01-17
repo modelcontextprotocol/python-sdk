@@ -26,8 +26,8 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="long_running_task",
             description="A task that takes a few seconds to complete with status updates",
-            inputSchema={"type": "object", "properties": {}},
-            execution=types.ToolExecution(taskSupport=types.TASK_REQUIRED),
+            input_schema={"type": "object", "properties": {}},
+            execution=types.ToolExecution(task_support=types.TASK_REQUIRED),
         )
     ]
 
@@ -60,7 +60,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallTo
     else:
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Unknown tool: {name}")],
-            isError=True,
+            is_error=True,
         )
 
 

@@ -1,5 +1,4 @@
-"""
-OAuth client credential extensions for MCP.
+"""OAuth client credential extensions for MCP.
 
 Provides OAuth providers for machine-to-machine authentication flows:
 - ClientCredentialsOAuthProvider: For client_credentials with client_id + client_secret
@@ -9,6 +8,7 @@ Provides OAuth providers for machine-to-machine authentication flows:
 """
 
 import time
+import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import uuid4
@@ -409,8 +409,6 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         timeout: float = 300.0,
         jwt_parameters: JWTParameters | None = None,
     ) -> None:
-        import warnings
-
         warnings.warn(
             "RFC7523OAuthClientProvider is deprecated. Use ClientCredentialsOAuthProvider "
             "or PrivateKeyJWTOAuthProvider instead.",

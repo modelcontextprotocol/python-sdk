@@ -1,6 +1,4 @@
-"""
-Tests for the BearerAuth middleware components.
-"""
+"""Tests for the BearerAuth middleware components."""
 
 import time
 from typing import Any, cast

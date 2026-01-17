@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-MCP OAuth conformance test client.
+"""MCP OAuth conformance test client.
 
 This client is designed to work with the MCP conformance test framework.
 It automatically handles OAuth flows without user interaction by programmatically
@@ -89,8 +88,7 @@ class InMemoryTokenStorage(TokenStorage):
 
 
 class ConformanceOAuthCallbackHandler:
-    """
-    OAuth callback handler that automatically fetches the authorization URL
+    """OAuth callback handler that automatically fetches the authorization URL
     and extracts the auth code, without requiring user interaction.
 
     This mimics the behavior of the TypeScript ConformanceOAuthProvider.
@@ -101,8 +99,7 @@ class ConformanceOAuthCallbackHandler:
         self._state: str | None = None
 
     async def handle_redirect(self, authorization_url: str) -> None:
-        """
-        Fetch the authorization URL and extract the auth code from the redirect.
+        """Fetch the authorization URL and extract the auth code from the redirect.
 
         The conformance test server returns a redirect with the auth code,
         so we can capture it programmatically.
@@ -148,8 +145,7 @@ class ConformanceOAuthCallbackHandler:
 
 
 async def run_authorization_code_client(server_url: str) -> None:
-    """
-    Run the conformance test client with authorization code flow.
+    """Run the conformance test client with authorization code flow.
 
     This function:
     1. Connects to the MCP server with OAuth authorization code flow
@@ -180,8 +176,7 @@ async def run_authorization_code_client(server_url: str) -> None:
 
 
 async def run_client_credentials_jwt_client(server_url: str) -> None:
-    """
-    Run the conformance test client with client credentials flow using private_key_jwt (SEP-1046).
+    """Run the conformance test client with client credentials flow using private_key_jwt (SEP-1046).
 
     This function:
     1. Connects to the MCP server with OAuth client_credentials grant
@@ -223,8 +218,7 @@ async def run_client_credentials_jwt_client(server_url: str) -> None:
 
 
 async def run_client_credentials_basic_client(server_url: str) -> None:
-    """
-    Run the conformance test client with client credentials flow using client_secret_basic.
+    """Run the conformance test client with client credentials flow using client_secret_basic.
 
     This function:
     1. Connects to the MCP server with OAuth client_credentials grant

@@ -7,8 +7,7 @@ R = TypeVar("R")
 
 
 def create_call_wrapper(func: Callable[..., R], request_type: type[T]) -> Callable[[T], R]:
-    """
-    Create a wrapper function that knows how to call func with the request object.
+    """Create a wrapper function that knows how to call func with the request object.
 
     Returns a wrapper function that takes the request and calls func appropriately.
 

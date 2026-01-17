@@ -1,5 +1,4 @@
-"""
-Experimental server session features for server→client task operations.
+"""Experimental server session features for server→client task operations.
 
 This module provides the server-side equivalent of ExperimentalClientFeatures,
 allowing the server to send task-augmented requests to the client and poll for results.
@@ -25,8 +24,7 @@ ResultT = TypeVar("ResultT", bound=types.Result)
 
 
 class ExperimentalServerSessionFeatures:
-    """
-    Experimental server session features for server→client task operations.
+    """Experimental server session features for server→client task operations.
 
     This provides the server-side equivalent of ExperimentalClientFeatures,
     allowing the server to send task-augmented requests to the client and
@@ -42,8 +40,7 @@ class ExperimentalServerSessionFeatures:
         self._session = session
 
     async def get_task(self, task_id: str) -> types.GetTaskResult:
-        """
-        Send tasks/get to the client to get task status.
+        """Send tasks/get to the client to get task status.
 
         Args:
             task_id: The task identifier
@@ -52,7 +49,7 @@ class ExperimentalServerSessionFeatures:
             GetTaskResult containing the task status
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskRequest(params=types.GetTaskRequestParams(taskId=task_id))),
+            types.ServerRequest(types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id))),
             types.GetTaskResult,
         )
 
@@ -61,8 +58,7 @@ class ExperimentalServerSessionFeatures:
         task_id: str,
         result_type: type[ResultT],
     ) -> ResultT:
-        """
-        Send tasks/result to the client to retrieve the final result.
+        """Send tasks/result to the client to retrieve the final result.
 
         Args:
             task_id: The task identifier
@@ -72,13 +68,12 @@ class ExperimentalServerSessionFeatures:
             The task result, validated against result_type
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(taskId=task_id))),
+            types.ServerRequest(types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(task_id=task_id))),
             result_type,
         )
 
     async def poll_task(self, task_id: str) -> AsyncIterator[types.GetTaskResult]:
-        """
-        Poll a client task until it reaches terminal status.
+        """Poll a client task until it reaches terminal status.
 
         Yields GetTaskResult for each poll, allowing the caller to react to
         status changes. Exits when task reaches a terminal status.
@@ -97,12 +92,11 @@ class ExperimentalServerSessionFeatures:
     async def elicit_as_task(
         self,
         message: str,
-        requestedSchema: types.ElicitRequestedSchema,
+        requested_schema: types.ElicitRequestedSchema,
         *,
         ttl: int = 60000,
     ) -> types.ElicitResult:
-        """
-        Send a task-augmented elicitation to the client and poll until complete.
+        """Send a task-augmented elicitation to the client and poll until complete.
 
         The client will create a local task, process the elicitation asynchronously,
         and return the result when ready. This method handles the full flow:
@@ -113,7 +107,7 @@ class ExperimentalServerSessionFeatures:
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response
+            requested_schema: Schema defining the expected response
             ttl: Task time-to-live in milliseconds
 
         Returns:
@@ -130,7 +124,7 @@ class ExperimentalServerSessionFeatures:
                 types.ElicitRequest(
                     params=types.ElicitRequestFormParams(
                         message=message,
-                        requestedSchema=requestedSchema,
+                        requested_schema=requested_schema,
                         task=types.TaskMetadata(ttl=ttl),
                     )
                 )
@@ -138,7 +132,7 @@ class ExperimentalServerSessionFeatures:
             types.CreateTaskResult,
         )
 
-        task_id = create_result.task.taskId
+        task_id = create_result.task.task_id
 
         async for _ in self.poll_task(task_id):
             pass
@@ -160,8 +154,7 @@ class ExperimentalServerSessionFeatures:
         tools: list[types.Tool] | None = None,
         tool_choice: types.ToolChoice | None = None,
     ) -> types.CreateMessageResult:
-        """
-        Send a task-augmented sampling request and poll until complete.
+        """Send a task-augmented sampling request and poll until complete.
 
         The client will create a local task, process the sampling request
         asynchronously, and return the result when ready.
@@ -196,15 +189,15 @@ class ExperimentalServerSessionFeatures:
                 types.CreateMessageRequest(
                     params=types.CreateMessageRequestParams(
                         messages=messages,
-                        maxTokens=max_tokens,
-                        systemPrompt=system_prompt,
-                        includeContext=include_context,
+                        max_tokens=max_tokens,
+                        system_prompt=system_prompt,
+                        include_context=include_context,
                         temperature=temperature,
-                        stopSequences=stop_sequences,
+                        stop_sequences=stop_sequences,
                         metadata=metadata,
-                        modelPreferences=model_preferences,
+                        model_preferences=model_preferences,
                         tools=tools,
-                        toolChoice=tool_choice,
+                        tool_choice=tool_choice,
                         task=types.TaskMetadata(ttl=ttl),
                     )
                 )
@@ -212,7 +205,7 @@ class ExperimentalServerSessionFeatures:
             types.CreateTaskResult,
         )
 
-        task_id = create_result.task.taskId
+        task_id = create_result.task.task_id
 
         async for _ in self.poll_task(task_id):
             pass

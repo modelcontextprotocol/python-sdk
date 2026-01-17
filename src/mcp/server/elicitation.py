@@ -125,7 +125,7 @@ async def elicit_with_validation(
 
     result = await session.elicit_form(
         message=message,
-        requestedSchema=json_schema,
+        requested_schema=json_schema,
         related_request_id=related_request_id,
     )
 

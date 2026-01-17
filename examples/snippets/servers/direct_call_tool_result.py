@@ -31,7 +31,7 @@ def validated_tool() -> Annotated[CallToolResult, ValidationModel]:
     """Return CallToolResult with structured output validation."""
     return CallToolResult(
         content=[TextContent(type="text", text="Validated response")],
-        structuredContent={"status": "success", "data": {"result": 42}},
+        structured_content={"status": "success", "data": {"result": 42}},
         _meta={"internal": "metadata"},
     )
 

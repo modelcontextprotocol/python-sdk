@@ -1,5 +1,4 @@
-"""
-Before running, specify running MCP RS server URL.
+"""Before running, specify running MCP RS server URL.
 To spin up RS server locally, see
     examples/servers/simple-auth/README.md
 

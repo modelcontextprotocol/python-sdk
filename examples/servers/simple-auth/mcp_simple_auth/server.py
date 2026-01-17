@@ -1,5 +1,4 @@
-"""
-MCP Resource Server with Token Introspection.
+"""MCP Resource Server with Token Introspection.
 
 This server validates tokens via Authorization Server introspection and serves MCP resources.
 Demonstrates RFC 9728 Protected Resource Metadata for AS/RS separation.
@@ -47,8 +46,7 @@ class ResourceServerSettings(BaseSettings):
 
 
 def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
-    """
-    Create MCP Resource Server with token introspection.
+    """Create MCP Resource Server with token introspection.
 
     This server:
     1. Provides protected resource metadata (RFC 9728)
@@ -66,8 +64,6 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     app = FastMCP(
         name="MCP Resource Server",
         instructions="Resource Server that validates tokens via Authorization Server introspection",
-        host=settings.host,
-        port=settings.port,
         debug=True,
         # Auth configuration for RS mode
         token_verifier=token_verifier,
@@ -77,11 +73,12 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
             resource_server_url=settings.server_url,
         ),
     )
+    # Store settings for later use in run()
+    app._resource_server_settings = settings  # type: ignore[attr-defined]
 
     @app.tool()
     async def get_time() -> dict[str, Any]:
-        """
-        Get the current server time.
+        """Get the current server time.
 
         This tool demonstrates that system information can be protected
         by OAuth authentication. User must be authenticated to access it.
@@ -114,8 +111,7 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
     help="Enable RFC 8707 resource validation",
 )
 def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http"], oauth_strict: bool) -> int:
-    """
-    Run the MCP Resource Server.
+    """Run the MCP Resource Server.
 
     This server:
     - Provides RFC 9728 Protected Resource Metadata
@@ -153,7 +149,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         logger.info(f"🔑 Using Authorization Server: {settings.auth_server_url}")
 
         # Run the server - this should block and keep running
-        mcp_server.run(transport=transport)
+        mcp_server.run(transport=transport, host=host, port=port)
         logger.info("Server stopped")
         return 0
     except Exception:

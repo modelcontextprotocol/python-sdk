@@ -1,5 +1,4 @@
-"""
-OAuth2 Authentication implementation for HTTPX.
+"""OAuth2 Authentication implementation for HTTPX.
 
 Implements authorization code flow with PKCE and automatic token refresh.
 """
@@ -215,8 +214,7 @@ class OAuthContext:
 
 
 class OAuthClientProvider(httpx.Auth):
-    """
-    OAuth2 authentication for httpx.
+    """OAuth2 authentication for httpx.
     Handles OAuth flow with automatic client registration and token storage.
     """
 
@@ -268,8 +266,7 @@ class OAuthClientProvider(httpx.Auth):
         self._initialized = False
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
-        """
-        Handle protected resource metadata discovery response.
+        """Handle protected resource metadata discovery response.
 
         Per SEP-985, supports fallback when discovery fails at one URL.
 
