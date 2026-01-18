@@ -39,7 +39,7 @@ async def test_logging_callback():
         """Send a log notification to the client."""
         await server.get_context().log(
             level=level,
-            message=message,
+            data=message,
             logger_name=logger,
         )
         return True
@@ -55,9 +55,12 @@ async def test_logging_callback():
         """Send a log notification to the client with extra fields."""
         await server.get_context().log(
             level=level,
-            message=message,
+            data={
+                "message": message,
+                "extra_string": extra_string,
+                "extra_dict": extra_dict,
+            },
             logger_name=logger,
-            extra={"extra_string": extra_string, "extra_dict": extra_dict},
         )
         return True
 
