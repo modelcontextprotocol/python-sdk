@@ -11,7 +11,7 @@ import anyio.to_thread
 import httpx
 import pydantic
 import pydantic_core
-from pydantic import AnyUrl, Field, ValidationInfo, validate_call
+from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.fastmcp.resources.base import Resource
 from mcp.types import Annotations, Icon
@@ -83,6 +83,7 @@ class FunctionResource(Resource):
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> "FunctionResource":
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
@@ -93,7 +94,7 @@ class FunctionResource(Resource):
         fn = validate_call(fn)
 
         return cls(
-            uri=AnyUrl(uri),
+            uri=uri,
             name=func_name,
             title=title,
             description=description or fn.__doc__ or "",
@@ -101,6 +102,7 @@ class FunctionResource(Resource):
             fn=fn,
             icons=icons,
             annotations=annotations,
+            meta=meta,
         )
 
 

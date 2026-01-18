@@ -1,3 +1,1 @@
-"""
-Middleware for MCP authorization.
-"""
+"""Middleware for MCP authorization."""

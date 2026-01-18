@@ -1,3 +1,1 @@
-"""
-Request handlers for MCP authorization endpoints.
-"""
+"""Request handlers for MCP authorization endpoints."""

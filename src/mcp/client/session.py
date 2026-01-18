@@ -1,11 +1,9 @@
 import logging
-from datetime import timedelta
-from typing import Any, Protocol, overload
+from typing import Any, Protocol
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl, TypeAdapter
-from typing_extensions import deprecated
 
 import mcp.types as types
 from mcp.client.experimental import ExperimentalClientFeatures
@@ -113,7 +111,7 @@ class ClientSession(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
@@ -163,7 +161,7 @@ class ClientSession(
             # TODO: Should this be based on whether we
             # _will_ send notifications, or only whether
             # they're supported?
-            types.RootsCapability(listChanged=True)
+            types.RootsCapability(list_changed=True)
             if self._list_roots_callback is not _default_list_roots_callback
             else None
         )
@@ -172,7 +170,7 @@ class ClientSession(
             types.ClientRequest(
                 types.InitializeRequest(
                     params=types.InitializeRequestParams(
-                        protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                        protocol_version=types.LATEST_PROTOCOL_VERSION,
                         capabilities=types.ClientCapabilities(
                             sampling=sampling,
                             elicitation=elicitation,
@@ -180,15 +178,15 @@ class ClientSession(
                             roots=roots,
                             tasks=self._task_handlers.build_capability(),
                         ),
-                        clientInfo=self._client_info,
+                        client_info=self._client_info,
                     ),
                 )
             ),
             types.InitializeResult,
         )
 
-        if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
-            raise RuntimeError(f"Unsupported protocol version from the server: {result.protocolVersion}")
+        if result.protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
         self._server_capabilities = result.capabilities
 
@@ -207,7 +205,8 @@ class ClientSession(
     def experimental(self) -> ExperimentalClientFeatures:
         """Experimental APIs for tasks and other features.
 
-        WARNING: These APIs are experimental and may change without notice.
+        !!! warning
+            These APIs are experimental and may change without notice.
 
         Example:
             status = await session.experimental.get_task(task_id)
@@ -236,7 +235,7 @@ class ClientSession(
             types.ClientNotification(
                 types.ProgressNotification(
                     params=types.ProgressNotificationParams(
-                        progressToken=progress_token,
+                        progress_token=progress_token,
                         progress=progress,
                         total=total,
                         message=message,
@@ -256,112 +255,48 @@ class ClientSession(
             types.EmptyResult,
         )
 
-    @overload
-    @deprecated("Use list_resources(params=PaginatedRequestParams(...)) instead")
-    async def list_resources(self, cursor: str | None) -> types.ListResourcesResult: ...
-
-    @overload
-    async def list_resources(self, *, params: types.PaginatedRequestParams | None) -> types.ListResourcesResult: ...
-
-    @overload
-    async def list_resources(self) -> types.ListResourcesResult: ...
-
-    async def list_resources(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListResourcesResult:
+    async def list_resources(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListResourcesResult:
         """Send a resources/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         return await self.send_request(
-            types.ClientRequest(types.ListResourcesRequest(params=request_params)),
+            types.ClientRequest(types.ListResourcesRequest(params=params)),
             types.ListResourcesResult,
         )
 
-    @overload
-    @deprecated("Use list_resource_templates(params=PaginatedRequestParams(...)) instead")
-    async def list_resource_templates(self, cursor: str | None) -> types.ListResourceTemplatesResult: ...
-
-    @overload
     async def list_resource_templates(
-        self, *, params: types.PaginatedRequestParams | None
-    ) -> types.ListResourceTemplatesResult: ...
-
-    @overload
-    async def list_resource_templates(self) -> types.ListResourceTemplatesResult: ...
-
-    async def list_resource_templates(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
+        self, *, params: types.PaginatedRequestParams | None = None
     ) -> types.ListResourceTemplatesResult:
         """Send a resources/templates/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         return await self.send_request(
-            types.ClientRequest(types.ListResourceTemplatesRequest(params=request_params)),
+            types.ClientRequest(types.ListResourceTemplatesRequest(params=params)),
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
-            types.ClientRequest(
-                types.ReadResourceRequest(
-                    params=types.ReadResourceRequestParams(uri=uri),
-                )
-            ),
+            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=str(uri)))),
             types.ReadResourceResult,
         )
 
-    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(
-                types.SubscribeRequest(
-                    params=types.SubscribeRequestParams(uri=uri),
-                )
-            ),
+            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=str(uri)))),
             types.EmptyResult,
         )
 
-    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(
-                types.UnsubscribeRequest(
-                    params=types.UnsubscribeRequestParams(uri=uri),
-                )
-            ),
+            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=str(uri)))),
             types.EmptyResult,
         )
 
@@ -369,7 +304,7 @@ class ClientSession(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
@@ -391,7 +326,7 @@ class ClientSession(
             progress_callback=progress_callback,
         )
 
-        if not result.isError:
+        if not result.is_error:
             await self._validate_tool_result(name, result)
 
         return result
@@ -411,51 +346,25 @@ class ClientSession(
         if output_schema is not None:
             from jsonschema import SchemaError, ValidationError, validate
 
-            if result.structuredContent is None:
+            if result.structured_content is None:
                 raise RuntimeError(
                     f"Tool {name} has an output schema but did not return structured content"
                 )  # pragma: no cover
             try:
-                validate(result.structuredContent, output_schema)
+                validate(result.structured_content, output_schema)
             except ValidationError as e:
                 raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")  # pragma: no cover
             except SchemaError as e:  # pragma: no cover
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
 
-    @overload
-    @deprecated("Use list_prompts(params=PaginatedRequestParams(...)) instead")
-    async def list_prompts(self, cursor: str | None) -> types.ListPromptsResult: ...
-
-    @overload
-    async def list_prompts(self, *, params: types.PaginatedRequestParams | None) -> types.ListPromptsResult: ...
-
-    @overload
-    async def list_prompts(self) -> types.ListPromptsResult: ...
-
-    async def list_prompts(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListPromptsResult:
+    async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
         """Send a prompts/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         return await self.send_request(
-            types.ClientRequest(types.ListPromptsRequest(params=request_params)),
+            types.ClientRequest(types.ListPromptsRequest(params=params)),
             types.ListPromptsResult,
         )
 
@@ -494,47 +403,21 @@ class ClientSession(
             types.CompleteResult,
         )
 
-    @overload
-    @deprecated("Use list_tools(params=PaginatedRequestParams(...)) instead")
-    async def list_tools(self, cursor: str | None) -> types.ListToolsResult: ...
-
-    @overload
-    async def list_tools(self, *, params: types.PaginatedRequestParams | None) -> types.ListToolsResult: ...
-
-    @overload
-    async def list_tools(self) -> types.ListToolsResult: ...
-
-    async def list_tools(
-        self,
-        cursor: str | None = None,
-        *,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListToolsResult:
+    async def list_tools(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListToolsResult:
         """Send a tools/list request.
 
         Args:
-            cursor: Simple cursor string for pagination (deprecated, use params instead)
             params: Full pagination parameters including cursor and any future fields
         """
-        if params is not None and cursor is not None:
-            raise ValueError("Cannot specify both cursor and params")
-
-        if params is not None:
-            request_params = params
-        elif cursor is not None:
-            request_params = types.PaginatedRequestParams(cursor=cursor)
-        else:
-            request_params = None
-
         result = await self.send_request(
-            types.ClientRequest(types.ListToolsRequest(params=request_params)),
+            types.ClientRequest(types.ListToolsRequest(params=params)),
             types.ListToolsResult,
         )
 
         # Cache tool output schemas for future validation
         # Note: don't clear the cache, as we may be using a cursor
         for tool in result.tools:
-            self._tool_output_schemas[tool.name] = tool.outputSchema
+            self._tool_output_schemas[tool.name] = tool.output_schema
 
         return result
 

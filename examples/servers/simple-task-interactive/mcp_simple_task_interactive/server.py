@@ -31,17 +31,17 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="confirm_delete",
             description="Asks for confirmation before deleting (demonstrates elicitation)",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"filename": {"type": "string"}},
             },
-            execution=types.ToolExecution(taskSupport=types.TASK_REQUIRED),
+            execution=types.ToolExecution(task_support=types.TASK_REQUIRED),
         ),
         types.Tool(
             name="write_haiku",
             description="Asks LLM to write a haiku (demonstrates sampling)",
-            inputSchema={"type": "object", "properties": {"topic": {"type": "string"}}},
-            execution=types.ToolExecution(taskSupport=types.TASK_REQUIRED),
+            input_schema={"type": "object", "properties": {"topic": {"type": "string"}}},
+            execution=types.ToolExecution(task_support=types.TASK_REQUIRED),
         ),
     ]
 
@@ -59,7 +59,7 @@ async def handle_confirm_delete(arguments: dict[str, Any]) -> types.CreateTaskRe
 
         result = await task.elicit(
             message=f"Are you sure you want to delete '{filename}'?",
-            requestedSchema={
+            requested_schema={
                 "type": "object",
                 "properties": {"confirm": {"type": "boolean"}},
                 "required": ["confirm"],
@@ -121,7 +121,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallTo
     else:
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Unknown tool: {name}")],
-            isError=True,
+            is_error=True,
         )
 
 

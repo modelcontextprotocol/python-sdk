@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+import warnings
 from functools import partial
 from urllib.parse import urlparse
 
@@ -15,8 +16,6 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 
 if not sys.warnoptions:
-    import warnings
-
     warnings.simplefilter("ignore")
 
 logging.basicConfig(level=logging.INFO)

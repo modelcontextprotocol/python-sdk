@@ -1,5 +1,4 @@
-"""
-TaskContext - Pure task state management.
+"""TaskContext - Pure task state management.
 
 This module provides TaskContext, which manages task state without any
 server/session dependencies. It can be used standalone for distributed
@@ -11,8 +10,7 @@ from mcp.types import TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, Result, Task
 
 
 class TaskContext:
-    """
-    Pure task state management - no session dependencies.
+    """Pure task state management - no session dependencies.
 
     This class handles:
     - Task state (status, result)
@@ -41,7 +39,7 @@ class TaskContext:
     @property
     def task_id(self) -> str:
         """The task identifier."""
-        return self._task.taskId
+        return self._task.task_id
 
     @property
     def task(self) -> Task:
@@ -54,8 +52,7 @@ class TaskContext:
         return self._cancelled
 
     def request_cancellation(self) -> None:
-        """
-        Request cancellation of this task.
+        """Request cancellation of this task.
 
         This sets is_cancelled=True. Task work should check this
         periodically and exit gracefully if set.
@@ -63,8 +60,7 @@ class TaskContext:
         self._cancelled = True
 
     async def update_status(self, message: str) -> None:
-        """
-        Update the task's status message.
+        """Update the task's status message.
 
         Args:
             message: The new status message
@@ -75,8 +71,7 @@ class TaskContext:
         )
 
     async def complete(self, result: Result) -> None:
-        """
-        Mark the task as completed with the given result.
+        """Mark the task as completed with the given result.
 
         Args:
             result: The task result
@@ -88,8 +83,7 @@ class TaskContext:
         )
 
     async def fail(self, error: str) -> None:
-        """
-        Mark the task as failed with an error message.
+        """Mark the task as failed with an error message.
 
         Args:
             error: The error message

@@ -55,9 +55,7 @@ class TokenRequest(
 
 
 class TokenErrorResponse(BaseModel):
-    """
-    See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
-    """
+    """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2"""
 
     error: TokenErrorCode
     error_description: str | None = None
@@ -97,7 +95,7 @@ class TokenHandler:
             # Authentication failures should return 401
             return PydanticJSONResponse(
                 content=TokenErrorResponse(
-                    error="unauthorized_client",
+                    error="invalid_client",
                     error_description=e.message,
                 ),
                 status_code=401,

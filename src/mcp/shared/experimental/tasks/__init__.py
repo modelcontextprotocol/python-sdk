@@ -1,5 +1,4 @@
-"""
-Pure task state management for MCP.
+"""Pure task state management for MCP.
 
 WARNING: These APIs are experimental and may change without notice.
 

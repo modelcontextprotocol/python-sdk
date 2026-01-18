@@ -90,8 +90,7 @@ class ServerThread(threading.Thread):
 
 
 def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_name: str) -> None:
-    """
-    Check logs for ClosedResourceError and other race condition errors.
+    """Check logs for ClosedResourceError and other race condition errors.
 
     Args:
         caplog: pytest log capture fixture
@@ -121,8 +120,7 @@ def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_
 
 @pytest.mark.anyio
 async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFixture):
-    """
-    Test the race condition with invalid Accept headers.
+    """Test the race condition with invalid Accept headers.
 
     This test reproduces the exact scenario described in issue #1363:
     - Send POST request with incorrect Accept headers (missing either application/json or text/event-stream)
@@ -196,8 +194,7 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
 
 @pytest.mark.anyio
 async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixture):
-    """
-    Test the race condition with invalid Content-Type headers.
+    """Test the race condition with invalid Content-Type headers.
 
     This test reproduces the race condition scenario with Content-Type validation failure.
     """
@@ -237,8 +234,7 @@ async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixt
 
 @pytest.mark.anyio
 async def test_race_condition_message_router_async_for(caplog: pytest.LogCaptureFixture):
-    """
-    Uses json_response=True to trigger the `if self.is_json_response_enabled` branch,
+    """Uses json_response=True to trigger the `if self.is_json_response_enabled` branch,
     which reproduces the ClosedResourceError when message_router is suspended
     in async for loop while transport cleanup closes streams concurrently.
     """

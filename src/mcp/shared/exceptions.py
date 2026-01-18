@@ -6,9 +6,7 @@ from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorDat
 
 
 class McpError(Exception):
-    """
-    Exception type raised when an error arrives over an MCP connection.
-    """
+    """Exception type raised when an error arrives over an MCP connection."""
 
     error: ErrorData
 
@@ -18,9 +16,25 @@ class McpError(Exception):
         self.error = error
 
 
-class UrlElicitationRequiredError(McpError):
+class StatelessModeNotSupported(RuntimeError):
+    """Raised when attempting to use a method that is not supported in stateless mode.
+
+    Server-to-client requests (sampling, elicitation, list_roots) are not
+    supported in stateless HTTP mode because there is no persistent connection
+    for bidirectional communication.
     """
-    Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
+
+    def __init__(self, method: str):
+        super().__init__(
+            f"Cannot use {method} in stateless HTTP mode. "
+            "Stateless mode does not support server-to-client requests. "
+            "Use stateful mode (stateless_http=False) to enable this feature."
+        )
+        self.method = method
+
+
+class UrlElicitationRequiredError(McpError):
+    """Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
 
     Servers can raise this error from tool handlers to indicate that the client
     must complete one or more URL elicitations before the request can be processed.
@@ -31,7 +45,7 @@ class UrlElicitationRequiredError(McpError):
                 mode="url",
                 message="Authorization required for your files",
                 url="https://example.com/oauth/authorize",
-                elicitationId="auth-001"
+                elicitation_id="auth-001"
             )
         ])
     """

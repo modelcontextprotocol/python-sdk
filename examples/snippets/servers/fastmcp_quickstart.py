@@ -1,5 +1,4 @@
-"""
-FastMCP quickstart example.
+"""FastMCP quickstart example.
 
 Run from the repository root:
     uv run examples/snippets/servers/fastmcp_quickstart.py
@@ -8,7 +7,7 @@ Run from the repository root:
 from mcp.server.fastmcp import FastMCP
 
 # Create an MCP server
-mcp = FastMCP("Demo", json_response=True)
+mcp = FastMCP("Demo")
 
 
 # Add an addition tool
@@ -40,4 +39,4 @@ def greet_user(name: str, style: str = "friendly") -> str:
 
 # Run with streamable HTTP transport
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", json_response=True)

@@ -1,5 +1,4 @@
-"""
-Regression test for issue #1630: OAuth2 scope incorrectly set to resource_metadata URL.
+"""Regression test for issue #1630: OAuth2 scope incorrectly set to resource_metadata URL.
 
 This test verifies that when a 401 response contains both resource_metadata and scope
 in the WWW-Authenticate header, the actual scope is used (not the resource_metadata URL).
@@ -37,8 +36,7 @@ class MockTokenStorage:
 
 @pytest.mark.anyio
 async def test_401_uses_www_auth_scope_not_resource_metadata_url():
-    """
-    Regression test for #1630: Ensure scope is extracted from WWW-Authenticate header,
+    """Regression test for #1630: Ensure scope is extracted from WWW-Authenticate header,
     not the resource_metadata URL.
 
     When a 401 response contains:

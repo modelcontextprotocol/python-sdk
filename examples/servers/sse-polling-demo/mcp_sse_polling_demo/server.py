@@ -1,5 +1,4 @@
-"""
-SSE Polling Demo Server
+"""SSE Polling Demo Server
 
 Demonstrates the SSE polling pattern with close_sse_stream() for long-running tasks.
 
@@ -120,7 +119,7 @@ def main(port: int, log_level: str, retry_interval: int) -> int:
                     "Process a batch of items with periodic checkpoints. "
                     "Demonstrates SSE polling where server closes stream periodically."
                 ),
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "items": {

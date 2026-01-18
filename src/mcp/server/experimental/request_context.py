@@ -1,5 +1,4 @@
-"""
-Experimental request context features.
+"""Experimental request context features.
 
 This module provides the Experimental class which gives access to experimental
 features within a request context, such as task-augmented request handling.
@@ -32,8 +31,7 @@ from mcp.types import (
 
 @dataclass
 class Experimental:
-    """
-    Experimental features context for task-augmented requests.
+    """Experimental features context for task-augmented requests.
 
     Provides helpers for validating task execution compatibility and
     running tasks with automatic lifecycle management.
@@ -64,8 +62,7 @@ class Experimental:
         *,
         raise_error: bool = True,
     ) -> ErrorData | None:
-        """
-        Validate that the request is compatible with the tool's task execution mode.
+        """Validate that the request is compatible with the tool's task execution mode.
 
         Per MCP spec:
         - "required": Clients MUST invoke as task. Server returns -32601 if not.
@@ -110,8 +107,7 @@ class Experimental:
         *,
         raise_error: bool = True,
     ) -> ErrorData | None:
-        """
-        Validate that the request is compatible with the given tool.
+        """Validate that the request is compatible with the given tool.
 
         Convenience wrapper around validate_task_mode that extracts the mode from a Tool.
 
@@ -122,12 +118,11 @@ class Experimental:
         Returns:
             None if valid, ErrorData if invalid and raise_error=False
         """
-        mode = tool.execution.taskSupport if tool.execution else None
+        mode = tool.execution.task_support if tool.execution else None
         return self.validate_task_mode(mode, raise_error=raise_error)
 
     def can_use_tool(self, tool_task_mode: TaskExecutionMode | None) -> bool:
-        """
-        Check if this client can use a tool with the given task mode.
+        """Check if this client can use a tool with the given task mode.
 
         Useful for filtering tool lists or providing warnings.
         Returns False if tool requires "required" but client doesn't support tasks.
@@ -150,8 +145,7 @@ class Experimental:
         task_id: str | None = None,
         model_immediate_response: str | None = None,
     ) -> CreateTaskResult:
-        """
-        Create a task, spawn background work, and return CreateTaskResult immediately.
+        """Create a task, spawn background work, and return CreateTaskResult immediately.
 
         This is the recommended way to handle task-augmented tool calls. It:
         1. Creates a task in the store

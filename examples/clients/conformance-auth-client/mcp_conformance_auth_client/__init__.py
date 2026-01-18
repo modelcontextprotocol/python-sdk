@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-MCP OAuth conformance test client.
+"""MCP OAuth conformance test client.
 
 This client is designed to work with the MCP conformance test framework.
 It automatically handles OAuth flows without user interaction by programmatically
@@ -29,8 +28,8 @@ import json
 import logging
 import os
 import sys
-from datetime import timedelta
-from urllib.parse import ParseResult, parse_qs, urlparse
+from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from mcp import ClientSession
@@ -40,12 +39,12 @@ from mcp.client.auth.extensions.client_credentials import (
     PrivateKeyJWTOAuthProvider,
     SignedJWTParameters,
 )
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from pydantic import AnyUrl
 
 
-def get_conformance_context() -> dict:
+def get_conformance_context() -> dict[str, Any]:
     """Load conformance test context from MCP_CONFORMANCE_CONTEXT environment variable."""
     context_json = os.environ.get("MCP_CONFORMANCE_CONTEXT")
     if not context_json:
@@ -89,8 +88,7 @@ class InMemoryTokenStorage(TokenStorage):
 
 
 class ConformanceOAuthCallbackHandler:
-    """
-    OAuth callback handler that automatically fetches the authorization URL
+    """OAuth callback handler that automatically fetches the authorization URL
     and extracts the auth code, without requiring user interaction.
 
     This mimics the behavior of the TypeScript ConformanceOAuthProvider.
@@ -101,8 +99,7 @@ class ConformanceOAuthCallbackHandler:
         self._state: str | None = None
 
     async def handle_redirect(self, authorization_url: str) -> None:
-        """
-        Fetch the authorization URL and extract the auth code from the redirect.
+        """Fetch the authorization URL and extract the auth code from the redirect.
 
         The conformance test server returns a redirect with the auth code,
         so we can capture it programmatically.
@@ -117,9 +114,9 @@ class ConformanceOAuthCallbackHandler:
 
             # Check for redirect response
             if response.status_code in (301, 302, 303, 307, 308):
-                location = response.headers.get("location")
+                location = cast(str, response.headers.get("location"))
                 if location:
-                    redirect_url: ParseResult = urlparse(location)
+                    redirect_url = urlparse(location)
                     query_params: dict[str, list[str]] = parse_qs(redirect_url.query)
 
                     if "code" in query_params:
@@ -148,8 +145,7 @@ class ConformanceOAuthCallbackHandler:
 
 
 async def run_authorization_code_client(server_url: str) -> None:
-    """
-    Run the conformance test client with authorization code flow.
+    """Run the conformance test client with authorization code flow.
 
     This function:
     1. Connects to the MCP server with OAuth authorization code flow
@@ -180,8 +176,7 @@ async def run_authorization_code_client(server_url: str) -> None:
 
 
 async def run_client_credentials_jwt_client(server_url: str) -> None:
-    """
-    Run the conformance test client with client credentials flow using private_key_jwt (SEP-1046).
+    """Run the conformance test client with client credentials flow using private_key_jwt (SEP-1046).
 
     This function:
     1. Connects to the MCP server with OAuth client_credentials grant
@@ -223,8 +218,7 @@ async def run_client_credentials_jwt_client(server_url: str) -> None:
 
 
 async def run_client_credentials_basic_client(server_url: str) -> None:
-    """
-    Run the conformance test client with client credentials flow using client_secret_basic.
+    """Run the conformance test client with client credentials flow using client_secret_basic.
 
     This function:
     1. Connects to the MCP server with OAuth client_credentials grant
@@ -260,12 +254,8 @@ async def run_client_credentials_basic_client(server_url: str) -> None:
 async def _run_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
     """Common session logic for all OAuth flows."""
     # Connect using streamable HTTP transport with OAuth
-    async with streamablehttp_client(
-        url=server_url,
-        auth=oauth_auth,
-        timeout=timedelta(seconds=30),
-        sse_read_timeout=timedelta(seconds=60),
-    ) as (read_stream, write_stream, _):
+    client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
+    async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             await session.initialize()

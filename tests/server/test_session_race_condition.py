@@ -1,5 +1,4 @@
-"""
-Test for race condition fix in initialization flow.
+"""Test for race condition fix in initialization flow.
 
 This test verifies that requests can be processed immediately after
 responding to InitializeRequest, without waiting for InitializedNotification.
@@ -20,8 +19,7 @@ from mcp.types import ServerCapabilities, Tool
 
 @pytest.mark.anyio
 async def test_request_immediately_after_initialize_response():
-    """
-    Test that requests are accepted immediately after initialize response.
+    """Test that requests are accepted immediately after initialize response.
 
     This reproduces the race condition in stateful HTTP mode where:
     1. Client sends InitializeRequest
@@ -49,7 +47,7 @@ async def test_request_immediately_after_initialize_response():
                 server_name="test-server",
                 server_version="1.0.0",
                 capabilities=ServerCapabilities(
-                    tools=types.ToolsCapability(listChanged=False),
+                    tools=types.ToolsCapability(list_changed=False),
                 ),
             ),
         ) as server_session:
@@ -70,7 +68,7 @@ async def test_request_immediately_after_initialize_response():
                                             Tool(
                                                 name="example_tool",
                                                 description="An example tool",
-                                                inputSchema={"type": "object", "properties": {}},
+                                                input_schema={"type": "object", "properties": {}},
                                             )
                                         ]
                                     )
@@ -95,9 +93,9 @@ async def test_request_immediately_after_initialize_response():
                         id=1,
                         method="initialize",
                         params=types.InitializeRequestParams(
-                            protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                            protocol_version=types.LATEST_PROTOCOL_VERSION,
                             capabilities=types.ClientCapabilities(),
-                            clientInfo=types.Implementation(name="test-client", version="1.0.0"),
+                            client_info=types.Implementation(name="test-client", version="1.0.0"),
                         ).model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )

@@ -31,14 +31,13 @@ def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
 async def sse_client(
     url: str,
     headers: dict[str, Any] | None = None,
-    timeout: float = 5,
-    sse_read_timeout: float = 60 * 5,
+    timeout: float = 5.0,
+    sse_read_timeout: float = 300.0,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
 ):
-    """
-    Client transport for SSE.
+    """Client transport for SSE.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
@@ -46,8 +45,8 @@ async def sse_client(
     Args:
         url: The SSE endpoint URL.
         headers: Optional headers to include in requests.
-        timeout: HTTP timeout for regular operations.
-        sse_read_timeout: Timeout for SSE read operations.
+        timeout: HTTP timeout for regular operations (in seconds).
+        sse_read_timeout: Timeout for SSE read operations (in seconds).
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
@@ -110,7 +109,7 @@ async def sse_client(
                                             continue
                                         try:
                                             message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
-                                                sse.data
+                                                sse.data, by_name=False
                                             )
                                             logger.debug(f"Received server message: {message}")
                                         except Exception as exc:  # pragma: no cover

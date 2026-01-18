@@ -1,25 +1,22 @@
-"""
-SessionGroup concurrently manages multiple MCP session connections.
+"""SessionGroup concurrently manages multiple MCP session connections.
 
 Tools, resources, and prompts are aggregated across servers. Servers may
 be connected to or disconnected from at any point after initialization.
 
-This abstractions can handle naming collisions using a custom user-provided
-hook.
+This abstractions can handle naming collisions using a custom user-provided hook.
 """
 
 import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from types import TracebackType
-from typing import Any, TypeAlias, overload
+from typing import Any, TypeAlias
 
 import anyio
 import httpx
 from pydantic import BaseModel
-from typing_extensions import Self, deprecated
+from typing_extensions import Self
 
 import mcp
 from mcp import types
@@ -41,11 +38,11 @@ class SseServerParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: float = 5
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 5.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: float = 60 * 5
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
 
 class StreamableHttpParameters(BaseModel):
@@ -57,11 +54,11 @@ class StreamableHttpParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: timedelta = timedelta(seconds=30)
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 30.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: timedelta = timedelta(seconds=60 * 5)
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
@@ -76,7 +73,7 @@ ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | Stre
 class ClientSessionParameters:
     """Parameters for establishing a client session to an MCP server."""
 
-    read_timeout_seconds: timedelta | None = None
+    read_timeout_seconds: float | None = None
     sampling_callback: SamplingFnT | None = None
     elicitation_callback: ElicitationFnT | None = None
     list_roots_callback: ListRootsFnT | None = None
@@ -121,9 +118,9 @@ class ClientSessionGroup:
     _exit_stack: contextlib.AsyncExitStack
     _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
-    # Optional fn consuming (component_name, serverInfo) for custom names.
+    # Optional fn consuming (component_name, server_info) for custom names.
     # This is provide a means to mitigate naming conflicts across servers.
-    # Example: (tool_name, serverInfo) => "{result.serverInfo.name}.{tool_name}"
+    # Example: (tool_name, server_info) => "{result.server_info.name}.{tool_name}"
     _ComponentNameHook: TypeAlias = Callable[[str, types.Implementation], str]
     _component_name_hook: _ComponentNameHook | None
 
@@ -192,45 +189,21 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
-    @overload
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressFnT | None = None,
-        *,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
-    @overload
-    @deprecated("The 'args' parameter is deprecated. Use 'arguments' instead.")
-    async def call_tool(
-        self,
-        name: str,
-        *,
-        args: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressFnT | None = None,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
     async def call_tool(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
         meta: dict[str, Any] | None = None,
-        args: dict[str, Any] | None = None,
     ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
         return await session.call_tool(
             session_tool_name,
-            arguments if args is None else args,
+            arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
@@ -314,8 +287,8 @@ class ClientSessionGroup:
                 httpx_client = create_mcp_http_client(
                     headers=server_params.headers,
                     timeout=httpx.Timeout(
-                        server_params.timeout.total_seconds(),
-                        read=server_params.sse_read_timeout.total_seconds(),
+                        server_params.timeout,
+                        read=server_params.sse_read_timeout,
                     ),
                 )
                 await session_stack.enter_async_context(httpx_client)
@@ -350,7 +323,7 @@ class ClientSessionGroup:
             # main _exit_stack.
             await self._exit_stack.enter_async_context(session_stack)
 
-            return result.serverInfo, session
+            return result.server_info, session
         except Exception:  # pragma: no cover
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.

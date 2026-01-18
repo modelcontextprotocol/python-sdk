@@ -1,6 +1,4 @@
-"""
-FastMCP Echo Server that sends log messages and progress updates to the client
-"""
+"""FastMCP Echo Server that sends log messages and progress updates to the client"""
 
 import asyncio
 

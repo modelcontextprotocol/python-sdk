@@ -4,12 +4,12 @@ import asyncio
 
 import click
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, TextContent
 
 
 async def run(url: str) -> None:
-    async with streamablehttp_client(url) as (read, write, _):
+    async with streamable_http_client(url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
@@ -25,15 +25,16 @@ async def run(url: str) -> None:
                 arguments={},
                 ttl=60000,
             )
-            task_id = result.task.taskId
+            task_id = result.task.task_id
             print(f"Task created: {task_id}")
 
+            status = None
             # Poll until done (respects server's pollInterval hint)
             async for status in session.experimental.poll_task(task_id):
-                print(f"  Status: {status.status} - {status.statusMessage or ''}")
+                print(f"  Status: {status.status} - {status.status_message or ''}")
 
             # Check final status
-            if status.status != "completed":
+            if status and status.status != "completed":
                 print(f"Task ended with status: {status.status}")
                 return
 

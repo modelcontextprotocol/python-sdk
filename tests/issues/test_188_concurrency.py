@@ -2,8 +2,8 @@ import anyio
 import pytest
 from pydantic import AnyUrl
 
+from mcp import Client
 from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import create_connected_server_and_client_session as create_session
 
 
 @pytest.mark.anyio
@@ -30,7 +30,7 @@ async def test_messages_are_executed_concurrently_tools():
         call_order.append("trigger_end")
         return "slow"
 
-    async with create_session(server._mcp_server) as client_session:
+    async with Client(server) as client_session:
         # First tool will wait on event, second will set it
         async with anyio.create_task_group() as tg:
             # Start the tool first (it will wait on event)
@@ -70,7 +70,7 @@ async def test_messages_are_executed_concurrently_tools_and_resources():
         call_order.append("resource_end")
         return "slow"
 
-    async with create_session(server._mcp_server) as client_session:
+    async with Client(server) as client_session:
         # First tool will wait on event, second will set it
         async with anyio.create_task_group() as tg:
             # Start the tool first (it will wait on event)
