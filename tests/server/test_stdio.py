@@ -5,7 +5,7 @@ import pytest
 
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
 
 
 @pytest.mark.anyio
@@ -55,7 +55,7 @@ async def test_stdio_server():
     output_lines = stdout.readlines()
     assert len(output_lines) == 2
 
-    received_responses = [JSONRPCMessage.model_validate_json(line.strip()) for line in output_lines]
+    received_responses = [jsonrpc_message_adapter.validate_json(line.strip()) for line in output_lines]
     assert len(received_responses) == 2
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})

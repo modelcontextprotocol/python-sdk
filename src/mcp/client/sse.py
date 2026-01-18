@@ -73,9 +73,7 @@ async def sse_client(
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
 
-                    async def sse_reader(
-                        task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
-                    ):
+                    async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                         try:
                             async for sse in event_source.aiter_sse():  # pragma: no branch
                                 logger.debug(f"Received SSE event: {sse.event}")
@@ -108,7 +106,7 @@ async def sse_client(
                                         if not sse.data:
                                             continue
                                         try:
-                                            message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
+                                            message = types.jsonrpc_message_adapter.validate_json(
                                                 sse.data, by_name=False
                                             )
                                             logger.debug(f"Received server message: {message}")

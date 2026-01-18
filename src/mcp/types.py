@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel, TypeAdapter
 from pydantic.alias_generators import to_camel
 
 LATEST_PROTOCOL_VERSION = "2025-11-25"
@@ -198,6 +198,7 @@ class JSONRPCError(MCPModel):
 
 
 JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
+jsonrpc_message_adapter = TypeAdapter[JSONRPCMessage](JSONRPCMessage)
 
 
 class EmptyResult(Result):
