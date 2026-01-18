@@ -49,7 +49,6 @@ from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, Ses
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     InitializeResult,
-    JSONRPCMessage,
     JSONRPCRequest,
     TextContent,
     TextResourceContents,
@@ -1859,7 +1858,7 @@ async def test_close_sse_stream_callback_not_provided_for_old_protocol_version()
     )
 
     # Create a mock message and request
-    mock_message = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list"))
+    mock_message = JSONRPCRequest(jsonrpc="2.0", id="test-1", method="tools/list")
     mock_request = MagicMock()
 
     # Call _create_session_message with OLD protocol version

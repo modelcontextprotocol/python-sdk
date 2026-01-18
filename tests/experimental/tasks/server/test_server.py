@@ -36,7 +36,6 @@ from mcp.types import (
     GetTaskRequestParams,
     GetTaskResult,
     JSONRPCError,
-    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCResponse,
     ListTasksRequest,
@@ -724,7 +723,7 @@ async def test_send_message() -> None:
             # Create a test message
             notification = JSONRPCNotification(jsonrpc="2.0", method="test/notification")
             message = SessionMessage(
-                message=JSONRPCMessage(notification),
+                message=notification,
                 metadata=ServerMessageMetadata(related_request_id="test-req-1"),
             )
 
@@ -733,8 +732,8 @@ async def test_send_message() -> None:
 
             # Verify it was sent to the stream
             received = await server_to_client_receive.receive()
-            assert isinstance(received.message.root, JSONRPCNotification)
-            assert received.message.root.method == "test/notification"
+            assert isinstance(received.message, JSONRPCNotification)
+            assert received.message.method == "test/notification"
     finally:  # pragma: no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
@@ -776,7 +775,7 @@ async def test_response_routing_success() -> None:
 
             # Simulate receiving a response from client
             response = JSONRPCResponse(jsonrpc="2.0", id="test-req-1", result={"status": "ok"})
-            message = SessionMessage(message=JSONRPCMessage(response))
+            message = SessionMessage(message=response)
 
             # Send from "client" side
             await client_to_server_send.send(message)
@@ -831,7 +830,7 @@ async def test_response_routing_error() -> None:
             # Simulate receiving an error response from client
             error_data = ErrorData(code=INVALID_REQUEST, message="Test error")
             error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
-            message = SessionMessage(message=JSONRPCMessage(error_response))
+            message = SessionMessage(message=error_response)
 
             # Send from "client" side
             await client_to_server_send.send(message)
@@ -894,7 +893,7 @@ async def test_response_routing_skips_non_matching_routers() -> None:
 
             # Send a response - should skip first router and be handled by second
             response = JSONRPCResponse(jsonrpc="2.0", id="test-req-1", result={"status": "ok"})
-            message = SessionMessage(message=JSONRPCMessage(response))
+            message = SessionMessage(message=response)
             await client_to_server_send.send(message)
 
             with anyio.fail_after(5):
@@ -953,7 +952,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
             # Send an error - should skip first router and be handled by second
             error_data = ErrorData(code=INVALID_REQUEST, message="Test error")
             error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
-            message = SessionMessage(message=JSONRPCMessage(error_response))
+            message = SessionMessage(message=error_response)
             await client_to_server_send.send(message)
 
             with anyio.fail_after(5):

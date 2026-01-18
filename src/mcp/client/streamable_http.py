@@ -416,7 +416,7 @@ class StreamableHTTPTransport:
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
         )
-        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
+        session_message = SessionMessage(jsonrpc_error)
         await read_stream_writer.send(session_message)
 
     async def post_writer(

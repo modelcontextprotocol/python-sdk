@@ -197,8 +197,7 @@ class JSONRPCError(MCPModel):
     error: ErrorData
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError]):
-    pass
+JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
 
 
 class EmptyResult(Result):
