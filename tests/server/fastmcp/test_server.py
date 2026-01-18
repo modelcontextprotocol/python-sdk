@@ -1147,7 +1147,7 @@ class TestContextInjection:
 
                 # Verify all log calls were made with correct data types
                 assert mock_log.call_count == 5
-                
+
                 # Check dictionary logging
                 mock_log.assert_any_call(
                     level="info",
@@ -1155,7 +1155,7 @@ class TestContextInjection:
                     logger=None,
                     related_request_id="1",
                 )
-                
+
                 # Check list logging
                 mock_log.assert_any_call(
                     level="debug",
@@ -1163,7 +1163,7 @@ class TestContextInjection:
                     logger=None,
                     related_request_id="1",
                 )
-                
+
                 # Check number logging
                 mock_log.assert_any_call(
                     level="warning",
@@ -1171,7 +1171,7 @@ class TestContextInjection:
                     logger=None,
                     related_request_id="1",
                 )
-                
+
                 # Check boolean logging
                 mock_log.assert_any_call(
                     level="error",
@@ -1179,7 +1179,7 @@ class TestContextInjection:
                     logger=None,
                     related_request_id="1",
                 )
-                
+
                 # Check string still works
                 mock_log.assert_any_call(
                     level="info",

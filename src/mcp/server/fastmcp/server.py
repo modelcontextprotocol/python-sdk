@@ -1327,7 +1327,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     # Convenience methods for common log levels
     async def debug(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a debug log message.
-        
+
         Args:
             data: Data to log (any JSON-serializable type)
             logger_name: Optional logger name
@@ -1336,18 +1336,16 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
     async def info(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an info log message.
-        
+
         Args:
             data: Data to log (any JSON-serializable type)
             logger_name: Optional logger name
         """
         await self.log("info", data, logger_name=logger_name)
 
-    async def warning(
-        self, data: Any, *, logger_name: str | None = None
-    ) -> None:
+    async def warning(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send a warning log message.
-        
+
         Args:
             data: Data to log (any JSON-serializable type)
             logger_name: Optional logger name
@@ -1356,7 +1354,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
     async def error(self, data: Any, *, logger_name: str | None = None) -> None:
         """Send an error log message.
-        
+
         Args:
             data: Data to log (any JSON-serializable type)
             logger_name: Optional logger name
