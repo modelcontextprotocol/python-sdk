@@ -24,7 +24,6 @@ from mcp.types import (
     ClientResult,
     ErrorData,
     JSONRPCError,
-    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -271,7 +270,7 @@ class BaseSession(
                 **request_data,
             )
 
-            await self._write_stream.send(SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata))
+            await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
             # request read timeout takes precedence over session read timeout
             timeout = None
@@ -321,7 +320,7 @@ class BaseSession(
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
         session_message = SessionMessage(  # pragma: no cover
-            message=JSONRPCMessage(jsonrpc_notification),
+            message=jsonrpc_notification,
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
         await self._write_stream.send(session_message)
@@ -329,7 +328,7 @@ class BaseSession(
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
             jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=response)
-            session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
+            session_message = SessionMessage(message=jsonrpc_error)
             await self._write_stream.send(session_message)
         else:
             jsonrpc_response = JSONRPCResponse(
@@ -337,7 +336,7 @@ class BaseSession(
                 id=request_id,
                 result=response.model_dump(by_alias=True, mode="json", exclude_none=True),
             )
-            session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_response))
+            session_message = SessionMessage(message=jsonrpc_response)
             await self._write_stream.send(session_message)
 
     async def _receive_loop(self) -> None:
@@ -349,14 +348,14 @@ class BaseSession(
                 async for message in self._read_stream:
                     if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
-                    elif isinstance(message.message.root, JSONRPCRequest):
+                    elif isinstance(message.message, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
                             responder = RequestResponder(
-                                request_id=message.message.root.id,
+                                request_id=message.message.id,
                                 request_meta=validated_request.root.params.meta
                                 if validated_request.root.params
                                 else None,
@@ -374,23 +373,23 @@ class BaseSession(
                             # For request validation errors, send a proper JSON-RPC error
                             # response instead of crashing the server
                             logging.warning(f"Failed to validate request: {e}")
-                            logging.debug(f"Message that failed validation: {message.message.root}")
+                            logging.debug(f"Message that failed validation: {message.message}")
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
-                                id=message.message.root.id,
+                                id=message.message.id,
                                 error=ErrorData(
                                     code=INVALID_PARAMS,
                                     message="Invalid request parameters",
                                     data="",
                                 ),
                             )
-                            session_message = SessionMessage(message=JSONRPCMessage(error_response))
+                            session_message = SessionMessage(message=error_response)
                             await self._write_stream.send(session_message)
 
-                    elif isinstance(message.message.root, JSONRPCNotification):
+                    elif isinstance(message.message, JSONRPCNotification):
                         try:
                             notification = self._receive_notification_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
                             # Handle cancellation notifications
@@ -419,10 +418,11 @@ class BaseSession(
                                             )
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
-                        except Exception as e:  # pragma: no cover
+                        except Exception:  # pragma: no cover
                             # For other validation errors, log and continue
                             logging.warning(
-                                f"Failed to validate notification: {e}. Message was: {message.message.root}"
+                                f"Failed to validate notification:. Message was: {message.message}",
+                                exc_info=True,
                             )
                     else:  # Response or error
                         await self._handle_response(message)
@@ -475,27 +475,25 @@ class BaseSession(
         Checks response routers first (e.g., for task-related responses),
         then falls back to the normal response stream mechanism.
         """
-        root = message.message.root
-
         # This check is always true at runtime: the caller (_receive_loop) only invokes
         # this method in the else branch after checking for JSONRPCRequest and
         # JSONRPCNotification. However, the type checker can't infer this from the
         # method signature, so we need this guard for type narrowing.
-        if not isinstance(root, JSONRPCResponse | JSONRPCError):
+        if not isinstance(message.message, JSONRPCResponse | JSONRPCError):
             return  # pragma: no cover
 
         # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
-        response_id = self._normalize_request_id(root.id)
+        response_id = self._normalize_request_id(message.message.id)
 
         # First, check response routers (e.g., TaskResultHandler)
-        if isinstance(root, JSONRPCError):
+        if isinstance(message.message, JSONRPCError):
             # Route error to routers
             for router in self._response_routers:
-                if router.route_error(response_id, root.error):
+                if router.route_error(response_id, message.message.error):
                     return  # Handled
         else:
             # Route success response to routers
-            response_data: dict[str, Any] = root.result or {}
+            response_data: dict[str, Any] = message.message.result or {}
             for router in self._response_routers:
                 if router.route_response(response_id, response_data):
                     return  # Handled
@@ -503,7 +501,7 @@ class BaseSession(
         # Fall back to normal response streams
         stream = self._response_streams.pop(response_id, None)
         if stream:  # pragma: no cover
-            await stream.send(root)
+            await stream.send(message.message)
         else:  # pragma: no cover
             await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
 

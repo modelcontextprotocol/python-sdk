@@ -503,12 +503,12 @@ def test_sse_message_id_coercion():
     See <https://www.jsonrpc.org/specification#response_object> for more details.
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123")))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123"))
 
     json_message = '{"jsonrpc": "2.0", "id": 123, "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123))
 
 
 @pytest.mark.parametrize(
@@ -601,5 +601,5 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             msg = await read_stream.receive()
             # If we get here without error, the empty message was skipped successfully
             assert not isinstance(msg, Exception)
-            assert isinstance(msg.message.root, types.JSONRPCResponse)
-            assert msg.message.root.id == 1
+            assert isinstance(msg.message, types.JSONRPCResponse)
+            assert msg.message.id == 1

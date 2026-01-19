@@ -87,54 +87,35 @@ async def test_request_immediately_after_initialize_response():
         # Step 1: Send InitializeRequest
         await client_to_server_send.send(
             SessionMessage(
-                types.JSONRPCMessage(
-                    types.JSONRPCRequest(
-                        jsonrpc="2.0",
-                        id=1,
-                        method="initialize",
-                        params=types.InitializeRequestParams(
-                            protocol_version=types.LATEST_PROTOCOL_VERSION,
-                            capabilities=types.ClientCapabilities(),
-                            client_info=types.Implementation(name="test-client", version="1.0.0"),
-                        ).model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+                types.JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=1,
+                    method="initialize",
+                    params=types.InitializeRequestParams(
+                        protocol_version=types.LATEST_PROTOCOL_VERSION,
+                        capabilities=types.ClientCapabilities(),
+                        client_info=types.Implementation(name="test-client", version="1.0.0"),
+                    ).model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
         )
 
         # Step 2: Wait for InitializeResult
         init_msg = await server_to_client_receive.receive()
-        assert isinstance(init_msg.message.root, types.JSONRPCResponse)
+        assert isinstance(init_msg.message, types.JSONRPCResponse)
 
         # Step 3: Immediately send tools/list BEFORE InitializedNotification
         # This is the race condition scenario
-        await client_to_server_send.send(
-            SessionMessage(
-                types.JSONRPCMessage(
-                    types.JSONRPCRequest(
-                        jsonrpc="2.0",
-                        id=2,
-                        method="tools/list",
-                    )
-                )
-            )
-        )
+        await client_to_server_send.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list")))
 
         # Step 4: Check the response
         tools_msg = await server_to_client_receive.receive()
-        if isinstance(tools_msg.message.root, types.JSONRPCError):  # pragma: no cover
-            error_received = tools_msg.message.root.error.message
+        if isinstance(tools_msg.message, types.JSONRPCError):  # pragma: no cover
+            error_received = tools_msg.message.error.message
 
         # Step 5: Send InitializedNotification
         await client_to_server_send.send(
-            SessionMessage(
-                types.JSONRPCMessage(
-                    types.JSONRPCNotification(
-                        jsonrpc="2.0",
-                        method="notifications/initialized",
-                    )
-                )
-            )
+            SessionMessage(types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"))
         )
 
     async with (

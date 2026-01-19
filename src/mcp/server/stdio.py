@@ -60,7 +60,7 @@ async def stdio_server(
             async with read_stream_writer:
                 async for line in stdin:
                     try:
-                        message = types.JSONRPCMessage.model_validate_json(line, by_name=False)
+                        message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
                     except Exception as exc:  # pragma: no cover
                         await read_stream_writer.send(exc)
                         continue
