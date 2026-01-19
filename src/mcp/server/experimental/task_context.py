@@ -39,7 +39,6 @@ from mcp.types import (
     Result,
     SamplingCapability,
     SamplingMessage,
-    ServerNotification,
     Task,
     TaskMetadata,
     TaskStatusNotification,
@@ -156,17 +155,15 @@ class ServerTaskContext:
         """Send a task status notification to the client."""
         task = self._ctx.task
         await self._session.send_notification(
-            ServerNotification(
-                TaskStatusNotification(
-                    params=TaskStatusNotificationParams(
-                        task_id=task.task_id,
-                        status=task.status,
-                        status_message=task.status_message,
-                        created_at=task.created_at,
-                        last_updated_at=task.last_updated_at,
-                        ttl=task.ttl,
-                        poll_interval=task.poll_interval,
-                    )
+            TaskStatusNotification(
+                params=TaskStatusNotificationParams(
+                    task_id=task.task_id,
+                    status=task.status,
+                    status_message=task.status_message,
+                    created_at=task.created_at,
+                    last_updated_at=task.last_updated_at,
+                    ttl=task.ttl,
+                    poll_interval=task.poll_interval,
                 )
             )
         )

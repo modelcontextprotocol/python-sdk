@@ -1125,8 +1125,8 @@ async def test_streamable_http_client_get_stream(basic_server: None, basic_serve
             # Verify the notification is a ResourceUpdatedNotification
             resource_update_found = False
             for notif in notifications_received:
-                if isinstance(notif.root, types.ResourceUpdatedNotification):  # pragma: no branch
-                    assert str(notif.root.params.uri) == "http://test_resource"
+                if isinstance(notif, types.ResourceUpdatedNotification):  # pragma: no branch
+                    assert str(notif.params.uri) == "http://test_resource"
                     resource_update_found = True
 
             assert resource_update_found, "ResourceUpdatedNotification not received via GET stream"
@@ -1167,10 +1167,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(  # pragma: no branch
-                    McpError,
-                    match="Session terminated",
-                ):
+                with pytest.raises(McpError, match="Session terminated"):  # pragma: no branch
                     await session.list_tools()
 
 
@@ -1259,8 +1256,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             captured_notifications.append(message)
             # Look for our first notification
-            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
-                if message.root.params.data == "First notification before lock":
+            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+                if message.params.data == "First notification before lock":
                     nonlocal first_notification_received
                     first_notification_received = True
 
@@ -1291,12 +1288,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                         on_resumption_token_update=on_resumption_token_update,
                     )
                     await session.send_request(
-                        types.ClientRequest(
-                            types.CallToolRequest(
-                                params=types.CallToolRequestParams(
-                                    name="wait_for_lock_with_notification", arguments={}
-                                ),
-                            )
+                        types.CallToolRequest(
+                            params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
                         ),
                         types.CallToolResult,
                         metadata=metadata,
@@ -1313,8 +1306,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
 
     # Verify we received exactly one notification
     assert len(captured_notifications) == 1  # pragma: no cover
-    assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)  # pragma: no cover
-    assert captured_notifications[0].root.params.data == "First notification before lock"  # pragma: no cover
+    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: no cover
+    assert captured_notifications[0].params.data == "First notification before lock"  # pragma: no cover
 
     # Clear notifications for the second phase
     captured_notifications = []  # pragma: no cover
@@ -1334,11 +1327,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
         ):
             async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
                 result = await session.send_request(
-                    types.ClientRequest(
-                        types.CallToolRequest(
-                            params=types.CallToolRequestParams(name="release_lock", arguments={}),
-                        )
-                    ),
+                    types.CallToolRequest(params=types.CallToolRequestParams(name="release_lock", arguments={})),
                     types.CallToolResult,
                 )
                 metadata = ClientMessageMetadata(
@@ -1346,10 +1335,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 )
 
                 result = await session.send_request(
-                    types.ClientRequest(
-                        types.CallToolRequest(
-                            params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
-                        )
+                    types.CallToolRequest(
+                        params=types.CallToolRequestParams(name="wait_for_lock_with_notification", arguments={}),
                     ),
                     types.CallToolResult,
                     metadata=metadata,
@@ -1361,8 +1348,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
 
-            assert isinstance(captured_notifications[0].root, types.LoggingMessageNotification)  # pragma: no cover
-            assert captured_notifications[0].root.params.data == "Second notification after lock"  # pragma: no cover
+            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: no cover
+            assert captured_notifications[0].params.data == "Second notification after lock"  # pragma: no cover
 
 
 @pytest.mark.anyio
@@ -1905,11 +1892,7 @@ async def test_streamable_http_client_receives_priming_event(
                 on_resumption_token_update=on_resumption_token_update,
             )
             result = await session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="test_tool", arguments={}),
-                    )
-                ),
+                types.CallToolRequest(params=types.CallToolRequestParams(name="test_tool", arguments={})),
                 types.CallToolResult,
                 metadata=metadata,
             )
@@ -1967,8 +1950,8 @@ async def test_streamable_http_client_auto_reconnects(
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
-                captured_notifications.append(str(message.root.params.data))
+            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+                captured_notifications.append(str(message.params.data))
 
     async with streamable_http_client(f"{server_url}/mcp") as (
         read_stream,
@@ -2043,8 +2026,8 @@ async def test_streamable_http_sse_polling_full_cycle(
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
-                all_notifications.append(str(message.root.params.data))
+            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+                all_notifications.append(str(message.params.data))
 
     async with streamable_http_client(f"{server_url}/mcp") as (
         read_stream,
@@ -2091,8 +2074,8 @@ async def test_streamable_http_events_replayed_after_disconnect(
         if isinstance(message, Exception):  # pragma: no branch
             return  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message.root, types.LoggingMessageNotification):  # pragma: no branch
-                notification_data.append(str(message.root.params.data))
+            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+                notification_data.append(str(message.params.data))
 
     async with streamable_http_client(f"{server_url}/mcp") as (
         read_stream,
@@ -2153,15 +2136,13 @@ async def test_streamable_http_multiple_reconnections(
             # Use send_request with metadata to track resumption tokens
             metadata = ClientMessageMetadata(on_resumption_token_update=on_resumption_token)
             result = await session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        method="tools/call",
-                        params=types.CallToolRequestParams(
-                            name="tool_with_multiple_stream_closes",
-                            # retry_interval=500ms, so sleep 600ms to ensure reconnect completes
-                            arguments={"checkpoints": 3, "sleep_time": 0.6},
-                        ),
-                    )
+                types.CallToolRequest(
+                    method="tools/call",
+                    params=types.CallToolRequestParams(
+                        name="tool_with_multiple_stream_closes",
+                        # retry_interval=500ms, so sleep 600ms to ensure reconnect completes
+                        arguments={"checkpoints": 3, "sleep_time": 0.6},
+                    ),
                 ),
                 types.CallToolResult,
                 metadata=metadata,
@@ -2202,8 +2183,8 @@ async def test_standalone_get_stream_reconnection(
         if isinstance(message, Exception):
             return  # pragma: no cover
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message.root, types.ResourceUpdatedNotification):  # pragma: no branch
-                received_notifications.append(str(message.root.params.uri))
+            if isinstance(message, types.ResourceUpdatedNotification):  # pragma: no branch
+                received_notifications.append(str(message.params.uri))
 
     async with streamable_http_client(f"{server_url}/mcp") as (
         read_stream,

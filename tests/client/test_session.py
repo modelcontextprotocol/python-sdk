@@ -12,8 +12,6 @@ from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     CallToolResult,
-    ClientNotification,
-    ClientRequest,
     Implementation,
     InitializedNotification,
     InitializeRequest,
@@ -22,8 +20,9 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     ServerCapabilities,
-    ServerResult,
     TextContent,
+    client_notification_adapter,
+    client_request_adapter,
 )
 
 
@@ -41,24 +40,22 @@ async def test_client_session_initialize():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(
-                    logging=None,
-                    resources=None,
-                    tools=None,
-                    experimental=None,
-                    prompts=None,
-                ),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-                instructions="The server instructions.",
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(
+                logging=None,
+                resources=None,
+                tools=None,
+                experimental=None,
+                prompts=None,
+            ),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+            instructions="The server instructions.",
         )
 
         async with server_to_client_send:
@@ -74,7 +71,7 @@ async def test_client_session_initialize():
             session_notification = await client_to_server_receive.receive()
             jsonrpc_notification = session_notification.message
             assert isinstance(jsonrpc_notification, JSONRPCNotification)
-            initialized_notification = ClientNotification.model_validate(
+            initialized_notification = client_notification_adapter.validate_python(
                 jsonrpc_notification.model_dump(by_alias=True, mode="json", exclude_none=True)
             )
 
@@ -109,7 +106,7 @@ async def test_client_session_initialize():
 
     # Check that the client sent the initialized notification
     assert initialized_notification
-    assert isinstance(initialized_notification.root, InitializedNotification)
+    assert isinstance(initialized_notification, InitializedNotification)
 
 
 @pytest.mark.anyio
@@ -126,18 +123,16 @@ async def test_client_session_custom_client_info():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_client_info = request.root.params.client_info
+        assert isinstance(request, InitializeRequest)
+        received_client_info = request.params.client_info
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -185,18 +180,16 @@ async def test_client_session_default_client_info():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_client_info = request.root.params.client_info
+        assert isinstance(request, InitializeRequest)
+        received_client_info = request.params.client_info
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -238,21 +231,19 @@ async def test_client_session_version_negotiation_success():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
         # Verify client sent the latest protocol version
-        assert request.root.params.protocol_version == LATEST_PROTOCOL_VERSION
+        assert request.params.protocol_version == LATEST_PROTOCOL_VERSION
 
         # Server responds with a supported older version
-        result = ServerResult(
-            InitializeResult(
-                protocol_version="2024-11-05",
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version="2024-11-05",
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -295,18 +286,16 @@ async def test_client_session_version_negotiation_failure():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
         # Server responds with an unsupported version
-        result = ServerResult(
-            InitializeResult(
-                protocol_version="2020-01-01",  # Unsupported old version
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version="2020-01-01",  # Unsupported old version
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -349,18 +338,16 @@ async def test_client_capabilities_default():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -422,18 +409,16 @@ async def test_client_capabilities_with_custom_callbacks():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -503,18 +488,16 @@ async def test_client_capabilities_with_sampling_tools():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -572,17 +555,15 @@ async def test_get_server_capabilities():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=expected_capabilities,
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=expected_capabilities,
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
@@ -639,17 +620,15 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         # Answer initialization request
@@ -678,9 +657,7 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
             assert "_meta" in jsonrpc_request.params
             assert jsonrpc_request.params["_meta"] == meta
 
-        result = ServerResult(
-            CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
-        )
+        result = CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
 
         # Send the tools/call result
         await server_to_client_send.send(

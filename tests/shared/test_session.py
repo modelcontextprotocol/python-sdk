@@ -13,8 +13,6 @@ from mcp.shared.message import SessionMessage
 from mcp.types import (
     CancelledNotification,
     CancelledNotificationParams,
-    ClientNotification,
-    ClientRequest,
     EmptyResult,
     ErrorData,
     JSONRPCError,
@@ -73,10 +71,8 @@ async def test_request_cancellation():
         nonlocal ev_cancelled
         try:
             await client.session.send_request(
-                ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="slow_tool", arguments={}),
-                    )
+                types.CallToolRequest(
+                    params=types.CallToolRequestParams(name="slow_tool", arguments={}),
                 ),
                 types.CallToolResult,
             )
@@ -97,11 +93,7 @@ async def test_request_cancellation():
             # Send cancellation notification
             assert request_id is not None
             await client.session.send_notification(
-                ClientNotification(
-                    CancelledNotification(
-                        params=CancelledNotificationParams(request_id=request_id),
-                    )
-                )
+                CancelledNotification(params=CancelledNotificationParams(request_id=request_id))
             )
 
             # Give cancellation time to process
@@ -252,7 +244,7 @@ async def test_response_id_non_numeric_string_no_match():
             try:
                 # Use a short timeout since we expect this to fail
                 await client_session.send_request(
-                    ClientRequest(types.PingRequest()),
+                    types.PingRequest(),
                     types.EmptyResult,
                     request_read_timeout_seconds=0.5,
                 )

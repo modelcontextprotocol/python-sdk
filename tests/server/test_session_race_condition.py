@@ -57,27 +57,25 @@ async def test_request_immediately_after_initialize_response():
 
                 # Handle tools/list request
                 if isinstance(message, RequestResponder):
-                    if isinstance(message.request.root, types.ListToolsRequest):  # pragma: no branch
+                    if isinstance(message.request, types.ListToolsRequest):  # pragma: no branch
                         tools_list_success = True
                         # Respond with a tool list
                         with message:
                             await message.respond(
-                                types.ServerResult(
-                                    types.ListToolsResult(
-                                        tools=[
-                                            Tool(
-                                                name="example_tool",
-                                                description="An example tool",
-                                                input_schema={"type": "object", "properties": {}},
-                                            )
-                                        ]
-                                    )
+                                types.ListToolsResult(
+                                    tools=[
+                                        Tool(
+                                            name="example_tool",
+                                            description="An example tool",
+                                            input_schema={"type": "object", "properties": {}},
+                                        )
+                                    ]
                                 )
                             )
 
                 # Handle InitializedNotification
                 if isinstance(message, types.ClientNotification):
-                    if isinstance(message.root, types.InitializedNotification):  # pragma: no branch
+                    if isinstance(message, types.InitializedNotification):  # pragma: no branch
                         # Done - exit gracefully
                         return
 

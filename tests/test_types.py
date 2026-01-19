@@ -5,7 +5,6 @@ import pytest
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
-    ClientRequest,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -21,6 +20,7 @@ from mcp.types import (
     ToolChoice,
     ToolResultContent,
     ToolUseContent,
+    client_request_adapter,
     jsonrpc_message_adapter,
 )
 
@@ -40,7 +40,7 @@ async def test_jsonrpc_request():
 
     request = jsonrpc_message_adapter.validate_python(json_data)
     assert isinstance(request, JSONRPCRequest)
-    ClientRequest.model_validate(request.model_dump(by_alias=True, exclude_none=True))
+    client_request_adapter.validate_python(request.model_dump(by_alias=True, exclude_none=True))
 
     assert request.jsonrpc == "2.0"
     assert request.id == 1

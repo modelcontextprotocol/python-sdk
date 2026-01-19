@@ -9,7 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 import anyio
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
@@ -179,8 +179,6 @@ class BaseSession(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
-        receive_request_type: type[ReceiveRequestT],
-        receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
     ) -> None:
@@ -188,8 +186,6 @@ class BaseSession(
         self._write_stream = write_stream
         self._response_streams = {}
         self._request_id = 0
-        self._receive_request_type = receive_request_type
-        self._receive_notification_type = receive_notification_type
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
@@ -264,11 +260,7 @@ class BaseSession(
             self._progress_callbacks[request_id] = progress_callback
 
         try:
-            jsonrpc_request = JSONRPCRequest(
-                jsonrpc="2.0",
-                id=request_id,
-                **request_data,
-            )
+            jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
 
             await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
@@ -339,26 +331,30 @@ class BaseSession(
             session_message = SessionMessage(message=jsonrpc_response)
             await self._write_stream.send(session_message)
 
+    @property
+    def _receive_request_adapter(self) -> TypeAdapter[ReceiveRequestT]:
+        """Each subclass must provide its own request adapter."""
+        raise NotImplementedError
+
+    @property
+    def _receive_notification_adapter(self) -> TypeAdapter[ReceiveNotificationT]:
+        raise NotImplementedError
+
     async def _receive_loop(self) -> None:
-        async with (
-            self._read_stream,
-            self._write_stream,
-        ):
+        async with self._read_stream, self._write_stream:
             try:
                 async for message in self._read_stream:
                     if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
                     elif isinstance(message.message, JSONRPCRequest):
                         try:
-                            validated_request = self._receive_request_type.model_validate(
+                            validated_request = self._receive_request_adapter.validate_python(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
                             responder = RequestResponder(
                                 request_id=message.message.id,
-                                request_meta=validated_request.root.params.meta
-                                if validated_request.root.params
-                                else None,
+                                request_meta=validated_request.params.meta if validated_request.params else None,
                                 request=validated_request,
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
@@ -369,10 +365,10 @@ class BaseSession(
 
                             if not responder._completed:  # type: ignore[reportPrivateUsage]
                                 await self._handle_incoming(responder)
-                        except Exception as e:
+                        except Exception:
                             # For request validation errors, send a proper JSON-RPC error
                             # response instead of crashing the server
-                            logging.warning(f"Failed to validate request: {e}")
+                            logging.warning("Failed to validate request", exc_info=True)
                             logging.debug(f"Message that failed validation: {message.message}")
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
@@ -388,34 +384,31 @@ class BaseSession(
 
                     elif isinstance(message.message, JSONRPCNotification):
                         try:
-                            notification = self._receive_notification_type.model_validate(
+                            notification = self._receive_notification_adapter.validate_python(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
                             # Handle cancellation notifications
-                            if isinstance(notification.root, CancelledNotification):
-                                cancelled_id = notification.root.params.request_id
+                            if isinstance(notification, CancelledNotification):
+                                cancelled_id = notification.params.request_id
                                 if cancelled_id in self._in_flight:  # pragma: no branch
                                     await self._in_flight[cancelled_id].cancel()
                             else:
                                 # Handle progress notifications callback
-                                if isinstance(notification.root, ProgressNotification):  # pragma: no cover
-                                    progress_token = notification.root.params.progress_token
+                                if isinstance(notification, ProgressNotification):  # pragma: no cover
+                                    progress_token = notification.params.progress_token
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
                                     if progress_token in self._progress_callbacks:
                                         callback = self._progress_callbacks[progress_token]
                                         try:
                                             await callback(
-                                                notification.root.params.progress,
-                                                notification.root.params.total,
-                                                notification.root.params.message,
+                                                notification.params.progress,
+                                                notification.params.total,
+                                                notification.params.message,
                                             )
-                                        except Exception as e:
-                                            logging.error(
-                                                "Progress callback raised an exception: %s",
-                                                e,
-                                            )
+                                        except Exception:
+                                            logging.exception("Progress callback raised an exception")
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
                         except Exception:  # pragma: no cover
