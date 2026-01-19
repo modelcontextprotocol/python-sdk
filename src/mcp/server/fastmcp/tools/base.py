@@ -63,7 +63,7 @@ class Tool(BaseModel):
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        func_doc = description or fn.__doc__ or ""
+        func_doc = description or inspect.getdoc(fn) or ""
         is_async = _is_async_callable(fn)
 
         if context_kwarg is None:  # pragma: no branch

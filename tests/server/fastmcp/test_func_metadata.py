@@ -348,8 +348,14 @@ def test_complex_function_json_schema():
             },
         },
         "properties": {
-            "an_int": {"title": "An Int", "type": "integer"},
-            "must_be_none": {"title": "Must Be None", "type": "null"},
+            "an_int": {
+                "title": "An Int",
+                "type": "integer",
+            },
+            "must_be_none": {
+                "title": "Must Be None",
+                "type": "null",
+            },
             "must_be_none_dumb_annotation": {
                 "title": "Must Be None Dumb Annotation",
                 "type": "null",
@@ -386,10 +392,19 @@ def test_complex_function_json_schema():
                 "title": "Field With Default Via Field Annotation Before Nondefault Arg",
                 "type": "integer",
             },
-            "unannotated": {"title": "unannotated", "type": "string"},
-            "my_model_a": {"$ref": "#/$defs/SomeInputModelA"},
-            "my_model_a_forward_ref": {"$ref": "#/$defs/SomeInputModelA"},
-            "my_model_b": {"$ref": "#/$defs/SomeInputModelB"},
+            "unannotated": {
+                "title": "unannotated",
+                "type": "string",
+            },
+            "my_model_a": {
+                "$ref": "#/$defs/SomeInputModelA",
+            },
+            "my_model_a_forward_ref": {
+                "$ref": "#/$defs/SomeInputModelA",
+            },
+            "my_model_b": {
+                "$ref": "#/$defs/SomeInputModelB",
+            },
             "an_int_annotated_with_field_default": {
                 "default": 1,
                 "description": "An int with a field",
@@ -1189,3 +1204,76 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def sphinx_arguments(a: int, b: int):
+    """
+    test the discovery of parameter descriptions for the sphinx format
+
+    :param a: parameter a
+    :param b: parameter b
+
+    :return: valid return
+    """
+    return "cat-person-statue"
+
+
+def google_arguments(a: int, b: int):
+    """
+    test the discovery of parameter descriptions for the google format
+
+    Args:
+        a (int): parameter a
+        b (int): parameter b
+
+    Returns:
+        str: valid return
+    """
+    return "a very very very very large number"
+
+
+def numpy_arguments(a: int, b: int):
+    """
+    test the discovery of parameter descriptions for the numpy format
+
+    Parameters
+    ----------
+    a : int
+        parameter a
+    b : int
+        parameter b
+
+    Returns
+    -------
+    int
+        valid return
+    """
+    return "I have nothing for this one"
+
+
+def test_argument_description_formats():
+    """
+    tests the parsing of arguments from different formats,
+    currently supported formats are: google, sphinx, numpy
+    """
+    expected_response = {
+        "properties": {
+            "a": {"description": "parameter a", "title": "A", "type": "integer"},
+            "b": {"description": "parameter b", "title": "B", "type": "integer"},
+        },
+        "required": ["a", "b"],
+        "title": "",
+        "type": "object",
+    }
+
+    google_schema = func_metadata(google_arguments).arg_model.model_json_schema()
+    google_schema["title"] = ""
+    assert google_schema == expected_response
+
+    sphinx_schema = func_metadata(sphinx_arguments).arg_model.model_json_schema()
+    sphinx_schema["title"] = ""
+    assert sphinx_schema == expected_response
+
+    numpy_schema = func_metadata(numpy_arguments).arg_model.model_json_schema()
+    numpy_schema["title"] = ""
+    assert numpy_schema == expected_response
