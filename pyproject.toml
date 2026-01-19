@@ -55,6 +55,8 @@ required-version = ">=0.9.5"
 
 [dependency-groups]
 dev = [
+    # We add mcp[cli,ws] so `uv sync` considers the extras.
+    "mcp[cli,ws]",
     "pyright>=1.1.400",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
