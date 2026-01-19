@@ -33,6 +33,8 @@ class RefreshToken(BaseModel):
     client_id: str
     scopes: list[str]
     expires_at: int | None = None
+    resource: str | None = None  # RFC 8707 resource indicator
+    resource_owner: str | None = None
 
 
 class AccessToken(BaseModel):
