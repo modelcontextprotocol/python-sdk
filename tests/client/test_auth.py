@@ -1352,6 +1352,7 @@ def test_build_metadata(
             "revocation_endpoint": Is(revocation_endpoint),
             "revocation_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             "code_challenge_methods_supported": ["S256"],
+            "client_id_metadata_document_supported": True,
         }
     )
 
