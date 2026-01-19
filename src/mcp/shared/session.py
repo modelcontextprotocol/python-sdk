@@ -1,3 +1,4 @@
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
@@ -209,22 +210,24 @@ class BaseSession(
         self._progress_callbacks = {}
         self._response_routers = []
         self._exit_stack = AsyncExitStack()
-        self._send_middleware = send_middleware or []
-        self._receive_middleware = receive_middleware or []
+        # Pre-compute whether each middleware is async to avoid checking on every message
+        self._send_middleware: list[tuple[MessageMiddleware, bool]] = [
+            (m, inspect.iscoroutinefunction(m)) for m in (send_middleware or [])
+        ]
+        self._receive_middleware: list[tuple[MessageMiddleware, bool]] = [
+            (m, inspect.iscoroutinefunction(m)) for m in (receive_middleware or [])
+        ]
 
     async def _apply_middleware(
-        self, message: JSONRPCMessage, middleware_list: list[MessageMiddleware]
+        self, message: JSONRPCMessage, middleware_list: list[tuple[MessageMiddleware, bool]]
     ) -> JSONRPCMessage:
         """Apply a list of middleware functions to a message."""
-        import inspect
-
-        for middleware in middleware_list:
+        for middleware, is_async in middleware_list:
             result = middleware(message)
-            if inspect.isawaitable(result):
-                message = await result
-            else:
-                message = result  # type: ignore[assignment]
-        return message
+            if is_async:
+                result = await result  # type: ignore[misc]
+            message = result  # type: ignore[assignment]
+        return message  # type: ignore[return-value]
 
     def add_response_router(self, router: ResponseRouter) -> None:
         """

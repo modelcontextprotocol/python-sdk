@@ -909,3 +909,67 @@ async def test_client_session_async_middleware():
         await session.initialize()
 
     assert middleware_called
+
+
+@pytest.mark.anyio
+async def test_client_session_receive_middleware():
+    """Test that receive middleware can transform incoming messages."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    middleware_called = False
+    received_response = None
+
+    def receive_transform(message: JSONRPCMessage) -> JSONRPCMessage:
+        """Middleware that observes incoming messages."""
+        nonlocal middleware_called, received_response
+        middleware_called = True
+        if isinstance(message.root, JSONRPCResponse):
+            received_response = message.root
+        return message
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            receive_middleware=[receive_transform],
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Verify receive middleware was called and saw the response
+    assert middleware_called
+    assert received_response is not None
