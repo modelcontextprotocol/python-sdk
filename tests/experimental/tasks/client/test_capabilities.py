@@ -11,15 +11,13 @@ from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
-    ClientRequest,
     Implementation,
     InitializeRequest,
     InitializeResult,
-    JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
     ServerCapabilities,
-    ServerResult,
+    client_request_adapter,
 )
 
 
@@ -36,30 +34,26 @@ async def test_client_capabilities_without_tasks():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -110,30 +104,26 @@ async def test_client_capabilities_with_tasks():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -194,30 +184,26 @@ async def test_client_capabilities_auto_built_from_handlers():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -274,30 +260,26 @@ async def test_client_capabilities_with_task_augmented_handlers():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )

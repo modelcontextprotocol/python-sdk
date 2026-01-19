@@ -49,7 +49,7 @@ class ExperimentalServerSessionFeatures:
             GetTaskResult containing the task status
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id))),
+            types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id)),
             types.GetTaskResult,
         )
 
@@ -68,7 +68,7 @@ class ExperimentalServerSessionFeatures:
             The task result, validated against result_type
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(task_id=task_id))),
+            types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(task_id=task_id)),
             result_type,
         )
 
@@ -120,13 +120,11 @@ class ExperimentalServerSessionFeatures:
         require_task_augmented_elicitation(client_caps)
 
         create_result = await self._session.send_request(
-            types.ServerRequest(
-                types.ElicitRequest(
-                    params=types.ElicitRequestFormParams(
-                        message=message,
-                        requested_schema=requested_schema,
-                        task=types.TaskMetadata(ttl=ttl),
-                    )
+            types.ElicitRequest(
+                params=types.ElicitRequestFormParams(
+                    message=message,
+                    requested_schema=requested_schema,
+                    task=types.TaskMetadata(ttl=ttl),
                 )
             ),
             types.CreateTaskResult,
@@ -185,21 +183,19 @@ class ExperimentalServerSessionFeatures:
         validate_tool_use_result_messages(messages)
 
         create_result = await self._session.send_request(
-            types.ServerRequest(
-                types.CreateMessageRequest(
-                    params=types.CreateMessageRequestParams(
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        system_prompt=system_prompt,
-                        include_context=include_context,
-                        temperature=temperature,
-                        stop_sequences=stop_sequences,
-                        metadata=metadata,
-                        model_preferences=model_preferences,
-                        tools=tools,
-                        tool_choice=tool_choice,
-                        task=types.TaskMetadata(ttl=ttl),
-                    )
+            types.CreateMessageRequest(
+                params=types.CreateMessageRequestParams(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    system_prompt=system_prompt,
+                    include_context=include_context,
+                    temperature=temperature,
+                    stop_sequences=stop_sequences,
+                    metadata=metadata,
+                    model_preferences=model_preferences,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    task=types.TaskMetadata(ttl=ttl),
                 )
             ),
             types.CreateTaskResult,

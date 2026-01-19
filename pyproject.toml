@@ -125,17 +125,22 @@ extend-exclude = ["README.md"]
 
 [tool.ruff.lint]
 select = [
-    "C4",   # flake8-comprehensions
-    "C90",  # mccabe
-    "D212", # pydocstyle: multi-line docstring summary should start at the first line
-    "E",    # pycodestyle
-    "F",    # pyflakes
-    "I",    # isort
-    "PERF", # Perflint
-    "PL",   # Pylint
-    "UP",   # pyupgrade
+    "C4",     # flake8-comprehensions
+    "C90",    # mccabe
+    "D212",   # pydocstyle: multi-line docstring summary should start at the first line
+    "E",      # pycodestyle
+    "F",      # pyflakes
+    "I",      # isort
+    "PERF",   # Perflint
+    "PL",     # Pylint
+    "UP",     # pyupgrade
+    "TID251", # https://docs.astral.sh/ruff/rules/banned-api/
 ]
 ignore = ["PERF203", "PLC0415", "PLR0402"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"pydantic.RootModel".msg = "Use `pydantic.TypeAdapter` instead."
+
 
 [tool.ruff.lint.mccabe]
 max-complexity = 24 # Default is 10

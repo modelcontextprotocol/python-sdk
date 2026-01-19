@@ -36,7 +36,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
             async with read_stream_writer:
                 async for msg in websocket.iter_text():
                     try:
-                        client_message = types.JSONRPCMessage.model_validate_json(msg, by_name=False)
+                        client_message = types.jsonrpc_message_adapter.validate_json(msg, by_name=False)
                     except ValidationError as exc:
                         await read_stream_writer.send(exc)
                         continue

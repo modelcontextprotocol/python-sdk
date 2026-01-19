@@ -179,6 +179,60 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
+### Replace `RootModel` by union types with `TypeAdapter` validation
+
+The following union types are no longer `RootModel` subclasses:
+
+- `ClientRequest`
+- `ServerRequest`
+- `ClientNotification`
+- `ServerNotification`
+- `ClientResult`
+- `ServerResult`
+- `JSONRPCMessage`
+
+This means you can no longer access `.root` on these types or use `model_validate()` directly on them. Instead, use the provided `TypeAdapter` instances for validation.
+
+**Before (v1):**
+
+```python
+from mcp.types import ClientRequest, ServerNotification
+
+# Using RootModel.model_validate()
+request = ClientRequest.model_validate(data)
+actual_request = request.root  # Accessing the wrapped value
+
+notification = ServerNotification.model_validate(data)
+actual_notification = notification.root
+```
+
+**After (v2):**
+
+```python
+from mcp.types import client_request_adapter, server_notification_adapter
+
+# Using TypeAdapter.validate_python()
+request = client_request_adapter.validate_python(data)
+# No .root access needed - request is the actual type
+
+notification = server_notification_adapter.validate_python(data)
+# No .root access needed - notification is the actual type
+```
+
+**Available adapters:**
+
+| Union Type | Adapter |
+|------------|---------|
+| `ClientRequest` | `client_request_adapter` |
+| `ServerRequest` | `server_request_adapter` |
+| `ClientNotification` | `client_notification_adapter` |
+| `ServerNotification` | `server_notification_adapter` |
+| `ClientResult` | `client_result_adapter` |
+| `ServerResult` | `server_result_adapter` |
+| `JSONRPCMessage` | `jsonrpc_message_adapter` |
+
+All adapters are exported from `mcp.types`.
+
 ### Resource URI type changed from `AnyUrl` to `str`
 
 The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the [MCP specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) which defines URIs as plain strings (`uri: string`) without strict URL validation. This change allows relative paths like `users/me` that were previously rejected.

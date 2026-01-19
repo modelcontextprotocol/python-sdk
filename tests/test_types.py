@@ -5,14 +5,12 @@ import pytest
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
-    ClientRequest,
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
-    JSONRPCMessage,
     JSONRPCRequest,
     ListToolsResult,
     SamplingCapability,
@@ -22,6 +20,8 @@ from mcp.types import (
     ToolChoice,
     ToolResultContent,
     ToolUseContent,
+    client_request_adapter,
+    jsonrpc_message_adapter,
 )
 
 
@@ -38,15 +38,15 @@ async def test_jsonrpc_request():
         },
     }
 
-    request = JSONRPCMessage.model_validate(json_data)
-    assert isinstance(request.root, JSONRPCRequest)
-    ClientRequest.model_validate(request.model_dump(by_alias=True, exclude_none=True))
+    request = jsonrpc_message_adapter.validate_python(json_data)
+    assert isinstance(request, JSONRPCRequest)
+    client_request_adapter.validate_python(request.model_dump(by_alias=True, exclude_none=True))
 
-    assert request.root.jsonrpc == "2.0"
-    assert request.root.id == 1
-    assert request.root.method == "initialize"
-    assert request.root.params is not None
-    assert request.root.params["protocolVersion"] == LATEST_PROTOCOL_VERSION
+    assert request.jsonrpc == "2.0"
+    assert request.id == 1
+    assert request.method == "initialize"
+    assert request.params is not None
+    assert request.params["protocolVersion"] == LATEST_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio
