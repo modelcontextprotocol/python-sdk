@@ -145,8 +145,8 @@ class ClientSession(
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
 
         # Capability extensions to include in initialize request
-        # These are merged into ClientCapabilities using Pydantic's extra fields
-        self._capability_extensions = capability_extensions or {}
+        # These are passed as the 'extensions' field of ClientCapabilities
+        self._capability_extensions = capability_extensions
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
@@ -182,7 +182,7 @@ class ClientSession(
                             experimental=None,
                             roots=roots,
                             tasks=self._task_handlers.build_capability(),
-                            **self._capability_extensions,
+                            extensions=self._capability_extensions or None,
                         ),
                         client_info=self._client_info,
                     ),

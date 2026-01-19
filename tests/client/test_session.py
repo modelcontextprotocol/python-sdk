@@ -779,7 +779,8 @@ async def test_client_session_capability_extensions():
     received_capabilities = None
 
     # Define capability extensions (e.g., UI extension)
-    capability_extensions = {"extensions": {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}}
+    # These will be placed under the 'extensions' key of ClientCapabilities
+    capability_extensions = {"io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}}
 
     async def mock_server():
         nonlocal received_capabilities
@@ -833,7 +834,7 @@ async def test_client_session_capability_extensions():
 
     # Assert that the capability extensions were included in the request
     assert received_capabilities is not None
-    # The extensions should be present via Pydantic's extra fields
+    # The extensions should be present under the 'extensions' key
     caps_dict = received_capabilities.model_dump()
     assert "extensions" in caps_dict
     assert "io.modelcontextprotocol/ui" in caps_dict["extensions"]

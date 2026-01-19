@@ -377,6 +377,8 @@ class ClientCapabilities(MCPModel):
     """Present if the client supports listing roots."""
     tasks: ClientTasksCapability | None = None
     """Present if the client supports task-augmented requests."""
+    extensions: dict[str, Any] | None = None
+    """Protocol extensions advertised by the client."""
 
 
 class PromptsCapability(MCPModel):
