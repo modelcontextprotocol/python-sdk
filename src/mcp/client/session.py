@@ -182,7 +182,7 @@ class ClientSession(
                             experimental=None,
                             roots=roots,
                             tasks=self._task_handlers.build_capability(),
-                            extensions=self._capability_extensions or None,
+                            extensions=self._capability_extensions,
                         ),
                         client_info=self._client_info,
                     ),
