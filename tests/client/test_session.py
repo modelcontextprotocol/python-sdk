@@ -784,16 +784,16 @@ async def test_client_session_send_middleware():
         nonlocal middleware_called
         middleware_called = True
 
-        if isinstance(message.root, JSONRPCRequest):
+        if isinstance(message.root, JSONRPCRequest):  # pragma: no branch
             # Add custom extension to the capabilities
             data = message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
-            if data.get("method") == "initialize" and "params" in data:
-                if "capabilities" not in data["params"]:
+            if data.get("method") == "initialize" and "params" in data:  # pragma: no branch
+                if "capabilities" not in data["params"]:  # pragma: no cover
                     data["params"]["capabilities"] = {}
                 # Add a custom extension field
                 data["params"]["capabilities"]["customExtension"] = {"enabled": True}
                 return JSONRPCMessage(JSONRPCRequest(**data))
-        return message
+        return message  # pragma: no cover
 
     async def mock_server():
         nonlocal received_request
@@ -924,7 +924,7 @@ async def test_client_session_receive_middleware():
         """Middleware that observes incoming messages."""
         nonlocal middleware_called, received_response
         middleware_called = True
-        if isinstance(message.root, JSONRPCResponse):
+        if isinstance(message.root, JSONRPCResponse):  # pragma: no branch
             received_response = message.root
         return message
 
