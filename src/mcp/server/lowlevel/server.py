@@ -271,10 +271,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
                 # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
                 if isinstance(result, types.ListPromptsResult):
-                    return types.ServerResult(result)
+                    return result
                 else:
                     # Old style returns list[Prompt]
-                    return types.ServerResult(types.ListPromptsResult(prompts=result))
+                    return types.ListPromptsResult(prompts=result)
 
             self.request_handlers[types.ListPromptsRequest] = handler
             return func
@@ -289,7 +289,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.GetPromptRequest):
                 prompt_get = await func(req.params.name, req.params.arguments)
-                return types.ServerResult(prompt_get)
+                return prompt_get
 
             self.request_handlers[types.GetPromptRequest] = handler
             return func
@@ -309,10 +309,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
                 # Handle both old style (list[Resource]) and new style (ListResourcesResult)
                 if isinstance(result, types.ListResourcesResult):
-                    return types.ServerResult(result)
+                    return result
                 else:
                     # Old style returns list[Resource]
-                    return types.ServerResult(types.ListResourcesResult(resources=result))
+                    return types.ListResourcesResult(resources=result)
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -325,7 +325,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 templates = await func()
-                return types.ServerResult(types.ListResourceTemplatesResult(resource_templates=templates))
+                return types.ListResourceTemplatesResult(resource_templates=templates)
 
             self.request_handlers[types.ListResourceTemplatesRequest] = handler
             return func
@@ -376,18 +376,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                             )
                             for content_item in contents
                         ]
-                        return types.ServerResult(
-                            types.ReadResourceResult(
-                                contents=contents_list,
-                            )
-                        )
+                        return types.ReadResourceResult(contents=contents_list)
                     case _:  # pragma: no cover
                         raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
 
-                return types.ServerResult(  # pragma: no cover
-                    types.ReadResourceResult(
-                        contents=[content],
-                    )
+                return types.ReadResourceResult(  # pragma: no cover
+                    contents=[content],
                 )
 
             self.request_handlers[types.ReadResourceRequest] = handler
@@ -401,7 +395,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.SetLevelRequest):
                 await func(req.params.level)
-                return types.ServerResult(types.EmptyResult())
+                return types.EmptyResult()
 
             self.request_handlers[types.SetLevelRequest] = handler
             return func
@@ -414,7 +408,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.SubscribeRequest):
                 await func(req.params.uri)
-                return types.ServerResult(types.EmptyResult())
+                return types.EmptyResult()
 
             self.request_handlers[types.SubscribeRequest] = handler
             return func
@@ -427,7 +421,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.UnsubscribeRequest):
                 await func(req.params.uri)
-                return types.ServerResult(types.EmptyResult())
+                return types.EmptyResult()
 
             self.request_handlers[types.UnsubscribeRequest] = handler
             return func
@@ -452,7 +446,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     for tool in result.tools:
                         validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
-                    return types.ServerResult(result)
+                    return result
                 else:
                     # Old style returns list[Tool]
                     # Clear and refresh the entire tool cache
@@ -460,20 +454,18 @@ class Server(Generic[LifespanResultT, RequestT]):
                     for tool in result:
                         validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
-                    return types.ServerResult(types.ListToolsResult(tools=result))
+                    return types.ListToolsResult(tools=result)
 
             self.request_handlers[types.ListToolsRequest] = handler
             return func
 
         return decorator
 
-    def _make_error_result(self, error_message: str) -> types.ServerResult:
-        """Create a ServerResult with an error CallToolResult."""
-        return types.ServerResult(
-            types.CallToolResult(
-                content=[types.TextContent(type="text", text=error_message)],
-                is_error=True,
-            )
+    def _make_error_result(self, error_message: str) -> types.CallToolResult:
+        """Create a CallToolResult with an error."""
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=error_message)],
+            is_error=True,
         )
 
     async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
@@ -541,10 +533,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
                     if isinstance(results, types.CallToolResult):
-                        return types.ServerResult(results)
+                        return results
                     elif isinstance(results, types.CreateTaskResult):
                         # Task-augmented execution returns task info instead of result
-                        return types.ServerResult(results)
+                        return results
                     elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
@@ -572,12 +564,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
                     # result
-                    return types.ServerResult(
-                        types.CallToolResult(
-                            content=list(unstructured_content),
-                            structured_content=maybe_structured_content,
-                            is_error=False,
-                        )
+                    return types.CallToolResult(
+                        content=list(unstructured_content),
+                        structured_content=maybe_structured_content,
+                        is_error=False,
                     )
                 except UrlElicitationRequiredError:
                     # Re-raise UrlElicitationRequiredError so it can be properly handled
@@ -627,12 +617,10 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.CompleteRequest):
                 completion = await func(req.params.ref, req.params.argument, req.params.context)
-                return types.ServerResult(
-                    types.CompleteResult(
-                        completion=completion
-                        if completion is not None
-                        else types.Completion(values=[], total=None, has_more=None),
-                    )
+                return types.CompleteResult(
+                    completion=completion
+                    if completion is not None
+                    else types.Completion(values=[], total=None, has_more=None),
                 )
 
             self.request_handlers[types.CompleteRequest] = handler
@@ -694,11 +682,11 @@ class Server(Generic[LifespanResultT, RequestT]):
     ):
         with warnings.catch_warnings(record=True) as w:
             match message:
-                case RequestResponder(request=types.ClientRequest(root=req)) as responder:
+                case RequestResponder() as responder:
                     with responder:
-                        await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
-                case types.ClientNotification(root=notify):
-                    await self._handle_notification(notify)
+                        await self._handle_request(
+                            message, responder.request, session, lifespan_context, raise_exceptions
+                        )
                 case Exception():  # pragma: no cover
                     logger.error(f"Received exception from stream: {message}")
                     await session.send_log_message(
@@ -708,6 +696,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                     if raise_exceptions:
                         raise message
+                case _:
+                    await self._handle_notification(message)
 
             for warning in w:  # pragma: no cover
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
@@ -715,7 +705,7 @@ class Server(Generic[LifespanResultT, RequestT]):
     async def _handle_request(
         self,
         message: RequestResponder[types.ClientRequest, types.ServerResult],
-        req: types.ClientRequestType,
+        req: types.ClientRequest,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
@@ -803,4 +793,4 @@ class Server(Generic[LifespanResultT, RequestT]):
 
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
-    return types.ServerResult(types.EmptyResult())
+    return types.EmptyResult()

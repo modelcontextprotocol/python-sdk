@@ -30,7 +30,6 @@ from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
-    ClientRequest,
     ClientResult,
     CreateTaskResult,
     GetTaskPayloadRequest,
@@ -190,14 +189,12 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
             # === Step 1: Send task-augmented tool call ===
             create_result = await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="process_data",
-                            arguments={"input": "hello world"},
-                            task=TaskMetadata(ttl=60000),
-                        ),
-                    )
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name="process_data",
+                        arguments={"input": "hello world"},
+                        task=TaskMetadata(ttl=60000),
+                    ),
                 ),
                 CreateTaskResult,
             )
@@ -210,7 +207,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
             await app_context.task_done_events[task_id].wait()
 
             task_status = await client_session.send_request(
-                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))),
+                GetTaskRequest(params=GetTaskRequestParams(task_id=task_id)),
                 GetTaskResult,
             )
 
@@ -219,7 +216,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
             # === Step 3: Retrieve the actual result ===
             task_result = await client_session.send_request(
-                ClientRequest(GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task_id))),
+                GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task_id)),
                 CallToolResult,
             )
 
@@ -327,14 +324,12 @@ async def test_task_auto_fails_on_exception() -> None:
 
             # Send task request
             create_result = await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="failing_task",
-                            arguments={},
-                            task=TaskMetadata(ttl=60000),
-                        ),
-                    )
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name="failing_task",
+                        arguments={},
+                        task=TaskMetadata(ttl=60000),
+                    ),
                 ),
                 CreateTaskResult,
             )
@@ -346,8 +341,7 @@ async def test_task_auto_fails_on_exception() -> None:
 
             # Check that task was auto-failed
             task_status = await client_session.send_request(
-                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))),
-                GetTaskResult,
+                GetTaskRequest(params=GetTaskRequestParams(task_id=task_id)), GetTaskResult
             )
 
             assert task_status.status == "failed"

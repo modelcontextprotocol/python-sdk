@@ -6,14 +6,7 @@ from types import GenericAlias
 from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 
 import pydantic_core
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    RootModel,
-    WithJsonSchema,
-    create_model,
-)
+from pydantic import BaseModel, ConfigDict, Field, RootModel, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from typing_extensions import is_typeddict
@@ -495,9 +488,7 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
     return DictModel
 
 
-def _convert_to_content(
-    result: Any,
-) -> Sequence[ContentBlock]:
+def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
     """Convert a result to a sequence of content objects.
 
     Note: This conversion logic comes from previous versions of FastMCP and is being
