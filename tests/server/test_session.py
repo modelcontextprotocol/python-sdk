@@ -60,7 +60,7 @@ async def test_server_session_initialize():
                     raise message
 
                 if isinstance(message, ClientNotification) and isinstance(
-                    message.root, InitializedNotification
+                    message, InitializedNotification
                 ):  # pragma: no branch
                     received_initialized = True
                     return
@@ -158,7 +158,7 @@ async def test_server_session_initialize_with_older_protocol_version():
                     raise message
 
                 if isinstance(message, types.ClientNotification) and isinstance(
-                    message.root, InitializedNotification
+                    message, InitializedNotification
                 ):  # pragma: no branch
                     received_initialized = True
                     return
@@ -169,25 +169,23 @@ async def test_server_session_initialize_with_older_protocol_version():
         # Send initialization request with older protocol version (2024-11-05)
         await client_to_server_send.send(
             SessionMessage(
-                types.JSONRPCMessage(
-                    types.JSONRPCRequest(
-                        jsonrpc="2.0",
-                        id=1,
-                        method="initialize",
-                        params=types.InitializeRequestParams(
-                            protocol_version="2024-11-05",
-                            capabilities=types.ClientCapabilities(),
-                            client_info=types.Implementation(name="test-client", version="1.0.0"),
-                        ).model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+                types.JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=1,
+                    method="initialize",
+                    params=types.InitializeRequestParams(
+                        protocol_version="2024-11-05",
+                        capabilities=types.ClientCapabilities(),
+                        client_info=types.Implementation(name="test-client", version="1.0.0"),
+                    ).model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
         )
 
         # Wait for the initialize response
         init_response_message = await server_to_client_receive.receive()
-        assert isinstance(init_response_message.message.root, types.JSONRPCResponse)
-        result_data = init_response_message.message.root.result
+        assert isinstance(init_response_message.message, types.JSONRPCResponse)
+        result_data = init_response_message.message.result
         init_result = types.InitializeResult.model_validate(result_data)
 
         # Check that the server responded with the requested protocol version
@@ -196,14 +194,7 @@ async def test_server_session_initialize_with_older_protocol_version():
 
         # Send initialized notification
         await client_to_server_send.send(
-            SessionMessage(
-                types.JSONRPCMessage(
-                    types.JSONRPCNotification(
-                        jsonrpc="2.0",
-                        method="notifications/initialized",
-                    )
-                )
-            )
+            SessionMessage(types.JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"))
         )
 
     async with (
@@ -245,35 +236,25 @@ async def test_ping_request_before_initialization():
 
                 # We should receive a ping request before initialization
                 if isinstance(message, RequestResponder) and isinstance(
-                    message.request.root, types.PingRequest
+                    message.request, types.PingRequest
                 ):  # pragma: no branch
                     # Respond to the ping
                     with message:
-                        await message.respond(types.ServerResult(types.EmptyResult()))
+                        await message.respond(types.EmptyResult())
                     return
 
     async def mock_client():
         nonlocal ping_response_received, ping_response_id
 
         # Send ping request before any initialization
-        await client_to_server_send.send(
-            SessionMessage(
-                types.JSONRPCMessage(
-                    types.JSONRPCRequest(
-                        jsonrpc="2.0",
-                        id=42,
-                        method="ping",
-                    )
-                )
-            )
-        )
+        await client_to_server_send.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=42, method="ping")))
 
         # Wait for the ping response
         ping_response_message = await server_to_client_receive.receive()
-        assert isinstance(ping_response_message.message.root, types.JSONRPCResponse)
+        assert isinstance(ping_response_message.message, types.JSONRPCResponse)
 
         ping_response_received = True
-        ping_response_id = ping_response_message.message.root.id
+        ping_response_id = ping_response_message.message.id
 
     async with (
         client_to_server_send,
@@ -493,22 +474,14 @@ async def test_other_requests_blocked_before_initialization():
 
         # Try to send a non-ping request before initialization
         await client_to_server_send.send(
-            SessionMessage(
-                types.JSONRPCMessage(
-                    types.JSONRPCRequest(
-                        jsonrpc="2.0",
-                        id=1,
-                        method="prompts/list",
-                    )
-                )
-            )
+            SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=1, method="prompts/list"))
         )
 
         # Wait for the error response
         error_message = await server_to_client_receive.receive()
-        if isinstance(error_message.message.root, types.JSONRPCError):  # pragma: no branch
+        if isinstance(error_message.message, types.JSONRPCError):  # pragma: no branch
             error_response_received = True
-            error_code = error_message.message.root.error.code
+            error_code = error_message.message.error.code
 
     async with (
         client_to_server_send,

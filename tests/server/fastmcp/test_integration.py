@@ -77,14 +77,14 @@ class NotificationCollector:
     ) -> None:
         """Handle any server notification and route to appropriate handler."""
         if isinstance(message, ServerNotification):  # pragma: no branch
-            if isinstance(message.root, ProgressNotification):
-                self.progress_notifications.append(message.root.params)
-            elif isinstance(message.root, LoggingMessageNotification):
-                self.log_messages.append(message.root.params)
-            elif isinstance(message.root, ResourceListChangedNotification):
-                self.resource_notifications.append(message.root.params)
-            elif isinstance(message.root, ToolListChangedNotification):  # pragma: no cover
-                self.tool_notifications.append(message.root.params)
+            if isinstance(message, ProgressNotification):
+                self.progress_notifications.append(message.params)
+            elif isinstance(message, LoggingMessageNotification):
+                self.log_messages.append(message.params)
+            elif isinstance(message, ResourceListChangedNotification):
+                self.resource_notifications.append(message.params)
+            elif isinstance(message, ToolListChangedNotification):  # pragma: no cover
+                self.tool_notifications.append(message.params)
 
 
 # Common fixtures

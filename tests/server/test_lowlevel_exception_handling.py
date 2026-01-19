@@ -60,7 +60,7 @@ async def test_normal_message_handling_not_affected():
 
     # Create a mock RequestResponder
     responder = Mock(spec=RequestResponder)
-    responder.request = types.ClientRequest(root=types.PingRequest(method="ping"))
+    responder.request = types.PingRequest(method="ping")
     responder.__enter__ = Mock(return_value=responder)
     responder.__exit__ = Mock(return_value=None)
 

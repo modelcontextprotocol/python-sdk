@@ -26,7 +26,6 @@ from mcp.types import (
     ErrorData,
     GetTaskPayloadRequest,
     GetTaskPayloadResult,
-    JSONRPCMessage,
     RelatedTaskMetadata,
     RequestId,
 )
@@ -107,12 +106,7 @@ class TaskResultHandler:
         while True:
             task = await self._store.get_task(task_id)
             if task is None:
-                raise McpError(
-                    ErrorData(
-                        code=INVALID_PARAMS,
-                        message=f"Task not found: {task_id}",
-                    )
-                )
+                raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Task not found: {task_id}"))
 
             await self._deliver_queued_messages(task_id, session, request_id)
 
@@ -161,7 +155,7 @@ class TaskResultHandler:
 
             # Send the message with relatedRequestId for routing
             session_message = SessionMessage(
-                message=JSONRPCMessage(message.message),
+                message=message.message,
                 metadata=ServerMessageMetadata(related_request_id=request_id),
             )
             await self.send_message(session, session_message)

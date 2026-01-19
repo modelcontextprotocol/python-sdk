@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, FileUrl, RootModel
+from pydantic import BaseModel, ConfigDict, Field, FileUrl, TypeAdapter
 from pydantic.alias_generators import to_camel
 
 LATEST_PROTOCOL_VERSION = "2025-11-25"
@@ -197,8 +197,8 @@ class JSONRPCError(MCPModel):
     error: ErrorData
 
 
-class JSONRPCMessage(RootModel[JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError]):
-    pass
+JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
+jsonrpc_message_adapter = TypeAdapter[JSONRPCMessage](JSONRPCMessage)
 
 
 class EmptyResult(Result):
@@ -1631,7 +1631,7 @@ class ElicitCompleteNotification(
     params: ElicitCompleteNotificationParams
 
 
-ClientRequestType: TypeAlias = (
+ClientRequest = (
     PingRequest
     | InitializeRequest
     | CompleteRequest
@@ -1650,23 +1650,17 @@ ClientRequestType: TypeAlias = (
     | ListTasksRequest
     | CancelTaskRequest
 )
+client_request_adapter = TypeAdapter[ClientRequest](ClientRequest)
 
 
-class ClientRequest(RootModel[ClientRequestType]):
-    pass
-
-
-ClientNotificationType: TypeAlias = (
+ClientNotification = (
     CancelledNotification
     | ProgressNotification
     | InitializedNotification
     | RootsListChangedNotification
     | TaskStatusNotification
 )
-
-
-class ClientNotification(RootModel[ClientNotificationType]):
-    pass
+client_notification_adapter = TypeAdapter[ClientNotification](ClientNotification)
 
 
 # Type for elicitation schema - a JSON Schema dict
@@ -1760,7 +1754,7 @@ class ElicitationRequiredErrorData(MCPModel):
     """List of URL mode elicitations that must be completed."""
 
 
-ClientResultType: TypeAlias = (
+ClientResult = (
     EmptyResult
     | CreateMessageResult
     | CreateMessageResultWithTools
@@ -1772,13 +1766,10 @@ ClientResultType: TypeAlias = (
     | CancelTaskResult
     | CreateTaskResult
 )
+client_result_adapter = TypeAdapter[ClientResult](ClientResult)
 
 
-class ClientResult(RootModel[ClientResultType]):
-    pass
-
-
-ServerRequestType: TypeAlias = (
+ServerRequest = (
     PingRequest
     | CreateMessageRequest
     | ListRootsRequest
@@ -1788,13 +1779,10 @@ ServerRequestType: TypeAlias = (
     | ListTasksRequest
     | CancelTaskRequest
 )
+server_request_adapter = TypeAdapter[ServerRequest](ServerRequest)
 
 
-class ServerRequest(RootModel[ServerRequestType]):
-    pass
-
-
-ServerNotificationType: TypeAlias = (
+ServerNotification = (
     CancelledNotification
     | ProgressNotification
     | LoggingMessageNotification
@@ -1805,13 +1793,10 @@ ServerNotificationType: TypeAlias = (
     | ElicitCompleteNotification
     | TaskStatusNotification
 )
+server_notification_adapter = TypeAdapter[ServerNotification](ServerNotification)
 
 
-class ServerNotification(RootModel[ServerNotificationType]):
-    pass
-
-
-ServerResultType: TypeAlias = (
+ServerResult = (
     EmptyResult
     | InitializeResult
     | CompleteResult
@@ -1828,7 +1813,4 @@ ServerResultType: TypeAlias = (
     | CancelTaskResult
     | CreateTaskResult
 )
-
-
-class ServerResult(RootModel[ServerResultType]):
-    pass
+server_result_adapter = TypeAdapter[ServerResult](ServerResult)

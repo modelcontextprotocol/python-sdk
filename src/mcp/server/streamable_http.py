@@ -42,6 +42,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    jsonrpc_message_adapter,
 )
 
 logger = logging.getLogger(__name__)
@@ -301,10 +302,7 @@ class StreamableHTTPServerTransport:
         error_response = JSONRPCError(
             jsonrpc="2.0",
             id="server-error",  # We don't have a request ID for general errors
-            error=ErrorData(
-                code=error_code,
-                message=error_message,
-            ),
+            error=ErrorData(code=error_code, message=error_message),
         )
 
         return Response(
@@ -455,6 +453,7 @@ class StreamableHTTPServerTransport:
             body = await request.body()
 
             try:
+                # TODO(Marcelo): Replace `json.loads` with `pydantic_core.from_json`.
                 raw_message = json.loads(body)
             except json.JSONDecodeError as e:
                 response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
@@ -462,7 +461,7 @@ class StreamableHTTPServerTransport:
                 return
 
             try:  # pragma: no cover
-                message = JSONRPCMessage.model_validate(raw_message, by_name=False)
+                message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
             except ValidationError as e:  # pragma: no cover
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
@@ -473,9 +472,7 @@ class StreamableHTTPServerTransport:
                 return
 
             # Check if this is an initialization request
-            is_initialization_request = (
-                isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
-            )  # pragma: no cover
+            is_initialization_request = isinstance(message, JSONRPCRequest) and message.method == "initialize"
 
             if is_initialization_request:  # pragma: no cover
                 # Check if the server already has an established session
@@ -495,7 +492,7 @@ class StreamableHTTPServerTransport:
                 return
 
             # For notifications and responses only, return 202 Accepted
-            if not isinstance(message.root, JSONRPCRequest):  # pragma: no cover
+            if not isinstance(message, JSONRPCRequest):  # pragma: no cover
                 # Create response object and send it
                 response = self._create_json_response(
                     None,
@@ -514,13 +511,13 @@ class StreamableHTTPServerTransport:
             # For initialize requests, get from request params.
             # For other requests, get from header (already validated).
             protocol_version = (
-                str(message.root.params.get("protocolVersion", DEFAULT_NEGOTIATED_VERSION))
-                if is_initialization_request and message.root.params
+                str(message.params.get("protocolVersion", DEFAULT_NEGOTIATED_VERSION))
+                if is_initialization_request and message.params
                 else request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
             )
 
             # Extract the request ID outside the try block for proper scope
-            request_id = str(message.root.id)  # pragma: no cover
+            request_id = str(message.id)  # pragma: no cover
             # Register this stream for the request ID
             self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)  # pragma: no cover
             request_stream_reader = self._request_streams[request_id][1]  # pragma: no cover
@@ -538,12 +535,12 @@ class StreamableHTTPServerTransport:
                     # Use similar approach to SSE writer for consistency
                     async for event_message in request_stream_reader:
                         # If it's a response, this is what we're waiting for
-                        if isinstance(event_message.message.root, JSONRPCResponse | JSONRPCError):
+                        if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                             response_message = event_message.message
                             break
                         # For notifications and request, keep waiting
                         else:
-                            logger.debug(f"received: {event_message.message.root.method}")
+                            logger.debug(f"received: {event_message.message.method}")
 
                     # At this point we should have a response
                     if response_message:
@@ -589,10 +586,7 @@ class StreamableHTTPServerTransport:
                                 await sse_stream_writer.send(event_data)
 
                                 # If response, remove from pending streams and close
-                                if isinstance(
-                                    event_message.message.root,
-                                    JSONRPCResponse | JSONRPCError,
-                                ):
+                                if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                                     break
                     except anyio.ClosedResourceError:
                         # Expected when close_sse_stream() is called
@@ -984,8 +978,8 @@ class StreamableHTTPServerTransport:
                         message = session_message.message
                         target_request_id = None
                         # Check if this is a response
-                        if isinstance(message.root, JSONRPCResponse | JSONRPCError):
-                            response_id = str(message.root.id)
+                        if isinstance(message, JSONRPCResponse | JSONRPCError):
+                            response_id = str(message.id)
                             # If this response is for an existing request stream,
                             # send it there
                             target_request_id = response_id
@@ -1022,7 +1016,7 @@ class StreamableHTTPServerTransport:
                                 self._request_streams.pop(request_stream_id, None)
                         else:
                             logger.debug(
-                                f"""Request stream {request_stream_id} not found 
+                                f"""Request stream {request_stream_id} not found
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )

@@ -25,6 +25,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    jsonrpc_message_adapter,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,11 +96,11 @@ class StreamableHTTPTransport:
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialization request."""
-        return isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
+        return isinstance(message, JSONRPCRequest) and message.method == "initialize"
 
     def _is_initialized_notification(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialized notification."""
-        return isinstance(message.root, JSONRPCNotification) and message.root.method == "notifications/initialized"
+        return isinstance(message, JSONRPCNotification) and message.method == "notifications/initialized"
 
     def _maybe_extract_session_id_from_response(self, response: httpx.Response) -> None:
         """Extract and store session ID from response headers."""
@@ -110,15 +111,15 @@ class StreamableHTTPTransport:
 
     def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
         """Extract protocol version from initialization response message."""
-        if isinstance(message.root, JSONRPCResponse) and message.root.result:  # pragma: no branch
+        if isinstance(message, JSONRPCResponse) and message.result:  # pragma: no branch
             try:
                 # Parse the result as InitializeResult for type safety
-                init_result = InitializeResult.model_validate(message.root.result, by_name=False)
+                init_result = InitializeResult.model_validate(message.result, by_name=False)
                 self.protocol_version = str(init_result.protocol_version)
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
             except Exception:  # pragma: no cover
                 logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)
-                logger.warning(f"Raw result: {message.root.result}")
+                logger.warning(f"Raw result: {message.result}")
 
     async def _handle_sse_event(
         self,
@@ -137,7 +138,7 @@ class StreamableHTTPTransport:
                     await resumption_callback(sse.id)
                 return False
             try:
-                message = JSONRPCMessage.model_validate_json(sse.data, by_name=False)
+                message = jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
                 logger.debug(f"SSE message: {message}")
 
                 # Extract protocol version from initialization response
@@ -145,8 +146,8 @@ class StreamableHTTPTransport:
                     self._maybe_extract_protocol_version_from_message(message)
 
                 # If this is a response and we have original_request_id, replace it
-                if original_request_id is not None and isinstance(message.root, JSONRPCResponse | JSONRPCError):
-                    message.root.id = original_request_id
+                if original_request_id is not None and isinstance(message, JSONRPCResponse | JSONRPCError):
+                    message.id = original_request_id
 
                 session_message = SessionMessage(message)
                 await read_stream_writer.send(session_message)
@@ -157,7 +158,7 @@ class StreamableHTTPTransport:
 
                 # If this is a response or error return True indicating completion
                 # Otherwise, return False to continue listening
-                return isinstance(message.root, JSONRPCResponse | JSONRPCError)
+                return isinstance(message, JSONRPCResponse | JSONRPCError)
 
             except Exception as exc:  # pragma: no cover
                 logger.exception("Error parsing SSE message")
@@ -222,8 +223,8 @@ class StreamableHTTPTransport:
 
         # Extract original request ID to map responses
         original_request_id = None
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
-            original_request_id = ctx.session_message.message.root.id
+        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
+            original_request_id = ctx.session_message.message.id
 
         async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
             event_source.response.raise_for_status()
@@ -257,12 +258,9 @@ class StreamableHTTPTransport:
                 return
 
             if response.status_code == 404:  # pragma: no branch
-                if isinstance(message.root, JSONRPCRequest):
-                    await self._send_session_terminated_error(  # pragma: no cover
-                        ctx.read_stream_writer,  # pragma: no cover
-                        message.root.id,  # pragma: no cover
-                    )  # pragma: no cover
-                return  # pragma: no cover
+                if isinstance(message, JSONRPCRequest):  # pragma: no branch
+                    await self._send_session_terminated_error(ctx.read_stream_writer, message.id)
+                return
 
             response.raise_for_status()
             if is_initialization:
@@ -270,7 +268,7 @@ class StreamableHTTPTransport:
 
             # Per https://modelcontextprotocol.io/specification/2025-06-18/basic#notifications:
             # The server MUST NOT send a response to notifications.
-            if isinstance(message.root, JSONRPCRequest):
+            if isinstance(message, JSONRPCRequest):
                 content_type = response.headers.get("content-type", "").lower()
                 if content_type.startswith("application/json"):
                     await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
@@ -291,7 +289,7 @@ class StreamableHTTPTransport:
         """Handle JSON response from the server."""
         try:
             content = await response.aread()
-            message = JSONRPCMessage.model_validate_json(content, by_name=False)
+            message = jsonrpc_message_adapter.validate_json(content, by_name=False)
 
             # Extract protocol version from initialization response
             if is_initialization:
@@ -365,8 +363,8 @@ class StreamableHTTPTransport:
 
         # Extract original request ID to map responses
         original_request_id = None
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
-            original_request_id = ctx.session_message.message.root.id
+        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
+            original_request_id = ctx.session_message.message.id
 
         try:
             async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
@@ -416,7 +414,7 @@ class StreamableHTTPTransport:
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
         )
-        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
+        session_message = SessionMessage(jsonrpc_error)
         await read_stream_writer.send(session_message)
 
     async def post_writer(
@@ -463,7 +461,7 @@ class StreamableHTTPTransport:
                             await self._handle_post_request(ctx)
 
                     # If this is a request, start a new task to handle it
-                    if isinstance(message.root, JSONRPCRequest):
+                    if isinstance(message, JSONRPCRequest):
                         tg.start_soon(handle_request_async)
                     else:
                         await handle_request_async()
