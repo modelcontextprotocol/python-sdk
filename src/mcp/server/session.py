@@ -54,6 +54,7 @@ from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
+    MessageMiddleware,
     RequestResponder,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -91,8 +92,18 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        *,
+        send_middleware: list["MessageMiddleware"] | None = None,
+        receive_middleware: list["MessageMiddleware"] | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
+        super().__init__(
+            read_stream,
+            write_stream,
+            types.ClientRequest,
+            types.ClientNotification,
+            send_middleware=send_middleware,
+            receive_middleware=receive_middleware,
+        )
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )

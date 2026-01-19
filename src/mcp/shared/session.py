@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from types import TracebackType
@@ -42,6 +42,10 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
+
+# Middleware type for transforming messages before sending or after receiving.
+# Can be sync (returns JSONRPCMessage) or async (returns Awaitable[JSONRPCMessage]).
+MessageMiddleware = Callable[[JSONRPCMessage], JSONRPCMessage | Awaitable[JSONRPCMessage]]
 
 
 class ProgressFnT(Protocol):
@@ -190,6 +194,9 @@ class BaseSession(
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
         read_timeout_seconds: timedelta | None = None,
+        *,
+        send_middleware: list[MessageMiddleware] | None = None,
+        receive_middleware: list[MessageMiddleware] | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -202,6 +209,22 @@ class BaseSession(
         self._progress_callbacks = {}
         self._response_routers = []
         self._exit_stack = AsyncExitStack()
+        self._send_middleware = send_middleware or []
+        self._receive_middleware = receive_middleware or []
+
+    async def _apply_middleware(
+        self, message: JSONRPCMessage, middleware_list: list[MessageMiddleware]
+    ) -> JSONRPCMessage:
+        """Apply a list of middleware functions to a message."""
+        import inspect
+
+        for middleware in middleware_list:
+            result = middleware(message)
+            if inspect.isawaitable(result):
+                message = await result
+            else:
+                message = result  # type: ignore[assignment]
+        return message
 
     def add_response_router(self, router: ResponseRouter) -> None:
         """
@@ -278,7 +301,9 @@ class BaseSession(
                 **request_data,
             )
 
-            await self._write_stream.send(SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata))
+            message = JSONRPCMessage(jsonrpc_request)
+            message = await self._apply_middleware(message, self._send_middleware)
+            await self._write_stream.send(SessionMessage(message=message, metadata=metadata))
 
             # request read timeout takes precedence over session read timeout
             timeout = None
@@ -328,8 +353,10 @@ class BaseSession(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
+        message = JSONRPCMessage(jsonrpc_notification)
+        message = await self._apply_middleware(message, self._send_middleware)
         session_message = SessionMessage(  # pragma: no cover
-            message=JSONRPCMessage(jsonrpc_notification),
+            message=message,
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
         await self._write_stream.send(session_message)
@@ -337,7 +364,9 @@ class BaseSession(
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
             jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=response)
-            session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
+            message = JSONRPCMessage(jsonrpc_error)
+            message = await self._apply_middleware(message, self._send_middleware)
+            session_message = SessionMessage(message=message)
             await self._write_stream.send(session_message)
         else:
             jsonrpc_response = JSONRPCResponse(
@@ -345,7 +374,9 @@ class BaseSession(
                 id=request_id,
                 result=response.model_dump(by_alias=True, mode="json", exclude_none=True),
             )
-            session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_response))
+            message = JSONRPCMessage(jsonrpc_response)
+            message = await self._apply_middleware(message, self._send_middleware)
+            session_message = SessionMessage(message=message)
             await self._write_stream.send(session_message)
 
     async def _receive_loop(self) -> None:
@@ -357,7 +388,14 @@ class BaseSession(
                 async for message in self._read_stream:
                     if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
-                    elif isinstance(message.message.root, JSONRPCRequest):
+                        continue
+
+                    # Apply receive middleware to transform the message
+                    if self._receive_middleware:
+                        transformed_msg = await self._apply_middleware(message.message, self._receive_middleware)
+                        message = SessionMessage(message=transformed_msg, metadata=message.metadata)  # noqa: PLW2901
+
+                    if isinstance(message.message.root, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_type.model_validate(
                                 message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)

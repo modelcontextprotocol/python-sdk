@@ -12,7 +12,7 @@ from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.session import BaseSession, MessageMiddleware, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -123,6 +123,8 @@ class ClientSession(
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+        send_middleware: list["MessageMiddleware"] | None = None,
+        receive_middleware: list["MessageMiddleware"] | None = None,
     ) -> None:
         super().__init__(
             read_stream,
@@ -130,6 +132,8 @@ class ClientSession(
             types.ServerRequest,
             types.ServerNotification,
             read_timeout_seconds=read_timeout_seconds,
+            send_middleware=send_middleware,
+            receive_middleware=receive_middleware,
         )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback

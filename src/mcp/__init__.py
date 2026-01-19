@@ -4,6 +4,7 @@ from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import McpError, UrlElicitationRequiredError
+from .shared.session import MessageMiddleware
 from .types import (
     CallToolRequest,
     ClientCapabilities,
@@ -23,6 +24,8 @@ from .types import (
     InitializeRequest,
     InitializeResult,
     JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     ListPromptsRequest,
@@ -87,8 +90,11 @@ __all__ = [
     "InitializeResult",
     "InitializedNotification",
     "JSONRPCError",
+    "JSONRPCMessage",
+    "JSONRPCNotification",
     "JSONRPCRequest",
     "JSONRPCResponse",
+    "MessageMiddleware",
     "ListPromptsRequest",
     "ListPromptsResult",
     "ListResourcesRequest",

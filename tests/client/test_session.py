@@ -768,3 +768,144 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_client_session_send_middleware():
+    """Test that send middleware can transform outgoing messages."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    received_request = None
+    middleware_called = False
+
+    def add_custom_field(message: JSONRPCMessage) -> JSONRPCMessage:
+        """Middleware that adds a custom field to initialize request params."""
+        nonlocal middleware_called
+        middleware_called = True
+
+        if isinstance(message.root, JSONRPCRequest):
+            # Add custom extension to the capabilities
+            data = message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+            if data.get("method") == "initialize" and "params" in data:
+                if "capabilities" not in data["params"]:
+                    data["params"]["capabilities"] = {}
+                # Add a custom extension field
+                data["params"]["capabilities"]["customExtension"] = {"enabled": True}
+                return JSONRPCMessage(JSONRPCRequest(**data))
+        return message
+
+    async def mock_server():
+        nonlocal received_request
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        received_request = jsonrpc_request.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            send_middleware=[add_custom_field],
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Verify middleware was called and transformed the request
+    assert middleware_called
+    assert received_request is not None
+    assert "params" in received_request
+    assert "capabilities" in received_request["params"]
+    assert "customExtension" in received_request["params"]["capabilities"]
+    assert received_request["params"]["capabilities"]["customExtension"] == {"enabled": True}
+
+
+@pytest.mark.anyio
+async def test_client_session_async_middleware():
+    """Test that async middleware works correctly."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    middleware_called = False
+
+    async def async_middleware(message: JSONRPCMessage) -> JSONRPCMessage:
+        """Async middleware that just passes through."""
+        nonlocal middleware_called
+        middleware_called = True
+        # Simulate some async work
+        await anyio.sleep(0)
+        return message
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+
+        result = ServerResult(
+            InitializeResult(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ServerCapabilities(),
+                serverInfo=Implementation(name="mock-server", version="0.1.0"),
+            )
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCMessage(
+                        JSONRPCResponse(
+                            jsonrpc="2.0",
+                            id=jsonrpc_request.root.id,
+                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                        )
+                    )
+                )
+            )
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            send_middleware=[async_middleware],
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    assert middleware_called
