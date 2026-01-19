@@ -1,3 +1,4 @@
+import functools
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
@@ -5,6 +6,8 @@ from itertools import chain
 from types import GenericAlias
 from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 
+import anyio
+import anyio.to_thread
 import pydantic_core
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
@@ -53,9 +56,7 @@ class ArgModelBase(BaseModel):
             kwargs[output_name] = value
         return kwargs
 
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-    )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class FuncMetadata(BaseModel):
@@ -85,7 +86,7 @@ class FuncMetadata(BaseModel):
         if fn_is_async:
             return await fn(**arguments_parsed_dict)
         else:
-            return fn(**arguments_parsed_dict)
+            return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
     def convert_result(self, result: Any) -> Any:
         """Convert the result of a function call to the appropriate format for
