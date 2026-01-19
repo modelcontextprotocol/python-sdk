@@ -1,5 +1,4 @@
 import json
-import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -12,8 +11,6 @@ from websockets.typing import Subprotocol
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
-logger = logging.getLogger(__name__)
-
 
 @asynccontextmanager
 async def websocket_client(
@@ -22,8 +19,7 @@ async def websocket_client(
     tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]],
     None,
 ]:
-    """
-    WebSocket client transport for MCP, symmetrical to the server version.
+    """WebSocket client transport for MCP, symmetrical to the server version.
 
     Connects to 'url' using the 'mcp' subprotocol, then yields:
         (read_stream, write_stream)
@@ -49,23 +45,21 @@ async def websocket_client(
     async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
 
         async def ws_reader():
-            """
-            Reads text messages from the WebSocket, parses them as JSON-RPC messages,
+            """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
             and sends them into read_stream_writer.
             """
             async with read_stream_writer:
                 async for raw_text in ws:
                     try:
-                        message = types.JSONRPCMessage.model_validate_json(raw_text)
+                        message = types.JSONRPCMessage.model_validate_json(raw_text, by_name=False)
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
-                    except ValidationError as exc:
+                    except ValidationError as exc:  # pragma: no cover
                         # If JSON parse or model validation fails, send the exception
                         await read_stream_writer.send(exc)
 
         async def ws_writer():
-            """
-            Reads JSON-RPC messages from write_stream_reader and
+            """Reads JSON-RPC messages from write_stream_reader and
             sends them to the server.
             """
             async with write_stream_reader:

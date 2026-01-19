@@ -1,7 +1,6 @@
 """Test to reproduce issue #88: Random error thrown on response."""
 
 from collections.abc import Sequence
-from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,12 +42,12 @@ async def test_notification_validation_error(tmp_path: Path):
             types.Tool(
                 name="slow",
                 description="A slow tool",
-                inputSchema={"type": "object"},
+                input_schema={"type": "object"},
             ),
             types.Tool(
                 name="fast",
                 description="A fast tool",
-                inputSchema={"type": "object"},
+                input_schema={"type": "object"},
             ),
         ]
 
@@ -62,7 +61,7 @@ async def test_notification_validation_error(tmp_path: Path):
             return [TextContent(type="text", text=f"slow {request_count}")]
         elif name == "fast":
             return [TextContent(type="text", text=f"fast {request_count}")]
-        return [TextContent(type="text", text=f"unknown {request_count}")]
+        return [TextContent(type="text", text=f"unknown {request_count}")]  # pragma: no cover
 
     async def server_handler(
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -93,11 +92,9 @@ async def test_notification_validation_error(tmp_path: Path):
             assert not slow_request_lock.is_set()
 
             # Second call should timeout (slow operation with minimal timeout)
-            # Use 10ms timeout to trigger quickly without waiting
+            # Use very small timeout to trigger quickly without waiting
             with pytest.raises(McpError) as exc_info:
-                await session.call_tool(
-                    "slow", read_timeout_seconds=timedelta(microseconds=1)
-                )  # artificial timeout that always fails
+                await session.call_tool("slow", read_timeout_seconds=0.000001)  # artificial timeout that always fails
             assert "Timed out while waiting" in str(exc_info.value)
 
             # release the slow request not to have hanging process
@@ -107,7 +104,7 @@ async def test_notification_validation_error(tmp_path: Path):
             # proving server is still responsive
             result = await session.call_tool("fast", read_timeout_seconds=None)
             assert result.content == [TextContent(type="text", text="fast 3")]
-        scope.cancel()
+        scope.cancel()  # pragma: no cover
 
     # Run server and client in separate task groups to avoid cancellation
     server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage](1)

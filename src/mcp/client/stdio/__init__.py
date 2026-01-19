@@ -49,8 +49,7 @@ PROCESS_TERMINATION_TIMEOUT = 2.0
 
 
 def get_default_environment() -> dict[str, str]:
-    """
-    Returns a default environment object including only environment variables deemed
+    """Returns a default environment object including only environment variables deemed
     safe to inherit.
     """
     env: dict[str, str] = {}
@@ -58,11 +57,11 @@ def get_default_environment() -> dict[str, str]:
     for key in DEFAULT_INHERITED_ENV_VARS:
         value = os.environ.get(key)
         if value is None:
-            continue
+            continue  # pragma: no cover
 
-        if value.startswith("()"):
+        if value.startswith("()"):  # pragma: no cover
             # Skip functions, which are a security risk
-            continue
+            continue  # pragma: no cover
 
         env[key] = value
 
@@ -104,8 +103,7 @@ class StdioServerParameters(BaseModel):
 
 @asynccontextmanager
 async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
-    """
-    Client transport for stdio: this will connect to a server by spawning a
+    """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
@@ -152,15 +150,15 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
                     for line in lines:
                         try:
-                            message = types.JSONRPCMessage.model_validate_json(line)
-                        except Exception as exc:
+                            message = types.JSONRPCMessage.model_validate_json(line, by_name=False)
+                        except Exception as exc:  # pragma: no cover
                             logger.exception("Failed to parse JSONRPC message from server")
                             await read_stream_writer.send(exc)
                             continue
 
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
@@ -176,7 +174,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             errors=server.encoding_error_handler,
                         )
                     )
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async with (
@@ -192,10 +190,10 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             # 1. Close input stream to server
             # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
             # 3. Send SIGKILL if still not exited
-            if process.stdin:
+            if process.stdin:  # pragma: no branch
                 try:
                     await process.stdin.aclose()
-                except Exception:
+                except Exception:  # pragma: no cover
                     # stdin might already be closed, which is fine
                     pass
 
@@ -207,7 +205,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                 # Process didn't exit from stdin closure, use platform-specific termination
                 # which handles SIGTERM -> SIGKILL escalation
                 await _terminate_process_tree(process)
-            except ProcessLookupError:
+            except ProcessLookupError:  # pragma: no cover
                 # Process already exited, which is fine
                 pass
             await read_stream.aclose()
@@ -217,8 +215,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
 
 def _get_executable_command(command: str) -> str:
-    """
-    Get the correct executable command normalized for the current platform.
+    """Get the correct executable command normalized for the current platform.
 
     Args:
         command: Base command (e.g., 'uvx', 'npx')
@@ -226,10 +223,10 @@ def _get_executable_command(command: str) -> str:
     Returns:
         str: Platform-appropriate command
     """
-    if sys.platform == "win32":
+    if sys.platform == "win32":  # pragma: no cover
         return get_windows_executable_command(command)
     else:
-        return command
+        return command  # pragma: no cover
 
 
 async def _create_platform_compatible_process(
@@ -239,13 +236,12 @@ async def _create_platform_compatible_process(
     errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
 ):
-    """
-    Creates a subprocess in a platform-compatible way.
+    """Creates a subprocess in a platform-compatible way.
 
     Unix: Creates process in a new session/process group for killpg support
     Windows: Creates process in a Job Object for reliable child termination
     """
-    if sys.platform == "win32":
+    if sys.platform == "win32":  # pragma: no cover
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:
         process = await anyio.open_process(
@@ -254,14 +250,13 @@ async def _create_platform_compatible_process(
             stderr=errlog,
             cwd=cwd,
             start_new_session=True,
-        )
+        )  # pragma: no cover
 
     return process
 
 
 async def _terminate_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
-    """
-    Terminate a process and all its children using platform-specific methods.
+    """Terminate a process and all its children using platform-specific methods.
 
     Unix: Uses os.killpg() for atomic process group termination
     Windows: Uses Job Objects via pywin32 for reliable child process cleanup
@@ -270,9 +265,9 @@ async def _terminate_process_tree(process: Process | FallbackProcess, timeout_se
         process: The process to terminate
         timeout_seconds: Timeout in seconds before force killing (default: 2.0)
     """
-    if sys.platform == "win32":
+    if sys.platform == "win32":  # pragma: no cover
         await terminate_windows_process_tree(process, timeout_seconds)
-    else:
+    else:  # pragma: no cover
         # FallbackProcess should only be used for Windows compatibility
         assert isinstance(process, Process)
         await terminate_posix_process_tree(process, timeout_seconds)

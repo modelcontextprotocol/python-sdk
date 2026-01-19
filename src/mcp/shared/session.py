@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
-from datetime import timedelta
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -13,6 +14,7 @@ from typing_extensions import Self
 
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
@@ -46,7 +48,9 @@ RequestId = str | int
 class ProgressFnT(Protocol):
     """Protocol for progress notification callbacks."""
 
-    async def __call__(self, progress: float, total: float | None, message: str | None) -> None: ...
+    async def __call__(
+        self, progress: float, total: float | None, message: str | None
+    ) -> None: ...  # pragma: no branch
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
@@ -70,14 +74,8 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParams.Meta | None,
         request: ReceiveRequestT,
-        session: """BaseSession[
-            SendRequestT,
-            SendNotificationT,
-            SendResultT,
-            ReceiveRequestT,
-            ReceiveNotificationT
-        ]""",
-        on_complete: Callable[["RequestResponder[ReceiveRequestT, SendResultT]"], Any],
+        session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
+        on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
     ) -> None:
         self.request_id = request_id
@@ -90,7 +88,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._on_complete = on_complete
         self._entered = False  # Track if we're in a context manager
 
-    def __enter__(self) -> "RequestResponder[ReceiveRequestT, SendResultT]":
+    def __enter__(self) -> RequestResponder[ReceiveRequestT, SendResultT]:
         """Enter the context manager, enabling request cancellation tracking."""
         self._entered = True
         self._cancel_scope = anyio.CancelScope()
@@ -105,11 +103,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     ) -> None:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
-            if self._completed:
+            if self._completed:  # pragma: no branch
                 self._on_complete(self)
         finally:
             self._entered = False
-            if not self._cancel_scope:
+            if not self._cancel_scope:  # pragma: no cover
                 raise RuntimeError("No active cancel scope")
             self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
 
@@ -121,11 +119,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             RuntimeError: If not used within a context manager
             AssertionError: If request was already responded to
         """
-        if not self._entered:
+        if not self._entered:  # pragma: no cover
             raise RuntimeError("RequestResponder must be used as a context manager")
         assert not self._completed, "Request already responded to"
 
-        if not self.cancelled:
+        if not self.cancelled:  # pragma: no branch
             self._completed = True
 
             await self._session._send_response(  # type: ignore[reportPrivateUsage]
@@ -134,9 +132,9 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
     async def cancel(self) -> None:
         """Cancel this request and mark it as completed."""
-        if not self._entered:
+        if not self._entered:  # pragma: no cover
             raise RuntimeError("RequestResponder must be used as a context manager")
-        if not self._cancel_scope:
+        if not self._cancel_scope:  # pragma: no cover
             raise RuntimeError("No active cancel scope")
 
         self._cancel_scope.cancel()
@@ -148,11 +146,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         )
 
     @property
-    def in_flight(self) -> bool:
+    def in_flight(self) -> bool:  # pragma: no cover
         return not self._completed and not self.cancelled
 
     @property
-    def cancelled(self) -> bool:
+    def cancelled(self) -> bool:  # pragma: no cover
         return self._cancel_scope.cancel_called
 
 
@@ -165,8 +163,7 @@ class BaseSession(
         ReceiveNotificationT,
     ],
 ):
-    """
-    Implements an MCP "session" on top of read/write streams, including features
+    """Implements an MCP "session" on top of read/write streams, including features
     like request/response linking, notifications, and progress.
 
     This class is an async context manager that automatically starts processing
@@ -177,6 +174,7 @@ class BaseSession(
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
+    _response_routers: list[ResponseRouter]
 
     def __init__(
         self,
@@ -185,7 +183,7 @@ class BaseSession(
         receive_request_type: type[ReceiveRequestT],
         receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -196,7 +194,23 @@ class BaseSession(
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
+        self._response_routers = []
         self._exit_stack = AsyncExitStack()
+
+    def add_response_router(self, router: ResponseRouter) -> None:
+        """Register a response router to handle responses for non-standard requests.
+
+        Response routers are checked in order before falling back to the default
+        response stream mechanism. This is used by TaskResultHandler to route
+        responses for queued task requests back to their resolvers.
+
+        !!! warning
+            This is an experimental API that may change without notice.
+
+        Args:
+            router: A ResponseRouter implementation
+        """
+        self._response_routers.append(router)
 
     async def __aenter__(self) -> Self:
         self._task_group = anyio.create_task_group()
@@ -221,12 +235,11 @@ class BaseSession(
         self,
         request: SendRequestT,
         result_type: type[ReceiveResultT],
-        request_read_timeout_seconds: timedelta | None = None,
+        request_read_timeout_seconds: float | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
-        """
-        Sends a request and wait for a response. Raises an McpError if the
+        """Sends a request and wait for a response. Raises an McpError if the
         response contains an error. If a request read timeout is provided, it
         will take precedence over the session read timeout.
 
@@ -241,11 +254,11 @@ class BaseSession(
 
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        if progress_callback is not None:
+        if progress_callback is not None:  # pragma: no cover
             # Use request_id as progress token
             if "params" not in request_data:
                 request_data["params"] = {}
-            if "_meta" not in request_data["params"]:
+            if "_meta" not in request_data["params"]:  # pragma: no branch
                 request_data["params"]["_meta"] = {}
             request_data["params"]["_meta"]["progressToken"] = request_id
             # Store the callback for this request
@@ -262,10 +275,10 @@ class BaseSession(
 
             # request read timeout takes precedence over session read timeout
             timeout = None
-            if request_read_timeout_seconds is not None:
-                timeout = request_read_timeout_seconds.total_seconds()
-            elif self._session_read_timeout_seconds is not None:
-                timeout = self._session_read_timeout_seconds.total_seconds()
+            if request_read_timeout_seconds is not None:  # pragma: no cover
+                timeout = request_read_timeout_seconds
+            elif self._session_read_timeout_seconds is not None:  # pragma: no cover
+                timeout = self._session_read_timeout_seconds
 
             try:
                 with anyio.fail_after(timeout):
@@ -285,7 +298,7 @@ class BaseSession(
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
             else:
-                return result_type.model_validate(response_or_error.result)
+                return result_type.model_validate(response_or_error.result, by_name=False)
 
         finally:
             self._response_streams.pop(request_id, None)
@@ -298,8 +311,7 @@ class BaseSession(
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
-        """
-        Emits a notification, which is a one-way message that does not expect
+        """Emits a notification, which is a one-way message that does not expect
         a response.
         """
         # Some transport implementations may need to set the related_request_id
@@ -308,7 +320,7 @@ class BaseSession(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
-        session_message = SessionMessage(
+        session_message = SessionMessage(  # pragma: no cover
             message=JSONRPCMessage(jsonrpc_notification),
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
@@ -335,12 +347,13 @@ class BaseSession(
         ):
             try:
                 async for message in self._read_stream:
-                    if isinstance(message, Exception):
+                    if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
                     elif isinstance(message.message.root, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                by_name=False,
                             )
                             responder = RequestResponder(
                                 request_id=message.message.root.id,
@@ -377,17 +390,18 @@ class BaseSession(
                     elif isinstance(message.message.root, JSONRPCNotification):
                         try:
                             notification = self._receive_notification_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True)
+                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                                by_name=False,
                             )
                             # Handle cancellation notifications
                             if isinstance(notification.root, CancelledNotification):
-                                cancelled_id = notification.root.params.requestId
-                                if cancelled_id in self._in_flight:
+                                cancelled_id = notification.root.params.request_id
+                                if cancelled_id in self._in_flight:  # pragma: no branch
                                     await self._in_flight[cancelled_id].cancel()
                             else:
                                 # Handle progress notifications callback
-                                if isinstance(notification.root, ProgressNotification):
-                                    progress_token = notification.root.params.progressToken
+                                if isinstance(notification.root, ProgressNotification):  # pragma: no cover
+                                    progress_token = notification.root.params.progress_token
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
                                     if progress_token in self._progress_callbacks:
@@ -405,26 +419,20 @@ class BaseSession(
                                             )
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
-                        except Exception as e:
+                        except Exception as e:  # pragma: no cover
                             # For other validation errors, log and continue
                             logging.warning(
                                 f"Failed to validate notification: {e}. Message was: {message.message.root}"
                             )
                     else:  # Response or error
-                        stream = self._response_streams.pop(message.message.root.id, None)
-                        if stream:
-                            await stream.send(message.message.root)
-                        else:
-                            await self._handle_incoming(
-                                RuntimeError(f"Received response with an unknown request ID: {message}")
-                            )
+                        await self._handle_response(message)
 
             except anyio.ClosedResourceError:
                 # This is expected when the client disconnects abruptly.
                 # Without this handler, the exception would propagate up and
                 # crash the server's task group.
-                logging.debug("Read stream closed by client")
-            except Exception as e:
+                logging.debug("Read stream closed by client")  # pragma: no cover
+            except Exception as e:  # pragma: no cover
                 # Other exceptions are not expected and should be logged. We purposefully
                 # catch all exceptions here to avoid crashing the server.
                 logging.exception(f"Unhandled exception in receive loop: {e}")
@@ -436,14 +444,71 @@ class BaseSession(
                     try:
                         await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
                         await stream.aclose()
-                    except Exception:
+                    except Exception:  # pragma: no cover
                         # Stream might already be closed
                         pass
                 self._response_streams.clear()
 
-    async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
+    def _normalize_request_id(self, response_id: RequestId) -> RequestId:
+        """Normalize a response ID to match how request IDs are stored.
+
+        Since the client always sends integer IDs, we normalize string IDs
+        to integers when possible. This matches the TypeScript SDK approach:
+        https://github.com/modelcontextprotocol/typescript-sdk/blob/a606fb17909ea454e83aab14c73f14ea45c04448/src/shared/protocol.ts#L861
+
+        Args:
+            response_id: The response ID from the incoming message.
+
+        Returns:
+            The normalized ID (int if possible, otherwise original value).
         """
-        Can be overridden by subclasses to handle a request without needing to
+        if isinstance(response_id, str):
+            try:
+                return int(response_id)
+            except ValueError:
+                logging.warning(f"Response ID {response_id!r} cannot be normalized to match pending requests")
+        return response_id
+
+    async def _handle_response(self, message: SessionMessage) -> None:
+        """Handle an incoming response or error message.
+
+        Checks response routers first (e.g., for task-related responses),
+        then falls back to the normal response stream mechanism.
+        """
+        root = message.message.root
+
+        # This check is always true at runtime: the caller (_receive_loop) only invokes
+        # this method in the else branch after checking for JSONRPCRequest and
+        # JSONRPCNotification. However, the type checker can't infer this from the
+        # method signature, so we need this guard for type narrowing.
+        if not isinstance(root, JSONRPCResponse | JSONRPCError):
+            return  # pragma: no cover
+
+        # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
+        response_id = self._normalize_request_id(root.id)
+
+        # First, check response routers (e.g., TaskResultHandler)
+        if isinstance(root, JSONRPCError):
+            # Route error to routers
+            for router in self._response_routers:
+                if router.route_error(response_id, root.error):
+                    return  # Handled
+        else:
+            # Route success response to routers
+            response_data: dict[str, Any] = root.result or {}
+            for router in self._response_routers:
+                if router.route_response(response_id, response_data):
+                    return  # Handled
+
+        # Fall back to normal response streams
+        stream = self._response_streams.pop(response_id, None)
+        if stream:  # pragma: no cover
+            await stream.send(root)
+        else:  # pragma: no cover
+            await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
+
+    async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
+        """Can be overridden by subclasses to handle a request without needing to
         listen on the message stream.
 
         If the request is responded to within this method, it will not be
@@ -451,8 +516,7 @@ class BaseSession(
         """
 
     async def _received_notification(self, notification: ReceiveNotificationT) -> None:
-        """
-        Can be overridden by subclasses to handle a notification without needing
+        """Can be overridden by subclasses to handle a notification without needing
         to listen on the message stream.
         """
 
@@ -463,8 +527,7 @@ class BaseSession(
         total: float | None = None,
         message: str | None = None,
     ) -> None:
-        """
-        Sends a progress notification for a request that is currently being
+        """Sends a progress notification for a request that is currently being
         processed.
         """
 
@@ -473,4 +536,4 @@ class BaseSession(
         req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception,
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
-        pass
+        pass  # pragma: no cover

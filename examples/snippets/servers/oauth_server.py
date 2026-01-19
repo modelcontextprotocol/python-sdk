@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/oauth_server.py
+"""Run from the repository root:
+uv run examples/snippets/servers/oauth_server.py
 """
 
 from pydantic import AnyHttpUrl
@@ -43,4 +42,4 @@ async def get_weather(city: str = "London") -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", json_response=True)

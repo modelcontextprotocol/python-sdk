@@ -48,7 +48,7 @@ async def run_tool_test(
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
     # Message handler for client
-    async def message_handler(
+    async def message_handler(  # pragma: no cover
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
@@ -71,7 +71,8 @@ async def run_tool_test(
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    async for message in server_session.incoming_messages:
+                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+                    async for message in server_session.incoming_messages:  # pragma: no cover
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
@@ -105,7 +106,7 @@ async def test_content_only_without_output_schema():
         Tool(
             name="echo",
             description="Echo a message",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "message": {"type": "string"},
@@ -119,7 +120,7 @@ async def test_content_only_without_output_schema():
     async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         if name == "echo":
             return [TextContent(type="text", text=f"Echo: {arguments['message']}")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -129,12 +130,12 @@ async def test_content_only_without_output_schema():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Echo: Hello"
-    assert result.structuredContent is None
+    assert result.structured_content is None
 
 
 @pytest.mark.anyio
@@ -144,7 +145,7 @@ async def test_dict_only_without_output_schema():
         Tool(
             name="get_info",
             description="Get structured information",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {},
             },
@@ -155,7 +156,7 @@ async def test_dict_only_without_output_schema():
     async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "get_info":
             return {"status": "ok", "data": {"value": 42}}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -165,13 +166,13 @@ async def test_dict_only_without_output_schema():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
     # Check that the content is the JSON serialization
     assert json.loads(result.content[0].text) == {"status": "ok", "data": {"value": 42}}
-    assert result.structuredContent == {"status": "ok", "data": {"value": 42}}
+    assert result.structured_content == {"status": "ok", "data": {"value": 42}}
 
 
 @pytest.mark.anyio
@@ -181,7 +182,7 @@ async def test_both_content_and_dict_without_output_schema():
         Tool(
             name="process",
             description="Process data",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {},
             },
@@ -194,7 +195,7 @@ async def test_both_content_and_dict_without_output_schema():
             content = [TextContent(type="text", text="Processing complete")]
             data = {"result": "success", "count": 10}
             return (content, data)
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -204,12 +205,12 @@ async def test_both_content_and_dict_without_output_schema():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "Processing complete"
-    assert result.structuredContent == {"result": "success", "count": 10}
+    assert result.structured_content == {"result": "success", "count": 10}
 
 
 @pytest.mark.anyio
@@ -219,11 +220,11 @@ async def test_content_only_with_output_schema_error():
         Tool(
             name="structured_tool",
             description="Tool expecting structured output",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {},
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "result": {"type": "string"},
@@ -244,7 +245,7 @@ async def test_content_only_with_output_schema_error():
 
     # Verify error
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -258,7 +259,7 @@ async def test_valid_dict_with_output_schema():
         Tool(
             name="calc",
             description="Calculate result",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "x": {"type": "number"},
@@ -266,7 +267,7 @@ async def test_valid_dict_with_output_schema():
                 },
                 "required": ["x", "y"],
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "sum": {"type": "number"},
@@ -282,7 +283,7 @@ async def test_valid_dict_with_output_schema():
             x = arguments["x"]
             y = arguments["y"]
             return {"sum": x + y, "product": x * y}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -292,12 +293,12 @@ async def test_valid_dict_with_output_schema():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     # Check JSON serialization
     assert json.loads(result.content[0].text) == {"sum": 7, "product": 12}
-    assert result.structuredContent == {"sum": 7, "product": 12}
+    assert result.structured_content == {"sum": 7, "product": 12}
 
 
 @pytest.mark.anyio
@@ -307,11 +308,11 @@ async def test_invalid_dict_with_output_schema():
         Tool(
             name="user_info",
             description="Get user information",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {},
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
@@ -326,7 +327,7 @@ async def test_invalid_dict_with_output_schema():
         if name == "user_info":
             # Missing required 'age' field
             return {"name": "Alice"}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -336,7 +337,7 @@ async def test_invalid_dict_with_output_schema():
 
     # Verify error
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -351,14 +352,14 @@ async def test_both_content_and_valid_dict_with_output_schema():
         Tool(
             name="analyze",
             description="Analyze data",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "text": {"type": "string"},
                 },
                 "required": ["text"],
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},
@@ -374,7 +375,7 @@ async def test_both_content_and_valid_dict_with_output_schema():
             content = [TextContent(type="text", text=f"Analysis of: {arguments['text']}")]
             data = {"sentiment": "positive", "confidence": 0.95}
             return (content, data)
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -384,11 +385,11 @@ async def test_both_content_and_valid_dict_with_output_schema():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert result.content[0].text == "Analysis of: Great job!"
-    assert result.structuredContent == {"sentiment": "positive", "confidence": 0.95}
+    assert result.structured_content == {"sentiment": "positive", "confidence": 0.95}
 
 
 @pytest.mark.anyio
@@ -398,7 +399,7 @@ async def test_tool_call_result():
         Tool(
             name="get_info",
             description="Get structured information",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {},
             },
@@ -410,10 +411,10 @@ async def test_tool_call_result():
         if name == "get_info":
             return CallToolResult(
                 content=[TextContent(type="text", text="Results calculated")],
-                structuredContent={"status": "ok", "data": {"value": 42}},
+                structured_content={"status": "ok", "data": {"value": 42}},
                 _meta={"some": "metadata"},
             )
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -423,12 +424,12 @@ async def test_tool_call_result():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert result.content[0].text == "Results calculated"
     assert isinstance(result.content[0], TextContent)
-    assert result.structuredContent == {"status": "ok", "data": {"value": 42}}
+    assert result.structured_content == {"status": "ok", "data": {"value": 42}}
     assert result.meta == {"some": "metadata"}
 
 
@@ -439,11 +440,11 @@ async def test_output_schema_type_validation():
         Tool(
             name="stats",
             description="Get statistics",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {},
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "count": {"type": "integer"},
@@ -459,7 +460,7 @@ async def test_output_schema_type_validation():
         if name == "stats":
             # Wrong type for 'count' - should be integer
             return {"count": "five", "average": 2.5, "items": ["a", "b"]}
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -469,7 +470,7 @@ async def test_output_schema_type_validation():
 
     # Verify error
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert "Output validation error:" in result.content[0].text

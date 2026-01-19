@@ -5,15 +5,16 @@ import anyio
 import pytest
 
 import mcp.types as types
+from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.shared.message import SessionMessage
 from mcp.shared.progress import progress
-from mcp.shared.session import BaseSession, RequestResponder, SessionMessage
+from mcp.shared.session import BaseSession, RequestResponder
 
 
 @pytest.mark.anyio
@@ -41,7 +42,7 @@ async def test_bidirectional_progress_notifications():
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise e
 
     # Track progress updates
@@ -79,7 +80,7 @@ async def test_bidirectional_progress_notifications():
             types.Tool(
                 name="test_tool",
                 description="A tool that sends progress notifications <o/",
-                inputSchema={},
+                input_schema={},
             )
         ]
 
@@ -91,10 +92,10 @@ async def test_bidirectional_progress_notifications():
             if arguments and "_meta" in arguments:
                 progressToken = arguments["_meta"]["progressToken"]
 
-                if not progressToken:
+                if not progressToken:  # pragma: no cover
                     raise ValueError("Empty progress token received")
 
-                if progressToken != client_progress_token:
+                if progressToken != client_progress_token:  # pragma: no cover
                     raise ValueError("Server sending back incorrect progressToken")
 
                 # Send progress notifications
@@ -119,26 +120,26 @@ async def test_bidirectional_progress_notifications():
                     message="Server progress 100%",
                 )
 
-            else:
+            else:  # pragma: no cover
                 raise ValueError("Progress token not sent.")
 
             return [types.TextContent(type="text", text="Tool executed successfully")]
 
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
     # Client message handler to store progress notifications
     async def handle_client_message(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-        if isinstance(message, types.ServerNotification):
-            if isinstance(message.root, types.ProgressNotification):
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message.root, types.ProgressNotification):  # pragma: no branch
                 params = message.root.params
                 client_progress_updates.append(
                     {
-                        "token": params.progressToken,
+                        "token": params.progress_token,
                         "progress": params.progress,
                         "total": params.total,
                         "message": params.message,
@@ -248,14 +249,14 @@ async def test_progress_context_manager():
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
-                except Exception as e:
+                except Exception as e:  # pragma: no cover
                     raise e
 
     # Client message handler
     async def handle_client_message(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     # run client session
@@ -274,7 +275,7 @@ async def test_progress_context_manager():
         progress_token = "client_token_456"
 
         # Create request context
-        meta = types.RequestParams.Meta(progressToken=progress_token)
+        meta = types.RequestParams.Meta(progress_token=progress_token)
         request_context = RequestContext(
             request_id="test-request",
             session=client_session,
@@ -335,7 +336,9 @@ async def test_progress_callback_exception_logging():
         logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
-    async def failing_progress_callback(progress: float, total: float | None, message: str | None) -> None:
+    async def failing_progress_callback(
+        progress: float, total: float | None, message: str | None
+    ) -> None:  # pragma: no cover
         raise ValueError("Progress callback failed!")
 
     # Create a server with a tool that sends progress notifications
@@ -352,7 +355,7 @@ async def test_progress_callback_exception_logging():
                 message="Halfway done",
             )
             return [types.TextContent(type="text", text="progress_result")]
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
     @server.list_tools()
     async def handle_list_tools() -> list[types.Tool]:
@@ -360,22 +363,17 @@ async def test_progress_callback_exception_logging():
             types.Tool(
                 name="progress_tool",
                 description="A tool that sends progress notifications",
-                inputSchema={},
+                input_schema={},
             )
         ]
 
     # Test with mocked logging
     with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
-        async with create_connected_server_and_client_session(server) as client_session:
-            # Send a request with a failing progress callback
-            result = await client_session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        method="tools/call",
-                        params=types.CallToolRequestParams(name="progress_tool", arguments={}),
-                    )
-                ),
-                types.CallToolResult,
+        async with Client(server) as client:
+            # Call tool with a failing progress callback
+            result = await client.call_tool(
+                "progress_tool",
+                arguments={},
                 progress_callback=failing_progress_callback,
             )
 

@@ -1,5 +1,4 @@
-"""
-Test for race condition fix in initialization flow.
+"""Test for race condition fix in initialization flow.
 
 This test verifies that requests can be processed immediately after
 responding to InitializeRequest, without waiting for InitializedNotification.
@@ -20,8 +19,7 @@ from mcp.types import ServerCapabilities, Tool
 
 @pytest.mark.anyio
 async def test_request_immediately_after_initialize_response():
-    """
-    Test that requests are accepted immediately after initialize response.
+    """Test that requests are accepted immediately after initialize response.
 
     This reproduces the race condition in stateful HTTP mode where:
     1. Client sends InitializeRequest
@@ -49,17 +47,17 @@ async def test_request_immediately_after_initialize_response():
                 server_name="test-server",
                 server_version="1.0.0",
                 capabilities=ServerCapabilities(
-                    tools=types.ToolsCapability(listChanged=False),
+                    tools=types.ToolsCapability(list_changed=False),
                 ),
             ),
         ) as server_session:
-            async for message in server_session.incoming_messages:
-                if isinstance(message, Exception):
+            async for message in server_session.incoming_messages:  # pragma: no branch
+                if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
                 # Handle tools/list request
                 if isinstance(message, RequestResponder):
-                    if isinstance(message.request.root, types.ListToolsRequest):
+                    if isinstance(message.request.root, types.ListToolsRequest):  # pragma: no branch
                         tools_list_success = True
                         # Respond with a tool list
                         with message:
@@ -70,7 +68,7 @@ async def test_request_immediately_after_initialize_response():
                                             Tool(
                                                 name="example_tool",
                                                 description="An example tool",
-                                                inputSchema={"type": "object", "properties": {}},
+                                                input_schema={"type": "object", "properties": {}},
                                             )
                                         ]
                                     )
@@ -79,7 +77,7 @@ async def test_request_immediately_after_initialize_response():
 
                 # Handle InitializedNotification
                 if isinstance(message, types.ClientNotification):
-                    if isinstance(message.root, types.InitializedNotification):
+                    if isinstance(message.root, types.InitializedNotification):  # pragma: no branch
                         # Done - exit gracefully
                         return
 
@@ -95,9 +93,9 @@ async def test_request_immediately_after_initialize_response():
                         id=1,
                         method="initialize",
                         params=types.InitializeRequestParams(
-                            protocolVersion=types.LATEST_PROTOCOL_VERSION,
+                            protocol_version=types.LATEST_PROTOCOL_VERSION,
                             capabilities=types.ClientCapabilities(),
-                            clientInfo=types.Implementation(name="test-client", version="1.0.0"),
+                            client_info=types.Implementation(name="test-client", version="1.0.0"),
                         ).model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
@@ -124,7 +122,7 @@ async def test_request_immediately_after_initialize_response():
 
         # Step 4: Check the response
         tools_msg = await server_to_client_receive.receive()
-        if isinstance(tools_msg.message.root, types.JSONRPCError):
+        if isinstance(tools_msg.message.root, types.JSONRPCError):  # pragma: no cover
             error_received = tools_msg.message.root.error.message
 
         # Step 5: Send InitializedNotification

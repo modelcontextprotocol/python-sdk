@@ -107,8 +107,7 @@ AccessTokenT = TypeVar("AccessTokenT", bound=AccessToken)
 
 class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, RefreshTokenT, AccessTokenT]):
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        """
-        Retrieves client information by client ID.
+        """Retrieves client information by client ID.
 
         Implementors MAY raise NotImplementedError if dynamic client registration is
         disabled in ClientRegistrationOptions.
@@ -119,11 +118,9 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The client information, or None if the client does not exist.
         """
-        ...
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
-        """
-        Saves client information as part of registering it.
+        """Saves client information as part of registering it.
 
         Implementors MAY raise NotImplementedError if dynamic client registration is
         disabled in ClientRegistrationOptions.
@@ -134,11 +131,9 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Raises:
             RegistrationError: If the client metadata is invalid.
         """
-        ...
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        """
-        Called as part of the /authorize endpoint, and returns a URL that the client
+        """Called as part of the /authorize endpoint, and returns a URL that the client
         will be redirected to.
         Many MCP implementations will redirect to a third-party provider to perform
         a second OAuth exchange with that provider. In this sort of setup, the client
@@ -182,8 +177,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
     ) -> AuthorizationCodeT | None:
-        """
-        Loads an AuthorizationCode by its code.
+        """Loads an AuthorizationCode by its code.
 
         Args:
             client: The client that requested the authorization code.
@@ -197,8 +191,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCodeT
     ) -> OAuthToken:
-        """
-        Exchanges an authorization code for an access token and refresh token.
+        """Exchanges an authorization code for an access token and refresh token.
 
         Args:
             client: The client exchanging the authorization code.
@@ -213,8 +206,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         ...
 
     async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshTokenT | None:
-        """
-        Loads a RefreshToken by its token string.
+        """Loads a RefreshToken by its token string.
 
         Args:
             client: The client that is requesting to load the refresh token.
@@ -223,8 +215,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The RefreshToken object if found, or None if not found.
         """
-
-    ...
+        ...
 
     async def exchange_refresh_token(
         self,
@@ -232,8 +223,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         refresh_token: RefreshTokenT,
         scopes: list[str],
     ) -> OAuthToken:
-        """
-        Exchanges a refresh token for an access token and refresh token.
+        """Exchanges a refresh token for an access token and refresh token.
 
         Implementations SHOULD rotate both the access token and refresh token.
 
@@ -251,8 +241,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         ...
 
     async def load_access_token(self, token: str) -> AccessTokenT | None:
-        """
-        Loads an access token by its token.
+        """Loads an access token by its token.
 
         Args:
             token: The access token to verify.
@@ -260,14 +249,12 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Returns:
             The AuthInfo, or None if the token is invalid.
         """
-        ...
 
     async def revoke_token(
         self,
         token: AccessTokenT | RefreshTokenT,
     ) -> None:
-        """
-        Revokes an access or refresh token.
+        """Revokes an access or refresh token.
 
         If the given token is invalid or already revoked, this method should do nothing.
 
@@ -278,7 +265,6 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         Args:
             token: the token to revoke
         """
-        ...
 
 
 def construct_redirect_uri(redirect_uri_base: str, **params: str | None) -> str:

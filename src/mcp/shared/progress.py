@@ -48,10 +48,10 @@ def progress(
     ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
     None,
 ]:
-    if ctx.meta is None or ctx.meta.progressToken is None:
+    if ctx.meta is None or ctx.meta.progress_token is None:  # pragma: no cover
         raise ValueError("No progress token provided")
 
-    progress_ctx = ProgressContext(ctx.session, ctx.meta.progressToken, total)
+    progress_ctx = ProgressContext(ctx.session, ctx.meta.progress_token, total)
     try:
         yield progress_ctx
     finally:

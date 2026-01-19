@@ -1,5 +1,4 @@
-"""
-Regression test for issue #1027: Ensure cleanup procedures run properly during shutdown
+"""Regression test for issue #1027: Ensure cleanup procedures run properly during shutdown
 
 Issue #1027 reported that cleanup code after "yield" in lifespan was unreachable when
 processes were terminated. This has been fixed by implementing the MCP spec-compliant
@@ -12,25 +11,18 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import anyio
 import pytest
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import _create_platform_compatible_process, stdio_client
-
-# TODO(Marcelo): This doesn't seem to be the right path. We should fix this.
-if TYPE_CHECKING:
-    from ..shared.test_win32_utils import escape_path_for_python
-else:
-    from tests.shared.test_win32_utils import escape_path_for_python
+from tests.shared.test_win32_utils import escape_path_for_python
 
 
 @pytest.mark.anyio
 async def test_lifespan_cleanup_executed():
-    """
-    Regression test ensuring MCP server cleanup code runs during shutdown.
+    """Regression test ensuring MCP server cleanup code runs during shutdown.
 
     This test verifies that the fix for issue #1027 works correctly by:
     1. Starting an MCP server that writes a marker file on startup
@@ -95,7 +87,7 @@ async def test_lifespan_cleanup_executed():
             async with ClientSession(read, write) as session:
                 # Initialize the session
                 result = await session.initialize()
-                assert result.protocolVersion in ["2024-11-05", "2025-06-18"]
+                assert result.protocol_version in ["2024-11-05", "2025-06-18", "2025-11-25"]
 
                 # Verify startup marker was created
                 assert Path(startup_marker).exists(), "Server startup marker not created"
@@ -110,7 +102,7 @@ async def test_lifespan_cleanup_executed():
 
         # Give server a moment to complete cleanup
         with anyio.move_on_after(5.0):
-            while not Path(cleanup_marker).exists():
+            while not Path(cleanup_marker).exists():  # pragma: no cover
                 await anyio.sleep(0.1)
 
         # Verify cleanup marker was created - this works now that stdio_client
@@ -121,17 +113,16 @@ async def test_lifespan_cleanup_executed():
     finally:
         # Clean up files
         for path in [server_script, startup_marker, cleanup_marker]:
-            try:
+            try:  # pragma: no cover
                 Path(path).unlink()
-            except FileNotFoundError:
+            except FileNotFoundError:  # pragma: no cover
                 pass
 
 
 @pytest.mark.anyio
 @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
 async def test_stdin_close_triggers_cleanup():
-    """
-    Regression test verifying the stdin-based graceful shutdown mechanism.
+    """Regression test verifying the stdin-based graceful shutdown mechanism.
 
     This test ensures the core fix for issue #1027 continues to work by:
     1. Manually managing a server process
@@ -213,27 +204,27 @@ async def test_stdin_close_triggers_cleanup():
                 await anyio.sleep(0.1)
 
         # Check if process is still running
-        if hasattr(process, "returncode") and process.returncode is not None:
+        if hasattr(process, "returncode") and process.returncode is not None:  # pragma: no cover
             pytest.fail(f"Server process exited with code {process.returncode}")
 
         assert Path(startup_marker).exists(), "Server startup marker not created"
 
         # Close stdin to signal shutdown
-        if process.stdin:
+        if process.stdin:  # pragma: no branch
             await process.stdin.aclose()
 
         # Wait for process to exit gracefully
         try:
             with anyio.fail_after(5.0):  # Increased from 2.0 to 5.0
                 await process.wait()
-        except TimeoutError:
+        except TimeoutError:  # pragma: no cover
             # If it doesn't exit after stdin close, terminate it
             process.terminate()
             await process.wait()
 
         # Check if cleanup ran
         with anyio.move_on_after(5.0):
-            while not Path(cleanup_marker).exists():
+            while not Path(cleanup_marker).exists():  # pragma: no cover
                 await anyio.sleep(0.1)
 
         # Verify the cleanup ran - stdin closure enables graceful shutdown
@@ -243,7 +234,7 @@ async def test_stdin_close_triggers_cleanup():
     finally:
         # Clean up files
         for path in [server_script, startup_marker, cleanup_marker]:
-            try:
+            try:  # pragma: no cover
                 Path(path).unlink()
-            except FileNotFoundError:
+            except FileNotFoundError:  # pragma: no cover
                 pass

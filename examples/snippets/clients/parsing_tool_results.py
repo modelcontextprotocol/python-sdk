@@ -22,9 +22,9 @@ async def parse_tool_results():
 
             # Example 2: Parsing structured content from JSON tools
             result = await session.call_tool("get_user", {"id": "123"})
-            if hasattr(result, "structuredContent") and result.structuredContent:
+            if hasattr(result, "structured_content") and result.structured_content:
                 # Access structured data directly
-                user_data = result.structuredContent
+                user_data = result.structured_content
                 print(f"User: {user_data.get('name')}, Age: {user_data.get('age')}")
 
             # Example 3: Parsing embedded resources
@@ -41,11 +41,11 @@ async def parse_tool_results():
             result = await session.call_tool("generate_chart", {"data": [1, 2, 3]})
             for content in result.content:
                 if isinstance(content, types.ImageContent):
-                    print(f"Image ({content.mimeType}): {len(content.data)} bytes")
+                    print(f"Image ({content.mime_type}): {len(content.data)} bytes")
 
             # Example 5: Handling errors
             result = await session.call_tool("failing_tool", {})
-            if result.isError:
+            if result.is_error:
                 print("Tool execution failed!")
                 for content in result.content:
                     if isinstance(content, types.TextContent):

@@ -4,9 +4,7 @@ from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
 
 class OAuthToken(BaseModel):
-    """
-    See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
-    """
+    """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1"""
 
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"
@@ -21,7 +19,7 @@ class OAuthToken(BaseModel):
             # Bearer is title-cased in the spec, so we normalize it
             # https://datatracker.ietf.org/doc/html/rfc6750#section-4
             return v.title()
-        return v
+        return v  # pragma: no cover
 
 
 class InvalidScopeError(Exception):
@@ -35,15 +33,16 @@ class InvalidRedirectUriError(Exception):
 
 
 class OAuthClientMetadata(BaseModel):
-    """
-    RFC 7591 OAuth 2.0 Dynamic Client Registration metadata.
+    """RFC 7591 OAuth 2.0 Dynamic Client Registration metadata.
     See https://datatracker.ietf.org/doc/html/rfc7591#section-2
     for the full specification.
     """
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
     # supported auth methods for the token endpoint
-    token_endpoint_auth_method: Literal["none", "client_secret_post", "private_key_jwt"] = "client_secret_post"
+    token_endpoint_auth_method: (
+        Literal["none", "client_secret_post", "client_secret_basic", "private_key_jwt"] | None
+    ) = None
     # supported grant_types of this implementation
     grant_types: list[
         Literal["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"] | str
@@ -75,9 +74,9 @@ class OAuthClientMetadata(BaseModel):
         requested_scopes = requested_scope.split(" ")
         allowed_scopes = [] if self.scope is None else self.scope.split(" ")
         for scope in requested_scopes:
-            if scope not in allowed_scopes:
+            if scope not in allowed_scopes:  # pragma: no branch
                 raise InvalidScopeError(f"Client was not registered with scope {scope}")
-        return requested_scopes
+        return requested_scopes  # pragma: no cover
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
@@ -92,8 +91,7 @@ class OAuthClientMetadata(BaseModel):
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):
-    """
-    RFC 7591 OAuth 2.0 Dynamic Client Registration full response
+    """RFC 7591 OAuth 2.0 Dynamic Client Registration full response
     (client information plus metadata).
     """
 
@@ -104,8 +102,7 @@ class OAuthClientInformationFull(OAuthClientMetadata):
 
 
 class OAuthMetadata(BaseModel):
-    """
-    RFC 8414 OAuth 2.0 Authorization Server Metadata.
+    """RFC 8414 OAuth 2.0 Authorization Server Metadata.
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
     """
 
@@ -130,11 +127,11 @@ class OAuthMetadata(BaseModel):
     introspection_endpoint_auth_methods_supported: list[str] | None = None
     introspection_endpoint_auth_signing_alg_values_supported: list[str] | None = None
     code_challenge_methods_supported: list[str] | None = None
+    client_id_metadata_document_supported: bool | None = None
 
 
 class ProtectedResourceMetadata(BaseModel):
-    """
-    RFC 9728 OAuth 2.0 Protected Resource Metadata.
+    """RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
     """
 

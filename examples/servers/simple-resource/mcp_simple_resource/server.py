@@ -3,7 +3,6 @@ import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from pydantic import AnyUrl, FileUrl
 from starlette.requests import Request
 
 SAMPLE_RESOURCES = {
@@ -37,20 +36,23 @@ def main(port: int, transport: str) -> int:
     async def list_resources() -> list[types.Resource]:
         return [
             types.Resource(
-                uri=FileUrl(f"file:///{name}.txt"),
+                uri=f"file:///{name}.txt",
                 name=name,
                 title=SAMPLE_RESOURCES[name]["title"],
                 description=f"A sample text resource named {name}",
-                mimeType="text/plain",
+                mime_type="text/plain",
             )
             for name in SAMPLE_RESOURCES.keys()
         ]
 
     @app.read_resource()
-    async def read_resource(uri: AnyUrl):
-        if uri.path is None:
+    async def read_resource(uri: str):
+        from urllib.parse import urlparse
+
+        parsed = urlparse(uri)
+        if not parsed.path:
             raise ValueError(f"Invalid resource path: {uri}")
-        name = uri.path.replace(".txt", "").lstrip("/")
+        name = parsed.path.replace(".txt", "").lstrip("/")
 
         if name not in SAMPLE_RESOURCES:
             raise ValueError(f"Unknown resource: {uri}")

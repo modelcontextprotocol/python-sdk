@@ -20,9 +20,7 @@ class AuthenticatedUser(SimpleUser):
 
 
 class BearerAuthBackend(AuthenticationBackend):
-    """
-    Authentication backend that validates Bearer tokens using a TokenVerifier.
-    """
+    """Authentication backend that validates Bearer tokens using a TokenVerifier."""
 
     def __init__(self, token_verifier: TokenVerifier):
         self.token_verifier = token_verifier
@@ -50,8 +48,7 @@ class BearerAuthBackend(AuthenticationBackend):
 
 
 class RequireAuthMiddleware:
-    """
-    Middleware that requires a valid Bearer token in the Authorization header.
+    """Middleware that requires a valid Bearer token in the Authorization header.
 
     This will validate the token with the auth provider and store the resulting
     auth info in the request state.
@@ -63,8 +60,7 @@ class RequireAuthMiddleware:
         required_scopes: list[str],
         resource_metadata_url: AnyHttpUrl | None = None,
     ):
-        """
-        Initialize the middleware.
+        """Initialize the middleware.
 
         Args:
             app: ASGI application
@@ -99,7 +95,7 @@ class RequireAuthMiddleware:
         """Send an authentication error response with WWW-Authenticate header."""
         # Build WWW-Authenticate header value
         www_auth_parts = [f'error="{error}"', f'error_description="{description}"']
-        if self.resource_metadata_url:
+        if self.resource_metadata_url:  # pragma: no cover
             www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
 
         www_authenticate = f"Bearer {', '.join(www_auth_parts)}"

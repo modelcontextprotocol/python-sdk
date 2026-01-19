@@ -1,11 +1,17 @@
 import contextlib
 from unittest import mock
 
+import httpx
 import pytest
 
 import mcp
 from mcp import types
-from mcp.client.session_group import ClientSessionGroup, SseServerParameters, StreamableHttpParameters
+from mcp.client.session_group import (
+    ClientSessionGroup,
+    ClientSessionParameters,
+    SseServerParameters,
+    StreamableHttpParameters,
+)
 from mcp.client.stdio import StdioServerParameters
 from mcp.shared.exceptions import McpError
 
@@ -50,11 +56,11 @@ class TestClientSessionGroup:
         mock_session = mock.AsyncMock()
 
         # --- Prepare Session Group ---
-        def hook(name: str, server_info: types.Implementation) -> str:
+        def hook(name: str, server_info: types.Implementation) -> str:  # pragma: no cover
             return f"{(server_info.name)}-{name}"
 
         mcp_session_group = ClientSessionGroup(component_name_hook=hook)
-        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", inputSchema={})}
+        mcp_session_group._tools = {"server1-my_tool": types.Tool(name="my_tool", input_schema={})}
         mcp_session_group._tool_to_session = {"server1-my_tool": mock_session}
         text_content = types.TextContent(type="text", text="OK")
         mock_session.call_tool.return_value = types.CallToolResult(content=[text_content])
@@ -62,7 +68,7 @@ class TestClientSessionGroup:
         # --- Test Execution ---
         result = await mcp_session_group.call_tool(
             name="server1-my_tool",
-            args={
+            arguments={
                 "name": "value1",
                 "args": {},
             },
@@ -72,7 +78,10 @@ class TestClientSessionGroup:
         assert result.content == [text_content]
         mock_session.call_tool.assert_called_once_with(
             "my_tool",
-            {"name": "value1", "args": {}},
+            arguments={"name": "value1", "args": {}},
+            read_timeout_seconds=None,
+            progress_callback=None,
+            meta=None,
         )
 
     async def test_connect_to_server(self, mock_exit_stack: contextlib.AsyncExitStack):
@@ -265,14 +274,14 @@ class TestClientSessionGroup:
                 "mcp.client.session_group.mcp.stdio_client",
             ),
             (
-                SseServerParameters(url="http://test.com/sse", timeout=10),
+                SseServerParameters(url="http://test.com/sse", timeout=10.0),
                 "sse",
                 "mcp.client.session_group.sse_client",
             ),  # url, headers, timeout, sse_read_timeout
             (
                 StreamableHttpParameters(url="http://test.com/stream", terminate_on_close=False),
                 "streamablehttp",
-                "mcp.client.session_group.streamablehttp_client",
+                "mcp.client.session_group.streamable_http_client",
             ),  # url, headers, timeout, sse_read_timeout, terminate_on_close
         ],
     )
@@ -288,7 +297,7 @@ class TestClientSessionGroup:
                 mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")
                 mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
 
-                # streamablehttp_client's __aenter__ returns three values
+                # streamable_http_client's __aenter__ returns three values
                 if client_type_name == "streamablehttp":
                     mock_extra_stream_val = mock.AsyncMock(name="StreamableExtra")
                     mock_client_cm_instance.__aenter__.return_value = (
@@ -316,7 +325,7 @@ class TestClientSessionGroup:
 
                 # Mock session.initialize()
                 mock_initialize_result = mock.AsyncMock(name="InitializeResult")
-                mock_initialize_result.serverInfo = types.Implementation(name="foo", version="1")
+                mock_initialize_result.server_info = types.Implementation(name="foo", version="1")
                 mock_entered_session.initialize.return_value = mock_initialize_result
 
                 # --- Test Execution ---
@@ -329,7 +338,7 @@ class TestClientSessionGroup:
                     (
                         returned_server_info,
                         returned_session,
-                    ) = await group._establish_session(server_params_instance)
+                    ) = await group._establish_session(server_params_instance, ClientSessionParameters())
 
                 # --- Assertions ---
                 # 1. Assert the correct specific client function was called
@@ -344,23 +353,32 @@ class TestClientSessionGroup:
                         timeout=server_params_instance.timeout,
                         sse_read_timeout=server_params_instance.sse_read_timeout,
                     )
-                elif client_type_name == "streamablehttp":
+                elif client_type_name == "streamablehttp":  # pragma: no branch
                     assert isinstance(server_params_instance, StreamableHttpParameters)
-                    mock_specific_client_func.assert_called_once_with(
-                        url=server_params_instance.url,
-                        headers=server_params_instance.headers,
-                        timeout=server_params_instance.timeout,
-                        sse_read_timeout=server_params_instance.sse_read_timeout,
-                        terminate_on_close=server_params_instance.terminate_on_close,
-                    )
+                    # Verify streamable_http_client was called with url, httpx_client, and terminate_on_close
+                    # The http_client is created by the real create_mcp_http_client
+                    call_args = mock_specific_client_func.call_args
+                    assert call_args.kwargs["url"] == server_params_instance.url
+                    assert call_args.kwargs["terminate_on_close"] == server_params_instance.terminate_on_close
+                    assert isinstance(call_args.kwargs["http_client"], httpx.AsyncClient)
 
                 mock_client_cm_instance.__aenter__.assert_awaited_once()
 
                 # 2. Assert ClientSession was called correctly
-                mock_ClientSession_class.assert_called_once_with(mock_read_stream, mock_write_stream)
+                mock_ClientSession_class.assert_called_once_with(
+                    mock_read_stream,
+                    mock_write_stream,
+                    read_timeout_seconds=None,
+                    sampling_callback=None,
+                    elicitation_callback=None,
+                    list_roots_callback=None,
+                    logging_callback=None,
+                    message_handler=None,
+                    client_info=None,
+                )
                 mock_raw_session_cm.__aenter__.assert_awaited_once()
                 mock_entered_session.initialize.assert_awaited_once()
 
                 # 3. Assert returned values
-                assert returned_server_info is mock_initialize_result.serverInfo
+                assert returned_server_info is mock_initialize_result.server_info
                 assert returned_session is mock_entered_session

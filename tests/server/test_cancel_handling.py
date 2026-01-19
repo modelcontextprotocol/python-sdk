@@ -6,9 +6,9 @@ import anyio
 import pytest
 
 import mcp.types as types
+from mcp import Client
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
@@ -38,7 +38,7 @@ async def test_server_remains_functional_after_cancel():
             Tool(
                 name="test_tool",
                 description="Tool for testing",
-                inputSchema={},
+                input_schema={},
             )
         ]
 
@@ -52,13 +52,13 @@ async def test_server_remains_functional_after_cancel():
                 ev_first_call.set()
                 await anyio.sleep(5)  # First call is slow
             return [types.TextContent(type="text", text=f"Call number: {call_count}")]
-        raise ValueError(f"Unknown tool: {name}")
+        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # First request (will be cancelled)
         async def first_request():
             try:
-                await client.send_request(
+                await client.session.send_request(
                     ClientRequest(
                         CallToolRequest(
                             params=CallToolRequestParams(name="test_tool", arguments={}),
@@ -66,7 +66,7 @@ async def test_server_remains_functional_after_cancel():
                     ),
                     CallToolResult,
                 )
-                pytest.fail("First request should have been cancelled")
+                pytest.fail("First request should have been cancelled")  # pragma: no cover
             except McpError:
                 pass  # Expected
 
@@ -79,11 +79,11 @@ async def test_server_remains_functional_after_cancel():
 
             # Cancel it
             assert first_request_id is not None
-            await client.send_notification(
+            await client.session.send_notification(
                 ClientNotification(
                     CancelledNotification(
                         params=CancelledNotificationParams(
-                            requestId=first_request_id,
+                            request_id=first_request_id,
                             reason="Testing server recovery",
                         ),
                     )
@@ -91,14 +91,7 @@ async def test_server_remains_functional_after_cancel():
             )
 
         # Second request (should work normally)
-        result = await client.send_request(
-            ClientRequest(
-                CallToolRequest(
-                    params=CallToolRequestParams(name="test_tool", arguments={}),
-                )
-            ),
-            CallToolResult,
-        )
+        result = await client.call_tool("test_tool", {})
 
         # Verify second request completed successfully
         assert len(result.content) == 1

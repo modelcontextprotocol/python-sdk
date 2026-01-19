@@ -1,5 +1,4 @@
-"""
-Tests for Unicode handling in streamable HTTP transport.
+"""Tests for Unicode handling in streamable HTTP transport.
 
 Verifies that Unicode text is correctly transmitted and received in both directions
 (server→client and client→server) using the streamable HTTP transport.
@@ -7,12 +6,20 @@ Verifies that Unicode text is correctly transmitted and received in both directi
 
 import multiprocessing
 import socket
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
+from typing import Any
 
 import pytest
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
+import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
+from mcp.server import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.types import TextContent, Tool
 from tests.test_helpers import wait_for_server
 
 # Test constants with various Unicode characters
@@ -35,21 +42,9 @@ UNICODE_TEST_STRINGS = {
 }
 
 
-def run_unicode_server(port: int) -> None:
+def run_unicode_server(port: int) -> None:  # pragma: no cover
     """Run the Unicode test server in a separate process."""
-    # Import inside the function since this runs in a separate process
-    from collections.abc import AsyncGenerator
-    from contextlib import asynccontextmanager
-    from typing import Any
-
     import uvicorn
-    from starlette.applications import Starlette
-    from starlette.routing import Mount
-
-    import mcp.types as types
-    from mcp.server import Server
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-    from mcp.types import TextContent, Tool
 
     # Need to recreate the server setup in this process
     server = Server(name="unicode_test_server")
@@ -61,7 +56,7 @@ def run_unicode_server(port: int) -> None:
             Tool(
                 name="echo_unicode",
                 description="🔤 Echo Unicode text - Hello 👋 World 🌍 - Testing 🧪 Unicode ✨",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "text": {"type": "string", "description": "Text to echo back"},
@@ -167,7 +162,7 @@ def running_unicode_server(unicode_server_port: int) -> Generator[str, None, Non
         # Clean up - try graceful termination first
         proc.terminate()
         proc.join(timeout=2)
-        if proc.is_alive():
+        if proc.is_alive():  # pragma: no cover
             proc.kill()
             proc.join(timeout=1)
 
@@ -178,7 +173,7 @@ async def test_streamable_http_client_unicode_tool_call(running_unicode_server: 
     base_url = running_unicode_server
     endpoint_url = f"{base_url}/mcp"
 
-    async with streamablehttp_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
+    async with streamable_http_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
@@ -210,7 +205,7 @@ async def test_streamable_http_client_unicode_prompts(running_unicode_server: st
     base_url = running_unicode_server
     endpoint_url = f"{base_url}/mcp"
 
-    async with streamablehttp_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
+    async with streamable_http_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 

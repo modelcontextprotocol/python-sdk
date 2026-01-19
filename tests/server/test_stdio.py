@@ -29,7 +29,7 @@ async def test_stdio_server():
         received_messages: list[JSONRPCMessage] = []
         async with read_stream:
             async for message in read_stream:
-                if isinstance(message, Exception):
+                if isinstance(message, Exception):  # pragma: no cover
                     raise message
                 received_messages.append(message.message)
                 if len(received_messages) == 2:

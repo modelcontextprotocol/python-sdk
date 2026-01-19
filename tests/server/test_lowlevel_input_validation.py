@@ -50,7 +50,7 @@ async def run_tool_test(
     async def message_handler(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no cover
             raise message
 
     # Server task
@@ -70,7 +70,8 @@ async def run_tool_test(
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    async for message in server_session.incoming_messages:
+                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+                    async for message in server_session.incoming_messages:  # pragma: no cover
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
@@ -102,7 +103,7 @@ def create_add_tool() -> Tool:
     return Tool(
         name="add",
         description="Add two numbers",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "a": {"type": "number"},
@@ -122,7 +123,7 @@ async def test_valid_tool_call():
         if name == "add":
             result = arguments["a"] + arguments["b"]
             return [TextContent(type="text", text=f"Result: {result}")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -132,7 +133,7 @@ async def test_valid_tool_call():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -143,7 +144,7 @@ async def test_valid_tool_call():
 async def test_invalid_tool_call_missing_required():
     """Test that missing required arguments fail validation."""
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
         # This should not be reached due to validation
         raise RuntimeError("Should not reach here")
 
@@ -154,7 +155,7 @@ async def test_invalid_tool_call_missing_required():
 
     # Verify results
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -166,7 +167,7 @@ async def test_invalid_tool_call_missing_required():
 async def test_invalid_tool_call_wrong_type():
     """Test that wrong argument types fail validation."""
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
         # This should not be reached due to validation
         raise RuntimeError("Should not reach here")
 
@@ -177,7 +178,7 @@ async def test_invalid_tool_call_wrong_type():
 
     # Verify results
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -192,7 +193,7 @@ async def test_cache_refresh_on_missing_tool():
         Tool(
             name="multiply",
             description="Multiply two numbers",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "x": {"type": "number"},
@@ -207,7 +208,7 @@ async def test_cache_refresh_on_missing_tool():
         if name == "multiply":
             result = arguments["x"] * arguments["y"]
             return [TextContent(type="text", text=f"Result: {result}")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -219,7 +220,7 @@ async def test_cache_refresh_on_missing_tool():
 
     # Verify results - should work because cache will be refreshed
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -233,7 +234,7 @@ async def test_enum_constraint_validation():
         Tool(
             name="greet",
             description="Greet someone",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
@@ -244,7 +245,7 @@ async def test_enum_constraint_validation():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:  # pragma: no cover
         # This should not be reached due to validation failure
         raise RuntimeError("Should not reach here")
 
@@ -255,7 +256,7 @@ async def test_enum_constraint_validation():
 
     # Verify results
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -270,7 +271,7 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
         Tool(
             name="add",
             description="Add two numbers",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "a": {"type": "number"},
@@ -286,7 +287,7 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
         if name == "unknown_tool":
             # Even with invalid arguments, this should execute since validation is skipped
             return [TextContent(type="text", text="Unknown tool executed without validation")]
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unknown tool: {name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
@@ -299,7 +300,7 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
 
     # Verify results - should succeed because validation is skipped for unknown tools
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)

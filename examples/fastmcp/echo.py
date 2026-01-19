@@ -1,6 +1,4 @@
-"""
-FastMCP Echo Server
-"""
+"""FastMCP Echo Server"""
 
 from mcp.server.fastmcp import FastMCP
 

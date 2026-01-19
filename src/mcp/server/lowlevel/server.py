@@ -1,5 +1,4 @@
-"""
-MCP Server Module
+"""MCP Server Module
 
 This module provides a framework for creating an MCP (Model Context Protocol) server.
 It allows you to easily define and handle various types of requests and notifications
@@ -65,31 +64,35 @@ notifications. It automatically manages the request context and handles incoming
 messages from the client.
 """
 
-from __future__ import annotations as _annotations
+from __future__ import annotations
 
+import base64
 import contextvars
 import json
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from importlib.metadata import version as importlib_version
 from typing import Any, Generic, TypeAlias, cast
 
 import anyio
 import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.experimental.request_context import Experimental
+from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
+from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +138,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         self,
         name: str,
         version: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
@@ -145,6 +150,8 @@ class Server(Generic[LifespanResultT, RequestT]):
     ):
         self.name = name
         self.version = version
+        self.title = title
+        self.description = description
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
@@ -154,6 +161,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         }
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
+        self._experimental_handlers: ExperimentalHandlers | None = None
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -165,17 +173,17 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         def pkg_version(package: str) -> str:
             try:
-                from importlib.metadata import version
-
-                return version(package)
-            except Exception:
+                return importlib_version(package)
+            except Exception:  # pragma: no cover
                 pass
 
-            return "unknown"
+            return "unknown"  # pragma: no cover
 
         return InitializationOptions(
             server_name=self.name,
             server_version=self.version if self.version else pkg_version("mcp"),
+            title=self.title,
+            description=self.description,
             capabilities=self.get_capabilities(
                 notification_options or NotificationOptions(),
                 experimental_capabilities or {},
@@ -199,27 +207,27 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         # Set prompt capabilities if handler exists
         if types.ListPromptsRequest in self.request_handlers:
-            prompts_capability = types.PromptsCapability(listChanged=notification_options.prompts_changed)
+            prompts_capability = types.PromptsCapability(list_changed=notification_options.prompts_changed)
 
         # Set resource capabilities if handler exists
         if types.ListResourcesRequest in self.request_handlers:
             resources_capability = types.ResourcesCapability(
-                subscribe=False, listChanged=notification_options.resources_changed
+                subscribe=False, list_changed=notification_options.resources_changed
             )
 
         # Set tool capabilities if handler exists
         if types.ListToolsRequest in self.request_handlers:
-            tools_capability = types.ToolsCapability(listChanged=notification_options.tools_changed)
+            tools_capability = types.ToolsCapability(list_changed=notification_options.tools_changed)
 
         # Set logging capabilities if handler exists
-        if types.SetLevelRequest in self.request_handlers:
+        if types.SetLevelRequest in self.request_handlers:  # pragma: no cover
             logging_capability = types.LoggingCapability()
 
         # Set completions capabilities if handler exists
         if types.CompleteRequest in self.request_handlers:
             completions_capability = types.CompletionsCapability()
 
-        return types.ServerCapabilities(
+        capabilities = types.ServerCapabilities(
             prompts=prompts_capability,
             resources=resources_capability,
             tools=tools_capability,
@@ -227,6 +235,9 @@ class Server(Generic[LifespanResultT, RequestT]):
             experimental=experimental_capabilities,
             completions=completions_capability,
         )
+        if self._experimental_handlers:
+            self._experimental_handlers.update_capabilities(capabilities)
+        return capabilities
 
     @property
     def request_context(
@@ -234,6 +245,18 @@ class Server(Generic[LifespanResultT, RequestT]):
     ) -> RequestContext[ServerSession, LifespanResultT, RequestT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
+
+    @property
+    def experimental(self) -> ExperimentalHandlers:
+        """Experimental APIs for tasks and other features.
+
+        WARNING: These APIs are experimental and may change without notice.
+        """
+
+        # We create this inline so we only add these capabilities _if_ they're actually used
+        if self._experimental_handlers is None:
+            self._experimental_handlers = ExperimentalHandlers(self, self.request_handlers, self.notification_handlers)
+        return self._experimental_handlers
 
     def list_prompts(self):
         def decorator(
@@ -302,7 +325,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 templates = await func()
-                return types.ServerResult(types.ListResourceTemplatesResult(resourceTemplates=templates))
+                return types.ServerResult(types.ListResourceTemplatesResult(resource_templates=templates))
 
             self.request_handlers[types.ListResourceTemplatesRequest] = handler
             return func
@@ -311,32 +334,34 @@ class Server(Generic[LifespanResultT, RequestT]):
 
     def read_resource(self):
         def decorator(
-            func: Callable[[AnyUrl], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
+            func: Callable[[str], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
         ):
             logger.debug("Registering handler for ReadResourceRequest")
 
             async def handler(req: types.ReadResourceRequest):
                 result = await func(req.params.uri)
 
-                def create_content(data: str | bytes, mime_type: str | None):
+                def create_content(data: str | bytes, mime_type: str | None, meta: dict[str, Any] | None = None):
+                    # Note: ResourceContents uses Field(alias="_meta"), so we must use the alias key
+                    meta_kwargs: dict[str, Any] = {"_meta": meta} if meta is not None else {}
                     match data:
                         case str() as data:
                             return types.TextResourceContents(
                                 uri=req.params.uri,
                                 text=data,
-                                mimeType=mime_type or "text/plain",
+                                mime_type=mime_type or "text/plain",
+                                **meta_kwargs,
                             )
-                        case bytes() as data:
-                            import base64
-
+                        case bytes() as data:  # pragma: no cover
                             return types.BlobResourceContents(
                                 uri=req.params.uri,
                                 blob=base64.b64encode(data).decode(),
-                                mimeType=mime_type or "application/octet-stream",
+                                mime_type=mime_type or "application/octet-stream",
+                                **meta_kwargs,
                             )
 
                 match result:
-                    case str() | bytes() as data:
+                    case str() | bytes() as data:  # pragma: no cover
                         warnings.warn(
                             "Returning str or bytes from read_resource is deprecated. "
                             "Use Iterable[ReadResourceContents] instead.",
@@ -346,17 +371,20 @@ class Server(Generic[LifespanResultT, RequestT]):
                         content = create_content(data, None)
                     case Iterable() as contents:
                         contents_list = [
-                            create_content(content_item.content, content_item.mime_type) for content_item in contents
+                            create_content(
+                                content_item.content, content_item.mime_type, getattr(content_item, "meta", None)
+                            )
+                            for content_item in contents
                         ]
                         return types.ServerResult(
                             types.ReadResourceResult(
                                 contents=contents_list,
                             )
                         )
-                    case _:
+                    case _:  # pragma: no cover
                         raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
 
-                return types.ServerResult(
+                return types.ServerResult(  # pragma: no cover
                     types.ReadResourceResult(
                         contents=[content],
                     )
@@ -367,7 +395,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def set_logging_level(self):
+    def set_logging_level(self):  # pragma: no cover
         def decorator(func: Callable[[types.LoggingLevel], Awaitable[None]]):
             logger.debug("Registering handler for SetLevelRequest")
 
@@ -380,8 +408,8 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def subscribe_resource(self):
-        def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
+    def subscribe_resource(self):  # pragma: no cover
+        def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for SubscribeRequest")
 
             async def handler(req: types.SubscribeRequest):
@@ -393,8 +421,8 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def unsubscribe_resource(self):
-        def decorator(func: Callable[[AnyUrl], Awaitable[None]]):
+    def unsubscribe_resource(self):  # pragma: no cover
+        def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for UnsubscribeRequest")
 
             async def handler(req: types.UnsubscribeRequest):
@@ -419,9 +447,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
 
                 # Handle both old style (list[Tool]) and new style (ListToolsResult)
-                if isinstance(result, types.ListToolsResult):
+                if isinstance(result, types.ListToolsResult):  # pragma: no cover
                     # Refresh the tool cache with returned tools
                     for tool in result.tools:
+                        validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
                     return types.ServerResult(result)
                 else:
@@ -429,6 +458,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Clear and refresh the entire tool cache
                     self._tool_cache.clear()
                     for tool in result:
+                        validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
                     return types.ServerResult(types.ListToolsResult(tools=result))
 
@@ -442,7 +472,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return types.ServerResult(
             types.CallToolResult(
                 content=[types.TextContent(type="text", text=error_message)],
-                isError=True,
+                is_error=True,
             )
         )
 
@@ -479,8 +509,14 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         def decorator(
             func: Callable[
-                ...,
-                Awaitable[UnstructuredContent | StructuredContent | CombinationContent | types.CallToolResult],
+                [str, dict[str, Any]],
+                Awaitable[
+                    UnstructuredContent
+                    | StructuredContent
+                    | CombinationContent
+                    | types.CallToolResult
+                    | types.CreateTaskResult
+                ],
             ],
         ):
             logger.debug("Registering handler for CallToolRequest")
@@ -494,7 +530,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # input validation
                     if validate_input and tool:
                         try:
-                            jsonschema.validate(instance=arguments, schema=tool.inputSchema)
+                            jsonschema.validate(instance=arguments, schema=tool.input_schema)
                         except jsonschema.ValidationError as e:
                             return self._make_error_result(f"Input validation error: {e.message}")
 
@@ -506,6 +542,9 @@ class Server(Generic[LifespanResultT, RequestT]):
                     maybe_structured_content: StructuredContent | None
                     if isinstance(results, types.CallToolResult):
                         return types.ServerResult(results)
+                    elif isinstance(results, types.CreateTaskResult):
+                        # Task-augmented execution returns task info instead of result
+                        return types.ServerResult(results)
                     elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
@@ -513,22 +552,22 @@ class Server(Generic[LifespanResultT, RequestT]):
                         # tool returned structured content only
                         maybe_structured_content = cast(StructuredContent, results)
                         unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
-                    elif hasattr(results, "__iter__"):
+                    elif hasattr(results, "__iter__"):  # pragma: no cover
                         # tool returned unstructured content only
                         unstructured_content = cast(UnstructuredContent, results)
                         maybe_structured_content = None
-                    else:
+                    else:  # pragma: no cover
                         return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
 
                     # output validation
-                    if tool and tool.outputSchema is not None:
+                    if tool and tool.output_schema is not None:
                         if maybe_structured_content is None:
                             return self._make_error_result(
                                 "Output validation error: outputSchema defined but no structured output returned"
                             )
                         else:
                             try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
+                                jsonschema.validate(instance=maybe_structured_content, schema=tool.output_schema)
                             except jsonschema.ValidationError as e:
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
@@ -536,10 +575,14 @@ class Server(Generic[LifespanResultT, RequestT]):
                     return types.ServerResult(
                         types.CallToolResult(
                             content=list(unstructured_content),
-                            structuredContent=maybe_structured_content,
-                            isError=False,
+                            structured_content=maybe_structured_content,
+                            is_error=False,
                         )
                     )
+                except UrlElicitationRequiredError:
+                    # Re-raise UrlElicitationRequiredError so it can be properly handled
+                    # by _handle_request, which converts it to an error response with code -32042
+                    raise
                 except Exception as e:
                     return self._make_error_result(str(e))
 
@@ -556,7 +599,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.ProgressNotification):
                 await func(
-                    req.params.progressToken,
+                    req.params.progress_token,
                     req.params.progress,
                     req.params.total,
                     req.params.message,
@@ -588,7 +631,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     types.CompleteResult(
                         completion=completion
                         if completion is not None
-                        else types.Completion(values=[], total=None, hasMore=None),
+                        else types.Completion(values=[], total=None, has_more=None),
                     )
                 )
 
@@ -624,6 +667,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                 )
             )
 
+            # Configure task support for this session if enabled
+            task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+            if task_support is not None:
+                task_support.configure_session(session)
+                await stack.enter_async_context(task_support.run())
+
             async with anyio.create_task_group() as tg:
                 async for message in session.incoming_messages:
                     logger.debug("Received message: %s", message)
@@ -650,7 +699,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
                 case types.ClientNotification(root=notify):
                     await self._handle_notification(notify)
-                case Exception():
+                case Exception():  # pragma: no cover
                     logger.error(f"Received exception from stream: {message}")
                     await session.send_log_message(
                         level="error",
@@ -660,59 +709,80 @@ class Server(Generic[LifespanResultT, RequestT]):
                     if raise_exceptions:
                         raise message
 
-            for warning in w:
+            for warning in w:  # pragma: no cover
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
 
     async def _handle_request(
         self,
         message: RequestResponder[types.ClientRequest, types.ServerResult],
-        req: Any,
+        req: types.ClientRequestType,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
     ):
         logger.info("Processing request of type %s", type(req).__name__)
-        if handler := self.request_handlers.get(type(req)):  # type: ignore
+
+        if handler := self.request_handlers.get(type(req)):
             logger.debug("Dispatching request of type %s", type(req).__name__)
 
             token = None
             try:
-                # Extract request context from message metadata
+                # Extract request context and close_sse_stream from message metadata
                 request_data = None
-                if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):
+                close_sse_stream_cb = None
+                close_standalone_sse_stream_cb = None
+                if message.message_metadata is not None and isinstance(
+                    message.message_metadata, ServerMessageMetadata
+                ):  # pragma: no cover
                     request_data = message.message_metadata.request_context
+                    close_sse_stream_cb = message.message_metadata.close_sse_stream
+                    close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
 
                 # Set our global state that can be retrieved via
                 # app.get_request_context()
+                client_capabilities = session.client_params.capabilities if session.client_params else None
+                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                # Get task metadata from request params if present
+                task_metadata = None
+                if hasattr(req, "params") and req.params is not None:
+                    task_metadata = getattr(req.params, "task", None)
                 token = request_ctx.set(
                     RequestContext(
                         message.request_id,
                         message.request_meta,
                         session,
                         lifespan_context,
+                        Experimental(
+                            task_metadata=task_metadata,
+                            _client_capabilities=client_capabilities,
+                            _session=session,
+                            _task_support=task_support,
+                        ),
                         request=request_data,
+                        close_sse_stream=close_sse_stream_cb,
+                        close_standalone_sse_stream=close_standalone_sse_stream_cb,
                     )
                 )
                 response = await handler(req)
-            except McpError as err:
+            except McpError as err:  # pragma: no cover
                 response = err.error
-            except anyio.get_cancelled_exc_class():
+            except anyio.get_cancelled_exc_class():  # pragma: no cover
                 logger.info(
                     "Request %s cancelled - duplicate response suppressed",
                     message.request_id,
                 )
                 return
-            except Exception as err:
+            except Exception as err:  # pragma: no cover
                 if raise_exceptions:
                     raise err
                 response = types.ErrorData(code=0, message=str(err), data=None)
             finally:
                 # Reset the global state after we are done
-                if token is not None:
+                if token is not None:  # pragma: no branch
                     request_ctx.reset(token)
 
             await message.respond(response)
-        else:
+        else:  # pragma: no cover
             await message.respond(
                 types.ErrorData(
                     code=types.METHOD_NOT_FOUND,
@@ -728,7 +798,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             try:
                 await handler(notify)
-            except Exception:
+            except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
 

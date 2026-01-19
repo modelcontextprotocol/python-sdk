@@ -1,5 +1,4 @@
-"""
-Authorization Server for MCP Split Demo.
+"""Authorization Server for MCP Split Demo.
 
 This server handles OAuth flows, client registration, and token issuance.
 Can be replaced with enterprise authorization servers like Auth0, Entra ID, etc.
@@ -41,8 +40,7 @@ class AuthServerSettings(BaseModel):
 
 
 class SimpleAuthProvider(SimpleOAuthProvider):
-    """
-    Authorization Server provider with simple demo authentication.
+    """Authorization Server provider with simple demo authentication.
 
     This provider:
     1. Issues MCP tokens after simple credential authentication
@@ -98,8 +96,7 @@ def create_authorization_server(server_settings: AuthServerSettings, auth_settin
 
     # Add token introspection endpoint (RFC 7662) for Resource Servers
     async def introspect_handler(request: Request) -> Response:
-        """
-        Token introspection endpoint for Resource Servers.
+        """Token introspection endpoint for Resource Servers.
 
         Resource Servers call this endpoint to validate tokens without
         needing direct access to token storage.
@@ -158,8 +155,7 @@ async def run_server(server_settings: AuthServerSettings, auth_settings: SimpleA
 @click.command()
 @click.option("--port", default=9000, help="Port to listen on")
 def main(port: int) -> int:
-    """
-    Run the MCP Authorization Server.
+    """Run the MCP Authorization Server.
 
     This server handles OAuth flows and can be used by multiple Resource Servers.
 

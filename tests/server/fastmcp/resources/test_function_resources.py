@@ -1,5 +1,5 @@
 import pytest
-from pydantic import AnyUrl, BaseModel
+from pydantic import BaseModel
 
 from mcp.server.fastmcp.resources import FunctionResource
 
@@ -10,11 +10,11 @@ class TestFunctionResource:
     def test_function_resource_creation(self):
         """Test creating a FunctionResource."""
 
-        def my_func() -> str:
+        def my_func() -> str:  # pragma: no cover
             return "test content"
 
         resource = FunctionResource(
-            uri=AnyUrl("fn://test"),
+            uri="fn://test",
             name="test",
             description="test function",
             fn=my_func,
@@ -33,7 +33,7 @@ class TestFunctionResource:
             return "Hello, world!"
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -49,7 +49,7 @@ class TestFunctionResource:
             return b"Hello, world!"
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -64,7 +64,7 @@ class TestFunctionResource:
             return {"key": "value"}
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -80,7 +80,7 @@ class TestFunctionResource:
             raise ValueError("Test error")
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=failing_func,
         )
@@ -95,7 +95,7 @@ class TestFunctionResource:
             name: str
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=lambda: MyModel(name="test"),
         )
@@ -114,7 +114,7 @@ class TestFunctionResource:
             return CustomData()
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -129,7 +129,7 @@ class TestFunctionResource:
             return "Hello, world!"
 
         resource = FunctionResource(
-            uri=AnyUrl("function://test"),
+            uri="function://test",
             name="test",
             fn=get_data,
         )
@@ -141,7 +141,7 @@ class TestFunctionResource:
     async def test_from_function(self):
         """Test creating a FunctionResource from a function."""
 
-        async def get_data() -> str:
+        async def get_data() -> str:  # pragma: no cover
             """get_data returns a string"""
             return "Hello, world!"
 
@@ -154,4 +154,39 @@ class TestFunctionResource:
         assert resource.description == "get_data returns a string"
         assert resource.mime_type == "text/plain"
         assert resource.name == "test"
-        assert resource.uri == AnyUrl("function://test")
+        assert resource.uri == "function://test"
+
+
+class TestFunctionResourceMetadata:
+    def test_from_function_with_metadata(self):
+        # from_function() accepts meta dict and stores it on the resource for static resources
+
+        def get_data() -> str:  # pragma: no cover
+            return "test data"
+
+        metadata = {"cache_ttl": 300, "tags": ["data", "readonly"]}
+
+        resource = FunctionResource.from_function(
+            fn=get_data,
+            uri="resource://data",
+            meta=metadata,
+        )
+
+        assert resource.meta is not None
+        assert resource.meta == metadata
+        assert resource.meta["cache_ttl"] == 300
+        assert "data" in resource.meta["tags"]
+        assert "readonly" in resource.meta["tags"]
+
+    def test_from_function_without_metadata(self):
+        # meta parameter is optional and defaults to None for backward compatibility
+
+        def get_data() -> str:  # pragma: no cover
+            return "test data"
+
+        resource = FunctionResource.from_function(
+            fn=get_data,
+            uri="resource://data",
+        )
+
+        assert resource.meta is None

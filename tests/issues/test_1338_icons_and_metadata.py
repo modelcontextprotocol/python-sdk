@@ -14,7 +14,7 @@ async def test_icons_and_website_url():
     # Create test icon
     test_icon = Icon(
         src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
-        mimeType="image/png",
+        mime_type="image/png",
         sizes=["1x1"],
     )
 
@@ -23,25 +23,25 @@ async def test_icons_and_website_url():
 
     # Create tool with icon
     @mcp.tool(icons=[test_icon])
-    def test_tool(message: str) -> str:
+    def test_tool(message: str) -> str:  # pragma: no cover
         """A test tool with an icon."""
         return message
 
     # Create resource with icon
     @mcp.resource("test://resource", icons=[test_icon])
-    def test_resource() -> str:
+    def test_resource() -> str:  # pragma: no cover
         """A test resource with an icon."""
         return "test content"
 
     # Create prompt with icon
     @mcp.prompt("test_prompt", icons=[test_icon])
-    def test_prompt(text: str) -> str:
+    def test_prompt(text: str) -> str:  # pragma: no cover
         """A test prompt with an icon."""
         return text
 
     # Create resource template with icon
     @mcp.resource("test://weather/{city}", icons=[test_icon])
-    def test_resource_template(city: str) -> str:
+    def test_resource_template(city: str) -> str:  # pragma: no cover
         """Get weather for a city."""
         return f"Weather for {city}"
 
@@ -51,7 +51,7 @@ async def test_icons_and_website_url():
     assert mcp.icons is not None
     assert len(mcp.icons) == 1
     assert mcp.icons[0].src == test_icon.src
-    assert mcp.icons[0].mimeType == test_icon.mimeType
+    assert mcp.icons[0].mime_type == test_icon.mime_type
     assert mcp.icons[0].sizes == test_icon.sizes
 
     # Test tool includes icon
@@ -86,7 +86,7 @@ async def test_icons_and_website_url():
     assert len(templates) == 1
     template = templates[0]
     assert template.name == "test_resource_template"
-    assert template.uriTemplate == "test://weather/{city}"
+    assert template.uri_template == "test://weather/{city}"
     assert template.icons is not None
     assert len(template.icons) == 1
     assert template.icons[0].src == test_icon.src
@@ -96,15 +96,15 @@ async def test_multiple_icons():
     """Test that multiple icons can be added to tools, resources, and prompts."""
 
     # Create multiple test icons
-    icon1 = Icon(src="data:image/png;base64,icon1", mimeType="image/png", sizes=["16x16"])
-    icon2 = Icon(src="data:image/png;base64,icon2", mimeType="image/png", sizes=["32x32"])
-    icon3 = Icon(src="data:image/png;base64,icon3", mimeType="image/png", sizes=["64x64"])
+    icon1 = Icon(src="data:image/png;base64,icon1", mime_type="image/png", sizes=["16x16"])
+    icon2 = Icon(src="data:image/png;base64,icon2", mime_type="image/png", sizes=["32x32"])
+    icon3 = Icon(src="data:image/png;base64,icon3", mime_type="image/png", sizes=["64x64"])
 
     mcp = FastMCP("MultiIconServer")
 
     # Create tool with multiple icons
     @mcp.tool(icons=[icon1, icon2, icon3])
-    def multi_icon_tool() -> str:
+    def multi_icon_tool() -> str:  # pragma: no cover
         """A tool with multiple icons."""
         return "success"
 
@@ -125,7 +125,7 @@ async def test_no_icons_or_website():
     mcp = FastMCP("BasicServer")
 
     @mcp.tool()
-    def basic_tool() -> str:
+    def basic_tool() -> str:  # pragma: no cover
         """A basic tool without icons."""
         return "success"
 

@@ -10,7 +10,12 @@ import anyio
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, _create_platform_compatible_process, stdio_client
+from mcp.client.stdio import (
+    StdioServerParameters,
+    _create_platform_compatible_process,
+    _terminate_process_tree,
+    stdio_client,
+)
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
@@ -54,7 +59,7 @@ async def test_stdio_client():
         read_messages: list[JSONRPCMessage] = []
         async with read_stream:
             async for message in read_stream:
-                if isinstance(message, Exception):
+                if isinstance(message, Exception):  # pragma: no cover
                     raise message
 
                 read_messages.append(message.message)
@@ -69,7 +74,7 @@ async def test_stdio_client():
 @pytest.mark.anyio
 async def test_stdio_client_bad_path():
     """Check that the connection doesn't hang if process errors."""
-    server_params = StdioServerParameters(command="python", args=["-c", "non-existent-file.py"])
+    server_params = StdioServerParameters(command=sys.executable, args=["-c", "non-existent-file.py"])
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # The session should raise an error when the connection closes
@@ -93,7 +98,7 @@ async def test_stdio_client_nonexistent_command():
     # Should raise an error when trying to start the process
     with pytest.raises(OSError) as exc_info:
         async with stdio_client(server_params) as (_, _):
-            pass
+            pass  # pragma: no cover
 
     # The error should indicate the command was not found (ENOENT: No such file or directory)
     assert exc_info.value.errno == errno.ENOENT
@@ -101,8 +106,7 @@ async def test_stdio_client_nonexistent_command():
 
 @pytest.mark.anyio
 async def test_stdio_client_universal_cleanup():
-    """
-    Test that stdio_client completes cleanup within reasonable time
+    """Test that stdio_client completes cleanup within reasonable time
     even when connected to processes that exit slowly.
     """
 
@@ -144,7 +148,7 @@ async def test_stdio_client_universal_cleanup():
         )
 
     # Check if we timed out
-    if cancel_scope.cancelled_caught:
+    if cancel_scope.cancelled_caught:  # pragma: no cover
         pytest.fail(
             "stdio_client cleanup timed out after 8.0 seconds. "
             "This indicates the cleanup mechanism is hanging and needs fixing."
@@ -153,10 +157,8 @@ async def test_stdio_client_universal_cleanup():
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
-async def test_stdio_client_sigint_only_process():
-    """
-    Test cleanup with a process that ignores SIGTERM but responds to SIGINT.
-    """
+async def test_stdio_client_sigint_only_process():  # pragma: no cover
+    """Test cleanup with a process that ignores SIGTERM but responds to SIGINT."""
     # Create a Python script that ignores SIGTERM but handles SIGINT
     script_content = textwrap.dedent(
         """
@@ -195,7 +197,7 @@ async def test_stdio_client_sigint_only_process():
                 # Exit context triggers cleanup - this should not hang
                 pass
 
-        if cancel_scope.cancelled_caught:
+        if cancel_scope.cancelled_caught:  # pragma: no cover
             raise TimeoutError("Test timed out")
 
         end_time = time.time()
@@ -208,7 +210,7 @@ async def test_stdio_client_sigint_only_process():
             f"Expected < {SIGTERM_IGNORING_PROCESS_TIMEOUT} seconds. "
             "This suggests the cleanup needs SIGINT/SIGKILL fallback."
         )
-    except (TimeoutError, Exception) as e:
+    except (TimeoutError, Exception) as e:  # pragma: no cover
         if isinstance(e, TimeoutError) or "timed out" in str(e):
             pytest.fail(
                 f"stdio_client cleanup timed out after {SIGTERM_IGNORING_PROCESS_TIMEOUT} seconds "
@@ -220,8 +222,7 @@ async def test_stdio_client_sigint_only_process():
 
 
 class TestChildProcessCleanup:
-    """
-    Tests for child process cleanup functionality using _terminate_process_tree.
+    """Tests for child process cleanup functionality using _terminate_process_tree.
 
     These tests verify that child processes are properly terminated when the parent
     is killed, addressing the issue where processes like npx spawn child processes
@@ -247,8 +248,7 @@ class TestChildProcessCleanup:
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_basic_child_process_cleanup(self):
-        """
-        Test basic parent-child process cleanup.
+        """Test basic parent-child process cleanup.
         Parent spawns a single child process that writes continuously to a file.
         """
         # Create a marker file for the child process to write to
@@ -303,7 +303,7 @@ class TestChildProcessCleanup:
             assert os.path.exists(parent_marker), "Parent process didn't start"
 
             # Verify child is writing
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no branch
                 initial_size = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size_after_wait = os.path.getsize(marker_file)
@@ -312,13 +312,11 @@ class TestChildProcessCleanup:
 
             # Terminate using our function
             print("Terminating process and children...")
-            from mcp.client.stdio import _terminate_process_tree
-
             await _terminate_process_tree(proc)
 
             # Verify processes stopped
             await anyio.sleep(0.5)
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no branch
                 size_after_cleanup = os.path.getsize(marker_file)
                 await anyio.sleep(0.5)
                 final_size = os.path.getsize(marker_file)
@@ -335,14 +333,13 @@ class TestChildProcessCleanup:
             for f in [marker_file, parent_marker]:
                 try:
                     os.unlink(f)
-                except OSError:
+                except OSError:  # pragma: no cover
                     pass
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_nested_process_tree(self):
-        """
-        Test nested process tree cleanup (parent → child → grandchild).
+        """Test nested process tree cleanup (parent → child → grandchild).
         Each level writes to a different file to verify all processes are terminated.
         """
         # Create temporary files for each process level
@@ -406,21 +403,19 @@ class TestChildProcessCleanup:
 
             # Verify all are writing
             for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
-                if os.path.exists(file_path):
+                if os.path.exists(file_path):  # pragma: no branch
                     initial_size = os.path.getsize(file_path)
                     await anyio.sleep(0.3)
                     new_size = os.path.getsize(file_path)
                     assert new_size > initial_size, f"{name} process should be writing"
 
             # Terminate the whole tree
-            from mcp.client.stdio import _terminate_process_tree
-
             await _terminate_process_tree(proc)
 
             # Verify all stopped
             await anyio.sleep(0.5)
             for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
-                if os.path.exists(file_path):
+                if os.path.exists(file_path):  # pragma: no branch
                     size1 = os.path.getsize(file_path)
                     await anyio.sleep(0.3)
                     size2 = os.path.getsize(file_path)
@@ -433,14 +428,13 @@ class TestChildProcessCleanup:
             for f in [parent_file, child_file, grandchild_file]:
                 try:
                     os.unlink(f)
-                except OSError:
+                except OSError:  # pragma: no cover
                     pass
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_early_parent_exit(self):
-        """
-        Test cleanup when parent exits during termination sequence.
+        """Test cleanup when parent exits during termination sequence.
         Tests the race condition where parent might die during our termination
         sequence but we can still clean up the children via the process group.
         """
@@ -487,20 +481,18 @@ class TestChildProcessCleanup:
             await anyio.sleep(0.5)
 
             # Verify child is writing
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no cover
                 size1 = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size2 = os.path.getsize(marker_file)
                 assert size2 > size1, "Child should be writing"
 
             # Terminate - this will kill the process group even if parent exits first
-            from mcp.client.stdio import _terminate_process_tree
-
             await _terminate_process_tree(proc)
 
             # Verify child stopped
             await anyio.sleep(0.5)
-            if os.path.exists(marker_file):
+            if os.path.exists(marker_file):  # pragma: no branch
                 size3 = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size4 = os.path.getsize(marker_file)
@@ -512,14 +504,13 @@ class TestChildProcessCleanup:
             # Clean up marker file
             try:
                 os.unlink(marker_file)
-            except OSError:
+            except OSError:  # pragma: no cover
                 pass
 
 
 @pytest.mark.anyio
 async def test_stdio_client_graceful_stdin_exit():
-    """
-    Test that a process exits gracefully when stdin is closed,
+    """Test that a process exits gracefully when stdin is closed,
     without needing SIGTERM or SIGKILL.
     """
     # Create a Python script that exits when stdin is closed
@@ -560,7 +551,7 @@ async def test_stdio_client_graceful_stdin_exit():
         pytest.fail(
             "stdio_client cleanup timed out after 5.0 seconds. "
             "Process should have exited gracefully when stdin was closed."
-        )
+        )  # pragma: no cover
 
     end_time = time.time()
     elapsed = end_time - start_time
@@ -574,8 +565,7 @@ async def test_stdio_client_graceful_stdin_exit():
 
 @pytest.mark.anyio
 async def test_stdio_client_stdin_close_ignored():
-    """
-    Test that when a process ignores stdin closure, the shutdown sequence
+    """Test that when a process ignores stdin closure, the shutdown sequence
     properly escalates to SIGTERM.
     """
     # Create a Python script that ignores stdin closure but responds to SIGTERM
@@ -619,7 +609,7 @@ async def test_stdio_client_stdin_close_ignored():
         pytest.fail(
             "stdio_client cleanup timed out after 7.0 seconds. "
             "Process should have been terminated via SIGTERM escalation."
-        )
+        )  # pragma: no cover
 
     end_time = time.time()
     elapsed = end_time - start_time

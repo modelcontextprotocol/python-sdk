@@ -11,15 +11,16 @@ from mcp.types import ClientNotification, ClientRequest, ClientResult, EmptyResu
 
 @pytest.mark.anyio
 async def test_send_request_stream_cleanup():
-    """
-    Test that send_request properly cleans up streams when an exception occurs.
+    """Test that send_request properly cleans up streams when an exception occurs.
 
     This test mocks out most of the session functionality to focus on stream cleanup.
     """
 
     # Create a mock session with the minimal required functionality
     class TestSession(BaseSession[ClientRequest, ClientNotification, ClientResult, Any, Any]):
-        async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
+        async def _send_response(
+            self, request_id: RequestId, response: SendResultT | ErrorData
+        ) -> None:  # pragma: no cover
             pass
 
     # Create streams

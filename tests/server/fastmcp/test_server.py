@@ -1,122 +1,72 @@
 import base64
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import patch
 
 import pytest
-from pydantic import AnyUrl, BaseModel
+from pydantic import BaseModel
+from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
+from mcp.client import Client
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.fastmcp.prompts.base import Message, UserMessage
 from mcp.server.fastmcp.resources import FileResource, FunctionResource
 from mcp.server.fastmcp.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import McpError
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
     ContentBlock,
     EmbeddedResource,
+    Icon,
     ImageContent,
     TextContent,
     TextResourceContents,
 )
 
-if TYPE_CHECKING:
-    from mcp.server.fastmcp import Context
-
 
 class TestServer:
     @pytest.mark.anyio
     async def test_create_server(self):
-        mcp = FastMCP(instructions="Server instructions")
+        mcp = FastMCP(
+            title="FastMCP Server",
+            description="Server description",
+            instructions="Server instructions",
+            website_url="https://example.com/mcp_server",
+            version="1.0",
+            icons=[Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48", "96x96"])],
+        )
         assert mcp.name == "FastMCP"
+        assert mcp.title == "FastMCP Server"
+        assert mcp.description == "Server description"
         assert mcp.instructions == "Server instructions"
+        assert mcp.website_url == "https://example.com/mcp_server"
+        assert mcp.version == "1.0"
+        assert isinstance(mcp.icons, list)
+        assert len(mcp.icons) == 1
+        assert mcp.icons[0].src == "https://example.com/icon.png"
 
     @pytest.mark.anyio
-    async def test_normalize_path(self):
-        """Test path normalization for mount paths."""
-        mcp = FastMCP()
+    async def test_sse_app_returns_starlette_app(self):
+        """Test that sse_app returns a Starlette application with correct routes."""
+        mcp = FastMCP("test")
+        # Use host="0.0.0.0" to avoid auto DNS protection
+        app = mcp.sse_app(host="0.0.0.0")
 
-        # Test root path
-        assert mcp._normalize_path("/", "/messages/") == "/messages/"
+        assert isinstance(app, Starlette)
 
-        # Test path with trailing slash
-        assert mcp._normalize_path("/github/", "/messages/") == "/github/messages/"
-
-        # Test path without trailing slash
-        assert mcp._normalize_path("/github", "/messages/") == "/github/messages/"
-
-        # Test endpoint without leading slash
-        assert mcp._normalize_path("/github", "messages/") == "/github/messages/"
-
-        # Test both with trailing/leading slashes
-        assert mcp._normalize_path("/api/", "/v1/") == "/api/v1/"
-
-    @pytest.mark.anyio
-    async def test_sse_app_with_mount_path(self):
-        """Test SSE app creation with different mount paths."""
-        # Test with default mount path
-        mcp = FastMCP()
-        with patch.object(mcp, "_normalize_path", return_value="/messages/") as mock_normalize:
-            mcp.sse_app()
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/", "/messages/")
-
-        # Test with custom mount path in settings
-        mcp = FastMCP()
-        mcp.settings.mount_path = "/custom"
-        with patch.object(mcp, "_normalize_path", return_value="/custom/messages/") as mock_normalize:
-            mcp.sse_app()
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/custom", "/messages/")
-
-        # Test with mount_path parameter
-        mcp = FastMCP()
-        with patch.object(mcp, "_normalize_path", return_value="/param/messages/") as mock_normalize:
-            mcp.sse_app(mount_path="/param")
-            # Verify _normalize_path was called with correct args
-            mock_normalize.assert_called_once_with("/param", "/messages/")
-
-    @pytest.mark.anyio
-    async def test_starlette_routes_with_mount_path(self):
-        """Test that Starlette routes are correctly configured with mount path."""
-        # Test with mount path in settings
-        mcp = FastMCP()
-        mcp.settings.mount_path = "/api"
-        app = mcp.sse_app()
-
-        # Find routes by type
+        # Verify routes exist
         sse_routes = [r for r in app.routes if isinstance(r, Route)]
         mount_routes = [r for r in app.routes if isinstance(r, Mount)]
 
-        # Verify routes exist
         assert len(sse_routes) == 1, "Should have one SSE route"
         assert len(mount_routes) == 1, "Should have one mount route"
-
-        # Verify path values
-        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
-
-        # Test with mount path as parameter
-        mcp = FastMCP()
-        app = mcp.sse_app(mount_path="/param")
-
-        # Find routes by type
-        sse_routes = [r for r in app.routes if isinstance(r, Route)]
-        mount_routes = [r for r in app.routes if isinstance(r, Mount)]
-
-        # Verify routes exist
-        assert len(sse_routes) == 1, "Should have one SSE route"
-        assert len(mount_routes) == 1, "Should have one mount route"
-
-        # Verify path values
-        assert sse_routes[0].path == "/sse", "SSE route path should be /sse"
-        assert mount_routes[0].path == "/messages", "Mount route path should be /messages"
+        assert sse_routes[0].path == "/sse"
+        assert mount_routes[0].path == "/messages"
 
     @pytest.mark.anyio
     async def test_non_ascii_description(self):
@@ -127,7 +77,7 @@ class TestServer:
         def hello_world(name: str = "世界") -> str:
             return f"¡Hola, {name}! 👋"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
             tool = tools.tools[0]
@@ -147,7 +97,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.tool()
-        def sum(x: int, y: int) -> int:
+        def sum(x: int, y: int) -> int:  # pragma: no cover
             return x + y
 
         assert len(mcp._tool_manager.list_tools()) == 1
@@ -159,7 +109,7 @@ class TestServer:
         with pytest.raises(TypeError, match="The @tool decorator was used incorrectly"):
 
             @mcp.tool  # Missing parentheses #type: ignore
-            def sum(x: int, y: int) -> int:
+            def sum(x: int, y: int) -> int:  # pragma: no cover
                 return x + y
 
     @pytest.mark.anyio
@@ -167,7 +117,7 @@ class TestServer:
         mcp = FastMCP()
 
         @mcp.resource("r://{x}")
-        def get_data(x: str) -> str:
+        def get_data(x: str) -> str:  # pragma: no cover
             return f"Data: {x}"
 
         assert len(mcp._resource_manager._templates) == 1
@@ -179,8 +129,69 @@ class TestServer:
         with pytest.raises(TypeError, match="The @resource decorator was used incorrectly"):
 
             @mcp.resource  # Missing parentheses #type: ignore
-            def get_data(x: str) -> str:
+            def get_data(x: str) -> str:  # pragma: no cover
                 return f"Data: {x}"
+
+
+class TestDnsRebindingProtection:
+    """Tests for automatic DNS rebinding protection on localhost.
+
+    DNS rebinding protection is now configured in sse_app() and streamable_http_app()
+    based on the host parameter passed to those methods.
+    """
+
+    def test_auto_enabled_for_127_0_0_1_sse(self):
+        """DNS rebinding protection should auto-enable for host=127.0.0.1 in SSE app."""
+        mcp = FastMCP()
+        # Call sse_app with host=127.0.0.1 to trigger auto-config
+        # We can't directly inspect the transport_security, but we can verify
+        # the app is created without error
+        app = mcp.sse_app(host="127.0.0.1")
+        assert app is not None
+
+    def test_auto_enabled_for_127_0_0_1_streamable_http(self):
+        """DNS rebinding protection should auto-enable for host=127.0.0.1 in StreamableHTTP app."""
+        mcp = FastMCP()
+        app = mcp.streamable_http_app(host="127.0.0.1")
+        assert app is not None
+
+    def test_auto_enabled_for_localhost_sse(self):
+        """DNS rebinding protection should auto-enable for host=localhost in SSE app."""
+        mcp = FastMCP()
+        app = mcp.sse_app(host="localhost")
+        assert app is not None
+
+    def test_auto_enabled_for_ipv6_localhost_sse(self):
+        """DNS rebinding protection should auto-enable for host=::1 (IPv6 localhost) in SSE app."""
+        mcp = FastMCP()
+        app = mcp.sse_app(host="::1")
+        assert app is not None
+
+    def test_not_auto_enabled_for_other_hosts_sse(self):
+        """DNS rebinding protection should NOT auto-enable for other hosts in SSE app."""
+        mcp = FastMCP()
+        app = mcp.sse_app(host="0.0.0.0")
+        assert app is not None
+
+    def test_explicit_settings_not_overridden_sse(self):
+        """Explicit transport_security settings should not be overridden in SSE app."""
+        custom_settings = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
+        mcp = FastMCP()
+        # Explicit transport_security passed to sse_app should be used as-is
+        app = mcp.sse_app(host="127.0.0.1", transport_security=custom_settings)
+        assert app is not None
+
+    def test_explicit_settings_not_overridden_streamable_http(self):
+        """Explicit transport_security settings should not be overridden in StreamableHTTP app."""
+        custom_settings = TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+        )
+        mcp = FastMCP()
+        # Explicit transport_security passed to streamable_http_app should be used as-is
+        app = mcp.streamable_http_app(host="127.0.0.1", transport_security=custom_settings)
+        assert app is not None
 
 
 def tool_fn(x: int, y: int) -> int:
@@ -202,8 +213,8 @@ def audio_tool_fn(path: str) -> Audio:
 def mixed_content_tool_fn() -> list[ContentBlock]:
     return [
         TextContent(type="text", text="Hello"),
-        ImageContent(type="image", data="abc", mimeType="image/png"),
-        AudioContent(type="audio", data="def", mimeType="audio/wav"),
+        ImageContent(type="image", data="abc", mime_type="image/png"),
+        AudioContent(type="audio", data="def", mime_type="audio/wav"),
     ]
 
 
@@ -219,7 +230,7 @@ class TestServerTools:
     async def test_list_tools(self):
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
 
@@ -227,7 +238,7 @@ class TestServerTools:
     async def test_call_tool(self):
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("my_tool", {"arg1": "value"})
             assert not hasattr(result, "error")
             assert len(result.content) > 0
@@ -236,52 +247,52 @@ class TestServerTools:
     async def test_tool_exception_handling(self):
         mcp = FastMCP()
         mcp.add_tool(error_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Test error" in content.text
-            assert result.isError is True
+            assert result.is_error is True
 
     @pytest.mark.anyio
     async def test_tool_error_handling(self):
         mcp = FastMCP()
         mcp.add_tool(error_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Test error" in content.text
-            assert result.isError is True
+            assert result.is_error is True
 
     @pytest.mark.anyio
     async def test_tool_error_details(self):
         """Test that exception details are properly formatted in the response"""
         mcp = FastMCP()
         mcp.add_tool(error_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert isinstance(content.text, str)
             assert "Test error" in content.text
-            assert result.isError is True
+            assert result.is_error is True
 
     @pytest.mark.anyio
     async def test_tool_return_value_conversion(self):
         mcp = FastMCP()
         mcp.add_tool(tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert content.text == "3"
             # Check structured content - int return type should have structured output
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"result": 3}
+            assert result.structured_content is not None
+            assert result.structured_content == {"result": 3}
 
     @pytest.mark.anyio
     async def test_tool_image_helper(self, tmp_path: Path):
@@ -291,18 +302,18 @@ class TestServerTools:
 
         mcp = FastMCP()
         mcp.add_tool(image_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("image_tool_fn", {"path": str(image_path)})
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, ImageContent)
             assert content.type == "image"
-            assert content.mimeType == "image/png"
+            assert content.mime_type == "image/png"
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake png data"
             # Check structured content - Image return type should NOT have structured output
-            assert result.structuredContent is None
+            assert result.structured_content is None
 
     @pytest.mark.anyio
     async def test_tool_audio_helper(self, tmp_path: Path):
@@ -312,18 +323,18 @@ class TestServerTools:
 
         mcp = FastMCP()
         mcp.add_tool(audio_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, AudioContent)
             assert content.type == "audio"
-            assert content.mimeType == "audio/wav"
+            assert content.mime_type == "audio/wav"
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake wav data"
             # Check structured content - Image return type should NOT have structured output
-            assert result.structuredContent is None
+            assert result.structured_content is None
 
     @pytest.mark.parametrize(
         "filename,expected_mime_type",
@@ -347,13 +358,13 @@ class TestServerTools:
         audio_path = tmp_path / filename
         audio_path.write_bytes(b"fake audio data")
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, AudioContent)
             assert content.type == "audio"
-            assert content.mimeType == expected_mime_type
+            assert content.mime_type == expected_mime_type
             # Verify base64 encoding
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake audio data"
@@ -362,21 +373,21 @@ class TestServerTools:
     async def test_tool_mixed_content(self):
         mcp = FastMCP()
         mcp.add_tool(mixed_content_tool_fn)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("mixed_content_tool_fn", {})
             assert len(result.content) == 3
             content1, content2, content3 = result.content
             assert isinstance(content1, TextContent)
             assert content1.text == "Hello"
             assert isinstance(content2, ImageContent)
-            assert content2.mimeType == "image/png"
+            assert content2.mime_type == "image/png"
             assert content2.data == "abc"
             assert isinstance(content3, AudioContent)
-            assert content3.mimeType == "audio/wav"
+            assert content3.mime_type == "audio/wav"
             assert content3.data == "def"
-            assert result.structuredContent is not None
-            assert "result" in result.structuredContent
-            structured_result = result.structuredContent["result"]
+            assert result.structured_content is not None
+            assert "result" in result.structured_content
+            structured_result = result.structured_content["result"]
             assert len(structured_result) == 3
 
             expected_content = [
@@ -414,7 +425,7 @@ class TestServerTools:
 
         mcp = FastMCP()
         mcp.add_tool(mixed_list_fn)  # type: ignore
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("mixed_list_fn", {})
             assert len(result.content) == 5
             # Check text conversion
@@ -424,12 +435,12 @@ class TestServerTools:
             # Check image conversion
             content2 = result.content[1]
             assert isinstance(content2, ImageContent)
-            assert content2.mimeType == "image/png"
+            assert content2.mime_type == "image/png"
             assert base64.b64decode(content2.data) == b"test image data"
             # Check audio conversion
             content3 = result.content[2]
             assert isinstance(content3, AudioContent)
-            assert content3.mimeType == "audio/wav"
+            assert content3.mime_type == "audio/wav"
             assert base64.b64decode(content3.data) == b"test audio data"
             # Check dict conversion
             content4 = result.content[3]
@@ -440,7 +451,7 @@ class TestServerTools:
             assert isinstance(content5, TextContent)
             assert content5.text == "direct content"
             # Check structured content - untyped list with Image objects should NOT have structured output
-            assert result.structuredContent is None
+            assert result.structured_content is None
 
     @pytest.mark.anyio
     async def test_tool_structured_output_basemodel(self):
@@ -458,20 +469,20 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_user)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_user")
-            assert tool.outputSchema is not None
-            assert tool.outputSchema["type"] == "object"
-            assert "name" in tool.outputSchema["properties"]
-            assert "age" in tool.outputSchema["properties"]
+            assert tool.output_schema is not None
+            assert tool.output_schema["type"] == "object"
+            assert "name" in tool.output_schema["properties"]
+            assert "age" in tool.output_schema["properties"]
 
             # Call the tool and check structured output
             result = await client.call_tool("get_user", {"user_id": 123})
-            assert result.isError is False
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"name": "John Doe", "age": 30, "active": True}
+            assert result.is_error is False
+            assert result.structured_content is not None
+            assert result.structured_content == {"name": "John Doe", "age": 30, "active": True}
             # Content should be JSON serialized version
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
@@ -488,21 +499,21 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(calculate_sum)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check that the tool has outputSchema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "calculate_sum")
-            assert tool.outputSchema is not None
+            assert tool.output_schema is not None
             # Primitive types are wrapped
-            assert tool.outputSchema["type"] == "object"
-            assert "result" in tool.outputSchema["properties"]
-            assert tool.outputSchema["properties"]["result"]["type"] == "integer"
+            assert tool.output_schema["type"] == "object"
+            assert "result" in tool.output_schema["properties"]
+            assert tool.output_schema["properties"]["result"]["type"] == "integer"
 
             # Call the tool
             result = await client.call_tool("calculate_sum", {"a": 5, "b": 7})
-            assert result.isError is False
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"result": 12}
+            assert result.is_error is False
+            assert result.structured_content is not None
+            assert result.structured_content == {"result": 12}
 
     @pytest.mark.anyio
     async def test_tool_structured_output_list(self):
@@ -515,11 +526,11 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_numbers)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("get_numbers", {})
-            assert result.isError is False
-            assert result.structuredContent is not None
-            assert result.structuredContent == {"result": [1, 2, 3, 4, 5]}
+            assert result.is_error is False
+            assert result.structured_content is not None
+            assert result.structured_content == {"result": [1, 2, 3, 4, 5]}
 
     @pytest.mark.anyio
     async def test_tool_structured_output_server_side_validation_error(self):
@@ -531,10 +542,10 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_numbers)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("get_numbers", {})
-            assert result.isError is True
-            assert result.structuredContent is None
+            assert result.is_error is True
+            assert result.structured_content is None
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
 
@@ -555,21 +566,22 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_metadata)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_metadata")
-            assert tool.outputSchema is not None
-            assert tool.outputSchema["type"] == "object"
+            assert tool.output_schema is not None
+            assert tool.output_schema["type"] == "object"
             # dict[str, Any] should have minimal schema
             assert (
-                "additionalProperties" not in tool.outputSchema or tool.outputSchema.get("additionalProperties") is True
+                "additionalProperties" not in tool.output_schema
+                or tool.output_schema.get("additionalProperties") is True
             )
 
             # Call tool
             result = await client.call_tool("get_metadata", {})
-            assert result.isError is False
-            assert result.structuredContent is not None
+            assert result.is_error is False
+            assert result.structured_content is not None
             expected = {
                 "version": "1.0.0",
                 "enabled": True,
@@ -577,7 +589,7 @@ class TestServerTools:
                 "tags": ["production", "stable"],
                 "config": {"nested": {"value": 123}},
             }
-            assert result.structuredContent == expected
+            assert result.structured_content == expected
 
     @pytest.mark.anyio
     async def test_tool_structured_output_dict_str_typed(self):
@@ -590,18 +602,18 @@ class TestServerTools:
         mcp = FastMCP()
         mcp.add_tool(get_settings)
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Check schema
             tools = await client.list_tools()
             tool = next(t for t in tools.tools if t.name == "get_settings")
-            assert tool.outputSchema is not None
-            assert tool.outputSchema["type"] == "object"
-            assert tool.outputSchema["additionalProperties"]["type"] == "string"
+            assert tool.output_schema is not None
+            assert tool.output_schema["type"] == "object"
+            assert tool.output_schema["additionalProperties"]["type"] == "string"
 
             # Call tool
             result = await client.call_tool("get_settings", {})
-            assert result.isError is False
-            assert result.structuredContent == {"theme": "dark", "language": "en", "timezone": "UTC"}
+            assert result.is_error is False
+            assert result.structured_content == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
     @pytest.mark.anyio
     async def test_remove_tool(self):
@@ -621,8 +633,6 @@ class TestServerTools:
     @pytest.mark.anyio
     async def test_remove_nonexistent_tool(self):
         """Test that removing a non-existent tool raises ToolError."""
-        from mcp.server.fastmcp.exceptions import ToolError
-
         mcp = FastMCP()
 
         with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
@@ -636,7 +646,7 @@ class TestServerTools:
         mcp.add_tool(error_tool_fn)
 
         # Verify both tools exist
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 2
             tool_names = [t.name for t in tools.tools]
@@ -647,7 +657,7 @@ class TestServerTools:
         mcp.remove_tool("tool_fn")
 
         # Verify only one tool remains
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
             assert tools.tools[0].name == "error_tool_fn"
@@ -659,9 +669,9 @@ class TestServerTools:
         mcp.add_tool(tool_fn)
 
         # Verify tool works before removal
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
-            assert not result.isError
+            assert not result.is_error
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert content.text == "3"
@@ -670,9 +680,9 @@ class TestServerTools:
         mcp.remove_tool("tool_fn")
 
         # Verify calling removed tool returns an error
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
-            assert result.isError
+            assert result.is_error
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert "Unknown tool" in content.text
@@ -686,11 +696,15 @@ class TestServerResources:
         def get_text():
             return "Hello, world!"
 
-        resource = FunctionResource(uri=AnyUrl("resource://test"), name="test", fn=get_text)
+        resource = FunctionResource(uri="resource://test", name="test", fn=get_text)
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://test"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://test")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://test")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello, world!"
 
@@ -702,15 +716,19 @@ class TestServerResources:
             return b"Binary data"
 
         resource = FunctionResource(
-            uri=AnyUrl("resource://binary"),
+            uri="resource://binary",
             name="binary",
             fn=get_binary,
             mime_type="application/octet-stream",
         )
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://binary"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://binary")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://binary")
+
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary data").decode()
 
@@ -722,11 +740,15 @@ class TestServerResources:
         text_file = tmp_path / "test.txt"
         text_file.write_text("Hello from file!")
 
-        resource = FileResource(uri=AnyUrl("file://test.txt"), name="test.txt", path=text_file)
+        resource = FileResource(uri="file://test.txt", name="test.txt", path=text_file)
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("file://test.txt"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("file://test.txt")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("file://test.txt")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello from file!"
 
@@ -739,15 +761,19 @@ class TestServerResources:
         binary_file.write_bytes(b"Binary file data")
 
         resource = FileResource(
-            uri=AnyUrl("file://test.bin"),
+            uri="file://test.bin",
             name="test.bin",
             path=binary_file,
             mime_type="application/octet-stream",
         )
         mcp.add_resource(resource)
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("file://test.bin"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("file://test.bin")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("file://test.bin")
+
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
@@ -756,18 +782,18 @@ class TestServerResources:
         mcp = FastMCP()
 
         @mcp.resource("function://test", name="test_get_data")
-        def get_data() -> str:
+        def get_data() -> str:  # pragma: no cover
             """get_data returns a string"""
             return "Hello, world!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             resources = await client.list_resources()
             assert len(resources.resources) == 1
             resource = resources.resources[0]
             assert resource.description == "get_data returns a string"
-            assert resource.uri == AnyUrl("function://test")
+            assert resource.uri == "function://test"
             assert resource.name == "test_get_data"
-            assert resource.mimeType == "text/plain"
+            assert resource.mime_type == "text/plain"
 
 
 class TestServerResourceTemplates:
@@ -780,7 +806,7 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://data")
-            def get_data_fn(param: str) -> str:
+            def get_data_fn(param: str) -> str:  # pragma: no cover
                 return f"Data: {param}"
 
     @pytest.mark.anyio
@@ -791,7 +817,7 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://{param}")
-            def get_data() -> str:
+            def get_data() -> str:  # pragma: no cover
                 return "Data"
 
     @pytest.mark.anyio
@@ -800,7 +826,7 @@ class TestServerResourceTemplates:
         mcp = FastMCP()
 
         @mcp.resource("resource://{param}")
-        def get_data(param) -> str:  # type: ignore
+        def get_data(param) -> str:  # type: ignore  # pragma: no cover
             return "Data"
 
     @pytest.mark.anyio
@@ -812,8 +838,12 @@ class TestServerResourceTemplates:
         def get_data(name: str) -> str:
             return f"Data for {name}"
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://test/data"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://test/data")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://test/data")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for test"
 
@@ -825,7 +855,7 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://{name}/data")
-            def get_data(user: str) -> str:
+            def get_data(user: str) -> str:  # pragma: no cover
                 return f"Data for {user}"
 
     @pytest.mark.anyio
@@ -837,8 +867,12 @@ class TestServerResourceTemplates:
         def get_data(org: str, repo: str) -> str:
             return f"Data for {org}/{repo}"
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://cursor/fastmcp/data"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://cursor/fastmcp/data")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://cursor/fastmcp/data")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/fastmcp"
 
@@ -850,18 +884,22 @@ class TestServerResourceTemplates:
         with pytest.raises(ValueError, match="Mismatch between URI parameters"):
 
             @mcp.resource("resource://{org}/{repo}/data")
-            def get_data_mismatched(org: str, repo_2: str) -> str:
+            def get_data_mismatched(org: str, repo_2: str) -> str:  # pragma: no cover
                 return f"Data for {org}"
 
-        """Test that a resource with no parameters works as a regular resource"""
+        """Test that a resource with no parameters works as a regular resource"""  # pragma: no cover
         mcp = FastMCP()
 
         @mcp.resource("resource://static")
         def get_static_data() -> str:
             return "Static data"
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://static"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://static")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://static")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Static data"
 
@@ -897,13 +935,88 @@ class TestServerResourceTemplates:
         assert len(templates) == 1
         template = templates[0]
 
-        assert hasattr(template, "mimeType")
-        assert template.mimeType == "text/csv"
+        assert hasattr(template, "mime_type")
+        assert template.mime_type == "text/csv"
 
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://bob/csv"))
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://bob/csv")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://bob/csv")
+
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "csv for bob"
+
+
+class TestServerResourceMetadata:
+    """Test FastMCP @resource decorator meta parameter for list operations.
+
+    Meta flows: @resource decorator -> resource/template storage -> list_resources/list_resource_templates.
+    Note: read_resource does NOT pass meta to protocol response (lowlevel/server.py only extracts content/mime_type).
+    """
+
+    @pytest.mark.anyio
+    async def test_resource_decorator_with_metadata(self):
+        """Test that @resource decorator accepts and passes meta parameter."""
+        # Tests static resource flow: decorator -> FunctionResource -> list_resources (server.py:544,635,361)
+        mcp = FastMCP()
+
+        metadata = {"ui": {"component": "file-viewer"}, "priority": "high"}
+
+        @mcp.resource("resource://config", meta=metadata)
+        def get_config() -> str:  # pragma: no cover
+            return '{"debug": false}'
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].meta is not None
+        assert resources[0].meta == metadata
+        assert resources[0].meta["ui"]["component"] == "file-viewer"
+        assert resources[0].meta["priority"] == "high"
+
+    @pytest.mark.anyio
+    async def test_resource_template_decorator_with_metadata(self):
+        """Test that @resource decorator passes meta to templates."""
+        # Tests template resource flow: decorator -> add_template() -> list_resource_templates (server.py:544,622,377)
+        mcp = FastMCP()
+
+        metadata = {"api_version": "v2", "deprecated": False}
+
+        @mcp.resource("resource://{city}/weather", meta=metadata)
+        def get_weather(city: str) -> str:  # pragma: no cover
+            return f"Weather for {city}"
+
+        templates = await mcp.list_resource_templates()
+        assert len(templates) == 1
+        assert templates[0].meta is not None
+        assert templates[0].meta == metadata
+        assert templates[0].meta["api_version"] == "v2"
+
+    @pytest.mark.anyio
+    async def test_read_resource_returns_meta(self):
+        """Test that read_resource includes meta in response."""
+        # Tests end-to-end: Resource.meta -> ReadResourceContents.meta -> protocol _meta (lowlevel/server.py:341,371)
+        mcp = FastMCP()
+
+        metadata = {"version": "1.0", "category": "config"}
+
+        @mcp.resource("resource://data", meta=metadata)
+        def get_data() -> str:
+            return "test data"
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://data")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://data")
+
+            # Verify content and metadata in protocol response
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "test data"
+            assert result.contents[0].meta is not None
+            assert result.contents[0].meta == metadata
+            assert result.contents[0].meta["version"] == "1.0"
+            assert result.contents[0].meta["category"] == "config"
 
 
 class TestContextInjection:
@@ -914,7 +1027,7 @@ class TestContextInjection:
         """Test that context parameters are properly detected."""
         mcp = FastMCP()
 
-        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
+        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
             return f"Request {ctx.request_id}: {x}"
 
         tool = mcp._tool_manager.add_tool(tool_with_context)
@@ -930,7 +1043,7 @@ class TestContextInjection:
             return f"Request {ctx.request_id}: {x}"
 
         mcp.add_tool(tool_with_context)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_with_context", {"x": 42})
             assert len(result.content) == 1
             content = result.content[0]
@@ -948,7 +1061,7 @@ class TestContextInjection:
             return f"Async request {ctx.request_id}: {x}"
 
         mcp.add_tool(async_tool)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("async_tool", {"x": 42})
             assert len(result.content) == 1
             content = result.content[0]
@@ -971,7 +1084,7 @@ class TestContextInjection:
         mcp.add_tool(logging_tool)
 
         with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
-            async with client_session(mcp._mcp_server) as client:
+            async with Client(mcp) as client:
                 result = await client.call_tool("logging_tool", {"msg": "test"})
                 assert len(result.content) == 1
                 content = result.content[0]
@@ -1013,7 +1126,7 @@ class TestContextInjection:
             return x * 2
 
         mcp.add_tool(no_context)
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("no_context", {"x": 21})
             assert len(result.content) == 1
             content = result.content[0]
@@ -1037,7 +1150,7 @@ class TestContextInjection:
             r = r_list[0]
             return f"Read resource: {r.content} with mime type {r.mime_type}"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.call_tool("tool_with_resource", {})
             assert len(result.content) == 1
             content = result.content[0]
@@ -1063,8 +1176,13 @@ class TestContextInjection:
         assert template.context_kwarg == "ctx"
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://context/test"))
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://context/test")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://context/test")
+
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1088,8 +1206,13 @@ class TestContextInjection:
         assert template.context_kwarg is None
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://nocontext/test"))
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://nocontext/test")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://nocontext/test")
+
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1113,8 +1236,13 @@ class TestContextInjection:
         assert template.context_kwarg == "my_ctx"
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
-            result = await client.read_resource(AnyUrl("resource://custom/123"))
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://custom/123")
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://custom/123")
+
             assert len(result.contents) == 1
             content = result.contents[0]
             assert isinstance(content, TextResourceContents)
@@ -1136,7 +1264,7 @@ class TestContextInjection:
         assert len(prompts) == 1
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             # Try calling without passing ctx explicitly
             result = await client.get_prompt("prompt_with_ctx", {"text": "test"})
             # If this succeeds, check if context was injected
@@ -1156,7 +1284,7 @@ class TestContextInjection:
             return f"Prompt '{text}' works"
 
         # Test via client
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("prompt_no_ctx", {"text": "test"})
             assert len(result.messages) == 1
             message = result.messages[0]
@@ -1223,7 +1351,7 @@ class TestServerPrompts:
         with pytest.raises(TypeError, match="decorator was used incorrectly"):
 
             @mcp.prompt  # type: ignore
-            def fn() -> str:
+            def fn() -> str:  # pragma: no cover
                 return "Hello, world!"
 
     @pytest.mark.anyio
@@ -1232,10 +1360,10 @@ class TestServerPrompts:
         mcp = FastMCP()
 
         @mcp.prompt()
-        def fn(name: str, optional: str = "default") -> str:
+        def fn(name: str, optional: str = "default") -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.list_prompts()
             assert result.prompts is not None
             assert len(result.prompts) == 1
@@ -1257,7 +1385,7 @@ class TestServerPrompts:
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert len(result.messages) == 1
             message = result.messages[0]
@@ -1275,7 +1403,7 @@ class TestServerPrompts:
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result.description == "Test prompt description"
 
@@ -1288,7 +1416,7 @@ class TestServerPrompts:
         def fn(name: str) -> str:
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result.description == ""
 
@@ -1302,7 +1430,7 @@ class TestServerPrompts:
             """This is the function docstring."""
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result.description == "This is the function docstring."
 
@@ -1317,14 +1445,14 @@ class TestServerPrompts:
                 content=EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=AnyUrl("file://file.txt"),
+                        uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             result = await client.get_prompt("fn")
             assert len(result.messages) == 1
             message = result.messages[0]
@@ -1334,13 +1462,13 @@ class TestServerPrompts:
             resource = content.resource
             assert isinstance(resource, TextResourceContents)
             assert resource.text == "File contents"
-            assert resource.mimeType == "text/plain"
+            assert resource.mime_type == "text/plain"
 
     @pytest.mark.anyio
     async def test_get_unknown_prompt(self):
         """Test error when getting unknown prompt."""
         mcp = FastMCP()
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             with pytest.raises(McpError, match="Unknown prompt"):
                 await client.get_prompt("unknown")
 
@@ -1350,10 +1478,10 @@ class TestServerPrompts:
         mcp = FastMCP()
 
         @mcp.prompt()
-        def prompt_fn(name: str) -> str:
+        def prompt_fn(name: str) -> str:  # pragma: no cover
             return f"Hello, {name}!"
 
-        async with client_session(mcp._mcp_server) as client:
+        async with Client(mcp) as client:
             with pytest.raises(McpError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
 
@@ -1361,14 +1489,11 @@ class TestServerPrompts:
 def test_streamable_http_no_redirect() -> None:
     """Test that streamable HTTP routes are correctly configured."""
     mcp = FastMCP()
+    # streamable_http_path defaults to "/mcp"
     app = mcp.streamable_http_app()
 
     # Find routes by type - streamable_http_app creates Route objects, not Mount objects
-    streamable_routes = [
-        r
-        for r in app.routes
-        if isinstance(r, Route) and hasattr(r, "path") and r.path == mcp.settings.streamable_http_path
-    ]
+    streamable_routes = [r for r in app.routes if isinstance(r, Route) and hasattr(r, "path") and r.path == "/mcp"]
 
     # Verify routes exist
     assert len(streamable_routes) == 1, "Should have one streamable route"

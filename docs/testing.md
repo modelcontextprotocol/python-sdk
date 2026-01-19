@@ -1,10 +1,11 @@
 # Testing MCP Servers
 
-If you call yourself a developer, you will want to test your MCP server.
-The Python SDK offers the `create_connected_server_and_client_session` function to create a session
-using an in-memory transport. I know, I know, the name is too long... We are working on improving it.
+The Python SDK provides a `Client` class for testing MCP servers with an in-memory transport.
+This makes it easy to write tests without network overhead.
 
-Anyway, let's assume you have a simple server with a single tool:
+## Basic Usage
+
+Let's assume you have a simple server with a single tool:
 
 ```python title="server.py"
 from mcp.server import FastMCP
@@ -40,12 +41,9 @@ To run the below test, you'll need to install the following dependencies:
     server - you don't need to use it, but we are spreading the word for best practices.
 
 ```python title="test_server.py"
-from collections.abc import AsyncGenerator
-
 import pytest
 from inline_snapshot import snapshot
-from mcp.client.session import ClientSession
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp import Client
 from mcp.types import CallToolResult, TextContent
 
 from server import app
@@ -57,14 +55,14 @@ def anyio_backend():  # (1)!
 
 
 @pytest.fixture
-async def client_session() -> AsyncGenerator[ClientSession]:
-    async with create_connected_server_and_client_session(app, raise_exceptions=True) as _session:
-        yield _session
+async def client():  # (2)!
+    async with Client(app, raise_exceptions=True) as c:
+        yield c
 
 
 @pytest.mark.anyio
-async def test_call_add_tool(client_session: ClientSession):
-    result = await client_session.call_tool("add", {"a": 1, "b": 2})
+async def test_call_add_tool(client: Client):
+    result = await client.call_tool("add", {"a": 1, "b": 2})
     assert result == snapshot(
         CallToolResult(
             content=[TextContent(type="text", text="3")],
@@ -74,5 +72,6 @@ async def test_call_add_tool(client_session: ClientSession):
 ```
 
 1. If you are using `trio`, you should set `"trio"` as the `anyio_backend`. Check more information in the [anyio documentation](https://anyio.readthedocs.io/en/stable/testing.html#specifying-the-backends-to-run-on).
+2. The `client` fixture creates a connected client that can be reused across multiple tests.
 
 There you go! You can now extend your tests to cover more scenarios.

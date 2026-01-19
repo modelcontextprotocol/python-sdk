@@ -1,27 +1,40 @@
+import inspect
 import logging
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
 
+import jsonschema
 import pytest
 
+from mcp import Client
 from mcp.server.lowlevel import Server
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
 from mcp.types import Tool
 
 
 @contextmanager
 def bypass_server_output_validation():
-    """
-    Context manager that bypasses server-side output validation.
+    """Context manager that bypasses server-side output validation.
     This simulates a malicious or non-compliant server that doesn't validate
     its outputs, allowing us to test client-side validation.
     """
-    # Patch jsonschema.validate in the server module to disable all validation
-    with patch("mcp.server.lowlevel.server.jsonschema.validate"):
-        # The mock will simply return None (do nothing) for all validation calls
+    # Save the original validate function
+    original_validate = jsonschema.validate
+
+    # Create a mock that tracks which module is calling it
+    def selective_mock(instance: Any = None, schema: Any = None, *args: Any, **kwargs: Any) -> None:
+        # Check the call stack to see where this is being called from
+        for frame_info in inspect.stack():
+            # If called from the server module, skip validation
+            # TODO: fix this as it's a rather gross workaround and will eventually break
+            # Normalize path separators for cross-platform compatibility
+            normalized_path = frame_info.filename.replace("\\", "/")
+            if "mcp/server/lowlevel/server.py" in normalized_path:
+                return None
+        # Otherwise, use the real validation (for client-side)
+        return original_validate(instance=instance, schema=schema, *args, **kwargs)
+
+    with patch("jsonschema.validate", selective_mock):
         yield
 
 
@@ -48,8 +61,8 @@ class TestClientOutputSchemaValidation:
                 Tool(
                     name="get_user",
                     description="Get user data",
-                    inputSchema={"type": "object"},
-                    outputSchema=output_schema,
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
                 )
             ]
 
@@ -61,7 +74,7 @@ class TestClientOutputSchemaValidation:
 
         # Test that client validates the structured content
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("get_user", {})
@@ -87,8 +100,8 @@ class TestClientOutputSchemaValidation:
                 Tool(
                     name="calculate",
                     description="Calculate something",
-                    inputSchema={"type": "object"},
-                    outputSchema=output_schema,
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
                 )
             ]
 
@@ -98,7 +111,7 @@ class TestClientOutputSchemaValidation:
             return {"result": "not_a_number"}  # Invalid: should be int
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("calculate", {})
@@ -118,8 +131,8 @@ class TestClientOutputSchemaValidation:
                 Tool(
                     name="get_scores",
                     description="Get scores",
-                    inputSchema={"type": "object"},
-                    outputSchema=output_schema,
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
                 )
             ]
 
@@ -129,7 +142,7 @@ class TestClientOutputSchemaValidation:
             return {"alice": "100", "bob": "85"}  # Invalid: values should be int
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("get_scores", {})
@@ -153,8 +166,8 @@ class TestClientOutputSchemaValidation:
                 Tool(
                     name="get_person",
                     description="Get person data",
-                    inputSchema={"type": "object"},
-                    outputSchema=output_schema,
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
                 )
             ]
 
@@ -164,7 +177,7 @@ class TestClientOutputSchemaValidation:
             return {"name": "John", "age": 30}  # Missing required 'email'
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # The client validates structured content and should raise an error
                 with pytest.raises(RuntimeError) as exc_info:
                     await client.call_tool("get_person", {})
@@ -172,7 +185,7 @@ class TestClientOutputSchemaValidation:
 
     @pytest.mark.anyio
     async def test_tool_not_listed_warning(self, caplog: pytest.LogCaptureFixture):
-        """Test that client logs warning when tool is not in list_tools but has outputSchema"""
+        """Test that client logs warning when tool is not in list_tools but has output_schema"""
         server = Server("test-server")
 
         @server.list_tools()
@@ -189,11 +202,11 @@ class TestClientOutputSchemaValidation:
         caplog.set_level(logging.WARNING)
 
         with bypass_server_output_validation():
-            async with client_session(server) as client:
+            async with Client(server) as client:
                 # Call a tool that wasn't listed
                 result = await client.call_tool("mystery_tool", {})
-                assert result.structuredContent == {"result": 42}
-                assert result.isError is False
+                assert result.structured_content == {"result": 42}
+                assert result.is_error is False
 
                 # Check that warning was logged
                 assert "Tool mystery_tool not listed" in caplog.text

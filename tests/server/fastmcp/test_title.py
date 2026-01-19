@@ -1,13 +1,36 @@
 """Integration tests for title field functionality."""
 
 import pytest
-from pydantic import AnyUrl
 
+from mcp import Client
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.shared.metadata_utils import get_display_name
 from mcp.types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
+
+
+@pytest.mark.anyio
+async def test_server_name_title_description_version():
+    """Test that server title and description are set and retrievable correctly."""
+    mcp = FastMCP(
+        name="TestServer",
+        title="Test Server Title",
+        description="This is a test server description.",
+        version="1.0",
+    )
+
+    assert mcp.title == "Test Server Title"
+    assert mcp.description == "This is a test server description."
+    assert mcp.version == "1.0"
+
+    # Start server and connect client
+    async with Client(mcp) as client:
+        # Access initialization result from session
+        init_result = await client.session.initialize()
+        assert init_result.server_info.name == "TestServer"
+        assert init_result.server_info.title == "Test Server Title"
+        assert init_result.server_info.description == "This is a test server description."
+        assert init_result.server_info.version == "1.0"
 
 
 @pytest.mark.anyio
@@ -18,29 +41,27 @@ async def test_tool_title_precedence():
 
     # Tool with only name
     @mcp.tool(description="Basic tool")
-    def basic_tool(message: str) -> str:
+    def basic_tool(message: str) -> str:  # pragma: no cover
         return message
 
     # Tool with title
     @mcp.tool(description="Tool with title", title="User-Friendly Tool")
-    def tool_with_title(message: str) -> str:
+    def tool_with_title(message: str) -> str:  # pragma: no cover
         return message
 
     # Tool with annotations.title (when title is not supported on decorator)
     # We'll need to add this manually after registration
     @mcp.tool(description="Tool with annotations")
-    def tool_with_annotations(message: str) -> str:
+    def tool_with_annotations(message: str) -> str:  # pragma: no cover
         return message
 
     # Tool with both title and annotations.title
     @mcp.tool(description="Tool with both", title="Primary Title")
-    def tool_with_both(message: str) -> str:
+    def tool_with_both(message: str) -> str:  # pragma: no cover
         return message
 
     # Start server and connect client
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
-        await client.initialize()
-
+    async with Client(mcp) as client:
         # List tools
         tools_result = await client.list_tools()
         tools = {tool.name: tool for tool in tools_result.tools}
@@ -73,18 +94,16 @@ async def test_prompt_title():
 
     # Prompt with only name
     @mcp.prompt(description="Basic prompt")
-    def basic_prompt(topic: str) -> str:
+    def basic_prompt(topic: str) -> str:  # pragma: no cover
         return f"Tell me about {topic}"
 
     # Prompt with title
     @mcp.prompt(description="Titled prompt", title="Ask About Topic")
-    def titled_prompt(topic: str) -> str:
+    def titled_prompt(topic: str) -> str:  # pragma: no cover
         return f"Tell me about {topic}"
 
     # Start server and connect client
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
-        await client.initialize()
-
+    async with Client(mcp) as client:
         # List prompts
         prompts_result = await client.list_prompts()
         prompts = {prompt.name: prompt for prompt in prompts_result.prompts}
@@ -107,11 +126,11 @@ async def test_resource_title():
     mcp = FastMCP(name="ResourceTitleServer")
 
     # Static resource without title
-    def get_basic_data() -> str:
+    def get_basic_data() -> str:  # pragma: no cover
         return "Basic data"
 
     basic_resource = FunctionResource(
-        uri=AnyUrl("resource://basic"),
+        uri="resource://basic",
         name="basic_resource",
         description="Basic resource",
         fn=get_basic_data,
@@ -119,11 +138,11 @@ async def test_resource_title():
     mcp.add_resource(basic_resource)
 
     # Static resource with title
-    def get_titled_data() -> str:
+    def get_titled_data() -> str:  # pragma: no cover
         return "Titled data"
 
     titled_resource = FunctionResource(
-        uri=AnyUrl("resource://titled"),
+        uri="resource://titled",
         name="titled_resource",
         title="User-Friendly Resource",
         description="Resource with title",
@@ -133,18 +152,16 @@ async def test_resource_title():
 
     # Dynamic resource without title
     @mcp.resource("resource://dynamic/{id}")
-    def dynamic_resource(id: str) -> str:
+    def dynamic_resource(id: str) -> str:  # pragma: no cover
         return f"Data for {id}"
 
     # Dynamic resource with title (when supported)
     @mcp.resource("resource://titled-dynamic/{id}", title="Dynamic Data")
-    def titled_dynamic_resource(id: str) -> str:
+    def titled_dynamic_resource(id: str) -> str:  # pragma: no cover
         return f"Data for {id}"
 
     # Start server and connect client
-    async with create_connected_server_and_client_session(mcp._mcp_server) as client:
-        await client.initialize()
-
+    async with Client(mcp) as client:
         # List resources
         resources_result = await client.list_resources()
         resources = {str(res.uri): res for res in resources_result.resources}
@@ -162,7 +179,7 @@ async def test_resource_title():
 
         # List resource templates
         templates_result = await client.list_resource_templates()
-        templates = {tpl.uriTemplate: tpl for tpl in templates_result.resourceTemplates}
+        templates = {tpl.uri_template: tpl for tpl in templates_result.resource_templates}
 
         # Verify dynamic resource template
         assert "resource://dynamic/{id}" in templates
@@ -171,7 +188,7 @@ async def test_resource_title():
         assert dynamic.name == "dynamic_resource"
 
         # Verify titled dynamic resource template (when supported)
-        if "resource://titled-dynamic/{id}" in templates:
+        if "resource://titled-dynamic/{id}" in templates:  # pragma: no branch
             titled_dynamic = templates["resource://titled-dynamic/{id}"]
             assert titled_dynamic.title == "Dynamic Data"
 
@@ -181,25 +198,25 @@ async def test_get_display_name_utility():
     """Test the get_display_name utility function."""
 
     # Test tool precedence: title > annotations.title > name
-    tool_name_only = Tool(name="test_tool", inputSchema={})
+    tool_name_only = Tool(name="test_tool", input_schema={})
     assert get_display_name(tool_name_only) == "test_tool"
 
-    tool_with_title = Tool(name="test_tool", title="Test Tool", inputSchema={})
+    tool_with_title = Tool(name="test_tool", title="Test Tool", input_schema={})
     assert get_display_name(tool_with_title) == "Test Tool"
 
-    tool_with_annotations = Tool(name="test_tool", inputSchema={}, annotations=ToolAnnotations(title="Annotated Tool"))
+    tool_with_annotations = Tool(name="test_tool", input_schema={}, annotations=ToolAnnotations(title="Annotated Tool"))
     assert get_display_name(tool_with_annotations) == "Annotated Tool"
 
     tool_with_both = Tool(
-        name="test_tool", title="Primary Title", inputSchema={}, annotations=ToolAnnotations(title="Secondary Title")
+        name="test_tool", title="Primary Title", input_schema={}, annotations=ToolAnnotations(title="Secondary Title")
     )
     assert get_display_name(tool_with_both) == "Primary Title"
 
     # Test other types: title > name
-    resource = Resource(uri=AnyUrl("file://test"), name="test_res")
+    resource = Resource(uri="file://test", name="test_res")
     assert get_display_name(resource) == "test_res"
 
-    resource_with_title = Resource(uri=AnyUrl("file://test"), name="test_res", title="Test Resource")
+    resource_with_title = Resource(uri="file://test", name="test_res", title="Test Resource")
     assert get_display_name(resource_with_title) == "Test Resource"
 
     prompt = Prompt(name="test_prompt")
@@ -208,8 +225,8 @@ async def test_get_display_name_utility():
     prompt_with_title = Prompt(name="test_prompt", title="Test Prompt")
     assert get_display_name(prompt_with_title) == "Test Prompt"
 
-    template = ResourceTemplate(uriTemplate="file://{id}", name="test_template")
+    template = ResourceTemplate(uri_template="file://{id}", name="test_template")
     assert get_display_name(template) == "test_template"
 
-    template_with_title = ResourceTemplate(uriTemplate="file://{id}", name="test_template", title="Test Template")
+    template_with_title = ResourceTemplate(uri_template="file://{id}", name="test_template", title="Test Template")
     assert get_display_name(template_with_title) == "Test Template"

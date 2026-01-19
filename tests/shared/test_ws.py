@@ -3,6 +3,7 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import anyio
 import pytest
@@ -44,18 +45,19 @@ def server_url(server_port: int) -> str:
 
 
 # Test server implementation
-class ServerTest(Server):
+class ServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
 
         @self.read_resource()
-        async def handle_read_resource(uri: AnyUrl) -> str | bytes:
-            if uri.scheme == "foobar":
-                return f"Read {uri.host}"
-            elif uri.scheme == "slow":
+        async def handle_read_resource(uri: str) -> str | bytes:
+            parsed = urlparse(uri)
+            if parsed.scheme == "foobar":
+                return f"Read {parsed.netloc}"
+            elif parsed.scheme == "slow":
                 # Simulate a slow resource
                 await anyio.sleep(2.0)
-                return f"Slow response from {uri.host}"
+                return f"Slow response from {parsed.netloc}"
 
             raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
@@ -65,7 +67,7 @@ class ServerTest(Server):
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 )
             ]
 
@@ -75,7 +77,7 @@ class ServerTest(Server):
 
 
 # Test fixtures
-def make_server_app() -> Starlette:
+def make_server_app() -> Starlette:  # pragma: no cover
     """Create test Starlette app with WebSocket transport"""
     server = ServerTest()
 
@@ -92,7 +94,7 @@ def make_server_app() -> Starlette:
     return app
 
 
-def run_server(server_port: int) -> None:
+def run_server(server_port: int) -> None:  # pragma: no cover
     app = make_server_app()
     server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
@@ -104,7 +106,7 @@ def run_server(server_port: int) -> None:
         time.sleep(0.5)
 
 
-@pytest.fixture()
+@pytest.fixture()  # pragma: no cover
 def server(server_port: int) -> Generator[None, None, None]:
     proc = multiprocessing.Process(target=run_server, kwargs={"server_port": server_port}, daemon=True)
     print("starting process")
@@ -120,7 +122,7 @@ def server(server_port: int) -> Generator[None, None, None]:
     # Signal the server to stop
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():
+    if proc.is_alive():  # pragma: no cover
         print("server process failed to terminate")
 
 
@@ -132,7 +134,7 @@ async def initialized_ws_client_session(server: None, server_url: str) -> AsyncG
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -150,7 +152,7 @@ async def test_ws_client_basic_connection(server: None, server_url: str) -> None
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()

@@ -22,13 +22,13 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 logger = logging.getLogger(__name__)
 
 
 class StreamableHTTPSessionManager:
-    """
-    Manages StreamableHTTP sessions with optional resumability via event store.
+    """Manages StreamableHTTP sessions with optional resumability via event store.
 
     This class abstracts away the complexity of session management, event storage,
     and request handling for StreamableHTTP transports. It handles:
@@ -51,6 +51,9 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
+        security_settings: Optional transport security settings.
+        retry_interval: Retry interval in milliseconds to suggest to clients in SSE
+                       retry field. Used for SSE polling behavior.
     """
 
     def __init__(
@@ -60,12 +63,14 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+        self.retry_interval = retry_interval
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -79,8 +84,7 @@ class StreamableHTTPSessionManager:
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[None]:
-        """
-        Run the session manager with proper lifecycle management.
+        """Run the session manager with proper lifecycle management.
 
         This creates and manages the task group for all session operations.
 
@@ -124,8 +128,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process ASGI request with proper session handling and transport setup.
+        """Process ASGI request with proper session handling and transport setup.
 
         Dispatches to the appropriate handler based on stateless mode.
 
@@ -149,8 +152,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process request in stateless mode - creating a new transport for each request.
+        """Process request in stateless mode - creating a new transport for each request.
 
         Args:
             scope: ASGI scope
@@ -178,7 +180,7 @@ class StreamableHTTPSessionManager:
                         self.app.create_initialization_options(),
                         stateless=True,
                     )
-                except Exception:
+                except Exception:  # pragma: no cover
                     logger.exception("Stateless session crashed")
 
         # Assert task group is not None for type checking
@@ -198,8 +200,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process request in stateful mode - maintaining session state between requests.
+        """Process request in stateful mode - maintaining session state between requests.
 
         Args:
             scope: ASGI scope
@@ -210,7 +211,7 @@ class StreamableHTTPSessionManager:
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
         # Existing session case
-        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
+        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:  # pragma: no cover
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
             await transport.handle_request(scope, receive, send)
@@ -226,6 +227,7 @@ class StreamableHTTPSessionManager:
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
+                    retry_interval=self.retry_interval,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -251,7 +253,7 @@ class StreamableHTTPSessionManager:
                             )
                         finally:
                             # Only remove from instances if not terminated
-                            if (
+                            if (  # pragma: no branch
                                 http_transport.mcp_session_id
                                 and http_transport.mcp_session_id in self._server_instances
                                 and not http_transport.is_terminated
@@ -271,9 +273,20 @@ class StreamableHTTPSessionManager:
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
         else:
-            # Invalid session ID
+            # Unknown or expired session ID - return 404 per MCP spec
+            # TODO: Align error code once spec clarifies
+            # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id="server-error",
+                error=ErrorData(
+                    code=INVALID_REQUEST,
+                    message="Session not found",
+                ),
+            )
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                status_code=HTTPStatus.NOT_FOUND,
+                media_type="application/json",
             )
             await response(scope, receive, send)

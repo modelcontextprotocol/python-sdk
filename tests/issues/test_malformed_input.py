@@ -20,8 +20,7 @@ from mcp.types import (
 
 @pytest.mark.anyio
 async def test_malformed_initialize_request_does_not_crash_server():
-    """
-    Test that malformed initialize requests return proper error responses
+    """Test that malformed initialize requests return proper error responses
     instead of crashing the server (HackerOne #3156202).
     """
     # Create in-memory streams for testing
@@ -89,9 +88,9 @@ async def test_malformed_initialize_request_does_not_crash_server():
                 assert second_response.id == "test_id_2"
                 assert second_response.error.code == INVALID_PARAMS
 
-            except anyio.WouldBlock:
+            except anyio.WouldBlock:  # pragma: no cover
                 pytest.fail("No response received - server likely crashed")
-    finally:
+    finally:  # pragma: no cover
         # Close all streams to ensure proper cleanup
         await read_send_stream.aclose()
         await write_send_stream.aclose()
@@ -101,9 +100,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
 
 @pytest.mark.anyio
 async def test_multiple_concurrent_malformed_requests():
-    """
-    Test that multiple concurrent malformed requests don't crash the server.
-    """
+    """Test that multiple concurrent malformed requests don't crash the server."""
     # Create in-memory streams for testing
     read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](100)
     write_send_stream, write_receive_stream = anyio.create_memory_object_stream[SessionMessage](100)
@@ -154,7 +151,7 @@ async def test_multiple_concurrent_malformed_requests():
                 assert isinstance(response, JSONRPCError)
                 assert response.id == f"malformed_{i}"
                 assert response.error.code == INVALID_PARAMS
-    finally:
+    finally:  # pragma: no cover
         # Close all streams to ensure proper cleanup
         await read_send_stream.aclose()
         await write_send_stream.aclose()

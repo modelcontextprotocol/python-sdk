@@ -1,6 +1,4 @@
-"""
-Tests for the BearerAuth middleware components.
-"""
+"""Tests for the BearerAuth middleware components."""
 
 import time
 from typing import Any, cast
@@ -276,7 +274,7 @@ class TestRequireAuthMiddleware:
         scope: Scope = {"type": "http"}
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
         sent_messages: list[Message] = []
@@ -300,7 +298,7 @@ class TestRequireAuthMiddleware:
         scope: Scope = {"type": "http", "user": object()}
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
         sent_messages: list[Message] = []
@@ -329,7 +327,7 @@ class TestRequireAuthMiddleware:
         scope: Scope = {"type": "http", "user": user, "auth": auth}
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
         sent_messages: list[Message] = []
@@ -357,7 +355,7 @@ class TestRequireAuthMiddleware:
         scope: Scope = {"type": "http", "user": user}  # No auth credentials
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
         sent_messages: list[Message] = []
@@ -386,10 +384,10 @@ class TestRequireAuthMiddleware:
         scope: Scope = {"type": "http", "user": user, "auth": auth}
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
-        async def send(message: Message) -> None:
+        async def send(message: Message) -> None:  # pragma: no cover
             pass
 
         await middleware(scope, receive, send)
@@ -411,10 +409,10 @@ class TestRequireAuthMiddleware:
         scope: Scope = {"type": "http", "user": user, "auth": auth}
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
-        async def send(message: Message) -> None:
+        async def send(message: Message) -> None:  # pragma: no cover
             pass
 
         await middleware(scope, receive, send)
@@ -436,10 +434,10 @@ class TestRequireAuthMiddleware:
         scope: Scope = {"type": "http", "user": user, "auth": auth}
 
         # Create dummy async functions for receive and send
-        async def receive() -> Message:
+        async def receive() -> Message:  # pragma: no cover
             return {"type": "http.request"}
 
-        async def send(message: Message) -> None:
+        async def send(message: Message) -> None:  # pragma: no cover
             pass
 
         await middleware(scope, receive, send)

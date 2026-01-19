@@ -13,10 +13,9 @@ from mcp.shared.message import SessionMessage
 logger = logging.getLogger(__name__)
 
 
-@asynccontextmanager
+@asynccontextmanager  # pragma: no cover
 async def websocket_server(scope: Scope, receive: Receive, send: Send):
-    """
-    WebSocket server transport for MCP. This is an ASGI application, suitable to be
+    """WebSocket server transport for MCP. This is an ASGI application, suitable to be
     used with a framework like Starlette and a server like Hypercorn.
     """
 
@@ -37,7 +36,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
             async with read_stream_writer:
                 async for msg in websocket.iter_text():
                     try:
-                        client_message = types.JSONRPCMessage.model_validate_json(msg)
+                        client_message = types.JSONRPCMessage.model_validate_json(msg, by_name=False)
                     except ValidationError as exc:
                         await read_stream_writer.send(exc)
                         continue

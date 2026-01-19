@@ -1,7 +1,6 @@
 from typing import Any
 
 import pytest
-from pydantic import FileUrl
 
 from mcp.server.fastmcp.prompts.base import AssistantMessage, Message, Prompt, TextContent, UserMessage
 from mcp.types import EmbeddedResource, TextResourceContents
@@ -36,7 +35,7 @@ class TestRenderPrompt:
 
     @pytest.mark.anyio
     async def test_fn_with_invalid_kwargs(self):
-        async def fn(name: str, age: int = 30) -> str:
+        async def fn(name: str, age: int = 30) -> str:  # pragma: no cover
             return f"Hello, {name}! You're {age} years old."
 
         prompt = Prompt.from_function(fn)
@@ -95,9 +94,9 @@ class TestRenderPrompt:
                 content=EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=FileUrl("file://file.txt"),
+                        uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )
@@ -108,9 +107,9 @@ class TestRenderPrompt:
                 content=EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=FileUrl("file://file.txt"),
+                        uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )
@@ -127,9 +126,9 @@ class TestRenderPrompt:
                     content=EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=FileUrl("file://file.txt"),
+                            uri="file://file.txt",
                             text="File contents",
-                            mimeType="text/plain",
+                            mime_type="text/plain",
                         ),
                     )
                 ),
@@ -143,9 +142,9 @@ class TestRenderPrompt:
                 content=EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=FileUrl("file://file.txt"),
+                        uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             ),
@@ -162,7 +161,7 @@ class TestRenderPrompt:
                 "content": {
                     "type": "resource",
                     "resource": {
-                        "uri": FileUrl("file://file.txt"),
+                        "uri": "file://file.txt",
                         "text": "File contents",
                         "mimeType": "text/plain",
                     },
@@ -175,9 +174,9 @@ class TestRenderPrompt:
                 content=EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri=FileUrl("file://file.txt"),
+                        uri="file://file.txt",
                         text="File contents",
-                        mimeType="text/plain",
+                        mime_type="text/plain",
                     ),
                 )
             )

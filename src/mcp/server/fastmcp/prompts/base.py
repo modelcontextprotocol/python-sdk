@@ -94,11 +94,11 @@ class Prompt(BaseModel):
         """
         func_name = name or fn.__name__
 
-        if func_name == "<lambda>":
+        if func_name == "<lambda>":  # pragma: no cover
             raise ValueError("You must provide a name for lambda functions")
 
         # Find context parameter if it exists
-        if context_kwarg is None:
+        if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
         # Get schema from func_metadata, excluding context parameter
@@ -110,7 +110,7 @@ class Prompt(BaseModel):
 
         # Convert parameters to PromptArguments
         arguments: list[PromptArgument] = []
-        if "properties" in parameters:
+        if "properties" in parameters:  # pragma: no branch
             for param_name, param in parameters["properties"].items():
                 required = param_name in parameters.get("required", [])
                 arguments.append(
@@ -172,12 +172,12 @@ class Prompt(BaseModel):
                     elif isinstance(msg, str):
                         content = TextContent(type="text", text=msg)
                         messages.append(UserMessage(content=content))
-                    else:
+                    else:  # pragma: no cover
                         content = pydantic_core.to_json(msg, fallback=str, indent=2).decode()
                         messages.append(Message(role="user", content=content))
-                except Exception:
+                except Exception:  # pragma: no cover
                     raise ValueError(f"Could not convert prompt result to message: {msg}")
 
             return messages
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             raise ValueError(f"Error rendering prompt {self.name}: {e}")

@@ -1,5 +1,4 @@
 import pytest
-from pydantic import AnyUrl
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.resources import FunctionResource, Resource
@@ -9,44 +8,44 @@ from mcp.types import Annotations
 class TestResourceValidation:
     """Test base Resource validation."""
 
-    def test_resource_uri_validation(self):
-        """Test URI validation."""
+    def test_resource_uri_accepts_any_string(self):
+        """Test that URI field accepts any string per MCP spec."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         # Valid URI
         resource = FunctionResource(
-            uri=AnyUrl("http://example.com/data"),
+            uri="http://example.com/data",
             name="test",
             fn=dummy_func,
         )
-        assert str(resource.uri) == "http://example.com/data"
+        assert resource.uri == "http://example.com/data"
 
-        # Missing protocol
-        with pytest.raises(ValueError, match="Input should be a valid URL"):
-            FunctionResource(
-                uri=AnyUrl("invalid"),
-                name="test",
-                fn=dummy_func,
-            )
+        # Relative path - now accepted per MCP spec
+        resource = FunctionResource(
+            uri="users/me",
+            name="test",
+            fn=dummy_func,
+        )
+        assert resource.uri == "users/me"
 
-        # Missing host
-        with pytest.raises(ValueError, match="Input should be a valid URL"):
-            FunctionResource(
-                uri=AnyUrl("http://"),
-                name="test",
-                fn=dummy_func,
-            )
+        # Custom scheme
+        resource = FunctionResource(
+            uri="custom://resource",
+            name="test",
+            fn=dummy_func,
+        )
+        assert resource.uri == "custom://resource"
 
     def test_resource_name_from_uri(self):
         """Test name is extracted from URI if not provided."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         resource = FunctionResource(
-            uri=AnyUrl("resource://my-resource"),
+            uri="resource://my-resource",
             fn=dummy_func,
         )
         assert resource.name == "resource://my-resource"
@@ -54,7 +53,7 @@ class TestResourceValidation:
     def test_resource_name_validation(self):
         """Test name validation."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         # Must provide either name or URI
@@ -65,7 +64,7 @@ class TestResourceValidation:
 
         # Explicit name takes precedence over URI
         resource = FunctionResource(
-            uri=AnyUrl("resource://uri-name"),
+            uri="resource://uri-name",
             name="explicit-name",
             fn=dummy_func,
         )
@@ -74,19 +73,19 @@ class TestResourceValidation:
     def test_resource_mime_type(self):
         """Test mime type handling."""
 
-        def dummy_func() -> str:
+        def dummy_func() -> str:  # pragma: no cover
             return "data"
 
         # Default mime type
         resource = FunctionResource(
-            uri=AnyUrl("resource://test"),
+            uri="resource://test",
             fn=dummy_func,
         )
         assert resource.mime_type == "text/plain"
 
         # Custom mime type
         resource = FunctionResource(
-            uri=AnyUrl("resource://test"),
+            uri="resource://test",
             fn=dummy_func,
             mime_type="application/json",
         )
@@ -100,7 +99,7 @@ class TestResourceValidation:
             pass
 
         with pytest.raises(TypeError, match="abstract method"):
-            ConcreteResource(uri=AnyUrl("test://test"), name="test")  # type: ignore
+            ConcreteResource(uri="test://test", name="test")  # type: ignore
 
 
 class TestResourceAnnotations:
@@ -109,7 +108,7 @@ class TestResourceAnnotations:
     def test_resource_with_annotations(self):
         """Test creating a resource with annotations."""
 
-        def get_data() -> str:
+        def get_data() -> str:  # pragma: no cover
             return "data"
 
         annotations = Annotations(audience=["user"], priority=0.8)
@@ -123,7 +122,7 @@ class TestResourceAnnotations:
     def test_resource_without_annotations(self):
         """Test that annotations are optional."""
 
-        def get_data() -> str:
+        def get_data() -> str:  # pragma: no cover
             return "data"
 
         resource = FunctionResource.from_function(fn=get_data, uri="resource://test")
@@ -137,7 +136,7 @@ class TestResourceAnnotations:
         mcp = FastMCP()
 
         @mcp.resource("resource://annotated", annotations=Annotations(audience=["assistant"], priority=0.5))
-        def get_annotated() -> str:
+        def get_annotated() -> str:  # pragma: no cover
             """An annotated resource."""
             return "annotated data"
 
@@ -154,7 +153,7 @@ class TestResourceAnnotations:
         mcp = FastMCP()
 
         @mcp.resource("resource://both", annotations=Annotations(audience=["user", "assistant"], priority=1.0))
-        def get_both() -> str:
+        def get_both() -> str:  # pragma: no cover
             return "for everyone"
 
         resources = await mcp.list_resources()
@@ -193,3 +192,41 @@ class TestAnnotationsValidation:
         # Invalid roles should raise validation error
         with pytest.raises(Exception):  # Pydantic validation error
             Annotations(audience=["invalid_role"])  # type: ignore
+
+
+class TestResourceMetadata:
+    """Test metadata field on base Resource class."""
+
+    def test_resource_with_metadata(self):
+        """Test that Resource base class accepts meta parameter."""
+
+        def dummy_func() -> str:  # pragma: no cover
+            return "data"
+
+        metadata = {"version": "1.0", "category": "test"}
+
+        resource = FunctionResource(
+            uri="resource://test",
+            name="test",
+            fn=dummy_func,
+            meta=metadata,
+        )
+
+        assert resource.meta is not None
+        assert resource.meta == metadata
+        assert resource.meta["version"] == "1.0"
+        assert resource.meta["category"] == "test"
+
+    def test_resource_without_metadata(self):
+        """Test that meta field defaults to None."""
+
+        def dummy_func() -> str:  # pragma: no cover
+            return "data"
+
+        resource = FunctionResource(
+            uri="resource://test",
+            name="test",
+            fn=dummy_func,
+        )
+
+        assert resource.meta is None

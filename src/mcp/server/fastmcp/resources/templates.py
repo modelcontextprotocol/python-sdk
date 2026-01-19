@@ -6,6 +6,7 @@ import inspect
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote
 
 from pydantic import BaseModel, Field, validate_call
 
@@ -30,6 +31,7 @@ class ResourceTemplate(BaseModel):
     mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for the resource template")
     annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource template")
+    meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this resource template")
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
@@ -45,15 +47,16 @@ class ResourceTemplate(BaseModel):
         mime_type: str | None = None,
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
+        meta: dict[str, Any] | None = None,
         context_kwarg: str | None = None,
     ) -> ResourceTemplate:
         """Create a template from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":
-            raise ValueError("You must provide a name for lambda functions")
+            raise ValueError("You must provide a name for lambda functions")  # pragma: no cover
 
         # Find context parameter if it exists
-        if context_kwarg is None:
+        if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
         # Get schema from func_metadata, excluding context parameter
@@ -74,18 +77,23 @@ class ResourceTemplate(BaseModel):
             mime_type=mime_type or "text/plain",
             icons=icons,
             annotations=annotations,
+            meta=meta,
             fn=fn,
             parameters=parameters,
             context_kwarg=context_kwarg,
         )
 
     def matches(self, uri: str) -> dict[str, Any] | None:
-        """Check if URI matches template and extract parameters."""
+        """Check if URI matches template and extract parameters.
+
+        Extracted parameters are URL-decoded to handle percent-encoded characters.
+        """
         # Convert template to regex pattern
         pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
         match = re.match(f"^{pattern}$", uri)
         if match:
-            return match.groupdict()
+            # URL-decode all extracted parameter values
+            return {key: unquote(value) for key, value in match.groupdict().items()}
         return None
 
     async def create_resource(
@@ -112,6 +120,7 @@ class ResourceTemplate(BaseModel):
                 mime_type=self.mime_type,
                 icons=self.icons,
                 annotations=self.annotations,
+                meta=self.meta,
                 fn=lambda: result,  # Capture result in closure
             )
         except Exception as e:
