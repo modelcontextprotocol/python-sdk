@@ -6,7 +6,6 @@ The transport handles bidirectional communication using HTTP requests and
 responses, with streaming support for long-running operations.
 """
 
-import json
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -17,6 +16,7 @@ from http import HTTPStatus
 from typing import Any
 
 import anyio
+import pydantic_core
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
@@ -24,10 +24,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.transport_security import (
-    TransportSecurityMiddleware,
-    TransportSecuritySettings,
-)
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -453,9 +450,8 @@ class StreamableHTTPServerTransport:
             body = await request.body()
 
             try:
-                # TODO(Marcelo): Replace `json.loads` with `pydantic_core.from_json`.
-                raw_message = json.loads(body)
-            except json.JSONDecodeError as e:
+                raw_message = pydantic_core.from_json(body)
+            except ValueError as e:
                 response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
                 await response(scope, receive, send)
                 return
