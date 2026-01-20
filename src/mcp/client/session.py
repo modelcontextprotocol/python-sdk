@@ -158,6 +158,7 @@ class ClientSession(
     def _check_is_active(self) -> None:
         if not self._entered:
             raise RuntimeError("ClientSession must be used within an 'async with' block.")
+
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
         return types.server_request_adapter
