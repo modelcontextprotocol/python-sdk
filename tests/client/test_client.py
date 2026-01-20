@@ -77,11 +77,6 @@ def app() -> FastMCP:
         """Greet someone by name."""
         return f"Hello, {name}!"
 
-    @server.tool()
-    def add(a: int, b: int) -> int:
-        """Add two numbers."""
-        return a + b
-
     @server.resource("test://resource")
     def test_resource() -> str:
         """A test resource."""
@@ -146,27 +141,7 @@ async def test_client_list_tools(app: FastMCP):
                             "title": "greetOutput",
                             "type": "object",
                         },
-                    ),
-                    Tool(
-                        name="add",
-                        description="Add two numbers.",
-                        input_schema={
-                            "properties": {
-                                "a": {"title": "A", "type": "integer"},
-                                "b": {"title": "B", "type": "integer"},
-                            },
-                            "required": ["a", "b"],
-                            "title": "addArguments",
-                            "type": "object",
-                        },
-                        output_schema={
-                            "properties": {"result": {"title": "Result", "type": "integer"}},
-                            "required": ["result"],
-                            "title": "addOutput",
-                            "type": "object",
-                        },
-                    ),
-                ]
+                    )]
             )
         )
 

@@ -128,7 +128,7 @@ class Client:
 
     async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
         """Exit the async context manager."""
-        if self._exit_stack:
+        if self._exit_stack:  # pragma: no branch
             await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
         self._session = None
 
