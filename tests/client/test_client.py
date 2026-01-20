@@ -141,7 +141,8 @@ async def test_client_list_tools(app: FastMCP):
                             "title": "greetOutput",
                             "type": "object",
                         },
-                    )]
+                    )
+                ]
             )
         )
 
