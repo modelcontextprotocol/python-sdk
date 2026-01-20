@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: uv sync --frozen --all-extras --all-packages
+      - run: uv sync --frozen --all-extras --package mcp-everything-server
       - run: ./scripts/run-server-conformance.sh
 
   client-conformance:
@@ -41,5 +41,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: uv sync --frozen --all-extras --all-packages
+      - run: uv sync --frozen --all-extras --package mcp-conformance-client
       - run: npx @modelcontextprotocol/conformance client --command 'uv run --frozen mcp-conformance-client'
