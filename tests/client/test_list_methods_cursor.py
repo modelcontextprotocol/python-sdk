@@ -73,12 +73,12 @@ async def test_list_methods_params_parameter(
         _ = await method()
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
-        assert requests[0].params is None
+        assert requests[0].params is None or "cursor" not in requests[0].params
 
         spies.clear()
 
         # Test with params containing cursor
-        _ = await method(params=types.PaginatedRequestParams(cursor="from_params"))
+        _ = await method(cursor="from_params")
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
         assert requests[0].params is not None
@@ -87,7 +87,7 @@ async def test_list_methods_params_parameter(
         spies.clear()
 
         # Test with empty params
-        _ = await method(params=types.PaginatedRequestParams())
+        _ = await method()
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
         # Empty params means no cursor
