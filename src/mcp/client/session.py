@@ -349,10 +349,7 @@ class ClientSession(
         Args:
             params: Full pagination parameters including cursor and any future fields
         """
-        return await self.send_request(
-            types.ListPromptsRequest(params=params),
-            types.ListPromptsResult,
-        )
+        return await self.send_request(types.ListPromptsRequest(params=params), types.ListPromptsResult)
 
     async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
         """Send a prompts/get request."""

@@ -234,12 +234,12 @@ class BaseSession(
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
-        """Sends a request and wait for a response. Raises an McpError if the
-        response contains an error. If a request read timeout is provided, it
-        will take precedence over the session read timeout.
+        """Sends a request and wait for a response.
 
-        Do not use this method to emit notifications! Use send_notification()
-        instead.
+        Raises an McpError if the response contains an error. If a request read timeout is provided, it will take
+        precedence over the session read timeout.
+
+        Do not use this method to emit notifications! Use send_notification() instead.
         """
         request_id = self._request_id
         self._request_id = request_id + 1
@@ -261,15 +261,10 @@ class BaseSession(
 
         try:
             jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
-
             await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
             # request read timeout takes precedence over session read timeout
-            timeout = None
-            if request_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = request_read_timeout_seconds
-            elif self._session_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = self._session_read_timeout_seconds
+            timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
 
             try:
                 with anyio.fail_after(timeout):
@@ -279,9 +274,8 @@ class BaseSession(
                     ErrorData(
                         code=httpx.codes.REQUEST_TIMEOUT,
                         message=(
-                            f"Timed out while waiting for response to "
-                            f"{request.__class__.__name__}. Waited "
-                            f"{timeout} seconds."
+                            f"Timed out while waiting for response to {request.__class__.__name__}. "
+                            f"Waited {timeout} seconds."
                         ),
                     )
                 )
@@ -302,9 +296,7 @@ class BaseSession(
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
-        """Emits a notification, which is a one-way message that does not expect
-        a response.
-        """
+        """Emits a notification, which is a one-way message that does not expect a response."""
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
@@ -373,11 +365,7 @@ class BaseSession(
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
                                 id=message.message.id,
-                                error=ErrorData(
-                                    code=INVALID_PARAMS,
-                                    message="Invalid request parameters",
-                                    data="",
-                                ),
+                                error=ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
                             )
                             session_message = SessionMessage(message=error_response)
                             await self._write_stream.send(session_message)
@@ -518,13 +506,9 @@ class BaseSession(
         total: float | None = None,
         message: str | None = None,
     ) -> None:
-        """Sends a progress notification for a request that is currently being
-        processed.
-        """
+        """Sends a progress notification for a request that is currently being processed."""
 
     async def _handle_incoming(
-        self,
-        req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception,
+        self, req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
-        pass  # pragma: no cover
