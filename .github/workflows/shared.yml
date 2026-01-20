@@ -58,7 +58,7 @@ jobs:
       - name: Run pytest with coverage
         shell: bash
         run: |
-          uv run --frozen --no-sync coverage run -m pytest
+          uv run --frozen --no-sync coverage run -m pytest -n auto
           uv run --frozen --no-sync coverage combine
           uv run --frozen --no-sync coverage report
 
