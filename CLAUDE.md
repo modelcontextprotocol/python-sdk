@@ -17,6 +17,7 @@ This document contains critical information about working with this codebase. Fo
    - Functions must be focused and small
    - Follow existing patterns exactly
    - Line length: 120 chars maximum
+   - FORBIDDEN: imports inside functions
 
 3. Testing Requirements
    - Framework: `uv run --frozen pytest`
@@ -25,6 +26,8 @@ This document contains critical information about working with this codebase. Fo
    - Coverage: test edge cases and errors
    - New features require tests
    - Bug fixes require regression tests
+   - IMPORTANT: The `tests/client/test_client.py` is the most well designed test file. Follow its patterns.
+   - IMPORTANT: Be minimal, and focus on E2E tests: Use the `mcp.client.Client` whenever possible.
 
 - For commits fixing bugs or adding features based on user reports add:
 

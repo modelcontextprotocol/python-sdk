@@ -99,7 +99,7 @@ async def test_list_tools_with_strict_server_validation(
 ):
     """Test pagination with a server that validates request format strictly."""
     async with Client(full_featured_server) as client:
-        result = await client.list_tools(params=types.PaginatedRequestParams())
+        result = await client.list_tools()
         assert isinstance(result, ListToolsResult)
         assert len(result.tools) > 0
 
@@ -112,19 +112,11 @@ async def test_list_tools_with_lowlevel_server():
     async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
         # Echo back what cursor we received in the tool description
         cursor = request.params.cursor if request.params else None
-        return ListToolsResult(
-            tools=[
-                types.Tool(
-                    name="test_tool",
-                    description=f"cursor={cursor}",
-                    input_schema={},
-                )
-            ]
-        )
+        return ListToolsResult(tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", input_schema={})])
 
     async with Client(server) as client:
-        result = await client.list_tools(params=types.PaginatedRequestParams())
+        result = await client.list_tools()
         assert result.tools[0].description == "cursor=None"
 
-        result = await client.list_tools(params=types.PaginatedRequestParams(cursor="page2"))
+        result = await client.list_tools(cursor="page2")
         assert result.tools[0].description == "cursor=page2"
