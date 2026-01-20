@@ -23,7 +23,6 @@ from mcp.types import (
     CallToolResult,
     CancelTaskRequest,
     CancelTaskResult,
-    ClientRequest,
     ClientResult,
     CreateTaskResult,
     GetTaskPayloadRequest,
@@ -134,13 +133,11 @@ async def test_session_experimental_get_task() -> None:
 
             # Create a task
             create_result = await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="test_tool",
-                            arguments={},
-                            task=TaskMetadata(ttl=60000),
-                        )
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name="test_tool",
+                        arguments={},
+                        task=TaskMetadata(ttl=60000),
                     )
                 ),
                 CreateTaskResult,
@@ -240,13 +237,11 @@ async def test_session_experimental_get_task_result() -> None:
 
             # Create a task
             create_result = await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="test_tool",
-                            arguments={},
-                            task=TaskMetadata(ttl=60000),
-                        )
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name="test_tool",
+                        arguments={},
+                        task=TaskMetadata(ttl=60000),
                     )
                 ),
                 CreateTaskResult,
@@ -343,13 +338,11 @@ async def test_session_experimental_list_tasks() -> None:
             # Create two tasks
             for _ in range(2):
                 create_result = await client_session.send_request(
-                    ClientRequest(
-                        CallToolRequest(
-                            params=CallToolRequestParams(
-                                name="test_tool",
-                                arguments={},
-                                task=TaskMetadata(ttl=60000),
-                            )
+                    CallToolRequest(
+                        params=CallToolRequestParams(
+                            name="test_tool",
+                            arguments={},
+                            task=TaskMetadata(ttl=60000),
                         )
                     ),
                     CreateTaskResult,
@@ -456,13 +449,11 @@ async def test_session_experimental_cancel_task() -> None:
 
             # Create a task (but don't complete it)
             create_result = await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="test_tool",
-                            arguments={},
-                            task=TaskMetadata(ttl=60000),
-                        )
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name="test_tool",
+                        arguments={},
+                        task=TaskMetadata(ttl=60000),
                     )
                 ),
                 CreateTaskResult,

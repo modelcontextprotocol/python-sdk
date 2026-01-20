@@ -19,7 +19,7 @@ from starlette.routing import Route
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.session import RequestResponder
-from mcp.types import ClientNotification, RootsListChangedNotification
+from mcp.types import RootsListChangedNotification
 from tests.test_helpers import wait_for_server
 
 
@@ -135,9 +135,7 @@ async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk
             await session.initialize()
 
             # The test server returns a 204 instead of the expected 202
-            await session.send_notification(
-                ClientNotification(RootsListChangedNotification(method="notifications/roots/list_changed"))
-            )
+            await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
 
     if returned_exception:  # pragma: no cover
         pytest.fail(f"Server encountered an exception: {returned_exception}")

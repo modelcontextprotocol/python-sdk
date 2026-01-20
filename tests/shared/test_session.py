@@ -13,12 +13,9 @@ from mcp.shared.message import SessionMessage
 from mcp.types import (
     CancelledNotification,
     CancelledNotificationParams,
-    ClientNotification,
-    ClientRequest,
     EmptyResult,
     ErrorData,
     JSONRPCError,
-    JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
     TextContent,
@@ -74,10 +71,8 @@ async def test_request_cancellation():
         nonlocal ev_cancelled
         try:
             await client.session.send_request(
-                ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="slow_tool", arguments={}),
-                    )
+                types.CallToolRequest(
+                    params=types.CallToolRequestParams(name="slow_tool", arguments={}),
                 ),
                 types.CallToolResult,
             )
@@ -98,11 +93,7 @@ async def test_request_cancellation():
             # Send cancellation notification
             assert request_id is not None
             await client.session.send_notification(
-                ClientNotification(
-                    CancelledNotification(
-                        params=CancelledNotificationParams(request_id=request_id),
-                    )
-                )
+                CancelledNotification(params=CancelledNotificationParams(request_id=request_id))
             )
 
             # Give cancellation time to process
@@ -130,7 +121,7 @@ async def test_response_id_type_mismatch_string_to_int():
             """Receive a request and respond with a string ID instead of integer."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
-            root = message.message.root
+            root = message.message
             assert isinstance(root, JSONRPCRequest)
             # Get the original request ID (which is an integer)
             request_id = root.id
@@ -142,7 +133,7 @@ async def test_response_id_type_mismatch_string_to_int():
                 id=str(request_id),  # Convert to string to simulate mismatch
                 result={},
             )
-            await server_write.send(SessionMessage(message=JSONRPCMessage(response)))
+            await server_write.send(SessionMessage(message=response))
 
         async def make_request(client_session: ClientSession):
             nonlocal result_holder
@@ -185,7 +176,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
             """Receive a request and respond with an error using a string ID."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
-            root = message.message.root
+            root = message.message
             assert isinstance(root, JSONRPCRequest)
             request_id = root.id
             assert isinstance(request_id, int)
@@ -196,7 +187,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
                 id=str(request_id),  # Convert to string to simulate mismatch
                 error=ErrorData(code=-32600, message="Test error"),
             )
-            await server_write.send(SessionMessage(message=JSONRPCMessage(error_response)))
+            await server_write.send(SessionMessage(message=error_response))
 
         async def make_request(client_session: ClientSession):
             nonlocal error_holder
@@ -247,13 +238,13 @@ async def test_response_id_non_numeric_string_no_match():
                 id="not_a_number",  # Non-numeric string
                 result={},
             )
-            await server_write.send(SessionMessage(message=JSONRPCMessage(response)))
+            await server_write.send(SessionMessage(message=response))
 
         async def make_request(client_session: ClientSession):
             try:
                 # Use a short timeout since we expect this to fail
                 await client_session.send_request(
-                    ClientRequest(types.PingRequest()),
+                    types.PingRequest(),
                     types.EmptyResult,
                     request_read_timeout_seconds=0.5,
                 )

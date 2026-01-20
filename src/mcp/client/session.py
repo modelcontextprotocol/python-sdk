@@ -125,13 +125,7 @@ class ClientSession(
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
-        super().__init__(
-            read_stream,
-            write_stream,
-            types.ServerRequest,
-            types.ServerNotification,
-            read_timeout_seconds=read_timeout_seconds,
-        )
+        super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
@@ -164,6 +158,13 @@ class ClientSession(
     def _check_is_active(self) -> None:
         if not self._entered:
             raise RuntimeError("ClientSession must be used within an 'async with' block.")
+    @property
+    def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
+        return types.server_request_adapter
+
+    @property
+    def _receive_notification_adapter(self) -> TypeAdapter[types.ServerNotification]:
+        return types.server_notification_adapter
 
     async def initialize(self) -> types.InitializeResult:
         self._check_is_active()
@@ -190,20 +191,18 @@ class ClientSession(
         )
 
         result = await self.send_request(
-            types.ClientRequest(
-                types.InitializeRequest(
-                    params=types.InitializeRequestParams(
-                        protocol_version=types.LATEST_PROTOCOL_VERSION,
-                        capabilities=types.ClientCapabilities(
-                            sampling=sampling,
-                            elicitation=elicitation,
-                            experimental=None,
-                            roots=roots,
-                            tasks=self._task_handlers.build_capability(),
-                        ),
-                        client_info=self._client_info,
+            types.InitializeRequest(
+                params=types.InitializeRequestParams(
+                    protocol_version=types.LATEST_PROTOCOL_VERSION,
+                    capabilities=types.ClientCapabilities(
+                        sampling=sampling,
+                        elicitation=elicitation,
+                        experimental=None,
+                        roots=roots,
+                        tasks=self._task_handlers.build_capability(),
                     ),
-                )
+                    client_info=self._client_info,
+                ),
             ),
             types.InitializeResult,
         )
@@ -213,7 +212,7 @@ class ClientSession(
 
         self._server_capabilities = result.capabilities
 
-        await self.send_notification(types.ClientNotification(types.InitializedNotification()))
+        await self.send_notification(types.InitializedNotification())
 
         return result
 
@@ -241,10 +240,7 @@ class ClientSession(
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
-        return await self.send_request(
-            types.ClientRequest(types.PingRequest()),
-            types.EmptyResult,
-        )
+        return await self.send_request(types.PingRequest(), types.EmptyResult)
 
     async def send_progress_notification(
         self,
@@ -255,14 +251,12 @@ class ClientSession(
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
-            types.ClientNotification(
-                types.ProgressNotification(
-                    params=types.ProgressNotificationParams(
-                        progress_token=progress_token,
-                        progress=progress,
-                        total=total,
-                        message=message,
-                    ),
+            types.ProgressNotification(
+                params=types.ProgressNotificationParams(
+                    progress_token=progress_token,
+                    progress=progress,
+                    total=total,
+                    message=message,
                 ),
             )
         )
@@ -270,11 +264,7 @@ class ClientSession(
     async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
         """Send a logging/setLevel request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(
-                types.SetLevelRequest(
-                    params=types.SetLevelRequestParams(level=level),
-                )
-            ),
+            types.SetLevelRequest(params=types.SetLevelRequestParams(level=level)),
             types.EmptyResult,
         )
 
@@ -284,10 +274,7 @@ class ClientSession(
         Args:
             params: Full pagination parameters including cursor and any future fields
         """
-        return await self.send_request(
-            types.ClientRequest(types.ListResourcesRequest(params=params)),
-            types.ListResourcesResult,
-        )
+        return await self.send_request(types.ListResourcesRequest(params=params), types.ListResourcesResult)
 
     async def list_resource_templates(
         self, *, params: types.PaginatedRequestParams | None = None
@@ -298,28 +285,28 @@ class ClientSession(
             params: Full pagination parameters including cursor and any future fields
         """
         return await self.send_request(
-            types.ClientRequest(types.ListResourceTemplatesRequest(params=params)),
+            types.ListResourceTemplatesRequest(params=params),
             types.ListResourceTemplatesResult,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
-            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=str(uri)))),
+            types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=str(uri))),
             types.ReadResourceResult,
         )
 
     async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=str(uri)))),
+            types.SubscribeRequest(params=types.SubscribeRequestParams(uri=str(uri))),
             types.EmptyResult,
         )
 
     async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=str(uri)))),
+            types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=str(uri))),
             types.EmptyResult,
         )
 
@@ -339,10 +326,8 @@ class ClientSession(
             _meta = types.RequestParams.Meta(**meta)
 
         result = await self.send_request(
-            types.ClientRequest(
-                types.CallToolRequest(
-                    params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=_meta),
-                )
+            types.CallToolRequest(
+                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=_meta),
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
@@ -387,17 +372,15 @@ class ClientSession(
             params: Full pagination parameters including cursor and any future fields
         """
         return await self.send_request(
-            types.ClientRequest(types.ListPromptsRequest(params=params)),
+            types.ListPromptsRequest(params=params),
             types.ListPromptsResult,
         )
 
     async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
-            types.ClientRequest(
-                types.GetPromptRequest(
-                    params=types.GetPromptRequestParams(name=name, arguments=arguments),
-                )
+            types.GetPromptRequest(
+                params=types.GetPromptRequestParams(name=name, arguments=arguments),
             ),
             types.GetPromptResult,
         )
@@ -414,14 +397,12 @@ class ClientSession(
             context = types.CompletionContext(arguments=context_arguments)
 
         return await self.send_request(
-            types.ClientRequest(
-                types.CompleteRequest(
-                    params=types.CompleteRequestParams(
-                        ref=ref,
-                        argument=types.CompletionArgument(**argument),
-                        context=context,
-                    ),
-                )
+            types.CompleteRequest(
+                params=types.CompleteRequestParams(
+                    ref=ref,
+                    argument=types.CompletionArgument(**argument),
+                    context=context,
+                ),
             ),
             types.CompleteResult,
         )
@@ -433,7 +414,7 @@ class ClientSession(
             params: Full pagination parameters including cursor and any future fields
         """
         result = await self.send_request(
-            types.ClientRequest(types.ListToolsRequest(params=params)),
+            types.ListToolsRequest(params=params),
             types.ListToolsResult,
         )
 
@@ -446,7 +427,7 @@ class ClientSession(
 
     async def send_roots_list_changed(self) -> None:  # pragma: no cover
         """Send a roots/list_changed notification."""
-        await self.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
+        await self.send_notification(types.RootsListChangedNotification())
 
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession, Any](
@@ -463,7 +444,7 @@ class ClientSession(
             return None
 
         # Core request handling
-        match responder.request.root:
+        match responder.request:
             case types.CreateMessageRequest(params=params):
                 with responder:
                     # Check if this is a task-augmented request
@@ -492,7 +473,7 @@ class ClientSession(
 
             case types.PingRequest():  # pragma: no cover
                 with responder:
-                    return await responder.respond(types.ClientResult(root=types.EmptyResult()))
+                    return await responder.respond(types.EmptyResult())
 
             case _:  # pragma: no cover
                 pass  # Task requests handled above by _task_handlers
@@ -509,7 +490,7 @@ class ClientSession(
     async def _received_notification(self, notification: types.ServerNotification) -> None:
         """Handle notifications from the server."""
         # Process specific notification types
-        match notification.root:
+        match notification:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
             case types.ElicitCompleteNotification(params=params):

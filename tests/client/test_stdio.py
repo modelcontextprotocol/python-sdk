@@ -47,8 +47,8 @@ async def test_stdio_client():
     async with stdio_client(server_parameters) as (read_stream, write_stream):
         # Test sending and receiving messages
         messages = [
-            JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")),
-            JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})),
+            JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"),
+            JSONRPCResponse(jsonrpc="2.0", id=2, result={}),
         ]
 
         async with write_stream:
@@ -67,8 +67,8 @@ async def test_stdio_client():
                     break
 
         assert len(read_messages) == 2
-        assert read_messages[0] == JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
-        assert read_messages[1] == JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
+        assert read_messages[0] == JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+        assert read_messages[1] == JSONRPCResponse(jsonrpc="2.0", id=2, result={})
 
 
 @pytest.mark.anyio

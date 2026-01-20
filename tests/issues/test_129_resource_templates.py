@@ -26,8 +26,8 @@ async def test_resource_templates():
     result = await mcp._mcp_server.request_handlers[types.ListResourceTemplatesRequest](
         types.ListResourceTemplatesRequest(params=None)
     )
-    assert isinstance(result.root, types.ListResourceTemplatesResult)
-    templates = result.root.resource_templates
+    assert isinstance(result, types.ListResourceTemplatesResult)
+    templates = result.resource_templates
 
     # Verify we get both templates back
     assert len(templates) == 2

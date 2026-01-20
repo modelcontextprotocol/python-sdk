@@ -79,15 +79,27 @@ from typing import Any, Generic, TypeAlias, cast
 import anyio
 import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
+from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.server.streamable_http import EventStore
+from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -162,6 +174,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.notification_handlers: dict[type, Callable[..., Awaitable[None]]] = {}
         self._tool_cache: dict[str, types.Tool] = {}
         self._experimental_handlers: ExperimentalHandlers | None = None
+        self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
 
     def create_initialization_options(
@@ -258,6 +271,20 @@ class Server(Generic[LifespanResultT, RequestT]):
             self._experimental_handlers = ExperimentalHandlers(self, self.request_handlers, self.notification_handlers)
         return self._experimental_handlers
 
+    @property
+    def session_manager(self) -> StreamableHTTPSessionManager:
+        """Get the StreamableHTTP session manager.
+
+        Raises:
+            RuntimeError: If called before streamable_http_app() has been called.
+        """
+        if self._session_manager is None:  # pragma: no cover
+            raise RuntimeError(
+                "Session manager can only be accessed after calling streamable_http_app(). "
+                "The session manager is created lazily to avoid unnecessary initialization."
+            )
+        return self._session_manager  # pragma: no cover
+
     def list_prompts(self):
         def decorator(
             func: Callable[[], Awaitable[list[types.Prompt]]]
@@ -271,10 +298,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
                 # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
                 if isinstance(result, types.ListPromptsResult):
-                    return types.ServerResult(result)
+                    return result
                 else:
                     # Old style returns list[Prompt]
-                    return types.ServerResult(types.ListPromptsResult(prompts=result))
+                    return types.ListPromptsResult(prompts=result)
 
             self.request_handlers[types.ListPromptsRequest] = handler
             return func
@@ -289,7 +316,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.GetPromptRequest):
                 prompt_get = await func(req.params.name, req.params.arguments)
-                return types.ServerResult(prompt_get)
+                return prompt_get
 
             self.request_handlers[types.GetPromptRequest] = handler
             return func
@@ -309,10 +336,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
                 # Handle both old style (list[Resource]) and new style (ListResourcesResult)
                 if isinstance(result, types.ListResourcesResult):
-                    return types.ServerResult(result)
+                    return result
                 else:
                     # Old style returns list[Resource]
-                    return types.ServerResult(types.ListResourcesResult(resources=result))
+                    return types.ListResourcesResult(resources=result)
 
             self.request_handlers[types.ListResourcesRequest] = handler
             return func
@@ -325,7 +352,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(_: Any):
                 templates = await func()
-                return types.ServerResult(types.ListResourceTemplatesResult(resource_templates=templates))
+                return types.ListResourceTemplatesResult(resource_templates=templates)
 
             self.request_handlers[types.ListResourceTemplatesRequest] = handler
             return func
@@ -376,18 +403,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                             )
                             for content_item in contents
                         ]
-                        return types.ServerResult(
-                            types.ReadResourceResult(
-                                contents=contents_list,
-                            )
-                        )
+                        return types.ReadResourceResult(contents=contents_list)
                     case _:  # pragma: no cover
                         raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
 
-                return types.ServerResult(  # pragma: no cover
-                    types.ReadResourceResult(
-                        contents=[content],
-                    )
+                return types.ReadResourceResult(  # pragma: no cover
+                    contents=[content],
                 )
 
             self.request_handlers[types.ReadResourceRequest] = handler
@@ -401,7 +422,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.SetLevelRequest):
                 await func(req.params.level)
-                return types.ServerResult(types.EmptyResult())
+                return types.EmptyResult()
 
             self.request_handlers[types.SetLevelRequest] = handler
             return func
@@ -414,7 +435,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.SubscribeRequest):
                 await func(req.params.uri)
-                return types.ServerResult(types.EmptyResult())
+                return types.EmptyResult()
 
             self.request_handlers[types.SubscribeRequest] = handler
             return func
@@ -427,7 +448,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.UnsubscribeRequest):
                 await func(req.params.uri)
-                return types.ServerResult(types.EmptyResult())
+                return types.EmptyResult()
 
             self.request_handlers[types.UnsubscribeRequest] = handler
             return func
@@ -452,7 +473,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     for tool in result.tools:
                         validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
-                    return types.ServerResult(result)
+                    return result
                 else:
                     # Old style returns list[Tool]
                     # Clear and refresh the entire tool cache
@@ -460,20 +481,18 @@ class Server(Generic[LifespanResultT, RequestT]):
                     for tool in result:
                         validate_and_warn_tool_name(tool.name)
                         self._tool_cache[tool.name] = tool
-                    return types.ServerResult(types.ListToolsResult(tools=result))
+                    return types.ListToolsResult(tools=result)
 
             self.request_handlers[types.ListToolsRequest] = handler
             return func
 
         return decorator
 
-    def _make_error_result(self, error_message: str) -> types.ServerResult:
-        """Create a ServerResult with an error CallToolResult."""
-        return types.ServerResult(
-            types.CallToolResult(
-                content=[types.TextContent(type="text", text=error_message)],
-                is_error=True,
-            )
+    def _make_error_result(self, error_message: str) -> types.CallToolResult:
+        """Create a CallToolResult with an error."""
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=error_message)],
+            is_error=True,
         )
 
     async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
@@ -541,10 +560,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
                     if isinstance(results, types.CallToolResult):
-                        return types.ServerResult(results)
+                        return results
                     elif isinstance(results, types.CreateTaskResult):
                         # Task-augmented execution returns task info instead of result
-                        return types.ServerResult(results)
+                        return results
                     elif isinstance(results, tuple) and len(results) == 2:
                         # tool returned both structured and unstructured content
                         unstructured_content, maybe_structured_content = cast(CombinationContent, results)
@@ -572,12 +591,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 return self._make_error_result(f"Output validation error: {e.message}")
 
                     # result
-                    return types.ServerResult(
-                        types.CallToolResult(
-                            content=list(unstructured_content),
-                            structured_content=maybe_structured_content,
-                            is_error=False,
-                        )
+                    return types.CallToolResult(
+                        content=list(unstructured_content),
+                        structured_content=maybe_structured_content,
+                        is_error=False,
                     )
                 except UrlElicitationRequiredError:
                     # Re-raise UrlElicitationRequiredError so it can be properly handled
@@ -627,12 +644,10 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             async def handler(req: types.CompleteRequest):
                 completion = await func(req.params.ref, req.params.argument, req.params.context)
-                return types.ServerResult(
-                    types.CompleteResult(
-                        completion=completion
-                        if completion is not None
-                        else types.Completion(values=[], total=None, has_more=None),
-                    )
+                return types.CompleteResult(
+                    completion=completion
+                    if completion is not None
+                    else types.Completion(values=[], total=None, has_more=None),
                 )
 
             self.request_handlers[types.CompleteRequest] = handler
@@ -694,11 +709,11 @@ class Server(Generic[LifespanResultT, RequestT]):
     ):
         with warnings.catch_warnings(record=True) as w:
             match message:
-                case RequestResponder(request=types.ClientRequest(root=req)) as responder:
+                case RequestResponder() as responder:
                     with responder:
-                        await self._handle_request(message, req, session, lifespan_context, raise_exceptions)
-                case types.ClientNotification(root=notify):
-                    await self._handle_notification(notify)
+                        await self._handle_request(
+                            message, responder.request, session, lifespan_context, raise_exceptions
+                        )
                 case Exception():  # pragma: no cover
                     logger.error(f"Received exception from stream: {message}")
                     await session.send_log_message(
@@ -708,6 +723,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                     if raise_exceptions:
                         raise message
+                case _:
+                    await self._handle_notification(message)
 
             for warning in w:  # pragma: no cover
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
@@ -715,7 +732,7 @@ class Server(Generic[LifespanResultT, RequestT]):
     async def _handle_request(
         self,
         message: RequestResponder[types.ClientRequest, types.ServerResult],
-        req: types.ClientRequestType,
+        req: types.ClientRequest,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
@@ -801,6 +818,118 @@ class Server(Generic[LifespanResultT, RequestT]):
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
+    def streamable_http_app(
+        self,
+        *,
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+        auth: AuthSettings | None = None,
+        token_verifier: TokenVerifier | None = None,
+        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
+        custom_starlette_routes: list[Route] | None = None,
+        debug: bool = False,
+    ) -> Starlette:
+        """Return an instance of the StreamableHTTP server app."""
+        # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
+        if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
+            transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            )
+
+        session_manager = StreamableHTTPSessionManager(
+            app=self,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            json_response=json_response,
+            stateless=stateless_http,
+            security_settings=transport_security,
+        )
+        self._session_manager = session_manager
+
+        # Create the ASGI handler
+        streamable_http_app = StreamableHTTPASGIApp(session_manager)
+
+        # Create routes
+        routes: list[Route | Mount] = []
+        middleware: list[Middleware] = []
+        required_scopes: list[str] = []
+
+        # Set up auth if configured
+        if auth:  # pragma: no cover
+            required_scopes = auth.required_scopes or []
+
+            # Add auth middleware if token verifier is available
+            if token_verifier:
+                middleware = [
+                    Middleware(
+                        AuthenticationMiddleware,
+                        backend=BearerAuthBackend(token_verifier),
+                    ),
+                    Middleware(AuthContextMiddleware),
+                ]
+
+            # Add auth endpoints if auth server provider is configured
+            if auth_server_provider:
+                routes.extend(
+                    create_auth_routes(
+                        provider=auth_server_provider,
+                        issuer_url=auth.issuer_url,
+                        service_documentation_url=auth.service_documentation_url,
+                        client_registration_options=auth.client_registration_options,
+                        revocation_options=auth.revocation_options,
+                    )
+                )
+
+        # Set up routes with or without auth
+        if token_verifier:  # pragma: no cover
+            # Determine resource metadata URL
+            resource_metadata_url = None
+            if auth and auth.resource_server_url:
+                # Build compliant metadata URL for WWW-Authenticate header
+                resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
+
+            routes.append(
+                Route(
+                    streamable_http_path,
+                    endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
+                )
+            )
+        else:
+            # Auth is disabled, no wrapper needed
+            routes.append(
+                Route(
+                    streamable_http_path,
+                    endpoint=streamable_http_app,
+                )
+            )
+
+        # Add protected resource metadata endpoint if configured as RS
+        if auth and auth.resource_server_url:  # pragma: no cover
+            routes.extend(
+                create_protected_resource_routes(
+                    resource_url=auth.resource_server_url,
+                    authorization_servers=[auth.issuer_url],
+                    scopes_supported=auth.required_scopes,
+                )
+            )
+
+        if custom_starlette_routes:  # pragma: no cover
+            routes.extend(custom_starlette_routes)
+
+        return Starlette(
+            debug=debug,
+            routes=routes,
+            middleware=middleware,
+            lifespan=lambda app: session_manager.run(),
+        )
+
 
 async def _ping_handler(request: types.PingRequest) -> types.ServerResult:
-    return types.ServerResult(types.EmptyResult())
+    return types.EmptyResult()
