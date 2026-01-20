@@ -73,12 +73,12 @@ async def test_list_methods_params_parameter(
         _ = await method()
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
-        assert requests[0].params is None
+        assert requests[0].params is None or "cursor" not in requests[0].params
 
         spies.clear()
 
         # Test with params containing cursor
-        _ = await method(params=types.PaginatedRequestParams(cursor="from_params"))
+        _ = await method(cursor="from_params")
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
         assert requests[0].params is not None
@@ -87,7 +87,7 @@ async def test_list_methods_params_parameter(
         spies.clear()
 
         # Test with empty params
-        _ = await method(params=types.PaginatedRequestParams())
+        _ = await method()
         requests = spies.get_client_requests(method=request_method)
         assert len(requests) == 1
         # Empty params means no cursor
@@ -99,7 +99,7 @@ async def test_list_tools_with_strict_server_validation(
 ):
     """Test pagination with a server that validates request format strictly."""
     async with Client(full_featured_server) as client:
-        result = await client.list_tools(params=types.PaginatedRequestParams())
+        result = await client.list_tools()
         assert isinstance(result, ListToolsResult)
         assert len(result.tools) > 0
 
@@ -112,19 +112,11 @@ async def test_list_tools_with_lowlevel_server():
     async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
         # Echo back what cursor we received in the tool description
         cursor = request.params.cursor if request.params else None
-        return ListToolsResult(
-            tools=[
-                types.Tool(
-                    name="test_tool",
-                    description=f"cursor={cursor}",
-                    input_schema={},
-                )
-            ]
-        )
+        return ListToolsResult(tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", input_schema={})])
 
     async with Client(server) as client:
-        result = await client.list_tools(params=types.PaginatedRequestParams())
+        result = await client.list_tools()
         assert result.tools[0].description == "cursor=None"
 
-        result = await client.list_tools(params=types.PaginatedRequestParams(cursor="page2"))
+        result = await client.list_tools(cursor="page2")
         assert result.tools[0].description == "cursor=page2"

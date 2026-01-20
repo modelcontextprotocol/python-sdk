@@ -36,12 +36,7 @@ class InMemoryTransport:
             result = await client.call_tool("my_tool", {...})
     """
 
-    def __init__(
-        self,
-        server: Server[Any] | FastMCP,
-        *,
-        raise_exceptions: bool = False,
-    ) -> None:
+    def __init__(self, server: Server[Any] | FastMCP, *, raise_exceptions: bool = False) -> None:
         """Initialize the in-memory transport.
 
         Args:
