@@ -1,0 +1,45 @@
+name: Conformance Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server-conformance:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          version: 0.9.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: uv sync --frozen --all-extras --all-packages
+      - run: ./scripts/run-server-conformance.sh
+
+  client-conformance:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          version: 0.9.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: uv sync --frozen --all-extras --all-packages
+      - run: npx @modelcontextprotocol/conformance client --command 'uv run --frozen mcp-conformance-client'
