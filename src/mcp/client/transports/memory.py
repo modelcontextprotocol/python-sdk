@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -23,25 +23,37 @@ class InMemoryTransport:
     stopped when the context manager exits.
 
     Example:
+        ```python
+        from mcp.client import Client
+        from mcp.server.fastmcp import FastMCP
+
         server = FastMCP("test")
-        transport = InMemoryTransport(server)
 
-        async with transport.connect() as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                # Use the session...
+        @server.tool()
+        def add(a: int, b: int) -> int:
+            return a + b
 
-    Or more commonly, use with Client:
+        # Direct usage with Client (recommended)
         async with Client(server) as client:
-            result = await client.call_tool("my_tool", {...})
+            result = await client.call_tool("add", {"a": 1, "b": 2})
+
+        # Or explicit transport usage
+        async with Client(InMemoryTransport(server)) as client:
+            result = await client.call_tool("add", {"a": 1, "b": 2})
+        ```
     """
 
-    def __init__(self, server: Server[Any] | FastMCP, *, raise_exceptions: bool = False) -> None:
+    def __init__(
+        self,
+        server: Server[Any] | FastMCP,
+        *,
+        raise_exceptions: bool = False,
+    ) -> None:
         """Initialize the in-memory transport.
 
         Args:
-            server: The MCP server to connect to (Server or FastMCP instance)
-            raise_exceptions: Whether to raise exceptions from the server
+            server: The MCP server to connect to (Server or FastMCP instance).
+            raise_exceptions: Whether to raise exceptions from the server.
         """
         self._server = server
         self._raise_exceptions = raise_exceptions
@@ -49,17 +61,16 @@ class InMemoryTransport:
     @asynccontextmanager
     async def connect(
         self,
-    ) -> AsyncGenerator[
+    ) -> AsyncIterator[
         tuple[
             MemoryObjectReceiveStream[SessionMessage | Exception],
             MemoryObjectSendStream[SessionMessage],
-        ],
-        None,
+        ]
     ]:
         """Connect to the server and return streams for communication.
 
         Yields:
-            A tuple of (read_stream, write_stream) for bidirectional communication
+            A tuple of (read_stream, write_stream) for bidirectional communication.
         """
         # Unwrap FastMCP to get underlying Server
         actual_server: Server[Any]

@@ -3,7 +3,7 @@
 import pytest
 
 from mcp import Client
-from mcp.client._memory import InMemoryTransport
+from mcp.client.transports import InMemoryTransport
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.types import Resource

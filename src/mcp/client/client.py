@@ -9,7 +9,6 @@ from typing import Any
 from pydantic import AnyUrl
 
 import mcp.types as types
-from mcp.client._memory import InMemoryTransport
 from mcp.client.session import (
     ClientSession,
     ElicitationFnT,
@@ -18,21 +17,62 @@ from mcp.client.session import (
     MessageHandlerFnT,
     SamplingFnT,
 )
+from mcp.client.transports import HttpTransport, InMemoryTransport, Transport
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.session import ProgressFnT
 
 logger = logging.getLogger(__name__)
 
+# Type alias for all accepted target types
+ClientTarget = Server[Any] | FastMCP | Transport | str
+
+
+def _infer_transport(
+    target: ClientTarget,
+    *,
+    raise_exceptions: bool = False,
+) -> Transport:
+    """Infer the appropriate transport from the target type.
+
+    Args:
+        target: The target to connect to. Can be:
+            - Server or FastMCP instance: Uses InMemoryTransport
+            - Transport instance: Uses the transport directly
+            - str (URL): Uses HttpTransport (Streamable HTTP)
+        raise_exceptions: For InMemoryTransport, whether to raise exceptions
+            from the server. Ignored for other transport types.
+
+    Returns:
+        A Transport instance ready to connect.
+
+    Raises:
+        TypeError: If the target type is not recognized.
+    """
+    # Already a transport - use directly
+    if isinstance(target, Transport):
+        return target
+
+    # Server or FastMCP - use in-memory transport for testing
+    if isinstance(target, Server | FastMCP):
+        return InMemoryTransport(target, raise_exceptions=raise_exceptions)
+
+    # URL string - use Streamable HTTP transport (modern standard)
+    # Note: After type narrowing above, target is str here
+    return HttpTransport(target)
+
 
 class Client:
     """A high-level MCP client for connecting to MCP servers.
 
-    Currently supports in-memory transport for testing. Pass a Server or
-    FastMCP instance directly to the constructor.
+    Supports multiple transport types:
+    - In-memory: Pass a Server or FastMCP instance directly (for testing)
+    - HTTP: Pass a URL string or HttpTransport instance
+    - SSE: Pass an SSETransport instance (legacy)
 
-    Example:
+    Examples:
         ```python
+        # In-memory testing (recommended for unit tests)
         from mcp.client import Client
         from mcp.server.fastmcp import FastMCP
 
@@ -44,21 +84,34 @@ class Client:
 
         async with Client(server) as client:
             result = await client.call_tool("add", {"a": 1, "b": 2})
+
+        # HTTP connection via URL string
+        async with Client("http://localhost:8000/mcp") as client:
+            result = await client.call_tool("my_tool", {...})
+
+        # HTTP connection with custom headers
+        from mcp.client.transports import HttpTransport
+
+        transport = HttpTransport(
+            "http://localhost:8000/mcp",
+            headers={"Authorization": "Bearer token"},
+        )
+        async with Client(transport) as client:
+            result = await client.call_tool("my_tool", {...})
+
+        # Legacy SSE connection
+        from mcp.client.transports import SSETransport
+
+        async with Client(SSETransport("http://localhost:8000/sse")) as client:
+            result = await client.call_tool("my_tool", {...})
         ```
     """
 
-    # TODO(felixweinberger): Expand to support all transport types (like FastMCP 2):
-    # - Add ClientTransport base class with connect_session() method
-    # - Add StreamableHttpTransport, SSETransport, StdioTransport
-    # - Add infer_transport() to auto-detect transport from input type
-    # - Accept URL strings, Path objects, config dicts in constructor
-    # - Add auth support (OAuth, bearer tokens)
-
     def __init__(
         self,
-        server: Server[Any] | FastMCP,
+        target: ClientTarget,
         *,
-        # TODO(Marcelo): When do `raise_exceptions=True` actually raises?
+        # TODO(Marcelo): When does `raise_exceptions=True` actually raise?
         raise_exceptions: bool = False,
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
@@ -68,20 +121,24 @@ class Client:
         client_info: types.Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
     ) -> None:
-        """Initialize the client with a server.
+        """Initialize the client.
 
         Args:
-            server: The MCP server to connect to (Server or FastMCP instance)
-            raise_exceptions: Whether to raise exceptions from the server
-            read_timeout_seconds: Timeout for read operations
-            sampling_callback: Callback for handling sampling requests
-            list_roots_callback: Callback for handling list roots requests
-            logging_callback: Callback for handling logging notifications
-            message_handler: Callback for handling raw messages
-            client_info: Client implementation info to send to server
-            elicitation_callback: Callback for handling elicitation requests
+            target: The target to connect to. Can be:
+                - Server or FastMCP instance: Uses in-memory transport (for testing)
+                - Transport instance: Uses the transport directly
+                - str (URL): Uses HTTP transport (Streamable HTTP protocol)
+            raise_exceptions: For in-memory transport, whether to raise exceptions
+                from the server. Ignored for other transport types.
+            read_timeout_seconds: Timeout for read operations.
+            sampling_callback: Callback for handling sampling requests.
+            list_roots_callback: Callback for handling list roots requests.
+            logging_callback: Callback for handling logging notifications.
+            message_handler: Callback for handling raw messages.
+            client_info: Client implementation info to send to server.
+            elicitation_callback: Callback for handling elicitation requests.
         """
-        self._server = server
+        self._target = target
         self._raise_exceptions = raise_exceptions
         self._read_timeout_seconds = read_timeout_seconds
         self._sampling_callback = sampling_callback
@@ -100,8 +157,8 @@ class Client:
             raise RuntimeError("Client is already entered; cannot reenter")
 
         async with AsyncExitStack() as exit_stack:
-            # Create transport and connect
-            transport = InMemoryTransport(self._server, raise_exceptions=self._raise_exceptions)
+            # Infer and connect transport
+            transport = _infer_transport(self._target, raise_exceptions=self._raise_exceptions)
             read_stream, write_stream = await exit_stack.enter_async_context(transport.connect())
 
             # Create session
