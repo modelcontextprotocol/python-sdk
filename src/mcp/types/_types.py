@@ -7,6 +7,8 @@ from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, TypeAdapter
 from pydantic.alias_generators import to_camel
 
+from mcp.types.jsonrpc import RequestId
+
 LATEST_PROTOCOL_VERSION = "2025-11-25"
 
 """
@@ -20,7 +22,6 @@ DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
-RequestId = Annotated[int, Field(strict=True)] | str
 AnyFunction: TypeAlias = Callable[..., Any]
 
 TaskExecutionMode = Literal["forbidden", "optional", "required"]
@@ -32,6 +33,7 @@ TASK_REQUIRED: Final[Literal["required"]] = "required"
 class MCPModel(BaseModel):
     """Base class for all MCP protocol types. Allows extra fields for forward compatibility."""
 
+    # TODO(Marcelo): The extra="allow" should be only on specific types e.g. `Meta`, not on the base class.
     model_config = ConfigDict(extra="allow", alias_generator=to_camel, populate_by_name=True)
 
 
@@ -128,77 +130,6 @@ class PaginatedResult(Result):
     An opaque token representing the pagination position after the last returned result.
     If present, there may be more results available.
     """
-
-
-class JSONRPCRequest(Request[dict[str, Any] | None, str]):
-    """A request that expects a response."""
-
-    jsonrpc: Literal["2.0"]
-    id: RequestId
-    method: str
-    params: dict[str, Any] | None = None
-
-
-class JSONRPCNotification(Notification[dict[str, Any] | None, str]):
-    """A notification which does not expect a response."""
-
-    jsonrpc: Literal["2.0"]
-    params: dict[str, Any] | None = None
-
-
-class JSONRPCResponse(MCPModel):
-    """A successful (non-error) response to a request."""
-
-    jsonrpc: Literal["2.0"]
-    id: RequestId
-    result: dict[str, Any]
-
-
-# MCP-specific error codes in the range [-32000, -32099]
-URL_ELICITATION_REQUIRED = -32042
-"""Error code indicating that a URL mode elicitation is required before the request can be processed."""
-
-# SDK error codes
-CONNECTION_CLOSED = -32000
-# REQUEST_TIMEOUT = -32001  # the typescript sdk uses this
-
-# Standard JSON-RPC error codes
-PARSE_ERROR = -32700
-INVALID_REQUEST = -32600
-METHOD_NOT_FOUND = -32601
-INVALID_PARAMS = -32602
-INTERNAL_ERROR = -32603
-
-
-class ErrorData(MCPModel):
-    """Error information for JSON-RPC error responses."""
-
-    code: int
-    """The error type that occurred."""
-
-    message: str
-    """
-    A short description of the error. The message SHOULD be limited to a concise single
-    sentence.
-    """
-
-    data: Any | None = None
-    """
-    Additional information about the error. The value of this member is defined by the
-    sender (e.g. detailed error information, nested errors etc.).
-    """
-
-
-class JSONRPCError(MCPModel):
-    """A response to a request that indicates an error occurred."""
-
-    jsonrpc: Literal["2.0"]
-    id: str | int
-    error: ErrorData
-
-
-JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError
-jsonrpc_message_adapter = TypeAdapter[JSONRPCMessage](JSONRPCMessage)
 
 
 class EmptyResult(Result):
