@@ -5,7 +5,7 @@ PORT="${PORT:-3001}"
 SERVER_URL="http://localhost:${PORT}/mcp"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR/.."
+cd "$SCRIPT_DIR/../.."
 
 # Start everything-server
 uv run --frozen mcp-everything-server --port "$PORT" &
