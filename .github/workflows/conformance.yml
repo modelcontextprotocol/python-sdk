@@ -28,7 +28,7 @@ jobs:
           uv run --frozen mcp-everything-server --port 3001 &
           timeout 15 bash -c 'until curl -s http://localhost:3001/mcp > /dev/null 2>&1; do sleep 0.5; done'
           echo "Server ready"
-      - uses: modelcontextprotocol/conformance@ab789d6f03b7b3561b80a6e835bd07aa8d87c10a
+      - uses: modelcontextprotocol/conformance@a7a585ff08fe34a922300e659c2c94619b18b9cf
         with:
           mode: server
           url: http://localhost:3001/mcp
@@ -43,7 +43,7 @@ jobs:
           enable-cache: true
           version: 0.9.5
       - run: uv sync --frozen --all-extras --package mcp
-      - uses: modelcontextprotocol/conformance@ab789d6f03b7b3561b80a6e835bd07aa8d87c10a
+      - uses: modelcontextprotocol/conformance@a7a585ff08fe34a922300e659c2c94619b18b9cf
         with:
           mode: client
           command: "uv run --frozen python .github/actions/conformance/client.py"
