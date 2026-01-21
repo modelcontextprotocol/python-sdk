@@ -32,6 +32,8 @@ from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+from pydantic import AnyUrl
+
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.auth.extensions.client_credentials import (
@@ -41,7 +43,6 @@ from mcp.client.auth.extensions.client_credentials import (
 )
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from pydantic import AnyUrl
 
 
 def get_conformance_context() -> dict[str, Any]:
