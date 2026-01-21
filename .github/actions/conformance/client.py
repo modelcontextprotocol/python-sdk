@@ -325,34 +325,21 @@ def main() -> None:
         sys.exit(1)
 
     server_url = sys.argv[1]
-
-    # Check for explicit scenario override (for manual testing)
     scenario = os.environ.get("MCP_CONFORMANCE_SCENARIO")
 
     if scenario:
         logger.debug(f"Running explicit scenario '{scenario}' against {server_url}")
         handler = HANDLERS.get(scenario)
-        try:
-            if handler:
-                asyncio.run(handler(server_url))
-            elif scenario.startswith("auth/"):
-                asyncio.run(run_auth_code_client(server_url))
-            else:
-                print(f"Unknown scenario: {scenario}", file=sys.stderr)
-                sys.exit(1)
-        except Exception:
-            logger.exception("Client failed")
+        if handler:
+            asyncio.run(handler(server_url))
+        elif scenario.startswith("auth/"):
+            asyncio.run(run_auth_code_client(server_url))
+        else:
+            print(f"Unknown scenario: {scenario}", file=sys.stderr)
             sys.exit(1)
     else:
-        # No explicit scenario - run default auth flow
-        # The conformance framework tests different behaviors by configuring
-        # its mock server; our client just needs to handle OAuth properly
         logger.debug(f"Running default auth flow against {server_url}")
-        try:
-            asyncio.run(run_auth_code_client(server_url))
-        except Exception:
-            logger.exception("Client failed")
-            sys.exit(1)
+        asyncio.run(run_auth_code_client(server_url))
 
 
 if __name__ == "__main__":

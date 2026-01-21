@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: 24
       - run: uv sync --frozen --all-extras --package mcp-everything-server
-      - run: ./scripts/conformance/run-server.sh
+      - run: ./.github/actions/conformance/run-server.sh
 
   client-conformance:
     runs-on: ubuntu-latest
@@ -42,4 +42,4 @@ jobs:
         with:
           node-version: 24
       - run: uv sync --frozen --all-extras --package mcp
-      - run: npx @modelcontextprotocol/conformance@0.1.10 client --command 'uv run --frozen python scripts/conformance/client.py' --suite all
+      - run: npx @modelcontextprotocol/conformance@0.1.10 client --command 'uv run --frozen python .github/actions/conformance/client.py' --suite all
