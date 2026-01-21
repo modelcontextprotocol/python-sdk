@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Final, Generic, Literal, NotRequired, TypeAlias, TypeVar
+from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, TypeAdapter
 from pydantic.alias_generators import to_camel
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from mcp.types.jsonrpc import RequestId
 
