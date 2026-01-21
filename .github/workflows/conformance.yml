@@ -42,4 +42,4 @@ jobs:
         with:
           node-version: 24
       - run: uv sync --frozen --all-extras --package mcp
-      - run: npx @modelcontextprotocol/conformance client --command 'uv run --frozen python scripts/conformance/client.py' --suite all
+      - run: npx @modelcontextprotocol/conformance@0.1.10 client --command 'uv run --frozen python scripts/conformance/client.py' --suite all

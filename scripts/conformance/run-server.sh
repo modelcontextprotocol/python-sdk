@@ -27,4 +27,4 @@ done
 echo "Server ready at $SERVER_URL"
 
 # Run conformance tests
-npx @modelcontextprotocol/conformance server --url "$SERVER_URL" "$@"
+npx @modelcontextprotocol/conformance@0.1.10 server --url "$SERVER_URL" "$@"
