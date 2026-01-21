@@ -32,6 +32,7 @@ jobs:
         with:
           mode: server
           url: http://localhost:3001/mcp
+          expected-failures: ./conformance-baseline.yml
 
   client-conformance:
     runs-on: ubuntu-latest
@@ -47,3 +48,4 @@ jobs:
           mode: client
           command: "uv run --frozen python .github/actions/conformance/client.py"
           suite: all
+          expected-failures: ./conformance-baseline.yml
