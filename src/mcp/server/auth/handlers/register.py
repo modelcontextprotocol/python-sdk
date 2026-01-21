@@ -32,10 +32,8 @@ class RegistrationHandler:
     async def handle(self, request: Request) -> Response:
         # Implements dynamic client registration as defined in https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
         try:
-            # Parse request body as JSON
-            # TODO(Marcelo): This is unnecessary. We should use `request.body()`.
-            body = await request.json()
-            client_metadata = OAuthClientMetadata.model_validate(body)
+            body = await request.body()
+            client_metadata = OAuthClientMetadata.model_validate_json(body)
 
             # Scope validation is handled below
         except ValidationError as validation_error:
