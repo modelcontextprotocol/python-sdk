@@ -286,6 +286,7 @@ async def run_auth_code_client(server_url: str) -> None:
         storage=InMemoryTokenStorage(),
         redirect_handler=callback_handler.handle_redirect,
         callback_handler=callback_handler.handle_callback,
+        client_metadata_url="https://conformance-test.local/client-metadata.json",
     )
 
     await _run_auth_session(server_url, oauth_auth)
