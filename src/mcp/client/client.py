@@ -2,27 +2,16 @@
 
 from __future__ import annotations
 
-import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
-from pydantic import AnyUrl
-
 import mcp.types as types
 from mcp.client._memory import InMemoryTransport
-from mcp.client.session import (
-    ClientSession,
-    ElicitationFnT,
-    ListRootsFnT,
-    LoggingFnT,
-    MessageHandlerFnT,
-    SamplingFnT,
-)
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.session import ProgressFnT
-
-logger = logging.getLogger(__name__)
+from mcp.types._types import RequestParamsMeta
 
 
 class Client:
@@ -42,8 +31,11 @@ class Client:
         def add(a: int, b: int) -> int:
             return a + b
 
-        async with Client(server) as client:
-            result = await client.call_tool("add", {"a": 1, "b": 2})
+        async def main():
+            async with Client(server) as client:
+                result = await client.call_tool("add", {"a": 1, "b": 2})
+
+        asyncio.run(main())
         ```
     """
 
@@ -150,9 +142,9 @@ class Client:
         """The server capabilities received during initialization, or None if not yet initialized."""
         return self.session.get_server_capabilities()
 
-    async def send_ping(self) -> types.EmptyResult:
+    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request to the server."""
-        return await self.session.send_ping()
+        return await self.session.send_ping(meta=meta)
 
     async def send_progress_notification(
         self,
@@ -169,19 +161,36 @@ class Client:
             message=message,
         )
 
-    async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
+    async def set_logging_level(
+        self,
+        level: types.LoggingLevel,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.EmptyResult:
         """Set the logging level on the server."""
-        return await self.session.set_logging_level(level)
+        return await self.session.set_logging_level(level=level, meta=meta)
 
-    async def list_resources(self, *, cursor: str | None = None) -> types.ListResourcesResult:
+    async def list_resources(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.ListResourcesResult:
         """List available resources from the server."""
-        return await self.session.list_resources(params=types.PaginatedRequestParams(cursor=cursor))
+        return await self.session.list_resources(params=types.PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def list_resource_templates(self, *, cursor: str | None = None) -> types.ListResourceTemplatesResult:
+    async def list_resource_templates(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.ListResourceTemplatesResult:
         """List available resource templates from the server."""
-        return await self.session.list_resource_templates(params=types.PaginatedRequestParams(cursor=cursor))
+        return await self.session.list_resource_templates(
+            params=types.PaginatedRequestParams(cursor=cursor, _meta=meta)
+        )
 
-    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.ReadResourceResult:
         """Read a resource from the server.
 
         Args:
@@ -190,15 +199,15 @@ class Client:
         Returns:
             The resource content.
         """
-        return await self.session.read_resource(uri)
+        return await self.session.read_resource(uri, meta=meta)
 
-    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Subscribe to resource updates."""
-        return await self.session.subscribe_resource(uri)
+        return await self.session.subscribe_resource(uri, meta=meta)
 
-    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Unsubscribe from resource updates."""
-        return await self.session.unsubscribe_resource(uri)
+        return await self.session.unsubscribe_resource(uri, meta=meta)
 
     async def call_tool(
         self,
@@ -207,7 +216,7 @@ class Client:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
         """Call a tool on the server.
 
@@ -229,9 +238,14 @@ class Client:
             meta=meta,
         )
 
-    async def list_prompts(self, *, cursor: str | None = None) -> types.ListPromptsResult:
+    async def list_prompts(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.ListPromptsResult:
         """List available prompts from the server."""
-        return await self.session.list_prompts(params=types.PaginatedRequestParams(cursor=cursor))
+        return await self.session.list_prompts(params=types.PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
         """Get a prompt from the server.

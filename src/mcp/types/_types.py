@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
+from typing import Annotated, Any, Final, Generic, Literal, NotRequired, TypeAlias, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, FileUrl, TypeAdapter
 from pydantic.alias_generators import to_camel
+from typing_extensions import TypedDict
 
 from mcp.types.jsonrpc import RequestId
 
@@ -35,6 +36,19 @@ class MCPModel(BaseModel):
     model_config = ConfigDict(extra="allow", alias_generator=to_camel, populate_by_name=True)
 
 
+Meta: TypeAlias = dict[str, Any]
+
+
+class RequestParamsMeta(TypedDict, extra_items=Any):
+    progress_token: NotRequired[ProgressToken]
+    """
+    If specified, the caller requests out-of-band progress notifications for
+    this request (as represented by notifications/progress). The value of this
+    parameter is an opaque token that will be attached to any subsequent
+    notifications. The receiver is not obligated to provide these notifications.
+    """
+
+
 class TaskMetadata(MCPModel):
     """Metadata for augmenting a request with task execution.
     Include this in the `task` field of the request parameters.
@@ -45,15 +59,6 @@ class TaskMetadata(MCPModel):
 
 
 class RequestParams(MCPModel):
-    class Meta(MCPModel):
-        progress_token: ProgressToken | None = None
-        """
-        If specified, the caller requests out-of-band progress notifications for
-        this request (as represented by notifications/progress). The value of this
-        parameter is an opaque token that will be attached to any subsequent
-        notifications. The receiver is not obligated to provide these notifications.
-        """
-
     task: TaskMetadata | None = None
     """
     If specified, the caller is requesting task-augmented execution for this request.
@@ -64,7 +69,7 @@ class RequestParams(MCPModel):
     for task augmentation of specific request types in their capabilities.
     """
 
-    meta: Meta | None = Field(alias="_meta", default=None)
+    meta: RequestParamsMeta | None = Field(alias="_meta", default=None)
 
 
 class PaginatedRequestParams(RequestParams):
@@ -76,9 +81,6 @@ class PaginatedRequestParams(RequestParams):
 
 
 class NotificationParams(MCPModel):
-    class Meta(MCPModel):
-        pass
-
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -115,7 +117,7 @@ class Notification(MCPModel, Generic[NotificationParamsT, MethodT]):
 class Result(MCPModel):
     """Base class for JSON-RPC results."""
 
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -624,7 +626,7 @@ class Resource(BaseMetadata):
     icons: list[Icon] | None = None
     """An optional list of icons for this resource."""
     annotations: Annotations | None = None
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -649,7 +651,7 @@ class ResourceTemplate(BaseMetadata):
     icons: list[Icon] | None = None
     """An optional list of icons for this resource template."""
     annotations: Annotations | None = None
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -698,7 +700,7 @@ class ResourceContents(MCPModel):
     """The URI of this resource."""
     mime_type: str | None = None
     """The MIME type of this resource, if known."""
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -821,7 +823,7 @@ class Prompt(BaseMetadata):
     """A list of arguments to use for templating the prompt."""
     icons: list[Icon] | None = None
     """An optional list of icons for this prompt."""
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -857,7 +859,7 @@ class TextContent(MCPModel):
     text: str
     """The text content of the message."""
     annotations: Annotations | None = None
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -876,7 +878,7 @@ class ImageContent(MCPModel):
     image types.
     """
     annotations: Annotations | None = None
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -895,7 +897,7 @@ class AudioContent(MCPModel):
     audio types.
     """
     annotations: Annotations | None = None
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -922,7 +924,7 @@ class ToolUseContent(MCPModel):
     input: dict[str, Any]
     """Arguments to pass to the tool. Must conform to the tool's inputSchema."""
 
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -956,7 +958,7 @@ class ToolResultContent(MCPModel):
     is_error: bool | None = None
     """Whether the tool execution resulted in an error."""
 
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -980,7 +982,7 @@ class SamplingMessage(MCPModel):
     Message content. Can be a single content block or an array of content blocks
     for multi-modal messages and tool interactions.
     """
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -1003,7 +1005,7 @@ class EmbeddedResource(MCPModel):
     type: Literal["resource"] = "resource"
     resource: TextResourceContents | BlobResourceContents
     annotations: Annotations | None = None
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -1134,7 +1136,7 @@ class Tool(BaseMetadata):
     """An optional list of icons for this tool."""
     annotations: ToolAnnotations | None = None
     """Optional additional tool information."""
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.
@@ -1482,7 +1484,7 @@ class Root(MCPModel):
     identifier for the root, which may be useful for display purposes or for
     referencing the root in other parts of the application.
     """
-    meta: dict[str, Any] | None = Field(alias="_meta", default=None)
+    meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
     for notes on _meta usage.

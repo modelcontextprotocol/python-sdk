@@ -2119,8 +2119,6 @@ uv run client
 import asyncio
 import os
 
-from pydantic import AnyUrl
-
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
@@ -2173,7 +2171,7 @@ async def run():
             print(f"Available tools: {[t.name for t in tools.tools]}")
 
             # Read a resource (greeting resource from fastmcp_quickstart)
-            resource_content = await session.read_resource(AnyUrl("greeting://World"))
+            resource_content = await session.read_resource("greeting://World")
             content_block = resource_content.contents[0]
             if isinstance(content_block, types.TextContent):
                 print(f"Resource content: {content_block.text}")

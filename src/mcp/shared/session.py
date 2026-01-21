@@ -28,7 +28,8 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     ProgressNotification,
-    RequestParams,
+    ProgressToken,
+    RequestParamsMeta,
     ServerNotification,
     ServerRequest,
     ServerResult,
@@ -71,7 +72,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     def __init__(
         self,
         request_id: RequestId,
-        request_meta: RequestParams.Meta | None,
+        request_meta: RequestParamsMeta | None,
         request: ReceiveRequestT,
         session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
@@ -501,7 +502,7 @@ class BaseSession(
 
     async def send_progress_notification(
         self,
-        progress_token: str | int,
+        progress_token: ProgressToken,
         progress: float,
         total: float | None = None,
         message: str | None = None,

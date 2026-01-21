@@ -161,7 +161,9 @@ async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
     await ctx.report_progress(progress=100, total=100, message="Completed step 100 of 100")
 
     # Return progress token as string
-    progress_token = ctx.request_context.meta.progress_token if ctx.request_context and ctx.request_context.meta else 0
+    progress_token = (
+        ctx.request_context.meta.get("progress_token") if ctx.request_context and ctx.request_context.meta else 0
+    )
     return str(progress_token)
 
 
