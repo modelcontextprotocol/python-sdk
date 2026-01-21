@@ -112,7 +112,7 @@ class FastMCP(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[Icon] | None = None,
         version: str | None = None,
-        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         *,
         tools: list[Tool] | None = None,
@@ -121,7 +121,7 @@ class FastMCP(Generic[LifespanResultT]):
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
-        lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
+        lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
     ):
         self.settings = Settings(
