@@ -13,7 +13,6 @@ from mcp.types._types import (
     TASK_STATUS_INPUT_REQUIRED,
     TASK_STATUS_WORKING,
     Annotations,
-    AnyFunction,
     AudioContent,
     BaseMetadata,
     BlobResourceContents,
@@ -218,7 +217,6 @@ __all__ = [
     "TASK_STATUS_INPUT_REQUIRED",
     "TASK_STATUS_WORKING",
     # Type aliases and variables
-    "AnyFunction",
     "ContentBlock",
     "Cursor",
     "ElicitRequestedSchema",
