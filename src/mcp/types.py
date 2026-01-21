@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime
 from typing import Annotated, Any, Final, Generic, Literal, TypeAlias, TypeVar
 
@@ -21,7 +20,6 @@ ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
 RequestId = Annotated[int, Field(strict=True)] | str
-AnyFunction: TypeAlias = Callable[..., Any]
 
 TaskExecutionMode = Literal["forbidden", "optional", "required"]
 TASK_FORBIDDEN: Final[Literal["forbidden"]] = "forbidden"
