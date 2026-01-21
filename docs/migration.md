@@ -274,7 +274,19 @@ Affected types:
 - `UnsubscribeRequestParams.uri`
 - `ResourceUpdatedNotificationParams.uri`
 
-The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` methods now accept both `str` and `AnyUrl` for backwards compatibility.
+The `Client` and `ClientSession` methods `read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` now only accept `str` for the `uri` parameter. If you were passing `AnyUrl` objects, convert them to strings:
+
+```python
+# Before (v1)
+from pydantic import AnyUrl
+
+await client.read_resource(AnyUrl("test://resource"))
+
+# After (v2)
+await client.read_resource("test://resource")
+# Or if you have an AnyUrl from elsewhere:
+await client.read_resource(str(my_any_url))
+```
 
 ## Deprecations
 
