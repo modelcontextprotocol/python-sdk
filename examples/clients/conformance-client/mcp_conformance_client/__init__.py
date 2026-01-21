@@ -185,19 +185,33 @@ async def run_sse_retry(server_url: str) -> None:
             logger.debug(f"test_reconnection result: {result}")
 
 
+async def default_elicitation_callback(
+    context: RequestContext[ClientSession, Any],  # noqa: ARG001
+    params: types.ElicitRequestParams,
+) -> types.ElicitResult | types.ErrorData:
+    """Accept elicitation and apply defaults from the schema (SEP-1034)."""
+    content: dict[str, str | int | float | bool | list[str] | None] = {}
+
+    # For form mode, extract defaults from the requested_schema
+    if isinstance(params, types.ElicitRequestFormParams):
+        schema = params.requested_schema
+        logger.debug(f"Elicitation schema: {schema}")
+        properties = schema.get("properties", {})
+        for prop_name, prop_schema in properties.items():
+            if "default" in prop_schema:
+                content[prop_name] = prop_schema["default"]
+        logger.debug(f"Applied defaults: {content}")
+
+    return types.ElicitResult(action="accept", content=content)
+
+
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
-    """Connect with elicitation callback that accepts with empty content, call test tool."""
-
-    async def elicitation_callback(
-        context: RequestContext[ClientSession, Any],  # noqa: ARG001
-        params: types.ElicitRequestParams,  # noqa: ARG001
-    ) -> types.ElicitResult | types.ErrorData:
-        """Accept elicitation with empty content (defaults)."""
-        return types.ElicitResult(action="accept", content={})
-
+    """Connect with elicitation callback that applies schema defaults."""
     async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
-        async with ClientSession(read_stream, write_stream, elicitation_callback=elicitation_callback) as session:
+        async with ClientSession(
+            read_stream, write_stream, elicitation_callback=default_elicitation_callback
+        ) as session:
             await session.initialize()
             await session.list_tools()
             result = await session.call_tool("test_client_elicitation_defaults", {})
@@ -281,18 +295,23 @@ async def _run_auth_session(server_url: str, oauth_auth: OAuthClientProvider) ->
     """Common session logic for all OAuth flows."""
     client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
     async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream, _):
-        async with ClientSession(read_stream, write_stream) as session:
+        async with ClientSession(
+            read_stream, write_stream, elicitation_callback=default_elicitation_callback
+        ) as session:
             await session.initialize()
             logger.debug("Initialized successfully")
 
             tools_result = await session.list_tools()
             logger.debug(f"Listed tools: {[t.name for t in tools_result.tools]}")
 
-            try:
-                result = await session.call_tool("test-tool", {})
-                logger.debug(f"Called test-tool, result: {result}")
-            except Exception as e:
-                logger.debug(f"Tool call result/error: {e}")
+            # Call the first available tool (different tests have different tools)
+            if tools_result.tools:
+                tool_name = tools_result.tools[0].name
+                try:
+                    result = await session.call_tool(tool_name, {})
+                    logger.debug(f"Called {tool_name}, result: {result}")
+                except Exception as e:
+                    logger.debug(f"Tool call result/error: {e}")
 
     logger.debug("Connection closed successfully")
 
