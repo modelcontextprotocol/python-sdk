@@ -22,7 +22,6 @@ DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
 ProgressToken = str | int
 Cursor = str
 Role = Literal["user", "assistant"]
-AnyFunction: TypeAlias = Callable[..., Any]
 
 TaskExecutionMode = Literal["forbidden", "optional", "required"]
 TASK_FORBIDDEN: Final[Literal["forbidden"]] = "forbidden"
