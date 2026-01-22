@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -21,8 +20,6 @@ from mcp.client.session import (
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.session import ProgressFnT
-
-logger = logging.getLogger(__name__)
 
 
 class Client:
