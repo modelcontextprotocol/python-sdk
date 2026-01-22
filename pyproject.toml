@@ -199,7 +199,6 @@ branch = true
 patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
 source = ["src", "tests"]
-relative_files = true
 omit = [
     "src/mcp/client/__main__.py",
     "src/mcp/server/__main__.py",
