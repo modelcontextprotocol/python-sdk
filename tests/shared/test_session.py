@@ -310,3 +310,74 @@ async def test_connection_closed():
                 await ev_closed.wait()
             with anyio.fail_after(1):  # pragma: no cover
                 await ev_response.wait()
+
+
+@pytest.mark.anyio
+async def test_session_aexit_cleanup():
+    """Test that the session is closing properly, cleaning up all resources."""
+    pending_request_ids: list[int | str] = []
+    requests_received = anyio.Event()
+    client_session_closed = anyio.Event()
+
+    async with (
+        anyio.create_task_group() as tg,
+        create_client_server_memory_streams() as (client_streams, server_streams),
+    ):
+        client_read, client_write = client_streams
+        server_read, _ = server_streams
+
+        async def mock_server():
+            """Block responses to simulate a server that does not respond."""
+            # Wait for two ping requests
+            for _ in range(2):
+                message = await server_read.receive()
+                assert isinstance(message, SessionMessage)
+                root = message.message.root
+                assert isinstance(root, JSONRPCRequest)
+                assert root.method == "ping"
+                pending_request_ids.append(root.id)
+
+            # Signal that both requests have been received
+            requests_received.set()
+
+            # Wait for the client session to be closed
+            # This ensures the cleanup logic in finally block has time to run
+            await client_session_closed.wait()
+
+        async def send_ping(session: ClientSession):
+            # Since we are closing the session, "Connection closed" McpError is expected
+            with pytest.raises(McpError) as e:
+                await session.send_ping()
+            assert "Connection closed" in str(e.value)
+
+        # Start the mock server in the background
+        tg.start_soon(mock_server)
+
+        # Create a session and send multiple ping requests in background
+        async with ClientSession(read_stream=client_read, write_stream=client_write) as session:
+            # Verify initial state
+            assert len(session._response_streams) == 0
+
+            # Start two ping requests in background
+            tg.start_soon(send_ping, session)
+            tg.start_soon(send_ping, session)
+
+            # Wait for both requests to be sent and received by server
+            await requests_received.wait()
+            await anyio.sleep(0.1)  # Give time for streams to be created
+
+            # Verify we have 2 response streams
+            assert len(session._response_streams) == 2
+
+        # We close the session by escaping the async with block
+        client_session_closed.set()
+
+        # Since the sesssion has been closed, "Connection closed" McpError is expected
+        with pytest.raises(McpError) as e:
+            await session.send_ping()
+        assert "Connection closed" in str(e.value)
+
+        # Verify all response streams have been cleaned up
+        # (This happens when the async with block exits and __aexit__ is called)
+        assert session is not None
+        assert len(session._response_streams) == 0
