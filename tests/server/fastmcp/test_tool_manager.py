@@ -426,8 +426,8 @@ class TestToolAnnotations:
 
         annotations = ToolAnnotations(
             title="File Reader",
-            readOnlyHint=True,
-            openWorldHint=False,
+            read_only_hint=True,
+            open_world_hint=False,
         )
 
         manager = ToolManager()
@@ -435,8 +435,8 @@ class TestToolAnnotations:
 
         assert tool.annotations is not None
         assert tool.annotations.title == "File Reader"
-        assert tool.annotations.readOnlyHint is True
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.read_only_hint is True
+        assert tool.annotations.open_world_hint is False
 
     @pytest.mark.anyio
     async def test_tool_annotations_in_fastmcp(self):
@@ -444,7 +444,7 @@ class TestToolAnnotations:
 
         app = FastMCP()
 
-        @app.tool(annotations=ToolAnnotations(title="Echo Tool", readOnlyHint=True))
+        @app.tool(annotations=ToolAnnotations(title="Echo Tool", read_only_hint=True))
         def echo(message: str) -> str:  # pragma: no cover
             """Echo a message back."""
             return message
@@ -453,7 +453,7 @@ class TestToolAnnotations:
         assert len(tools) == 1
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Echo Tool"
-        assert tools[0].annotations.readOnlyHint is True
+        assert tools[0].annotations.read_only_hint is True
 
 
 class TestStructuredOutput:
@@ -794,7 +794,7 @@ class TestToolMetadata:
         app = FastMCP()
 
         metadata = {"custom": "value"}
-        annotations = ToolAnnotations(title="Combined Tool", readOnlyHint=True)
+        annotations = ToolAnnotations(title="Combined Tool", read_only_hint=True)
 
         @app.tool(meta=metadata, annotations=annotations)
         def combined_tool(data: str) -> str:  # pragma: no cover
@@ -806,7 +806,7 @@ class TestToolMetadata:
         assert tools[0].meta == metadata
         assert tools[0].annotations is not None
         assert tools[0].annotations.title == "Combined Tool"
-        assert tools[0].annotations.readOnlyHint is True
+        assert tools[0].annotations.read_only_hint is True
 
 
 class TestRemoveTools:

@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/structured_output.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/structured_output.py
 """
 
 import asyncio
@@ -21,12 +20,12 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_weather",
             description="Get current weather for a city",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"city": {"type": "string", "description": "City name"}},
                 "required": ["city"],
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "temperature": {"type": "number", "description": "Temperature in Celsius"},

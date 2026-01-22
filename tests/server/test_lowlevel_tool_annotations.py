@@ -25,7 +25,7 @@ async def test_lowlevel_server_tool_annotations():
             Tool(
                 name="echo",
                 description="Echo a message back",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "message": {"type": "string"},
@@ -34,7 +34,7 @@ async def test_lowlevel_server_tool_annotations():
                 },
                 annotations=ToolAnnotations(
                     title="Echo Tool",
-                    readOnlyHint=True,
+                    read_only_hint=True,
                 ),
             )
         ]
@@ -67,7 +67,8 @@ async def test_lowlevel_server_tool_annotations():
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    async for message in server_session.incoming_messages:
+                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+                    async for message in server_session.incoming_messages:  # pragma: no cover
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
@@ -97,4 +98,4 @@ async def test_lowlevel_server_tool_annotations():
     assert tools_result.tools[0].name == "echo"
     assert tools_result.tools[0].annotations is not None
     assert tools_result.tools[0].annotations.title == "Echo Tool"
-    assert tools_result.tools[0].annotations.readOnlyHint is True
+    assert tools_result.tools[0].annotations.read_only_hint is True

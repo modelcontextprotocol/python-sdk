@@ -1,6 +1,5 @@
-"""
-cd to the `examples/snippets` directory and run:
-    uv run completion-client
+"""cd to the `examples/snippets` directory and run:
+uv run completion-client
 """
 
 import asyncio
@@ -28,8 +27,8 @@ async def run():
             # List available resource templates
             templates = await session.list_resource_templates()
             print("Available resource templates:")
-            for template in templates.resourceTemplates:
-                print(f"  - {template.uriTemplate}")
+            for template in templates.resource_templates:
+                print(f"  - {template.uri_template}")
 
             # List available prompts
             prompts = await session.list_prompts()
@@ -38,20 +37,20 @@ async def run():
                 print(f"  - {prompt.name}")
 
             # Complete resource template arguments
-            if templates.resourceTemplates:
-                template = templates.resourceTemplates[0]
-                print(f"\nCompleting arguments for resource template: {template.uriTemplate}")
+            if templates.resource_templates:
+                template = templates.resource_templates[0]
+                print(f"\nCompleting arguments for resource template: {template.uri_template}")
 
                 # Complete without context
                 result = await session.complete(
-                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uri_template),
                     argument={"name": "owner", "value": "model"},
                 )
                 print(f"Completions for 'owner' starting with 'model': {result.completion.values}")
 
                 # Complete with context - repo suggestions based on owner
                 result = await session.complete(
-                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uri_template),
                     argument={"name": "repo", "value": ""},
                     context_arguments={"owner": "modelcontextprotocol"},
                 )

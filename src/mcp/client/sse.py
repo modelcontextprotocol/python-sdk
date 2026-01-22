@@ -1,7 +1,8 @@
 import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
 import httpx
@@ -21,17 +22,22 @@ def remove_request_params(url: str) -> str:
     return urljoin(url, urlparse(url).path)
 
 
+def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
+    query_params = parse_qs(urlparse(endpoint_url).query)
+    return query_params.get("sessionId", [None])[0] or query_params.get("session_id", [None])[0]
+
+
 @asynccontextmanager
 async def sse_client(
     url: str,
     headers: dict[str, Any] | None = None,
-    timeout: float = 5,
-    sse_read_timeout: float = 60 * 5,
+    timeout: float = 5.0,
+    sse_read_timeout: float = 300.0,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
+    on_session_created: Callable[[str], None] | None = None,
 ):
-    """
-    Client transport for SSE.
+    """Client transport for SSE.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
@@ -39,9 +45,10 @@ async def sse_client(
     Args:
         url: The SSE endpoint URL.
         headers: Optional headers to include in requests.
-        timeout: HTTP timeout for regular operations.
-        sse_read_timeout: Timeout for SSE read operations.
+        timeout: HTTP timeout for regular operations (in seconds).
+        sse_read_timeout: Timeout for SSE read operations (in seconds).
         auth: Optional HTTPX authentication handler.
+        on_session_created: Optional callback invoked with the session ID when received.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -66,9 +73,7 @@ async def sse_client(
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
 
-                    async def sse_reader(
-                        task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
-                    ):
+                    async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                         try:
                             async for sse in event_source.aiter_sse():  # pragma: no branch
                                 logger.debug(f"Received SSE event: {sse.event}")
@@ -89,12 +94,20 @@ async def sse_client(
                                             logger.error(error_msg)  # pragma: no cover
                                             raise ValueError(error_msg)  # pragma: no cover
 
+                                        if on_session_created:
+                                            session_id = _extract_session_id_from_endpoint(endpoint_url)
+                                            if session_id:
+                                                on_session_created(session_id)
+
                                         task_status.started(endpoint_url)
 
                                     case "message":
+                                        # Skip empty data (keep-alive pings)
+                                        if not sse.data:
+                                            continue
                                         try:
-                                            message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
-                                                sse.data
+                                            message = types.jsonrpc_message_adapter.validate_json(
+                                                sse.data, by_name=False
                                             )
                                             logger.debug(f"Received server message: {message}")
                                         except Exception as exc:  # pragma: no cover

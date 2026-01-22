@@ -36,8 +36,4 @@ def configure_logging(
     if not handlers:  # pragma: no cover
         handlers.append(logging.StreamHandler())
 
-    logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        handlers=handlers,
-    )
+    logging.basicConfig(level=level, format="%(message)s", handlers=handlers)

@@ -1,27 +1,18 @@
 # Claude Debug
 """Test for HackerOne vulnerability report #3156202 - malformed input DOS."""
 
-from typing import Any
-
 import anyio
 import pytest
 
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
-from mcp.types import (
-    INVALID_PARAMS,
-    JSONRPCError,
-    JSONRPCMessage,
-    JSONRPCRequest,
-    ServerCapabilities,
-)
+from mcp.types import INVALID_PARAMS, JSONRPCError, JSONRPCMessage, JSONRPCRequest, ServerCapabilities
 
 
 @pytest.mark.anyio
 async def test_malformed_initialize_request_does_not_crash_server():
-    """
-    Test that malformed initialize requests return proper error responses
+    """Test that malformed initialize requests return proper error responses
     instead of crashing the server (HackerOne #3156202).
     """
     # Create in-memory streams for testing
@@ -38,7 +29,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
         )
 
         # Wrap in session message
-        request_message = SessionMessage(message=JSONRPCMessage(malformed_request))
+        request_message = SessionMessage(message=malformed_request)
 
         # Start a server session
         async with ServerSession(
@@ -59,7 +50,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
             # Check that we received an error response instead of a crash
             try:
                 response_message = write_receive_stream.receive_nowait()
-                response = response_message.message.root
+                response = response_message.message
 
                 # Verify it's a proper JSON-RPC error response
                 assert isinstance(response, JSONRPCError)
@@ -76,14 +67,14 @@ async def test_malformed_initialize_request_does_not_crash_server():
                     method="tools/call",
                     # params=None  # Missing required params
                 )
-                another_request_message = SessionMessage(message=JSONRPCMessage(another_malformed_request))
+                another_request_message = SessionMessage(message=another_malformed_request)
 
                 await read_send_stream.send(another_request_message)
                 await anyio.sleep(0.1)
 
                 # Should get another error response, not a crash
                 second_response_message = write_receive_stream.receive_nowait()
-                second_response = second_response_message.message.root
+                second_response = second_response_message.message
 
                 assert isinstance(second_response, JSONRPCError)
                 assert second_response.id == "test_id_2"
@@ -101,9 +92,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
 
 @pytest.mark.anyio
 async def test_multiple_concurrent_malformed_requests():
-    """
-    Test that multiple concurrent malformed requests don't crash the server.
-    """
+    """Test that multiple concurrent malformed requests don't crash the server."""
     # Create in-memory streams for testing
     read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](100)
     write_send_stream, write_receive_stream = anyio.create_memory_object_stream[SessionMessage](100)
@@ -128,7 +117,7 @@ async def test_multiple_concurrent_malformed_requests():
                     method="initialize",
                     # params=None  # Missing required params
                 )
-                request_message = SessionMessage(message=JSONRPCMessage(malformed_request))
+                request_message = SessionMessage(message=malformed_request)
                 malformed_requests.append(request_message)
 
             # Send all requests
@@ -139,11 +128,11 @@ async def test_multiple_concurrent_malformed_requests():
             await anyio.sleep(0.2)
 
             # Verify we get error responses for all requests
-            error_responses: list[Any] = []
+            error_responses: list[JSONRPCMessage] = []
             try:
                 while True:
                     response_message = write_receive_stream.receive_nowait()
-                    error_responses.append(response_message.message.root)
+                    error_responses.append(response_message.message)
             except anyio.WouldBlock:
                 pass  # No more messages
 

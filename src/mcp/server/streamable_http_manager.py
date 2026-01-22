@@ -6,7 +6,7 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator
 from http import HTTPStatus
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import anyio
@@ -15,20 +15,22 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
     EventStore,
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
+
+if TYPE_CHECKING:
+    from mcp.server.lowlevel.server import Server as MCPServer
 
 logger = logging.getLogger(__name__)
 
 
 class StreamableHTTPSessionManager:
-    """
-    Manages StreamableHTTP sessions with optional resumability via event store.
+    """Manages StreamableHTTP sessions with optional resumability via event store.
 
     This class abstracts away the complexity of session management, event storage,
     and request handling for StreamableHTTP transports. It handles:
@@ -51,6 +53,9 @@ class StreamableHTTPSessionManager:
         json_response: Whether to use JSON responses instead of SSE streams
         stateless: If True, creates a completely fresh transport for each request
                    with no session tracking or state persistence between requests.
+        security_settings: Optional transport security settings.
+        retry_interval: Retry interval in milliseconds to suggest to clients in SSE
+                       retry field. Used for SSE polling behavior.
     """
 
     def __init__(
@@ -60,12 +65,14 @@ class StreamableHTTPSessionManager:
         json_response: bool = False,
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ):
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
+        self.retry_interval = retry_interval
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -79,8 +86,7 @@ class StreamableHTTPSessionManager:
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[None]:
-        """
-        Run the session manager with proper lifecycle management.
+        """Run the session manager with proper lifecycle management.
 
         This creates and manages the task group for all session operations.
 
@@ -124,8 +130,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process ASGI request with proper session handling and transport setup.
+        """Process ASGI request with proper session handling and transport setup.
 
         Dispatches to the appropriate handler based on stateless mode.
 
@@ -149,8 +154,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process request in stateless mode - creating a new transport for each request.
+        """Process request in stateless mode - creating a new transport for each request.
 
         Args:
             scope: ASGI scope
@@ -198,8 +202,7 @@ class StreamableHTTPSessionManager:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Process request in stateful mode - maintaining session state between requests.
+        """Process request in stateful mode - maintaining session state between requests.
 
         Args:
             scope: ASGI scope
@@ -226,6 +229,7 @@ class StreamableHTTPSessionManager:
                     is_json_response_enabled=self.json_response,
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
+                    retry_interval=self.retry_interval,
                 )
 
                 assert http_transport.mcp_session_id is not None
@@ -270,10 +274,28 @@ class StreamableHTTPSessionManager:
 
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
-        else:  # pragma: no cover
-            # Invalid session ID
+        else:
+            # Unknown or expired session ID - return 404 per MCP spec
+            # TODO: Align error code once spec clarifies
+            # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id="server-error",
+                error=ErrorData(code=INVALID_REQUEST, message="Session not found"),
+            )
             response = Response(
-                "Bad Request: No valid session ID provided",
-                status_code=HTTPStatus.BAD_REQUEST,
+                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                status_code=HTTPStatus.NOT_FOUND,
+                media_type="application/json",
             )
             await response(scope, receive, send)
+
+
+class StreamableHTTPASGIApp:
+    """ASGI application for Streamable HTTP server transport."""
+
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
+        self.session_manager = session_manager
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+        await self.session_manager.handle_request(scope, receive, send)

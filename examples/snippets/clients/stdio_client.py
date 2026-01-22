@@ -1,6 +1,5 @@
-"""
-cd to the `examples/snippets/clients` directory and run:
-    uv run client
+"""cd to the `examples/snippets/clients` directory and run:
+uv run client
 """
 
 import asyncio
@@ -32,7 +31,7 @@ async def handle_sampling_message(
             text="Hello, world! from model",
         ),
         model="gpt-3.5-turbo",
-        stopReason="endTurn",
+        stop_reason="endTurn",
     )
 
 
@@ -70,7 +69,7 @@ async def run():
             result_unstructured = result.content[0]
             if isinstance(result_unstructured, types.TextContent):
                 print(f"Tool result: {result_unstructured.text}")
-            result_structured = result.structuredContent
+            result_structured = result.structured_content
             print(f"Structured tool result: {result_structured}")
 
 

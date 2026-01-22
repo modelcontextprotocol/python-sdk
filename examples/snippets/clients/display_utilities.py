@@ -1,6 +1,5 @@
-"""
-cd to the `examples/snippets` directory and run:
-    uv run display-utilities-client
+"""cd to the `examples/snippets` directory and run:
+uv run display-utilities-client
 """
 
 import asyncio
@@ -39,7 +38,7 @@ async def display_resources(session: ClientSession):
         print(f"Resource: {display_name} ({resource.uri})")
 
     templates_response = await session.list_resource_templates()
-    for template in templates_response.resourceTemplates:
+    for template in templates_response.resource_templates:
         display_name = get_display_name(template)
         print(f"Resource Template: {display_name}")
 

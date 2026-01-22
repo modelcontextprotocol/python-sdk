@@ -8,8 +8,7 @@ from mcp.types import Implementation, Prompt, Resource, ResourceTemplate, Tool
 
 
 def get_display_name(obj: Tool | Resource | Prompt | ResourceTemplate | Implementation) -> str:
-    """
-    Get the display name for an MCP object with proper precedence.
+    """Get the display name for an MCP object with proper precedence.
 
     This is a client-side utility function designed to help MCP clients display
     human-readable names in their user interfaces. When servers provide a 'title'

@@ -1,5 +1,4 @@
-"""
-OAuth2 Authentication implementation for HTTPX.
+"""OAuth2 Authentication implementation for HTTPX.
 
 Implements authorization code flow with PKCE and automatic token refresh.
 """
@@ -19,10 +18,11 @@ import anyio
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
+    create_client_info_from_metadata_url,
     create_client_registration_request,
     create_oauth_metadata_request,
     extract_field_from_www_auth,
@@ -33,6 +33,8 @@ from mcp.client.auth.utils import (
     handle_protected_resource_response,
     handle_registration_response,
     handle_token_response_scopes,
+    is_valid_client_metadata_url,
+    should_use_client_metadata_url,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
@@ -96,6 +98,7 @@ class OAuthContext:
     redirect_handler: Callable[[str], Awaitable[None]] | None
     callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None
     timeout: float = 300.0
+    client_metadata_url: str | None = None
 
     # Discovered metadata
     protected_resource_metadata: ProtectedResourceMetadata | None = None
@@ -211,8 +214,7 @@ class OAuthContext:
 
 
 class OAuthClientProvider(httpx.Auth):
-    """
-    OAuth2 authentication for httpx.
+    """OAuth2 authentication for httpx.
     Handles OAuth flow with automatic client registration and token storage.
     """
 
@@ -226,8 +228,32 @@ class OAuthClientProvider(httpx.Auth):
         redirect_handler: Callable[[str], Awaitable[None]] | None = None,
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
+        client_metadata_url: str | None = None,
     ):
-        """Initialize OAuth2 authentication."""
+        """Initialize OAuth2 authentication.
+
+        Args:
+            server_url: The MCP server URL.
+            client_metadata: OAuth client metadata for registration.
+            storage: Token storage implementation.
+            redirect_handler: Handler for authorization redirects.
+            callback_handler: Handler for authorization callbacks.
+            timeout: Timeout for the OAuth flow.
+            client_metadata_url: URL-based client ID. When provided and the server
+                advertises client_id_metadata_document_supported=true, this URL will be
+                used as the client_id instead of performing dynamic client registration.
+                Must be a valid HTTPS URL with a non-root pathname.
+
+        Raises:
+            ValueError: If client_metadata_url is provided but not a valid HTTPS URL
+                with a non-root pathname.
+        """
+        # Validate client_metadata_url if provided
+        if client_metadata_url is not None and not is_valid_client_metadata_url(client_metadata_url):
+            raise ValueError(
+                f"client_metadata_url must be a valid HTTPS URL with a non-root pathname, got: {client_metadata_url}"
+            )
+
         self.context = OAuthContext(
             server_url=server_url,
             client_metadata=client_metadata,
@@ -235,12 +261,12 @@ class OAuthClientProvider(httpx.Auth):
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
             timeout=timeout,
+            client_metadata_url=client_metadata_url,
         )
         self._initialized = False
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
-        """
-        Handle protected resource metadata discovery response.
+        """Handle protected resource metadata discovery response.
 
         Per SEP-985, supports fallback when discovery fails at one URL.
 
@@ -269,44 +295,6 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError(
                 f"Protected Resource Metadata request failed: {response.status_code}"
             )  # pragma: no cover
-
-    async def _register_client(self) -> httpx.Request | None:
-        """Build registration request or skip if already registered."""
-        if self.context.client_info:
-            return None
-
-        if self.context.oauth_metadata and self.context.oauth_metadata.registration_endpoint:
-            registration_url = str(self.context.oauth_metadata.registration_endpoint)  # pragma: no cover
-        else:
-            auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
-            registration_url = urljoin(auth_base_url, "/register")
-
-        registration_data = self.context.client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
-
-        # If token_endpoint_auth_method is None, auto-select based on server support
-        if self.context.client_metadata.token_endpoint_auth_method is None:
-            preference_order = ["client_secret_basic", "client_secret_post", "none"]
-
-            if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint_auth_methods_supported:
-                supported = self.context.oauth_metadata.token_endpoint_auth_methods_supported
-                for method in preference_order:
-                    if method in supported:
-                        registration_data["token_endpoint_auth_method"] = method
-                        break
-                else:
-                    # No compatible methods between client and server
-                    raise OAuthRegistrationError(
-                        f"No compatible authentication methods. "
-                        f"Server supports: {supported}, "
-                        f"Client supports: {preference_order}"
-                    )
-            else:
-                # No server metadata available, use our default preference
-                registration_data["token_endpoint_auth_method"] = preference_order[0]
-
-        return httpx.Request(
-            "POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"}
-        )
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform the authorization flow."""
@@ -408,7 +396,7 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
-        if response.status_code != 200:
+        if response.status_code not in {200, 201}:
             body = await response.aread()  # pragma: no cover
             body_text = body.decode("utf-8")  # pragma: no cover
             raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
@@ -566,17 +554,30 @@ class OAuthClientProvider(httpx.Auth):
                         self.context.oauth_metadata,
                     )
 
-                    # Step 4: Register client if needed
-                    registration_request = create_client_registration_request(
-                        self.context.oauth_metadata,
-                        self.context.client_metadata,
-                        self.context.get_authorization_base_url(self.context.server_url),
-                    )
+                    # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
-                        registration_response = yield registration_request
-                        client_information = await handle_registration_response(registration_response)
-                        self.context.client_info = client_information
-                        await self.context.storage.set_client_info(client_information)
+                        if should_use_client_metadata_url(
+                            self.context.oauth_metadata, self.context.client_metadata_url
+                        ):
+                            # Use URL-based client ID (CIMD)
+                            logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
+                            client_information = create_client_info_from_metadata_url(
+                                self.context.client_metadata_url,  # type: ignore[arg-type]
+                                redirect_uris=self.context.client_metadata.redirect_uris,
+                            )
+                            self.context.client_info = client_information
+                            await self.context.storage.set_client_info(client_information)
+                        else:
+                            # Fallback to Dynamic Client Registration
+                            registration_request = create_client_registration_request(
+                                self.context.oauth_metadata,
+                                self.context.client_metadata,
+                                self.context.get_authorization_base_url(self.context.server_url),
+                            )
+                            registration_response = yield registration_request
+                            client_information = await handle_registration_response(registration_response)
+                            self.context.client_info = client_information
+                            await self.context.storage.set_client_info(client_information)
 
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()

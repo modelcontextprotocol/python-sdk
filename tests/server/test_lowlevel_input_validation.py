@@ -70,7 +70,8 @@ async def run_tool_test(
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    async for message in server_session.incoming_messages:
+                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
+                    async for message in server_session.incoming_messages:  # pragma: no cover
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
@@ -102,7 +103,7 @@ def create_add_tool() -> Tool:
     return Tool(
         name="add",
         description="Add two numbers",
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {
                 "a": {"type": "number"},
@@ -132,7 +133,7 @@ async def test_valid_tool_call():
 
     # Verify results
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -154,7 +155,7 @@ async def test_invalid_tool_call_missing_required():
 
     # Verify results
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -177,7 +178,7 @@ async def test_invalid_tool_call_wrong_type():
 
     # Verify results
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -192,7 +193,7 @@ async def test_cache_refresh_on_missing_tool():
         Tool(
             name="multiply",
             description="Multiply two numbers",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "x": {"type": "number"},
@@ -219,7 +220,7 @@ async def test_cache_refresh_on_missing_tool():
 
     # Verify results - should work because cache will be refreshed
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -233,7 +234,7 @@ async def test_enum_constraint_validation():
         Tool(
             name="greet",
             description="Greet someone",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
@@ -255,7 +256,7 @@ async def test_enum_constraint_validation():
 
     # Verify results
     assert result is not None
-    assert result.isError
+    assert result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
@@ -270,7 +271,7 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
         Tool(
             name="add",
             description="Add two numbers",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "a": {"type": "number"},
@@ -299,7 +300,7 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
 
     # Verify results - should succeed because validation is skipped for unknown tools
     assert result is not None
-    assert not result.isError
+    assert not result.is_error
     assert len(result.content) == 1
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)

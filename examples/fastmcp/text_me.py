@@ -2,8 +2,7 @@
 # dependencies = []
 # ///
 
-"""
-FastMCP Text Me Server
+"""FastMCP Text Me Server
 --------------------------------
 This defines a simple FastMCP server that sends a text message to a phone number via https://surgemsg.com/.
 

@@ -11,8 +11,7 @@ auth_context_var = contextvars.ContextVar[AuthenticatedUser | None]("auth_contex
 
 
 def get_access_token() -> AccessToken | None:
-    """
-    Get the access token from the current context.
+    """Get the access token from the current context.
 
     Returns:
         The access token if an authenticated user is available, None otherwise.
@@ -22,8 +21,7 @@ def get_access_token() -> AccessToken | None:
 
 
 class AuthContextMiddleware:
-    """
-    Middleware that extracts the authenticated user from the request
+    """Middleware that extracts the authenticated user from the request
     and sets it in a contextvar for easy access throughout the request lifecycle.
 
     This middleware should be added after the AuthenticationMiddleware in the

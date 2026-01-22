@@ -1,5 +1,4 @@
-"""
-StreamableHTTP Server Transport Module
+"""StreamableHTTP Server Transport Module
 
 This module implements an HTTP transport layer with Streamable HTTP.
 
@@ -7,7 +6,6 @@ The transport handles bidirectional communication using HTTP requests and
 responses, with streaming support for long-running operations.
 """
 
-import json
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -15,8 +13,10 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
+from typing import Any
 
 import anyio
+import pydantic_core
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
@@ -24,10 +24,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.transport_security import (
-    TransportSecurityMiddleware,
-    TransportSecuritySettings,
-)
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -42,6 +39,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    jsonrpc_message_adapter,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,9 +68,7 @@ EventId = str
 
 @dataclass
 class EventMessage:
-    """
-    A JSONRPCMessage with an optional event ID for stream resumability.
-    """
+    """A JSONRPCMessage with an optional event ID for stream resumability."""
 
     message: JSONRPCMessage
     event_id: str | None = None
@@ -82,18 +78,15 @@ EventCallback = Callable[[EventMessage], Awaitable[None]]
 
 
 class EventStore(ABC):
-    """
-    Interface for resumability support via event storage.
-    """
+    """Interface for resumability support via event storage."""
 
     @abstractmethod
-    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage) -> EventId:
-        """
-        Stores an event for later retrieval.
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+        """Stores an event for later retrieval.
 
         Args:
             stream_id: ID of the stream the event belongs to
-            message: The JSON-RPC message to store
+            message: The JSON-RPC message to store, or None for priming events
 
         Returns:
             The generated event ID for the stored event
@@ -106,8 +99,7 @@ class EventStore(ABC):
         last_event_id: EventId,
         send_callback: EventCallback,
     ) -> StreamId | None:
-        """
-        Replays events that occurred after the specified event ID.
+        """Replays events that occurred after the specified event ID.
 
         Args:
             last_event_id: The ID of the last event the client received
@@ -120,8 +112,7 @@ class EventStore(ABC):
 
 
 class StreamableHTTPServerTransport:
-    """
-    HTTP server transport with event streaming support for MCP.
+    """HTTP server transport with event streaming support for MCP.
 
     Handles JSON-RPC messages in HTTP POST requests with SSE streaming.
     Supports optional JSON responses and session management.
@@ -140,9 +131,9 @@ class StreamableHTTPServerTransport:
         is_json_response_enabled: bool = False,
         event_store: EventStore | None = None,
         security_settings: TransportSecuritySettings | None = None,
+        retry_interval: int | None = None,
     ) -> None:
-        """
-        Initialize a new StreamableHTTP server transport.
+        """Initialize a new StreamableHTTP server transport.
 
         Args:
             mcp_session_id: Optional session identifier for this connection.
@@ -153,6 +144,10 @@ class StreamableHTTPServerTransport:
                         resumability will be enabled, allowing clients to
                         reconnect and resume messages.
             security_settings: Optional security settings for DNS rebinding protection.
+            retry_interval: Retry interval in milliseconds to suggest to clients in SSE
+                           retry field. When set, the server will send a retry field in
+                           SSE priming events to control client reconnection timing for
+                           polling behavior. Only used when event_store is provided.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
@@ -164,6 +159,7 @@ class StreamableHTTPServerTransport:
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
         self._security = TransportSecurityMiddleware(security_settings)
+        self._retry_interval = retry_interval
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -171,12 +167,118 @@ class StreamableHTTPServerTransport:
                 MemoryObjectReceiveStream[EventMessage],
             ],
         ] = {}
+        self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[dict[str, str]]] = {}
         self._terminated = False
 
     @property
     def is_terminated(self) -> bool:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
+
+    def close_sse_stream(self, request_id: RequestId) -> None:  # pragma: no cover
+        """Close SSE connection for a specific request without terminating the stream.
+
+        This method closes the HTTP connection for the specified request, triggering
+        client reconnection. Events continue to be stored in the event store and will
+        be replayed when the client reconnects with Last-Event-ID.
+
+        Use this to implement polling behavior during long-running operations -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Args:
+            request_id: The request ID whose SSE stream should be closed.
+
+        Note:
+            This is a no-op if there is no active stream for the request ID.
+            Requires event_store to be configured for events to be stored during
+            the disconnect.
+        """
+        writer = self._sse_stream_writers.pop(request_id, None)
+        if writer:
+            writer.close()
+
+        # Also close and remove request streams
+        if request_id in self._request_streams:
+            send_stream, receive_stream = self._request_streams.pop(request_id)
+            send_stream.close()
+            receive_stream.close()
+
+    def close_standalone_sse_stream(self) -> None:  # pragma: no cover
+        """Close the standalone GET SSE stream, triggering client reconnection.
+
+        This method closes the HTTP connection for the standalone GET stream used
+        for unsolicited server-to-client notifications. The client SHOULD reconnect
+        with Last-Event-ID to resume receiving notifications.
+
+        Use this to implement polling behavior for the notification stream -
+        client will reconnect after the retry interval specified in the priming event.
+
+        Note:
+            This is a no-op if there is no active standalone SSE stream.
+            Requires event_store to be configured for events to be stored during
+            the disconnect.
+            Currently, client reconnection for standalone GET streams is NOT
+            implemented - this is a known gap (see test_standalone_get_stream_reconnection).
+        """
+        self.close_sse_stream(GET_STREAM_KEY)
+
+    def _create_session_message(  # pragma: no cover
+        self,
+        message: JSONRPCMessage,
+        request: Request,
+        request_id: RequestId,
+        protocol_version: str,
+    ) -> SessionMessage:
+        """Create a session message with metadata including close_sse_stream callback.
+
+        The close_sse_stream callbacks are only provided when the client supports
+        resumability (protocol version >= 2025-11-25). Old clients can't resume if
+        the stream is closed early because they didn't receive a priming event.
+        """
+        # Only provide close callbacks when client supports resumability
+        if self._event_store and protocol_version >= "2025-11-25":
+
+            async def close_stream_callback() -> None:
+                self.close_sse_stream(request_id)
+
+            async def close_standalone_stream_callback() -> None:
+                self.close_standalone_sse_stream()
+
+            metadata = ServerMessageMetadata(
+                request_context=request,
+                close_sse_stream=close_stream_callback,
+                close_standalone_sse_stream=close_standalone_stream_callback,
+            )
+        else:
+            metadata = ServerMessageMetadata(request_context=request)
+
+        return SessionMessage(message, metadata=metadata)
+
+    async def _maybe_send_priming_event(
+        self,
+        request_id: RequestId,
+        sse_stream_writer: MemoryObjectSendStream[dict[str, Any]],
+        protocol_version: str,
+    ) -> None:
+        """Send priming event for SSE resumability if event_store is configured.
+
+        Only sends priming events to clients with protocol version >= 2025-11-25,
+        which includes the fix for handling empty SSE data. Older clients would
+        crash trying to parse empty data as JSON.
+        """
+        if not self._event_store:
+            return
+        # Priming events have empty data which older clients cannot handle.
+        if protocol_version < "2025-11-25":
+            return
+        priming_event_id = await self._event_store.store_event(
+            str(request_id),  # Convert RequestId to StreamId (str)
+            None,  # Priming event has no payload
+        )
+        priming_event: dict[str, str | int] = {"id": priming_event_id, "data": ""}
+        if self._retry_interval is not None:
+            priming_event["retry"] = self._retry_interval
+        await sse_stream_writer.send(priming_event)
 
     def _create_error_response(
         self,
@@ -197,10 +299,7 @@ class StreamableHTTPServerTransport:
         error_response = JSONRPCError(
             jsonrpc="2.0",
             id="server-error",  # We don't have a request ID for general errors
-            error=ErrorData(
-                code=error_code,
-                message=error_message,
-            ),
+            error=ErrorData(code=error_code, message=error_message),
         )
 
         return Response(
@@ -351,14 +450,14 @@ class StreamableHTTPServerTransport:
             body = await request.body()
 
             try:
-                raw_message = json.loads(body)
-            except json.JSONDecodeError as e:
+                raw_message = pydantic_core.from_json(body)
+            except ValueError as e:
                 response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
                 await response(scope, receive, send)
                 return
 
             try:  # pragma: no cover
-                message = JSONRPCMessage.model_validate(raw_message)
+                message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
             except ValidationError as e:  # pragma: no cover
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
@@ -369,9 +468,7 @@ class StreamableHTTPServerTransport:
                 return
 
             # Check if this is an initialization request
-            is_initialization_request = (
-                isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
-            )  # pragma: no cover
+            is_initialization_request = isinstance(message, JSONRPCRequest) and message.method == "initialize"
 
             if is_initialization_request:  # pragma: no cover
                 # Check if the server already has an established session
@@ -391,7 +488,7 @@ class StreamableHTTPServerTransport:
                 return
 
             # For notifications and responses only, return 202 Accepted
-            if not isinstance(message.root, JSONRPCRequest):  # pragma: no cover
+            if not isinstance(message, JSONRPCRequest):  # pragma: no cover
                 # Create response object and send it
                 response = self._create_json_response(
                     None,
@@ -406,8 +503,17 @@ class StreamableHTTPServerTransport:
 
                 return
 
+            # Extract protocol version for priming event decision.
+            # For initialize requests, get from request params.
+            # For other requests, get from header (already validated).
+            protocol_version = (
+                str(message.params.get("protocolVersion", DEFAULT_NEGOTIATED_VERSION))
+                if is_initialization_request and message.params
+                else request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
+            )
+
             # Extract the request ID outside the try block for proper scope
-            request_id = str(message.root.id)  # pragma: no cover
+            request_id = str(message.id)  # pragma: no cover
             # Register this stream for the request ID
             self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)  # pragma: no cover
             request_stream_reader = self._request_streams[request_id][1]  # pragma: no cover
@@ -425,12 +531,12 @@ class StreamableHTTPServerTransport:
                     # Use similar approach to SSE writer for consistency
                     async for event_message in request_stream_reader:
                         # If it's a response, this is what we're waiting for
-                        if isinstance(event_message.message.root, JSONRPCResponse | JSONRPCError):
+                        if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                             response_message = event_message.message
                             break
                         # For notifications and request, keep waiting
                         else:
-                            logger.debug(f"received: {event_message.message.root.method}")
+                            logger.debug(f"received: {event_message.message.method}")
 
                     # At this point we should have a response
                     if response_message:
@@ -459,10 +565,16 @@ class StreamableHTTPServerTransport:
                 # Create SSE stream
                 sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
 
+                # Store writer reference so close_sse_stream() can close it
+                self._sse_stream_writers[request_id] = sse_stream_writer
+
                 async def sse_writer():
                     # Get the request ID from the incoming request message
                     try:
                         async with sse_stream_writer, request_stream_reader:
+                            # Send priming event for SSE resumability
+                            await self._maybe_send_priming_event(request_id, sse_stream_writer, protocol_version)
+
                             # Process messages from the request-specific stream
                             async for event_message in request_stream_reader:
                                 # Build the event data
@@ -470,15 +582,16 @@ class StreamableHTTPServerTransport:
                                 await sse_stream_writer.send(event_data)
 
                                 # If response, remove from pending streams and close
-                                if isinstance(
-                                    event_message.message.root,
-                                    JSONRPCResponse | JSONRPCError,
-                                ):
+                                if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                                     break
+                    except anyio.ClosedResourceError:
+                        # Expected when close_sse_stream() is called
+                        logger.debug("SSE stream closed by close_sse_stream()")
                     except Exception:
                         logger.exception("Error in SSE writer")
                     finally:
                         logger.debug("Closing SSE writer")
+                        self._sse_stream_writers.pop(request_id, None)
                         await self._clean_up_memory_streams(request_id)
 
                 # Create and start EventSourceResponse
@@ -502,8 +615,7 @@ class StreamableHTTPServerTransport:
                     async with anyio.create_task_group() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
-                        metadata = ServerMessageMetadata(request_context=request)
-                        session_message = SessionMessage(message, metadata=metadata)
+                        session_message = self._create_session_message(message, request, request_id, protocol_version)
                         await writer.send(session_message)
                 except Exception:
                     logger.exception("SSE response error")
@@ -524,8 +636,7 @@ class StreamableHTTPServerTransport:
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:  # pragma: no cover
-        """
-        Handle GET request to establish SSE.
+        """Handle GET request to establish SSE.
 
         This allows the server to communicate to the client without the client
         first sending data via HTTP POST. The server can send JSON-RPC requests
@@ -744,8 +855,7 @@ class StreamableHTTPServerTransport:
         return True
 
     async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:  # pragma: no cover
-        """
-        Replays events that would have been sent after the specified event ID.
+        """Replays events that would have been sent after the specified event ID.
         Only used when resumability is enabled.
         """
         event_store = self._event_store
@@ -761,6 +871,9 @@ class StreamableHTTPServerTransport:
 
             if self.mcp_session_id:
                 headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
+
+            # Get protocol version from header (already validated in _validate_protocol_version)
+            replay_protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
 
             # Create SSE stream for replay
             sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
@@ -778,6 +891,13 @@ class StreamableHTTPServerTransport:
 
                         # If stream ID not in mapping, create it
                         if stream_id and stream_id not in self._request_streams:
+                            # Register SSE writer so close_sse_stream() can close it
+                            self._sse_stream_writers[stream_id] = sse_stream_writer
+
+                            # Send priming event for this new connection
+                            await self._maybe_send_priming_event(stream_id, sse_stream_writer, replay_protocol_version)
+
+                            # Create new request streams for this connection
                             self._request_streams[stream_id] = anyio.create_memory_object_stream[EventMessage](0)
                             msg_reader = self._request_streams[stream_id][1]
 
@@ -787,6 +907,9 @@ class StreamableHTTPServerTransport:
                                     event_data = self._create_event_data(event_message)
 
                                     await sse_stream_writer.send(event_data)
+                except anyio.ClosedResourceError:
+                    # Expected when close_sse_stream() is called
+                    logger.debug("Replay SSE stream closed by close_sse_stream()")
                 except Exception:
                     logger.exception("Error in replay sender")
 
@@ -851,8 +974,8 @@ class StreamableHTTPServerTransport:
                         message = session_message.message
                         target_request_id = None
                         # Check if this is a response
-                        if isinstance(message.root, JSONRPCResponse | JSONRPCError):
-                            response_id = str(message.root.id)
+                        if isinstance(message, JSONRPCResponse | JSONRPCError):
+                            response_id = str(message.id)
                             # If this response is for an existing request stream,
                             # send it there
                             target_request_id = response_id
@@ -888,11 +1011,16 @@ class StreamableHTTPServerTransport:
                                 # Stream might be closed, remove from registry
                                 self._request_streams.pop(request_stream_id, None)
                         else:
-                            logging.debug(
-                                f"""Request stream {request_stream_id} not found 
+                            logger.debug(
+                                f"""Request stream {request_stream_id} not found
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )
+                except anyio.ClosedResourceError:
+                    if self._terminated:
+                        logger.debug("Read stream closed by client")
+                    else:
+                        logger.exception("Unexpected closure of read stream in message router")
                 except Exception:
                     logger.exception("Error in message router")
 

@@ -1,6 +1,4 @@
-"""
-Integration tests for MCP authorization components.
-"""
+"""Integration tests for MCP authorization components."""
 
 import base64
 import hashlib
@@ -339,8 +337,58 @@ class TestAuthEndpoints:
             },
         )
         error_response = response.json()
-        assert error_response["error"] == "unauthorized_client"
+        # Per RFC 6749 Section 5.2, authentication failures (missing client_id)
+        # must return "invalid_client", not "unauthorized_client"
+        assert error_response["error"] == "invalid_client"
         assert "error_description" in error_response  # Contains error message
+
+    @pytest.mark.anyio
+    async def test_token_invalid_client_secret_returns_invalid_client(
+        self,
+        test_client: httpx.AsyncClient,
+        registered_client: dict[str, Any],
+        pkce_challenge: dict[str, str],
+        mock_oauth_provider: MockOAuthProvider,
+    ):
+        """Test token endpoint returns 'invalid_client' for wrong client_secret per RFC 6749.
+
+        RFC 6749 Section 5.2 defines:
+        - invalid_client: Client authentication failed (wrong credentials, unknown client)
+        - unauthorized_client: Authenticated client not authorized for grant type
+
+        When client_secret is wrong, this is an authentication failure, so the
+        error code MUST be 'invalid_client'.
+        """
+        # Create an auth code for the registered client
+        auth_code = f"code_{int(time.time())}"
+        mock_oauth_provider.auth_codes[auth_code] = AuthorizationCode(
+            code=auth_code,
+            client_id=registered_client["client_id"],
+            code_challenge=pkce_challenge["code_challenge"],
+            redirect_uri=AnyUrl("https://client.example.com/callback"),
+            redirect_uri_provided_explicitly=True,
+            scopes=["read", "write"],
+            expires_at=time.time() + 600,
+        )
+
+        # Try to exchange the auth code with a WRONG client_secret
+        response = await test_client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": registered_client["client_id"],
+                "client_secret": "wrong_secret_that_does_not_match",
+                "code": auth_code,
+                "code_verifier": pkce_challenge["code_verifier"],
+                "redirect_uri": "https://client.example.com/callback",
+            },
+        )
+
+        assert response.status_code == 401
+        error_response = response.json()
+        # RFC 6749 Section 5.2: authentication failures MUST return "invalid_client"
+        assert error_response["error"] == "invalid_client"
+        assert "Invalid client_secret" in error_response["error_description"]
 
     @pytest.mark.anyio
     async def test_token_invalid_auth_code(
@@ -889,7 +937,8 @@ class TestAuthEndpoints:
         assert registered_client.scope == "read write"
 
     @pytest.mark.anyio
-    async def test_client_registration_invalid_grant_type(self, test_client: httpx.AsyncClient):
+    async def test_client_registration_with_authorization_code_only(self, test_client: httpx.AsyncClient):
+        """Test that registration succeeds with only authorization_code (refresh_token is optional per RFC 7591)."""
         client_metadata = {
             "redirect_uris": ["https://client.example.com/callback"],
             "client_name": "Test Client",
@@ -897,11 +946,26 @@ class TestAuthEndpoints:
         }
 
         response = await test_client.post("/register", json=client_metadata)
+        assert response.status_code == 201
+        client_info = response.json()
+        assert "client_id" in client_info
+        assert client_info["grant_types"] == ["authorization_code"]
+
+    @pytest.mark.anyio
+    async def test_client_registration_missing_authorization_code(self, test_client: httpx.AsyncClient):
+        """Test that registration fails when authorization_code grant type is missing."""
+        client_metadata = {
+            "redirect_uris": ["https://client.example.com/callback"],
+            "client_name": "Test Client",
+            "grant_types": ["refresh_token"],
+        }
+
+        response = await test_client.post("/register", json=client_metadata)
         assert response.status_code == 400
         error_data = response.json()
         assert "error" in error_data
         assert error_data["error"] == "invalid_client_metadata"
-        assert error_data["error_description"] == "grant_types must be authorization_code and refresh_token"
+        assert error_data["error_description"] == "grant_types must include 'authorization_code'"
 
     @pytest.mark.anyio
     async def test_client_registration_with_additional_grant_type(self, test_client: httpx.AsyncClient):
@@ -1070,7 +1134,8 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        assert error_response["error"] == "unauthorized_client"
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
         assert "Client secret is required" in error_response["error_description"]
 
     @pytest.mark.anyio
@@ -1114,7 +1179,8 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        assert error_response["error"] == "unauthorized_client"
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
         assert "Missing or invalid Basic authentication" in error_response["error_description"]
 
     @pytest.mark.anyio
@@ -1158,7 +1224,8 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        assert error_response["error"] == "unauthorized_client"
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
         assert "Invalid Basic authentication header" in error_response["error_description"]
 
     @pytest.mark.anyio
@@ -1189,8 +1256,6 @@ class TestAuthEndpoints:
         )
 
         # Send base64 without colon (invalid format)
-        import base64
-
         invalid_creds = base64.b64encode(b"no-colon-here").decode()
         response = await test_client.post(
             "/token",
@@ -1205,7 +1270,8 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        assert error_response["error"] == "unauthorized_client"
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
         assert "Invalid Basic authentication header" in error_response["error_description"]
 
     @pytest.mark.anyio
@@ -1236,8 +1302,6 @@ class TestAuthEndpoints:
         )
 
         # Send different client_id in Basic auth header
-        import base64
-
         wrong_creds = base64.b64encode(f"wrong-client-id:{client_info['client_secret']}".encode()).decode()
         response = await test_client.post(
             "/token",
@@ -1252,7 +1316,8 @@ class TestAuthEndpoints:
         )
         assert response.status_code == 401
         error_response = response.json()
-        assert error_response["error"] == "unauthorized_client"
+        # RFC 6749: authentication failures return "invalid_client"
+        assert error_response["error"] == "invalid_client"
         assert "Client ID mismatch" in error_response["error_description"]
 
     @pytest.mark.anyio
