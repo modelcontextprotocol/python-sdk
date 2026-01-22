@@ -1,5 +1,4 @@
-"""
-Enterprise Managed Authorization extension for MCP (SEP-990).
+"""Enterprise Managed Authorization extension for MCP (SEP-990).
 
 Implements RFC 8693 Token Exchange and RFC 7523 JWT Bearer Grant for
 enterprise SSO integration.
@@ -171,8 +170,7 @@ class IDJAGClaims(BaseModel):
 
 
 class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
-    """
-    OAuth client provider for Enterprise Managed Authorization (SEP-990).
+    """OAuth client provider for Enterprise Managed Authorization (SEP-990).
 
     Implements:
     - RFC 8693: Token Exchange (ID Token → ID-JAG)
@@ -190,8 +188,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
     ) -> None:
-        """
-        Initialize Enterprise Auth OAuth Client.
+        """Initialize Enterprise Auth OAuth Client.
 
         Args:
             server_url: MCP server URL
@@ -219,8 +216,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         self,
         client: httpx.AsyncClient,
     ) -> str:
-        """
-        Exchange ID Token for ID-JAG using RFC 8693 Token Exchange.
+        """Exchange ID Token for ID-JAG using RFC 8693 Token Exchange.
 
         Args:
             client: HTTP client for making requests
@@ -290,8 +286,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         client: httpx.AsyncClient,
         id_jag: str,
     ) -> OAuthToken:
-        """
-        Exchange ID-JAG for access token using RFC 7523 JWT Bearer Grant.
+        """Exchange ID-JAG for access token using RFC 7523 JWT Bearer Grant.
 
         Args:
             client: HTTP client for making requests
@@ -354,8 +349,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             raise OAuthTokenError(f"HTTP error during JWT bearer grant: {e}") from e
 
     async def _perform_authorization(self) -> httpx.Request:
-        """
-        Perform enterprise authorization flow.
+        """Perform enterprise authorization flow.
 
         Overrides parent method to use token exchange + JWT bearer grant
         instead of standard authorization code flow.
@@ -374,8 +368,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
 
 def decode_id_jag(id_jag: str) -> IDJAGClaims:
-    """
-    Decode an ID-JAG token without verification.
+    """Decode an ID-JAG token without verification.
 
     Args:
         id_jag: The ID-JAG token string
@@ -399,8 +392,7 @@ def decode_id_jag(id_jag: str) -> IDJAGClaims:
 def validate_token_exchange_params(
     params: TokenExchangeParameters,
 ) -> None:
-    """
-    Validate token exchange parameters.
+    """Validate token exchange parameters.
 
     Args:
         params: Token exchange parameters to validate

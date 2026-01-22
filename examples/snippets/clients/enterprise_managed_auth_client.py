@@ -18,8 +18,8 @@ from mcp.types import CallToolResult
 
 # Placeholder function for IdP authentication
 async def get_id_token_from_idp() -> str:
-    """
-    Placeholder function to get ID token from your IdP.
+    """Placeholder function to get ID token from your IdP.
+
     In production, implement actual IdP authentication flow.
     """
     raise NotImplementedError("Implement your IdP authentication flow here")
