@@ -1,6 +1,5 @@
 """Tests for StreamableHTTP server DNS rebinding protection."""
 
-import logging
 import multiprocessing
 import socket
 from collections.abc import AsyncGenerator
@@ -19,7 +18,6 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
 from tests.test_helpers import wait_for_server
 
-logger = logging.getLogger(__name__)
 SERVER_NAME = "test_streamable_http_security_server"
 
 
