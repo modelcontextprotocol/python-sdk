@@ -953,6 +953,74 @@ class TestServerResourceTemplates:
             assert result.contents[0].text == "csv for bob"
 
 
+class TestServerResourceMetadata:
+    """Test FastMCP @resource decorator meta parameter for list operations.
+
+    Meta flows: @resource decorator -> resource/template storage -> list_resources/list_resource_templates.
+    Note: read_resource does NOT pass meta to protocol response (lowlevel/server.py only extracts content/mime_type).
+    """
+
+    @pytest.mark.anyio
+    async def test_resource_decorator_with_metadata(self):
+        """Test that @resource decorator accepts and passes meta parameter."""
+        # Tests static resource flow: decorator -> FunctionResource -> list_resources (server.py:544,635,361)
+        mcp = FastMCP()
+
+        metadata = {"ui": {"component": "file-viewer"}, "priority": "high"}
+
+        @mcp.resource("resource://config", meta=metadata)
+        def get_config() -> str:  # pragma: no cover
+            return '{"debug": false}'
+
+        resources = await mcp.list_resources()
+        assert len(resources) == 1
+        assert resources[0].meta is not None
+        assert resources[0].meta == metadata
+        assert resources[0].meta["ui"]["component"] == "file-viewer"
+        assert resources[0].meta["priority"] == "high"
+
+    @pytest.mark.anyio
+    async def test_resource_template_decorator_with_metadata(self):
+        """Test that @resource decorator passes meta to templates."""
+        # Tests template resource flow: decorator -> add_template() -> list_resource_templates (server.py:544,622,377)
+        mcp = FastMCP()
+
+        metadata = {"api_version": "v2", "deprecated": False}
+
+        @mcp.resource("resource://{city}/weather", meta=metadata)
+        def get_weather(city: str) -> str:  # pragma: no cover
+            return f"Weather for {city}"
+
+        templates = await mcp.list_resource_templates()
+        assert len(templates) == 1
+        assert templates[0].meta is not None
+        assert templates[0].meta == metadata
+        assert templates[0].meta["api_version"] == "v2"
+
+    @pytest.mark.anyio
+    async def test_read_resource_returns_meta(self):
+        """Test that read_resource includes meta in response."""
+        # Tests end-to-end: Resource.meta -> ReadResourceContents.meta -> protocol _meta (lowlevel/server.py:341,371)
+        mcp = FastMCP()
+
+        metadata = {"version": "1.0", "category": "config"}
+
+        @mcp.resource("resource://data", meta=metadata)
+        def get_data() -> str:
+            return "test data"
+
+        async with client_session(mcp._mcp_server) as client:
+            result = await client.read_resource(AnyUrl("resource://data"))
+
+            # Verify content and metadata in protocol response
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "test data"
+            assert result.contents[0].meta is not None
+            assert result.contents[0].meta == metadata
+            assert result.contents[0].meta["version"] == "1.0"
+            assert result.contents[0].meta["category"] == "config"
+
+
 class TestContextInjection:
     """Test context injection in tools, resources, and prompts."""
 
