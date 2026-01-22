@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_serializer, field_validator
 
 
 class OAuthToken(BaseModel):
@@ -129,6 +129,11 @@ class OAuthMetadata(BaseModel):
     code_challenge_methods_supported: list[str] | None = None
     client_id_metadata_document_supported: bool | None = None
 
+    @field_serializer("issuer")
+    def serialize_issuer(self, v: AnyHttpUrl) -> str:
+        """Strip trailing slash from issuer URL for RFC 8414 §3.3 compliance."""
+        return str(v).rstrip("/")
+
 
 class ProtectedResourceMetadata(BaseModel):
     """RFC 9728 OAuth 2.0 Protected Resource Metadata.
@@ -151,3 +156,13 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_signing_alg_values_supported: list[str] | None = None
     # dpop_bound_access_tokens_required default is False, but ommited here for clarity
     dpop_bound_access_tokens_required: bool | None = None
+
+    @field_serializer("resource")
+    def serialize_resource(self, v: AnyHttpUrl) -> str:
+        """Strip trailing slash from resource URL for RFC 9728 §3 compliance."""
+        return str(v).rstrip("/")
+
+    @field_serializer("authorization_servers")
+    def serialize_authorization_servers(self, v: list[AnyHttpUrl]) -> list[str]:
+        """Strip trailing slashes from authorization server URLs for RFC 9728 §3 compliance."""
+        return [str(s).rstrip("/") for s in v]

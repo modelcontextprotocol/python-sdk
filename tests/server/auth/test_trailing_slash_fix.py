@@ -18,10 +18,10 @@ from tests.server.fastmcp.auth.test_auth_integration import MockOAuthProvider
 
 
 def test_build_metadata_strips_trailing_slash_from_issuer():
-    """Test that build_metadata strips trailing slash from issuer URL.
+    """Test that build_metadata strips trailing slash from issuer URL when serialized.
 
     Pydantic's AnyHttpUrl automatically adds trailing slashes to bare hostnames.
-    This test verifies that we strip them to comply with RFC 8414 §3.3.
+    This test verifies that we strip them during serialization to comply with RFC 8414 §3.3.
     """
     # Use a bare hostname URL which Pydantic will add a trailing slash to
     issuer_url = AnyHttpUrl("http://localhost:8000")
@@ -33,13 +33,14 @@ def test_build_metadata_strips_trailing_slash_from_issuer():
         revocation_options=RevocationOptions(enabled=False),
     )
 
-    # The issuer should NOT have a trailing slash
-    assert str(metadata.issuer) == "http://localhost:8000"
-    assert not str(metadata.issuer).endswith("/")
+    # The serialized issuer should NOT have a trailing slash
+    serialized = metadata.model_dump(mode="json")
+    assert serialized["issuer"] == "http://localhost:8000"
+    assert not serialized["issuer"].endswith("/")
 
 
 def test_build_metadata_strips_trailing_slash_from_issuer_with_path():
-    """Test that build_metadata strips trailing slash from issuer URL with path."""
+    """Test that build_metadata strips trailing slash from issuer URL with path when serialized."""
     # URL with path that has trailing slash
     issuer_url = AnyHttpUrl("http://localhost:8000/auth/")
 
@@ -50,9 +51,10 @@ def test_build_metadata_strips_trailing_slash_from_issuer_with_path():
         revocation_options=RevocationOptions(enabled=False),
     )
 
-    # The issuer should NOT have a trailing slash
-    assert str(metadata.issuer) == "http://localhost:8000/auth"
-    assert not str(metadata.issuer).endswith("/")
+    # The serialized issuer should NOT have a trailing slash
+    serialized = metadata.model_dump(mode="json")
+    assert serialized["issuer"] == "http://localhost:8000/auth"
+    assert not serialized["issuer"].endswith("/")
 
 
 def test_build_metadata_endpoints_have_no_double_slashes():
@@ -81,7 +83,7 @@ def test_build_metadata_endpoints_have_no_double_slashes():
 
 
 def test_protected_resource_metadata_strips_trailing_slash_from_resource():
-    """Test that protected resource metadata strips trailing slash from resource URL.
+    """Test that protected resource metadata strips trailing slash from resource URL when serialized.
 
     RFC 9728 §3 requires that the resource URL in the metadata response must be
     identical to the URL used for discovery.
@@ -104,13 +106,14 @@ def test_protected_resource_metadata_strips_trailing_slash_from_resource():
 
     metadata = handler.__self__.metadata  # type: ignore
 
-    # The resource URL should NOT have a trailing slash
-    assert str(metadata.resource) == "http://localhost:8000"
-    assert not str(metadata.resource).endswith("/")
+    # The serialized resource URL should NOT have a trailing slash
+    serialized = metadata.model_dump(mode="json")
+    assert serialized["resource"] == "http://localhost:8000"
+    assert not serialized["resource"].endswith("/")
 
 
 def test_protected_resource_metadata_strips_trailing_slash_from_authorization_servers():
-    """Test that protected resource metadata strips trailing slashes from authorization server URLs."""
+    """Test that protected resource metadata strips trailing slashes from auth server URLs when serialized."""
     resource_url = AnyHttpUrl("http://localhost:8000/resource")
     # Use bare hostname URLs which Pydantic will add trailing slashes to
     auth_servers = [
@@ -129,11 +132,12 @@ def test_protected_resource_metadata_strips_trailing_slash_from_authorization_se
     handler = cors_app.app.func  # type: ignore
     metadata = handler.__self__.metadata  # type: ignore
 
-    # All authorization server URLs should NOT have trailing slashes
-    assert str(metadata.authorization_servers[0]) == "http://auth1.example.com"
-    assert str(metadata.authorization_servers[1]) == "http://auth2.example.com"
-    assert not str(metadata.authorization_servers[0]).endswith("/")
-    assert not str(metadata.authorization_servers[1]).endswith("/")
+    # All serialized authorization server URLs should NOT have trailing slashes
+    serialized = metadata.model_dump(mode="json")
+    assert serialized["authorization_servers"][0] == "http://auth1.example.com"
+    assert serialized["authorization_servers"][1] == "http://auth2.example.com"
+    assert not serialized["authorization_servers"][0].endswith("/")
+    assert not serialized["authorization_servers"][1].endswith("/")
 
 
 @pytest.fixture
