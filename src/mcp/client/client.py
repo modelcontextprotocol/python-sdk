@@ -195,6 +195,7 @@ class Client:
 
         Args:
             uri: The URI of the resource to read.
+            meta: Additional metadata for the request
 
         Returns:
             The resource content.
@@ -247,17 +248,20 @@ class Client:
         """List available prompts from the server."""
         return await self.session.list_prompts(params=types.PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None, *, meta: RequestParamsMeta | None = None
+    ) -> types.GetPromptResult:
         """Get a prompt from the server.
 
         Args:
             name: The name of the prompt
             arguments: Arguments to pass to the prompt
+            meta: Additional metadata for the request
 
         Returns:
             The prompt content.
         """
-        return await self.session.get_prompt(name=name, arguments=arguments)
+        return await self.session.get_prompt(name=name, arguments=arguments, meta=meta)
 
     async def complete(
         self,
