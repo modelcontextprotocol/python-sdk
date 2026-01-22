@@ -29,6 +29,7 @@ jobs:
           echo '```' >> pr_body.md
 
       - name: Create pull request
+        id: create-pr
         uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v7
         with:
           commit-message: "chore: update uv.lock with latest dependencies"
@@ -38,3 +39,9 @@ jobs:
           delete-branch: true
           add-paths: uv.lock
           labels: dependencies
+
+      - name: Trigger CI on PR branch
+        if: steps.create-pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run main.yml --ref weekly-lockfile-update

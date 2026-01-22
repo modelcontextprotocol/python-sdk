@@ -6,6 +6,7 @@ on:
     tags: ["v*.*.*"]
   pull_request:
     branches: ["main", "v1.x"]
+  workflow_dispatch:
 
 permissions:
   contents: read
