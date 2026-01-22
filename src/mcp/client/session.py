@@ -3,7 +3,7 @@ from typing import Any, Protocol
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import TypeAdapter
 
 import mcp.types as types
 from mcp.client.experimental import ExperimentalClientFeatures
@@ -12,6 +12,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.types._types import RequestParamsMeta
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
@@ -216,9 +217,9 @@ class ClientSession(
             self._experimental_features = ExperimentalClientFeatures(self)
         return self._experimental_features
 
-    async def send_ping(self) -> types.EmptyResult:
+    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
-        return await self.send_request(types.PingRequest(), types.EmptyResult)
+        return await self.send_request(types.PingRequest(params=types.RequestParams(_meta=meta)), types.EmptyResult)
 
     async def send_progress_notification(
         self,
@@ -226,6 +227,8 @@ class ClientSession(
         progress: float,
         total: float | None = None,
         message: str | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
@@ -235,14 +238,20 @@ class ClientSession(
                     progress=progress,
                     total=total,
                     message=message,
+                    _meta=meta,
                 ),
             )
         )
 
-    async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
+    async def set_logging_level(
+        self,
+        level: types.LoggingLevel,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.EmptyResult:
         """Send a logging/setLevel request."""
         return await self.send_request(  # pragma: no cover
-            types.SetLevelRequest(params=types.SetLevelRequestParams(level=level)),
+            types.SetLevelRequest(params=types.SetLevelRequestParams(level=level, _meta=meta)),
             types.EmptyResult,
         )
 
@@ -267,24 +276,24 @@ class ClientSession(
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
-            types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=str(uri))),
+            types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=uri, _meta=meta)),
             types.ReadResourceResult,
         )
 
-    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.SubscribeRequest(params=types.SubscribeRequestParams(uri=str(uri))),
+            types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
 
-    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         return await self.send_request(  # pragma: no cover
-            types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=str(uri))),
+            types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
 
@@ -295,17 +304,13 @@ class ClientSession(
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 
-        _meta: types.RequestParams.Meta | None = None
-        if meta is not None:
-            _meta = types.RequestParams.Meta(**meta)
-
         result = await self.send_request(
             types.CallToolRequest(
-                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=_meta),
+                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=meta),
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
@@ -351,11 +356,17 @@ class ClientSession(
         """
         return await self.send_request(types.ListPromptsRequest(params=params), types.ListPromptsResult)
 
-    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
             types.GetPromptRequest(
-                params=types.GetPromptRequestParams(name=name, arguments=arguments),
+                params=types.GetPromptRequestParams(name=name, arguments=arguments, _meta=meta),
             ),
             types.GetPromptResult,
         )

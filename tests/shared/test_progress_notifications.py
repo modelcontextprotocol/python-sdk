@@ -275,11 +275,10 @@ async def test_progress_context_manager():
         progress_token = "client_token_456"
 
         # Create request context
-        meta = types.RequestParams.Meta(progress_token=progress_token)
         request_context = RequestContext(
             request_id="test-request",
             session=client_session,
-            meta=meta,
+            meta={"progress_token": progress_token},
             lifespan_context=None,
         )
 

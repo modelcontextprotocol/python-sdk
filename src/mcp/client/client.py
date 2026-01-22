@@ -5,21 +5,29 @@ from __future__ import annotations
 from contextlib import AsyncExitStack
 from typing import Any
 
-from pydantic import AnyUrl
-
-import mcp.types as types
 from mcp.client._memory import InMemoryTransport
-from mcp.client.session import (
-    ClientSession,
-    ElicitationFnT,
-    ListRootsFnT,
-    LoggingFnT,
-    MessageHandlerFnT,
-    SamplingFnT,
-)
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.shared.session import ProgressFnT
+from mcp.types import (
+    CallToolResult,
+    CompleteResult,
+    EmptyResult,
+    GetPromptResult,
+    Implementation,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    LoggingLevel,
+    PaginatedRequestParams,
+    PromptReference,
+    ReadResourceResult,
+    RequestParamsMeta,
+    ResourceTemplateReference,
+    ServerCapabilities,
+)
 
 
 class Client:
@@ -39,8 +47,11 @@ class Client:
         def add(a: int, b: int) -> int:
             return a + b
 
-        async with Client(server) as client:
-            result = await client.call_tool("add", {"a": 1, "b": 2})
+        async def main():
+            async with Client(server) as client:
+                result = await client.call_tool("add", {"a": 1, "b": 2})
+
+        asyncio.run(main())
         ```
     """
 
@@ -62,7 +73,7 @@ class Client:
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
-        client_info: types.Implementation | None = None,
+        client_info: Implementation | None = None,
         elicitation_callback: ElicitationFnT | None = None,
     ) -> None:
         """Initialize the client with a server.
@@ -143,13 +154,13 @@ class Client:
         return self._session
 
     @property
-    def server_capabilities(self) -> types.ServerCapabilities | None:
+    def server_capabilities(self) -> ServerCapabilities | None:
         """The server capabilities received during initialization, or None if not yet initialized."""
         return self.session.get_server_capabilities()
 
-    async def send_ping(self) -> types.EmptyResult:
+    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""
-        return await self.session.send_ping()
+        return await self.session.send_ping(meta=meta)
 
     async def send_progress_notification(
         self,
@@ -166,36 +177,47 @@ class Client:
             message=message,
         )
 
-    async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
+    async def set_logging_level(self, level: LoggingLevel, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Set the logging level on the server."""
-        return await self.session.set_logging_level(level)
+        return await self.session.set_logging_level(level=level, meta=meta)
 
-    async def list_resources(self, *, cursor: str | None = None) -> types.ListResourcesResult:
+    async def list_resources(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ListResourcesResult:
         """List available resources from the server."""
-        return await self.session.list_resources(params=types.PaginatedRequestParams(cursor=cursor))
+        return await self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def list_resource_templates(self, *, cursor: str | None = None) -> types.ListResourceTemplatesResult:
+    async def list_resource_templates(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ListResourceTemplatesResult:
         """List available resource templates from the server."""
-        return await self.session.list_resource_templates(params=types.PaginatedRequestParams(cursor=cursor))
+        return await self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> ReadResourceResult:
         """Read a resource from the server.
 
         Args:
             uri: The URI of the resource to read.
+            meta: Additional metadata for the request
 
         Returns:
             The resource content.
         """
-        return await self.session.read_resource(uri)
+        return await self.session.read_resource(uri, meta=meta)
 
-    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Subscribe to resource updates."""
-        return await self.session.subscribe_resource(uri)
+        return await self.session.subscribe_resource(uri, meta=meta)
 
-    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Unsubscribe from resource updates."""
-        return await self.session.unsubscribe_resource(uri)
+        return await self.session.unsubscribe_resource(uri, meta=meta)
 
     async def call_tool(
         self,
@@ -204,8 +226,8 @@ class Client:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult:
+        meta: RequestParamsMeta | None = None,
+    ) -> CallToolResult:
         """Call a tool on the server.
 
         Args:
@@ -226,28 +248,36 @@ class Client:
             meta=meta,
         )
 
-    async def list_prompts(self, *, cursor: str | None = None) -> types.ListPromptsResult:
+    async def list_prompts(
+        self,
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ListPromptsResult:
         """List available prompts from the server."""
-        return await self.session.list_prompts(params=types.PaginatedRequestParams(cursor=cursor))
+        return await self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None, *, meta: RequestParamsMeta | None = None
+    ) -> GetPromptResult:
         """Get a prompt from the server.
 
         Args:
             name: The name of the prompt
             arguments: Arguments to pass to the prompt
+            meta: Additional metadata for the request
 
         Returns:
             The prompt content.
         """
-        return await self.session.get_prompt(name=name, arguments=arguments)
+        return await self.session.get_prompt(name=name, arguments=arguments, meta=meta)
 
     async def complete(
         self,
-        ref: types.ResourceTemplateReference | types.PromptReference,
+        ref: ResourceTemplateReference | PromptReference,
         argument: dict[str, str],
         context_arguments: dict[str, str] | None = None,
-    ) -> types.CompleteResult:
+    ) -> CompleteResult:
         """Get completions for a prompt or resource template argument.
 
         Args:
@@ -260,9 +290,9 @@ class Client:
         """
         return await self.session.complete(ref=ref, argument=argument, context_arguments=context_arguments)
 
-    async def list_tools(self, *, cursor: str | None = None) -> types.ListToolsResult:
+    async def list_tools(self, *, cursor: str | None = None, meta: RequestParamsMeta | None = None) -> ListToolsResult:
         """List available tools from the server."""
-        return await self.session.list_tools(params=types.PaginatedRequestParams(cursor=cursor))
+        return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""

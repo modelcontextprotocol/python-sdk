@@ -1049,7 +1049,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             total: Optional total value e.g. 100
             message: Optional message e.g. Starting render...
         """
-        progress_token = self.request_context.meta.progress_token if self.request_context.meta else None
+        progress_token = self.request_context.meta.get("progress_token") if self.request_context.meta else None
 
         if progress_token is None:  # pragma: no cover
             return
@@ -1174,9 +1174,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def client_id(self) -> str | None:
         """Get the client ID if available."""
-        return (
-            getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
-        )  # pragma: no cover
+        return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
 
     @property
     def request_id(self) -> str:

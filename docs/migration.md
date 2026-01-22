@@ -233,6 +233,35 @@ notification = server_notification_adapter.validate_python(data)
 
 All adapters are exported from `mcp.types`.
 
+### `RequestParams.Meta` replaced with `RequestParamsMeta` TypedDict
+
+The nested `RequestParams.Meta` Pydantic model class has been replaced with a top-level `RequestParamsMeta` TypedDict. This affects the `ctx.meta` field in request handlers and any code that imports or references this type.
+
+**Key changes:**
+
+- `RequestParams.Meta` (Pydantic model) → `RequestParamsMeta` (TypedDict)
+- Attribute access (`meta.progress_token`) → Dictionary access (`meta.get("progress_token")`)
+- `progress_token` field changed from `ProgressToken | None = None` to `NotRequired[ProgressToken]`
+`
+
+**In request context handlers:**
+
+```python
+# Before (v1)
+@server.call_tool()
+async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
+    ctx = server.request_context
+    if ctx.meta and ctx.meta.progress_token:
+        await ctx.session.send_progress_notification(ctx.meta.progress_token, 0.5, 100)
+
+# After (v2)
+@server.call_tool()
+async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
+    ctx = server.request_context
+    if ctx.meta and "progress_token" in ctx.meta:
+        await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
+```
+
 ### Resource URI type changed from `AnyUrl` to `str`
 
 The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the [MCP specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) which defines URIs as plain strings (`uri: string`) without strict URL validation. This change allows relative paths like `users/me` that were previously rejected.
@@ -274,7 +303,19 @@ Affected types:
 - `UnsubscribeRequestParams.uri`
 - `ResourceUpdatedNotificationParams.uri`
 
-The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` methods now accept both `str` and `AnyUrl` for backwards compatibility.
+The `Client` and `ClientSession` methods `read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` now only accept `str` for the `uri` parameter. If you were passing `AnyUrl` objects, convert them to strings:
+
+```python
+# Before (v1)
+from pydantic import AnyUrl
+
+await client.read_resource(AnyUrl("test://resource"))
+
+# After (v2)
+await client.read_resource("test://resource")
+# Or if you have an AnyUrl from elsewhere:
+await client.read_resource(str(my_any_url))
+```
 
 ## Deprecations
 

@@ -196,7 +196,7 @@ class ClientSessionGroup:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
+        meta: types.RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
