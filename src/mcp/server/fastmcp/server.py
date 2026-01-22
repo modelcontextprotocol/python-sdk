@@ -6,7 +6,7 @@ import inspect
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, overload
+from typing import Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -44,7 +44,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import Annotations, AnyFunction, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.types import Annotations, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -52,6 +52,8 @@ from mcp.types import ResourceTemplate as MCPResourceTemplate
 from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
+
+_CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -112,7 +114,7 @@ class FastMCP(Generic[LifespanResultT]):
         website_url: str | None = None,
         icons: list[Icon] | None = None,
         version: str | None = None,
-        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         token_verifier: TokenVerifier | None = None,
         *,
         tools: list[Tool] | None = None,
@@ -121,7 +123,7 @@ class FastMCP(Generic[LifespanResultT]):
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
-        lifespan: (Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None) = None,
+        lifespan: Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
     ):
         self.settings = Settings(
@@ -361,7 +363,7 @@ class FastMCP(Generic[LifespanResultT]):
 
     def add_tool(
         self,
-        fn: AnyFunction,
+        fn: Callable[..., Any],
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
@@ -417,7 +419,7 @@ class FastMCP(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
-    ) -> Callable[[AnyFunction], AnyFunction]:
+    ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a tool.
 
         Tools can optionally request a Context object by adding a parameter with the
@@ -455,7 +457,7 @@ class FastMCP(Generic[LifespanResultT]):
                 "The @tool decorator was used incorrectly. Did you forget to call it? Use @tool() instead of @tool"
             )
 
-        def decorator(fn: AnyFunction) -> AnyFunction:
+        def decorator(fn: _CallableT) -> _CallableT:
             self.add_tool(
                 fn,
                 name=name,
@@ -507,7 +509,7 @@ class FastMCP(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
-    ) -> Callable[[AnyFunction], AnyFunction]:
+    ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a function as a resource.
 
         The function will be called when the resource is read to generate its content.
@@ -553,7 +555,7 @@ class FastMCP(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
-        def decorator(fn: AnyFunction) -> AnyFunction:
+        def decorator(fn: _CallableT) -> _CallableT:
             # Check if this should be a template
             sig = inspect.signature(fn)
             has_uri_params = "{" in uri and "}" in uri
@@ -618,7 +620,7 @@ class FastMCP(Generic[LifespanResultT]):
         title: str | None = None,
         description: str | None = None,
         icons: list[Icon] | None = None,
-    ) -> Callable[[AnyFunction], AnyFunction]:
+    ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a prompt.
 
         Args:
@@ -660,7 +662,7 @@ class FastMCP(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @prompt() instead of @prompt"
             )
 
-        def decorator(func: AnyFunction) -> AnyFunction:
+        def decorator(func: _CallableT) -> _CallableT:
             prompt = Prompt.from_function(func, name=name, title=title, description=description, icons=icons)
             self.add_prompt(prompt)
             return func
@@ -1086,7 +1088,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
 
         Args:
             schema: A Pydantic model class defining the expected response structure, according to the specification,
-                    only primive types are allowed.
+                    only primitive types are allowed.
             message: Optional message to present to the user. If not provided, will use
                     a default message based on the schema
 
@@ -1158,10 +1160,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         """
 
         if extra:
-            log_data = {
-                "message": message,
-                **extra,
-            }
+            log_data = {"message": message, **extra}
         else:
             log_data = message
 

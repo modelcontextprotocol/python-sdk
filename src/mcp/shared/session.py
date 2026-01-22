@@ -7,7 +7,6 @@ from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
-import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
@@ -18,6 +17,7 @@ from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    REQUEST_TIMEOUT,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
@@ -272,7 +272,7 @@ class BaseSession(
             except TimeoutError:
                 raise McpError(
                     ErrorData(
-                        code=httpx.codes.REQUEST_TIMEOUT,
+                        code=REQUEST_TIMEOUT,
                         message=(
                             f"Timed out while waiting for response to {request.__class__.__name__}. "
                             f"Waited {timeout} seconds."

@@ -281,10 +281,7 @@ class StreamableHTTPSessionManager:
             error_response = JSONRPCError(
                 jsonrpc="2.0",
                 id="server-error",
-                error=ErrorData(
-                    code=INVALID_REQUEST,
-                    message="Session not found",
-                ),
+                error=ErrorData(code=INVALID_REQUEST, message="Session not found"),
             )
             response = Response(
                 content=error_response.model_dump_json(by_alias=True, exclude_none=True),

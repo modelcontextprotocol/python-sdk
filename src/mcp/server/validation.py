@@ -50,12 +50,7 @@ def validate_sampling_tools(
     """
     if tools is not None or tool_choice is not None:
         if not check_sampling_tools_capability(client_caps):
-            raise McpError(
-                ErrorData(
-                    code=INVALID_PARAMS,
-                    message="Client does not support sampling tools capability",
-                )
-            )
+            raise McpError(ErrorData(code=INVALID_PARAMS, message="Client does not support sampling tools capability"))
 
 
 def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:

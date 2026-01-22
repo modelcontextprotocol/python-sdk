@@ -42,7 +42,7 @@ from typing import Any, TypeVar, overload
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic import AnyUrl, TypeAdapter
 
 import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
@@ -105,11 +105,11 @@ class ServerSession(
         self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
 
     @property
-    def _receive_request_adapter(self) -> types.TypeAdapter[types.ClientRequest]:
+    def _receive_request_adapter(self) -> TypeAdapter[types.ClientRequest]:
         return types.client_request_adapter
 
     @property
-    def _receive_notification_adapter(self) -> types.TypeAdapter[types.ClientNotification]:
+    def _receive_notification_adapter(self) -> TypeAdapter[types.ClientNotification]:
         return types.client_notification_adapter
 
     @property
