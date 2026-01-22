@@ -13,6 +13,8 @@ permissions:
 jobs:
   update-lockfile:
     runs-on: ubuntu-latest
+    outputs:
+      pull-request-number: ${{ steps.create-pr.outputs.pull-request-number }}
     steps:
       - uses: actions/checkout@v6.0.1
 
@@ -29,6 +31,7 @@ jobs:
           echo '```' >> pr_body.md
 
       - name: Create pull request
+        id: create-pr
         uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v7
         with:
           commit-message: "chore: update uv.lock with latest dependencies"
@@ -38,3 +41,20 @@ jobs:
           delete-branch: true
           add-paths: uv.lock
           labels: dependencies
+
+  checks:
+    if: needs.update-lockfile.outputs.pull-request-number
+    needs: [update-lockfile]
+    uses: ./.github/workflows/shared.yml
+    with:
+      ref: weekly-lockfile-update
+
+  all-green:
+    if: always()
+    needs: [update-lockfile, checks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # v1.2.2
+        with:
+          jobs: ${{ toJSON(needs) }}
+          allowed-skips: checks
