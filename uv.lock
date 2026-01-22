@@ -791,7 +791,7 @@ requires-dist = [
     { name = "starlette", marker = "python_full_version < '3.14'", specifier = ">=0.27" },
     { name = "starlette", marker = "python_full_version >= '3.14'", specifier = ">=0.48.0" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.16.0" },
-    { name = "typing-extensions", specifier = ">=4.9.0" },
+    { name = "typing-extensions", specifier = ">=4.13.0" },
     { name = "typing-inspection", specifier = ">=0.4.1" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'", specifier = ">=0.31.1" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=15.0.1" },
