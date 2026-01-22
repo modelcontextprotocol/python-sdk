@@ -36,7 +36,6 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-
-          # This is an optional setting that allows Claude to read CI results on PRs
+          use_commit_signing: true
           additional_permissions: |
             actions: read
