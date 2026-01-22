@@ -8,7 +8,6 @@ This is not a production-ready implementation.
 
 """
 
-import logging
 import secrets
 import time
 from typing import Any
@@ -28,8 +27,6 @@ from mcp.server.auth.provider import (
     construct_redirect_uri,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
-
-logger = logging.getLogger(__name__)
 
 
 class SimpleAuthSettings(BaseSettings):
