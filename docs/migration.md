@@ -321,6 +321,30 @@ await client.read_resource(str(my_any_url))
 
 <!-- Add deprecations below -->
 
+## Bug Fixes
+
+### Extra fields no longer allowed on top-level MCP types
+
+MCP protocol types no longer accept arbitrary extra fields at the top level. This matches the MCP specification which only allows extra fields within `_meta` objects, not on the types themselves.
+
+```python
+# This will now raise a validation error
+from mcp.types import CallToolRequestParams
+
+params = CallToolRequestParams(
+    name="my_tool",
+    arguments={},
+    unknown_field="value",  # ValidationError: extra fields not permitted
+)
+
+# Extra fields are still allowed in _meta
+params = CallToolRequestParams(
+    name="my_tool",
+    arguments={},
+    _meta={"progressToken": "tok", "customField": "value"},  # OK
+)
+```
+
 ## New Features
 
 ### `streamable_http_app()` available on lowlevel Server
