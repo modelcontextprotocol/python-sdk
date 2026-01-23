@@ -200,9 +200,9 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception as exc:
-                logger.debug(f"GET stream error: {exc}")  # pragma: lax no cover
-                attempt += 1  # pragma: lax no cover
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"GET stream error: {exc}")
+                attempt += 1
 
             if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
                 logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")

@@ -1303,18 +1303,18 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 tg.cancel_scope.cancel()
 
     # Verify we received exactly one notification
-    assert len(captured_notifications) == 1  # pragma: lax no cover
-    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: lax no cover
-    assert captured_notifications[0].params.data == "First notification before lock"  # pragma: lax no cover
+    assert len(captured_notifications) == 1
+    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
+    assert captured_notifications[0].params.data == "First notification before lock"
 
     # Clear notifications for the second phase
-    captured_notifications = []  # pragma: lax no cover
+    captured_notifications = []
 
     # Now resume the session with the same mcp-session-id and protocol version
-    headers: dict[str, Any] = {}  # pragma: lax no cover
-    if captured_session_id:  # pragma: lax no cover
+    headers: dict[str, Any] = {}
+    if captured_session_id:
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
-    if captured_protocol_version:  # pragma: lax no cover
+    if captured_protocol_version:
         headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
@@ -1346,8 +1346,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
 
-            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: lax no cover
-            assert captured_notifications[0].params.data == "Second notification after lock"  # pragma: lax no cover
+            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
+            assert captured_notifications[0].params.data == "Second notification after lock"
 
 
 @pytest.mark.anyio
