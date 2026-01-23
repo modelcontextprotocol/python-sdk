@@ -130,8 +130,8 @@ class OAuthMetadata(BaseModel):
     client_id_metadata_document_supported: bool | None = None
 
     @field_serializer("issuer")
-    @classmethod
-    def _serialize_issuer(cls, v: AnyHttpUrl) -> str:
+    @staticmethod
+    def _serialize_issuer(v: AnyHttpUrl) -> str:
         """Strip trailing slash added by AnyHttpUrl for RFC 8414 §3.3 compliance."""
         return str(v).rstrip("/")
 
@@ -159,13 +159,13 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_bound_access_tokens_required: bool | None = None
 
     @field_serializer("resource")
-    @classmethod
-    def _serialize_resource(cls, v: AnyHttpUrl) -> str:
+    @staticmethod
+    def _serialize_resource(v: AnyHttpUrl) -> str:
         """Strip trailing slash added by AnyHttpUrl for RFC 9728 §3 compliance."""
         return str(v).rstrip("/")
 
     @field_serializer("authorization_servers")
-    @classmethod
-    def _serialize_authorization_servers(cls, v: list[AnyHttpUrl]) -> list[str]:
+    @staticmethod
+    def _serialize_authorization_servers(v: list[AnyHttpUrl]) -> list[str]:
         """Strip trailing slashes added by AnyHttpUrl for RFC 9728 §3 compliance."""
         return [str(s).rstrip("/") for s in v]
