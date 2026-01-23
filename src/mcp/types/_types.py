@@ -30,7 +30,7 @@ TASK_REQUIRED: Final[Literal["required"]] = "required"
 
 
 class MCPModel(BaseModel):
-    """Base class for all MCP protocol types. Allows extra fields for forward compatibility."""
+    """Base class for all MCP protocol types."""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
