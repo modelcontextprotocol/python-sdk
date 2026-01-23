@@ -375,19 +375,22 @@ class GrpcClientTransport(ClientTransportSession):
     ) -> types.ListResourcesResult:
         """List available resources."""
         stub = self._ensure_connected()
+        
+        if cursor:
+            logger.warning("Cursors are not supported in gRPC streaming list_resources")
 
         request = ListResourcesRequest()
-        if cursor:
-            request.cursor.value = cursor
-
+        
+        resources = []
         try:
-            response = await stub.ListResources(request)
+            async for response in stub.ListResources(request):
+                resources.append(self._convert_resource(response.resource))
         except grpc.RpcError as e:
             raise self._map_error(e) from e
 
         return types.ListResourcesResult(
-            resources=[self._convert_resource(r) for r in response.resources],
-            nextCursor=response.next_cursor.value if response.HasField("next_cursor") else None,
+            resources=resources,
+            nextCursor=None,
         )
 
     async def list_resource_templates(
@@ -397,26 +400,29 @@ class GrpcClientTransport(ClientTransportSession):
         """List resource templates."""
         stub = self._ensure_connected()
 
-        request = ListResourceTemplatesRequest()
         if cursor:
-            request.cursor.value = cursor
+            logger.warning("Cursors are not supported in gRPC streaming list_resource_templates")
 
+        request = ListResourceTemplatesRequest()
+
+        templates = []
         try:
-            response = await stub.ListResourceTemplates(request)
+            async for response in stub.ListResourceTemplates(request):
+                t = response.resource_template
+                templates.append(
+                    types.ResourceTemplate(
+                        uriTemplate=t.uri_template,
+                        name=t.name,
+                        description=t.description or None,
+                        mimeType=t.mime_type or None,
+                    )
+                )
         except grpc.RpcError as e:
             raise self._map_error(e) from e
 
         return types.ListResourceTemplatesResult(
-            resourceTemplates=[
-                types.ResourceTemplate(
-                    uriTemplate=t.uri_template,
-                    name=t.name,
-                    description=t.description or None,
-                    mimeType=t.mime_type or None,
-                )
-                for t in response.resource_templates
-            ],
-            nextCursor=response.next_cursor.value if response.HasField("next_cursor") else None,
+            resourceTemplates=templates,
+            nextCursor=None,
         )
 
     async def read_resource(self, uri: AnyUrl) -> types.ReadResourceResult:
@@ -543,18 +549,21 @@ class GrpcClientTransport(ClientTransportSession):
         """List available prompts."""
         stub = self._ensure_connected()
 
-        request = ListPromptsRequest()
         if cursor:
-            request.cursor.value = cursor
+            logger.warning("Cursors are not supported in gRPC streaming list_prompts")
 
+        request = ListPromptsRequest()
+        
+        prompts = []
         try:
-            response = await stub.ListPrompts(request)
+            async for response in stub.ListPrompts(request):
+                prompts.append(self._convert_prompt(response.prompt))
         except grpc.RpcError as e:
             raise self._map_error(e) from e
 
         return types.ListPromptsResult(
-            prompts=[self._convert_prompt(p) for p in response.prompts],
-            nextCursor=response.next_cursor.value if response.HasField("next_cursor") else None,
+            prompts=prompts,
+            nextCursor=None,
         )
 
     async def get_prompt(
@@ -633,19 +642,22 @@ class GrpcClientTransport(ClientTransportSession):
         """List available tools."""
         stub = self._ensure_connected()
 
-        request = ListToolsRequest()
         effective_cursor = params.cursor if params else cursor
         if effective_cursor:
-            request.cursor.value = effective_cursor
+            logger.warning("Cursors are not supported in gRPC streaming list_tools")
 
+        request = ListToolsRequest()
+
+        tools = []
         try:
-            response = await stub.ListTools(request)
+            async for response in stub.ListTools(request):
+                tools.append(self._convert_tool(response.tool))
         except grpc.RpcError as e:
             raise self._map_error(e) from e
 
         return types.ListToolsResult(
-            tools=[self._convert_tool(t) for t in response.tools],
-            nextCursor=response.next_cursor.value if response.HasField("next_cursor") else None,
+            tools=tools,
+            nextCursor=None,
         )
 
     async def send_roots_list_changed(self) -> None:
