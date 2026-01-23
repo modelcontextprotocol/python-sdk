@@ -135,3 +135,43 @@ The core protocol is stable and implemented in the Python SDK's `GrpcClientTrans
 - [Official MCP Website](https://modelcontextprotocol.io)
 - [Original gRPC Proposal](https://cloud.google.com/blog/products/networking/grpc-as-a-native-transport-for-mcp)
 - [gRPC Documentation](https://grpc.io/docs/)
+
+## Open Questions
+
+
+
+### Pagination vs. Streaming vs. Limits
+
+
+
+In HTTP/JSON-RPC, paginating large lists (like `ListTools` or `ListResources`) is standard practice to manage payload sizes. gRPC offers native streaming (`stream Tool`), which allows the server to yield items one by one.
+
+
+
+**Design Decision:** We have opted for **Streaming** over Pagination in the V1 gRPC definitions.
+
+- **Pros:** Simpler API (no cursors), lower latency (process items as they arrive), no "page size" guessing.
+
+- **Cons:** "Give me just the first 10" requires the client to explicitly close the stream after 10 items.
+
+
+
+**Question:** Should we add an optional `limit` field to Request messages to allow the server to stop generating early, optimizing server-side work? Or rely on client cancellation?
+
+
+
+## Implementation Notes
+
+
+
+### True Streaming vs. Buffering
+
+
+
+While the gRPC transport layer fully supports streaming (yielding `ListToolsResponse` or `ReadResourceChunkedResponse` messages individually), the current Python SDK `Server` implementation primarily operates with buffered lists.
+
+
+
+*   **List Operations:** Handlers for `list_tools`, `list_resources`, etc., typically return a full `list[...]`. The gRPC transport iterates over this list to stream responses, meaning the latency benefit is "transport-only" rather than "end-to-end" until the core `Server` supports async generators.
+
+*   **Resource Reading:** Similarly, `read_resource` handlers currently return the complete content. The gRPC transport chunks this content *after* it has been fully loaded into memory. True zero-copy streaming from disk/network to the gRPC stream will require updates to the `Server` class to support yielding data chunks directly.
