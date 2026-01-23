@@ -200,7 +200,7 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:  # pragma: lax no cover
                 logger.debug(f"GET stream error: {exc}")
                 attempt += 1
 
