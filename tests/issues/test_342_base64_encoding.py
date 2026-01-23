@@ -13,7 +13,6 @@ import base64
 from typing import cast
 
 import pytest
-from pydantic import AnyUrl
 
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import Server
@@ -46,7 +45,7 @@ async def test_server_base64_encoding_issue():
 
     # Register a resource handler that returns our test data
     @server.read_resource()
-    async def read_resource(uri: AnyUrl) -> list[ReadResourceContents]:
+    async def read_resource(uri: str) -> list[ReadResourceContents]:
         return [ReadResourceContents(content=binary_data, mime_type="application/octet-stream")]
 
     # Get the handler directly from the server
@@ -54,14 +53,14 @@ async def test_server_base64_encoding_issue():
 
     # Create a request
     request = ReadResourceRequest(
-        params=ReadResourceRequestParams(uri=AnyUrl("test://resource")),
+        params=ReadResourceRequestParams(uri="test://resource"),
     )
 
     # Call the handler to get the response
     result: ServerResult = await handler(request)
 
     # After (fixed code):
-    read_result: ReadResourceResult = cast(ReadResourceResult, result.root)
+    read_result: ReadResourceResult = cast(ReadResourceResult, result)
     blob_content = read_result.contents[0]
 
     # First verify our test data actually produces different encodings

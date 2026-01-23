@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/lifespan.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/lifespan.py
 """
 
 from collections.abc import AsyncIterator
@@ -56,7 +55,7 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="query_db",
             description="Query the database",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
                 "required": ["query"],

@@ -1,5 +1,4 @@
-"""
-Integration tests for FastMCP server functionality.
+"""Integration tests for FastMCP server functionality.
 
 These tests validate the proper functioning of FastMCP features using focused,
 single-feature servers across different transports (SSE and StreamableHTTP).
@@ -18,7 +17,7 @@ from collections.abc import Generator
 import pytest
 import uvicorn
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from inline_snapshot import snapshot
 
 from examples.snippets.servers import (
     basic_prompt,
@@ -34,8 +33,8 @@ from examples.snippets.servers import (
 )
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 from mcp.client.transport_session import ClientTransportSession
+from mcp.client.streamable_http import GetSessionIdCallback, streamable_http_client
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
@@ -52,8 +51,10 @@ from mcp.types import (
     NotificationParams,
     ProgressNotification,
     ProgressNotificationParams,
+    PromptReference,
     ReadResourceResult,
     ResourceListChangedNotification,
+    ResourceTemplateReference,
     ServerNotification,
     ServerRequest,
     TextContent,
@@ -77,14 +78,14 @@ class NotificationCollector:
     ) -> None:
         """Handle any server notification and route to appropriate handler."""
         if isinstance(message, ServerNotification):  # pragma: no branch
-            if isinstance(message.root, ProgressNotification):
-                self.progress_notifications.append(message.root.params)
-            elif isinstance(message.root, LoggingMessageNotification):
-                self.log_messages.append(message.root.params)
-            elif isinstance(message.root, ResourceListChangedNotification):
-                self.resource_notifications.append(message.root.params)
-            elif isinstance(message.root, ToolListChangedNotification):  # pragma: no cover
-                self.tool_notifications.append(message.root.params)
+            if isinstance(message, ProgressNotification):
+                self.progress_notifications.append(message.params)
+            elif isinstance(message, LoggingMessageNotification):
+                self.log_messages.append(message.params)
+            elif isinstance(message, ResourceListChangedNotification):
+                self.resource_notifications.append(message.params)
+            elif isinstance(message, ToolListChangedNotification):  # pragma: no cover
+                self.tool_notifications.append(message.params)
 
 
 # Common fixtures
@@ -180,7 +181,7 @@ def create_client_for_transport(transport: str, server_url: str):
         return sse_client(endpoint)
     elif transport == "streamable-http":
         endpoint = f"{server_url}/mcp"
-        return streamablehttp_client(endpoint)
+        return streamable_http_client(endpoint)
     else:  # pragma: no cover
         raise ValueError(f"Invalid transport: {transport}")
 
@@ -259,7 +260,7 @@ async def test_basic_tools(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Tool Example"
+            assert result.server_info.name == "Tool Example"
             assert result.capabilities.tools is not None
 
             # Test sum tool
@@ -296,18 +297,18 @@ async def test_basic_resources(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Resource Example"
+            assert result.server_info.name == "Resource Example"
             assert result.capabilities.resources is not None
 
             # Test document resource
-            doc_content = await session.read_resource(AnyUrl("file://documents/readme"))
+            doc_content = await session.read_resource("file://documents/readme")
             assert isinstance(doc_content, ReadResourceResult)
             assert len(doc_content.contents) == 1
             assert isinstance(doc_content.contents[0], TextResourceContents)
             assert "Content of readme" in doc_content.contents[0].text
 
             # Test settings resource
-            settings_content = await session.read_resource(AnyUrl("config://settings"))
+            settings_content = await session.read_resource("config://settings")
             assert isinstance(settings_content, ReadResourceResult)
             assert len(settings_content.contents) == 1
             assert isinstance(settings_content.contents[0], TextResourceContents)
@@ -337,7 +338,7 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Prompt Example"
+            assert result.server_info.name == "Prompt Example"
             assert result.capabilities.prompts is not None
 
             # Test review_code prompt
@@ -397,7 +398,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Progress Example"
+            assert result.server_info.name == "Progress Example"
 
             # Test progress callback
             progress_updates = []
@@ -412,10 +413,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
                 {"task_name": "Test Task", "steps": steps},
                 progress_callback=progress_callback,
             )
-
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            assert "Task 'Test Task' completed" in tool_result.content[0].text
+            assert tool_result.content == snapshot([TextContent(text="Task 'Test Task' completed")])
 
             # Verify progress updates
             assert len(progress_updates) == steps
@@ -450,7 +448,7 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Sampling Example"
+            assert result.server_info.name == "Sampling Example"
             assert result.capabilities.tools is not None
 
             # Test sampling tool
@@ -481,7 +479,7 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Elicitation Example"
+            assert result.server_info.name == "Elicitation Example"
 
             # Test booking with unavailable date (triggers elicitation)
             booking_result = await session.call_tool(
@@ -538,7 +536,7 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Notifications Example"
+            assert result.server_info.name == "Notifications Example"
 
             # Call tool that generates notifications
             tool_result = await session.call_tool("process_data", {"data": "test_data"})
@@ -579,13 +577,11 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Example"
+            assert result.server_info.name == "Example"
             assert result.capabilities.resources is not None
             assert result.capabilities.prompts is not None
 
             # Test resource completion
-            from mcp.types import ResourceTemplateReference
-
             completion_result = await session.complete(
                 ref=ResourceTemplateReference(type="ref/resource", uri="github://repos/{owner}/{repo}"),
                 argument={"name": "repo", "value": ""},
@@ -601,8 +597,6 @@ async def test_completion(server_transport: str, server_url: str) -> None:
             assert "specification" in completion_result.completion.values
 
             # Test prompt completion
-            from mcp.types import PromptReference
-
             completion_result = await session.complete(
                 ref=PromptReference(type="ref/prompt", name="review_code"),
                 argument={"name": "language", "value": "py"},
@@ -636,7 +630,7 @@ async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> Non
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Demo"
+            assert result.server_info.name == "Demo"
 
             # Test add tool
             tool_result = await session.call_tool("add", {"a": 10, "b": 20})
@@ -645,9 +639,7 @@ async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> Non
             assert tool_result.content[0].text == "30"
 
             # Test greeting resource directly
-            from pydantic import AnyUrl
-
-            resource_result = await session.read_resource(AnyUrl("greeting://Alice"))
+            resource_result = await session.read_resource("greeting://Alice")
             assert len(resource_result.contents) == 1
             assert isinstance(resource_result.contents[0], TextResourceContents)
             assert resource_result.contents[0].text == "Hello, Alice!"
@@ -674,7 +666,7 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == "Structured Output Example"
+            assert result.server_info.name == "Structured Output Example"
 
             # Test get_weather tool
             weather_result = await session.call_tool("get_weather", {"city": "New York"})

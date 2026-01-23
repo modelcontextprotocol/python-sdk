@@ -1,9 +1,8 @@
-import logging
 import re
 from urllib.parse import urljoin, urlparse
 
 from httpx import Request, Response
-from pydantic import ValidationError
+from pydantic import AnyUrl, ValidationError
 
 from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
@@ -16,12 +15,9 @@ from mcp.shared.auth import (
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
 
-logger = logging.getLogger(__name__)
-
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
-    """
-    Extract field from WWW-Authenticate header.
+    """Extract field from WWW-Authenticate header.
 
     Returns:
         Field value if found in WWW-Authenticate header, None otherwise
@@ -42,8 +38,7 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
 
 
 def extract_scope_from_www_auth(response: Response) -> str | None:
-    """
-    Extract scope parameter from WWW-Authenticate header as per RFC6750.
+    """Extract scope parameter from WWW-Authenticate header as per RFC6750.
 
     Returns:
         Scope string if found in WWW-Authenticate header, None otherwise
@@ -52,8 +47,7 @@ def extract_scope_from_www_auth(response: Response) -> str | None:
 
 
 def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
-    """
-    Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
+    """Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
 
     Returns:
         Resource metadata URL if found in WWW-Authenticate header, None otherwise
@@ -65,8 +59,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
-    """
-    Build ordered list of URLs to try for protected resource metadata discovery.
+    """Build ordered list of URLs to try for protected resource metadata discovery.
 
     Per SEP-985, the client MUST:
     1. Try resource_metadata from WWW-Authenticate header (if present)
@@ -127,8 +120,7 @@ def get_client_metadata_scopes(
 
 
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
-    """
-    Generate ordered list of (url, type) tuples for discovery attempts.
+    """Generate ordered list of (url, type) tuples for discovery attempts.
 
     Args:
         auth_server_url: URL for the OAuth Authorization Metadata URL if found, otherwise None
@@ -173,8 +165,7 @@ def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: st
 async def handle_protected_resource_response(
     response: Response,
 ) -> ProtectedResourceMetadata | None:
-    """
-    Handle protected resource metadata discovery response.
+    """Handle protected resource metadata discovery response.
 
     Per SEP-985, supports fallback when discovery fails at one URL.
 
@@ -241,6 +232,75 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
         # await self.context.storage.set_client_info(client_info)
     except ValidationError as e:  # pragma: no cover
         raise OAuthRegistrationError(f"Invalid registration response: {e}")
+
+
+def is_valid_client_metadata_url(url: str | None) -> bool:
+    """Validate that a URL is suitable for use as a client_id (CIMD).
+
+    The URL must be HTTPS with a non-root pathname.
+
+    Args:
+        url: The URL to validate
+
+    Returns:
+        True if the URL is a valid HTTPS URL with a non-root pathname
+    """
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+        return parsed.scheme == "https" and parsed.path not in ("", "/")
+    except Exception:
+        return False
+
+
+def should_use_client_metadata_url(
+    oauth_metadata: OAuthMetadata | None,
+    client_metadata_url: str | None,
+) -> bool:
+    """Determine if URL-based client ID (CIMD) should be used instead of DCR.
+
+    URL-based client IDs should be used when:
+    1. The server advertises client_id_metadata_document_supported=true
+    2. The client has a valid client_metadata_url configured
+
+    Args:
+        oauth_metadata: OAuth authorization server metadata
+        client_metadata_url: URL-based client ID (already validated)
+
+    Returns:
+        True if CIMD should be used, False if DCR should be used
+    """
+    if not client_metadata_url:
+        return False
+
+    if not oauth_metadata:
+        return False
+
+    return oauth_metadata.client_id_metadata_document_supported is True
+
+
+def create_client_info_from_metadata_url(
+    client_metadata_url: str, redirect_uris: list[AnyUrl] | None = None
+) -> OAuthClientInformationFull:
+    """Create client information using a URL-based client ID (CIMD).
+
+    When using URL-based client IDs, the URL itself becomes the client_id
+    and no client_secret is used (token_endpoint_auth_method="none").
+
+    Args:
+        client_metadata_url: The URL to use as the client_id
+        redirect_uris: The redirect URIs from the client metadata (passed through for
+            compatibility with OAuthClientInformationFull which inherits from OAuthClientMetadata)
+
+    Returns:
+        OAuthClientInformationFull with the URL as client_id
+    """
+    return OAuthClientInformationFull(
+        client_id=client_metadata_url,
+        token_endpoint_auth_method="none",
+        redirect_uris=redirect_uris,
+    )
 
 
 async def handle_token_response_scopes(

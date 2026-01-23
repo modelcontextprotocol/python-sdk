@@ -25,7 +25,7 @@ async def test_list_prompts_pagination() -> None:
     async def handle_list_prompts(request: ListPromptsRequest) -> ListPromptsResult:
         nonlocal received_request
         received_request = request
-        return ListPromptsResult(prompts=[], nextCursor="next")
+        return ListPromptsResult(prompts=[], next_cursor="next")
 
     handler = server.request_handlers[ListPromptsRequest]
 
@@ -57,7 +57,7 @@ async def test_list_resources_pagination() -> None:
     async def handle_list_resources(request: ListResourcesRequest) -> ListResourcesResult:
         nonlocal received_request
         received_request = request
-        return ListResourcesResult(resources=[], nextCursor="next")
+        return ListResourcesResult(resources=[], next_cursor="next")
 
     handler = server.request_handlers[ListResourcesRequest]
 
@@ -91,7 +91,7 @@ async def test_list_tools_pagination() -> None:
     async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
         nonlocal received_request
         received_request = request
-        return ListToolsResult(tools=[], nextCursor="next")
+        return ListToolsResult(tools=[], next_cursor="next")
 
     handler = server.request_handlers[ListToolsRequest]
 

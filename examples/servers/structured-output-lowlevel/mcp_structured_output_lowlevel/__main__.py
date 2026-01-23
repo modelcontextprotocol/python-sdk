@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Example low-level MCP server demonstrating structured output support.
+"""Example low-level MCP server demonstrating structured output support.
 
 This example shows how to use the low-level server API to return
 structured data from tools, with automatic validation against output
@@ -27,12 +26,12 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_weather",
             description="Get weather information (simulated)",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"city": {"type": "string", "description": "City name"}},
                 "required": ["city"],
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "temperature": {"type": "number"},
@@ -49,9 +48,7 @@ async def list_tools() -> list[types.Tool]:
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
-    """
-    Handle tool call with structured output.
-    """
+    """Handle tool call with structured output."""
 
     if name == "get_weather":
         # city = arguments["city"]  # Would be used with real weather API

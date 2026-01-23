@@ -13,6 +13,13 @@
 
 </div>
 
+> [!IMPORTANT]
+> **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
+>
+> We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+>
+> For v1 documentation and code, see the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
+
 <!-- omit in toc -->
 ## Table of Contents
 
@@ -129,11 +136,10 @@ Let's create a simple MCP server that exposes a calculator tool and some data:
 
 <!-- snippet-source examples/snippets/servers/fastmcp_quickstart.py -->
 ```python
-"""
-FastMCP quickstart example.
+"""FastMCP quickstart example.
 
-cd to the `examples/snippets/clients` directory and run:
-    uv run server fastmcp_quickstart stdio
+Run from the repository root:
+    uv run examples/snippets/servers/fastmcp_quickstart.py
 """
 
 from mcp.server.fastmcp import FastMCP
@@ -167,22 +173,35 @@ def greet_user(name: str, style: str = "friendly") -> str:
     }
 
     return f"{styles.get(style, styles['friendly'])} for someone named {name}."
+
+
+# Run with streamable HTTP transport
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http", json_response=True)
 ```
 
 _Full example: [examples/snippets/servers/fastmcp_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/fastmcp_quickstart.py)_
 <!-- /snippet-source -->
 
-You can install this server in [Claude Desktop](https://claude.ai/download) and interact with it right away by running:
+You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
 
 ```bash
-uv run mcp install server.py
+uv run --with mcp examples/snippets/servers/fastmcp_quickstart.py
 ```
 
-Alternatively, you can test it with the MCP Inspector:
+Then add it to Claude Code:
 
 ```bash
-uv run mcp dev server.py
+claude mcp add --transport http my-server http://localhost:8000/mcp
 ```
+
+Alternatively, you can test it with the MCP Inspector. Start the server as above, then in a separate terminal:
+
+```bash
+npx -y @modelcontextprotocol/inspector
+```
+
+In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## What is MCP?
 
@@ -208,7 +227,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.transport_session import ServerTransportSession
+from mcp.server.session import ServerSession
 
 
 # Mock database class for example
@@ -254,7 +273,7 @@ mcp = FastMCP("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context[ServerTransportSession, AppContext]) -> str:
+def query_db(ctx: Context[ServerSession, AppContext]) -> str:
     """Tool that uses initialized resources."""
     db = ctx.request_context.lifespan_context.db
     return db.query()
@@ -326,13 +345,13 @@ Tools can optionally receive a Context object by including a parameter with the 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.transport_session import ServerTransportSession
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context[ServerTransportSession, None], steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -422,7 +441,7 @@ def validated_tool() -> Annotated[CallToolResult, ValidationModel]:
     """Return CallToolResult with structured output validation."""
     return CallToolResult(
         content=[TextContent(type="text", text="Validated response")],
-        structuredContent={"status": "success", "data": {"result": 42}},
+        structured_content={"status": "success", "data": {"result": 42}},
         _meta={"internal": "metadata"},
     )
 
@@ -674,13 +693,13 @@ The Context object provides the following capabilities:
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.transport_session import ServerTransportSession
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Progress Example")
 
 
 @mcp.tool()
-async def long_running_task(task_name: str, ctx: Context[ServerTransportSession, None], steps: int = 5) -> str:
+async def long_running_task(task_name: str, ctx: Context[ServerSession, None], steps: int = 5) -> str:
     """Execute a task with progress updates."""
     await ctx.info(f"Starting: {task_name}")
 
@@ -707,9 +726,8 @@ Client usage:
 
 <!-- snippet-source examples/snippets/clients/completion_client.py -->
 ```python
-"""
-cd to the `examples/snippets` directory and run:
-    uv run completion-client
+"""cd to the `examples/snippets` directory and run:
+uv run completion-client
 """
 
 import asyncio
@@ -737,8 +755,8 @@ async def run():
             # List available resource templates
             templates = await session.list_resource_templates()
             print("Available resource templates:")
-            for template in templates.resourceTemplates:
-                print(f"  - {template.uriTemplate}")
+            for template in templates.resource_templates:
+                print(f"  - {template.uri_template}")
 
             # List available prompts
             prompts = await session.list_prompts()
@@ -747,20 +765,20 @@ async def run():
                 print(f"  - {prompt.name}")
 
             # Complete resource template arguments
-            if templates.resourceTemplates:
-                template = templates.resourceTemplates[0]
-                print(f"\nCompleting arguments for resource template: {template.uriTemplate}")
+            if templates.resource_templates:
+                template = templates.resource_templates[0]
+                print(f"\nCompleting arguments for resource template: {template.uri_template}")
 
                 # Complete without context
                 result = await session.complete(
-                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uri_template),
                     argument={"name": "owner", "value": "model"},
                 )
                 print(f"Completions for 'owner' starting with 'model': {result.completion.values}")
 
                 # Complete with context - repo suggestions based on owner
                 result = await session.complete(
-                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uriTemplate),
+                    ref=ResourceTemplateReference(type="ref/resource", uri=template.uri_template),
                     argument={"name": "repo", "value": ""},
                     context_arguments={"owner": "modelcontextprotocol"},
                 )
@@ -795,10 +813,21 @@ Request additional information from users. This example shows an Elicitation dur
 
 <!-- snippet-source examples/snippets/servers/elicitation.py -->
 ```python
+"""Elicitation examples demonstrating form and URL mode elicitation.
+
+Form mode elicitation collects structured, non-sensitive data through a schema.
+URL mode elicitation directs users to external URLs for sensitive operations
+like OAuth flows, credential collection, or payment processing.
+"""
+
+import uuid
+
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.transport_session import ServerTransportSession
+from mcp.server.session import ServerSession
+from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.types import ElicitRequestURLParams
 
 mcp = FastMCP(name="Elicitation Example")
 
@@ -814,8 +843,11 @@ class BookingPreferences(BaseModel):
 
 
 @mcp.tool()
-async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerTransportSession, None]) -> str:
-    """Book a table with date availability check."""
+async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerSession, None]) -> str:
+    """Book a table with date availability check.
+
+    This demonstrates form mode elicitation for collecting non-sensitive user input.
+    """
     # Check if date is available
     if date == "2024-12-25":
         # Date unavailable - ask user for alternative
@@ -832,6 +864,54 @@ async def book_table(date: str, time: str, party_size: int, ctx: Context[ServerT
 
     # Date available
     return f"[SUCCESS] Booked for {date} at {time}"
+
+
+@mcp.tool()
+async def secure_payment(amount: float, ctx: Context[ServerSession, None]) -> str:
+    """Process a secure payment requiring URL confirmation.
+
+    This demonstrates URL mode elicitation using ctx.elicit_url() for
+    operations that require out-of-band user interaction.
+    """
+    elicitation_id = str(uuid.uuid4())
+
+    result = await ctx.elicit_url(
+        message=f"Please confirm payment of ${amount:.2f}",
+        url=f"https://payments.example.com/confirm?amount={amount}&id={elicitation_id}",
+        elicitation_id=elicitation_id,
+    )
+
+    if result.action == "accept":
+        # In a real app, the payment confirmation would happen out-of-band
+        # and you'd verify the payment status from your backend
+        return f"Payment of ${amount:.2f} initiated - check your browser to complete"
+    elif result.action == "decline":
+        return "Payment declined by user"
+    return "Payment cancelled"
+
+
+@mcp.tool()
+async def connect_service(service_name: str, ctx: Context[ServerSession, None]) -> str:
+    """Connect to a third-party service requiring OAuth authorization.
+
+    This demonstrates the "throw error" pattern using UrlElicitationRequiredError.
+    Use this pattern when the tool cannot proceed without user authorization.
+    """
+    elicitation_id = str(uuid.uuid4())
+
+    # Raise UrlElicitationRequiredError to signal that the client must complete
+    # a URL elicitation before this request can be processed.
+    # The MCP framework will convert this to a -32042 error response.
+    raise UrlElicitationRequiredError(
+        [
+            ElicitRequestURLParams(
+                mode="url",
+                message=f"Authorization required to connect to {service_name}",
+                url=f"https://{service_name}.example.com/oauth/authorize?elicit={elicitation_id}",
+                elicitation_id=elicitation_id,
+            )
+        ]
+    )
 ```
 
 _Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)_
@@ -873,6 +953,7 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
         max_tokens=100,
     )
 
+    # Since we're not passing tools param, result.content is single content
     if result.content.type == "text":
         return result.content.text
     return str(result.content)
@@ -888,13 +969,13 @@ Tools can send logs and notifications through the context:
 <!-- snippet-source examples/snippets/servers/notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.transport_session import ServerTransportSession
+from mcp.server.session import ServerSession
 
 mcp = FastMCP(name="Notifications Example")
 
 
 @mcp.tool()
-async def process_data(data: str, ctx: Context[ServerTransportSession, None]) -> str:
+async def process_data(data: str, ctx: Context[ServerSession, None]) -> str:
     """Process data with logging."""
     # Different log levels
     await ctx.debug(f"Debug: Processing '{data}'")
@@ -921,9 +1002,8 @@ MCP servers can use authentication by providing an implementation of the `TokenV
 
 <!-- snippet-source examples/snippets/servers/oauth_server.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/oauth_server.py
+"""Run from the repository root:
+uv run examples/snippets/servers/oauth_server.py
 """
 
 from pydantic import AnyHttpUrl
@@ -966,7 +1046,7 @@ async def get_weather(city: str = "London") -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", json_response=True)
 ```
 
 _Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
@@ -994,7 +1074,7 @@ The FastMCP server instance accessible via `ctx.fastmcp` provides access to serv
   - `debug` - Debug mode flag
   - `log_level` - Current logging level
   - `host` and `port` - Server network configuration
-  - `mount_path`, `sse_path`, `streamable_http_path` - Transport paths
+  - `sse_path`, `streamable_http_path` - Transport paths
   - `stateless_http` - Whether the server operates in stateless mode
   - And other configuration options
 
@@ -1158,26 +1238,17 @@ Note that `uv run mcp run` or `uv run mcp dev` only supports server using FastMC
 
 ### Streamable HTTP Transport
 
-> **Note**: Streamable HTTP transport is superseding SSE transport for production deployments.
+> **Note**: Streamable HTTP transport is the recommended transport for production deployments. Use `stateless_http=True` and `json_response=True` for optimal scalability.
 
 <!-- snippet-source examples/snippets/servers/streamable_config.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/streamable_config.py
+"""Run from the repository root:
+uv run examples/snippets/servers/streamable_config.py
 """
 
 from mcp.server.fastmcp import FastMCP
 
-# Stateful server (maintains session state)
-mcp = FastMCP("StatefulServer")
-
-# Other configuration options:
-# Stateless server (no session persistence)
-# mcp = FastMCP("StatelessServer", stateless_http=True)
-
-# Stateless server (no session persistence, no sse stream with supported client)
-# mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+mcp = FastMCP("StatelessServer")
 
 
 # Add a simple tool to demonstrate the server
@@ -1188,8 +1259,17 @@ def greet(name: str = "World") -> str:
 
 
 # Run server with streamable_http transport
+# Transport-specific options (stateless_http, json_response) are passed to run()
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    # Stateless server with JSON responses (recommended)
+    mcp.run(transport="streamable-http", stateless_http=True, json_response=True)
+
+    # Other configuration options:
+    # Stateless server with SSE streaming responses
+    # mcp.run(transport="streamable-http", stateless_http=True)
+
+    # Stateful server with session persistence
+    # mcp.run(transport="streamable-http")
 ```
 
 _Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
@@ -1199,9 +1279,8 @@ You can mount multiple FastMCP servers in a Starlette application:
 
 <!-- snippet-source examples/snippets/servers/streamable_starlette_mount.py -->
 ```python
-"""
-Run from the repository root:
-    uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
+"""Run from the repository root:
+uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """
 
 import contextlib
@@ -1212,7 +1291,7 @@ from starlette.routing import Mount
 from mcp.server.fastmcp import FastMCP
 
 # Create the Echo server
-echo_mcp = FastMCP(name="EchoServer", stateless_http=True)
+echo_mcp = FastMCP(name="EchoServer")
 
 
 @echo_mcp.tool()
@@ -1222,7 +1301,7 @@ def echo(message: str) -> str:
 
 
 # Create the Math server
-math_mcp = FastMCP(name="MathServer", stateless_http=True)
+math_mcp = FastMCP(name="MathServer")
 
 
 @math_mcp.tool()
@@ -1243,16 +1322,16 @@ async def lifespan(app: Starlette):
 # Create the Starlette app and mount the MCP servers
 app = Starlette(
     routes=[
-        Mount("/echo", echo_mcp.streamable_http_app()),
-        Mount("/math", math_mcp.streamable_http_app()),
+        Mount("/echo", echo_mcp.streamable_http_app(stateless_http=True, json_response=True)),
+        Mount("/math", math_mcp.streamable_http_app(stateless_http=True, json_response=True)),
     ],
     lifespan=lifespan,
 )
 
 # Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
 # To mount at the root of each path (e.g., /echo instead of /echo/mcp):
-# echo_mcp.settings.streamable_http_path = "/"
-# math_mcp.settings.streamable_http_path = "/"
+# echo_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
+# math_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
 ```
 
 _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
@@ -1310,12 +1389,13 @@ You can mount the StreamableHTTP server to an existing ASGI server using the `st
 
 <!-- snippet-source examples/snippets/servers/streamable_http_basic_mounting.py -->
 ```python
-"""
-Basic example showing how to mount StreamableHTTP server in Starlette.
+"""Basic example showing how to mount StreamableHTTP server in Starlette.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload
 """
+
+import contextlib
 
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -1332,11 +1412,20 @@ def hello() -> str:
     return "Hello from MCP!"
 
 
+# Create a lifespan context manager to run the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with mcp.session_manager.run():
+        yield
+
+
 # Mount the StreamableHTTP server to the existing ASGI server
+# Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Mount("/", app=mcp.streamable_http_app()),
-    ]
+        Mount("/", app=mcp.streamable_http_app(json_response=True)),
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1347,12 +1436,13 @@ _Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](htt
 
 <!-- snippet-source examples/snippets/servers/streamable_http_host_mounting.py -->
 ```python
-"""
-Example showing how to mount StreamableHTTP server using Host-based routing.
+"""Example showing how to mount StreamableHTTP server using Host-based routing.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
 """
+
+import contextlib
 
 from starlette.applications import Starlette
 from starlette.routing import Host
@@ -1369,11 +1459,20 @@ def domain_info() -> str:
     return "This is served from mcp.acme.corp"
 
 
+# Create a lifespan context manager to run the session manager
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with mcp.session_manager.run():
+        yield
+
+
 # Mount using Host-based routing
+# Transport-specific options are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Host("mcp.acme.corp", app=mcp.streamable_http_app()),
-    ]
+        Host("mcp.acme.corp", app=mcp.streamable_http_app(json_response=True)),
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1384,12 +1483,13 @@ _Full example: [examples/snippets/servers/streamable_http_host_mounting.py](http
 
 <!-- snippet-source examples/snippets/servers/streamable_http_multiple_servers.py -->
 ```python
-"""
-Example showing how to mount multiple StreamableHTTP servers with path configuration.
+"""Example showing how to mount multiple StreamableHTTP servers with path configuration.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
 """
+
+import contextlib
 
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -1413,17 +1513,23 @@ def send_message(message: str) -> str:
     return f"Message sent: {message}"
 
 
-# Configure servers to mount at the root of each path
-# This means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
-api_mcp.settings.streamable_http_path = "/"
-chat_mcp.settings.streamable_http_path = "/"
+# Create a combined lifespan to manage both session managers
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(api_mcp.session_manager.run())
+        await stack.enter_async_context(chat_mcp.session_manager.run())
+        yield
 
-# Mount the servers
+
+# Mount the servers with transport-specific options passed to streamable_http_app()
+# streamable_http_path="/" means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
 app = Starlette(
     routes=[
-        Mount("/api", app=api_mcp.streamable_http_app()),
-        Mount("/chat", app=chat_mcp.streamable_http_app()),
-    ]
+        Mount("/api", app=api_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
+        Mount("/chat", app=chat_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
+    ],
+    lifespan=lifespan,
 )
 ```
 
@@ -1434,8 +1540,7 @@ _Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](h
 
 <!-- snippet-source examples/snippets/servers/streamable_http_path_config.py -->
 ```python
-"""
-Example showing path configuration during FastMCP initialization.
+"""Example showing path configuration when mounting FastMCP.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
@@ -1446,9 +1551,8 @@ from starlette.routing import Mount
 
 from mcp.server.fastmcp import FastMCP
 
-# Configure streamable_http_path during initialization
-# This server will mount at the root of wherever it's mounted
-mcp_at_root = FastMCP("My Server", streamable_http_path="/")
+# Create a simple FastMCP server
+mcp_at_root = FastMCP("My Server")
 
 
 @mcp_at_root.tool()
@@ -1457,10 +1561,14 @@ def process_data(data: str) -> str:
     return f"Processed: {data}"
 
 
-# Mount at /process - endpoints will be at /process instead of /process/mcp
+# Mount at /process with streamable_http_path="/" so the endpoint is /process (not /process/mcp)
+# Transport-specific options like json_response are passed to streamable_http_app()
 app = Starlette(
     routes=[
-        Mount("/process", app=mcp_at_root.streamable_http_app()),
+        Mount(
+            "/process",
+            app=mcp_at_root.streamable_http_app(json_response=True, streamable_http_path="/"),
+        ),
     ]
 )
 ```
@@ -1493,7 +1601,7 @@ app = Starlette(
 app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
 
-When mounting multiple MCP servers under different paths, you can configure the mount path in several ways:
+You can also mount multiple MCP servers at different sub-paths. The SSE transport automatically detects the mount path via ASGI's `root_path` mechanism, so message endpoints are correctly routed:
 
 ```python
 from starlette.applications import Starlette
@@ -1503,31 +1611,18 @@ from mcp.server.fastmcp import FastMCP
 # Create multiple MCP servers
 github_mcp = FastMCP("GitHub API")
 browser_mcp = FastMCP("Browser")
-curl_mcp = FastMCP("Curl")
 search_mcp = FastMCP("Search")
 
-# Method 1: Configure mount paths via settings (recommended for persistent configuration)
-github_mcp.settings.mount_path = "/github"
-browser_mcp.settings.mount_path = "/browser"
-
-# Method 2: Pass mount path directly to sse_app (preferred for ad-hoc mounting)
-# This approach doesn't modify the server's settings permanently
-
-# Create Starlette app with multiple mounted servers
+# Mount each server at its own sub-path
+# The SSE transport automatically uses ASGI's root_path to construct
+# the correct message endpoint (e.g., /github/messages/, /browser/messages/)
 app = Starlette(
     routes=[
-        # Using settings-based configuration
         Mount("/github", app=github_mcp.sse_app()),
         Mount("/browser", app=browser_mcp.sse_app()),
-        # Using direct mount path parameter
-        Mount("/curl", app=curl_mcp.sse_app("/curl")),
-        Mount("/search", app=search_mcp.sse_app("/search")),
+        Mount("/search", app=search_mcp.sse_app()),
     ]
 )
-
-# Method 3: For direct execution, you can also pass the mount path to run()
-if __name__ == "__main__":
-    search_mcp.run(transport="sse", mount_path="/search")
 ```
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
@@ -1540,9 +1635,8 @@ For more control, you can use the low-level server implementation directly. This
 
 <!-- snippet-source examples/snippets/servers/lowlevel/lifespan.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/lifespan.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/lifespan.py
 """
 
 from collections.abc import AsyncIterator
@@ -1598,7 +1692,7 @@ async def handle_list_tools() -> list[types.Tool]:
         types.Tool(
             name="query_db",
             description="Query the database",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
                 "required": ["query"],
@@ -1657,8 +1751,7 @@ The lifespan API provides:
 
 <!-- snippet-source examples/snippets/servers/lowlevel/basic.py -->
 ```python
-"""
-Run from the repository root:
+"""Run from the repository root:
 uv run examples/snippets/servers/lowlevel/basic.py
 """
 
@@ -1736,9 +1829,8 @@ The low-level server supports structured output for tools, allowing you to retur
 
 <!-- snippet-source examples/snippets/servers/lowlevel/structured_output.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/structured_output.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/structured_output.py
 """
 
 import asyncio
@@ -1759,12 +1851,12 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="get_weather",
             description="Get current weather for a city",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"city": {"type": "string", "description": "City name"}},
                 "required": ["city"],
             },
-            outputSchema={
+            output_schema={
                 "type": "object",
                 "properties": {
                     "temperature": {"type": "number", "description": "Temperature in Celsius"},
@@ -1839,9 +1931,8 @@ For full control over the response including the `_meta` field (for passing data
 
 <!-- snippet-source examples/snippets/servers/lowlevel/direct_call_tool_result.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
 """
 
 import asyncio
@@ -1862,7 +1953,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="advanced_tool",
             description="Tool with full control including _meta field",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"message": {"type": "string"}},
                 "required": ["message"],
@@ -1878,7 +1969,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallTo
         message = str(arguments.get("message", ""))
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Processed: {message}")],
-            structuredContent={"result": "success", "message": message},
+            structured_content={"result": "success", "message": message},
             _meta={"hidden": "data for client applications only"},
         )
 
@@ -1919,11 +2010,7 @@ For servers that need to handle large datasets, the low-level server provides pa
 
 <!-- snippet-source examples/snippets/servers/pagination_example.py -->
 ```python
-"""
-Example of implementing pagination with MCP server decorators.
-"""
-
-from pydantic import AnyUrl
+"""Example of implementing pagination with MCP server decorators."""
 
 import mcp.types as types
 from mcp.server.lowlevel import Server
@@ -1949,14 +2036,14 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
 
     # Get page of resources
     page_items = [
-        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
+        types.Resource(uri=f"resource://items/{item}", name=item, description=f"Description for {item}")
         for item in ITEMS[start:end]
     ]
 
     # Determine next cursor
     next_cursor = str(end) if end < len(ITEMS) else None
 
-    return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
+    return types.ListResourcesResult(resources=page_items, next_cursor=next_cursor)
 ```
 
 _Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
@@ -1966,9 +2053,7 @@ _Full example: [examples/snippets/servers/pagination_example.py](https://github.
 
 <!-- snippet-source examples/snippets/clients/pagination_client.py -->
 ```python
-"""
-Example of consuming paginated MCP endpoints from a client.
-"""
+"""Example of consuming paginated MCP endpoints from a client."""
 
 import asyncio
 
@@ -1997,8 +2082,8 @@ async def list_all_resources() -> None:
                 print(f"Fetched {len(result.resources)} resources")
 
                 # Check if there are more pages
-                if result.nextCursor:
-                    cursor = result.nextCursor
+                if result.next_cursor:
+                    cursor = result.next_cursor
                 else:
                     break
 
@@ -2027,17 +2112,14 @@ The SDK provides a high-level client interface for connecting to MCP servers usi
 
 <!-- snippet-source examples/snippets/clients/stdio_client.py -->
 ```python
-"""
-cd to the `examples/snippets/clients` directory and run:
-    uv run client
+"""cd to the `examples/snippets/clients` directory and run:
+uv run client
 """
 
 import asyncio
 import os
 
-from pydantic import AnyUrl
-
-from mcp import ClientSession, ClientTransportSession, StdioServerParameters, types
+from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
 
@@ -2051,7 +2133,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientTransportSession, None], params: types.CreateMessageRequestParams
+    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(
@@ -2061,7 +2143,7 @@ async def handle_sampling_message(
             text="Hello, world! from model",
         ),
         model="gpt-3.5-turbo",
-        stopReason="endTurn",
+        stop_reason="endTurn",
     )
 
 
@@ -2089,7 +2171,7 @@ async def run():
             print(f"Available tools: {[t.name for t in tools.tools]}")
 
             # Read a resource (greeting resource from fastmcp_quickstart)
-            resource_content = await session.read_resource(AnyUrl("greeting://World"))
+            resource_content = await session.read_resource("greeting://World")
             content_block = resource_content.contents[0]
             if isinstance(content_block, types.TextContent):
                 print(f"Resource content: {content_block.text}")
@@ -2099,7 +2181,7 @@ async def run():
             result_unstructured = result.content[0]
             if isinstance(result_unstructured, types.TextContent):
                 print(f"Tool result: {result_unstructured.text}")
-            result_structured = result.structuredContent
+            result_structured = result.structured_content
             print(f"Structured tool result: {result_structured}")
 
 
@@ -2119,20 +2201,19 @@ Clients can also connect using [Streamable HTTP transport](https://modelcontextp
 
 <!-- snippet-source examples/snippets/clients/streamable_basic.py -->
 ```python
-"""
-Run from the repository root:
-    uv run examples/snippets/clients/streamable_basic.py
+"""Run from the repository root:
+uv run examples/snippets/clients/streamable_basic.py
 """
 
 import asyncio
 
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamablehttp_client("http://localhost:8000/mcp") as (
+    async with streamable_http_client("http://localhost:8000/mcp") as (
         read_stream,
         write_stream,
         _,
@@ -2159,15 +2240,14 @@ When building MCP clients, the SDK provides utilities to help display human-read
 
 <!-- snippet-source examples/snippets/clients/display_utilities.py -->
 ```python
-"""
-cd to the `examples/snippets` directory and run:
-    uv run display-utilities-client
+"""cd to the `examples/snippets` directory and run:
+uv run display-utilities-client
 """
 
 import asyncio
 import os
 
-from mcp import ClientSession, ClientTransportSession, StdioServerParameters
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.metadata_utils import get_display_name
 
@@ -2179,7 +2259,7 @@ server_params = StdioServerParameters(
 )
 
 
-async def display_tools(session: ClientTransportSession):
+async def display_tools(session: ClientSession):
     """Display available tools with human-readable names"""
     tools_response = await session.list_tools()
 
@@ -2191,7 +2271,7 @@ async def display_tools(session: ClientTransportSession):
             print(f"   {tool.description}")
 
 
-async def display_resources(session: ClientTransportSession):
+async def display_resources(session: ClientSession):
     """Display available resources with human-readable names"""
     resources_response = await session.list_resources()
 
@@ -2200,7 +2280,7 @@ async def display_resources(session: ClientTransportSession):
         print(f"Resource: {display_name} ({resource.uri})")
 
     templates_response = await session.list_resource_templates()
-    for template in templates_response.resourceTemplates:
+    for template in templates_response.resource_templates:
         display_name = get_display_name(template)
         print(f"Resource Template: {display_name}")
 
@@ -2244,8 +2324,7 @@ The SDK includes [authorization support](https://modelcontextprotocol.io/specifi
 
 <!-- snippet-source examples/snippets/clients/oauth_client.py -->
 ```python
-"""
-Before running, specify running MCP RS server URL.
+"""Before running, specify running MCP RS server URL.
 To spin up RS server locally, see
     examples/servers/simple-auth/README.md
 
@@ -2256,11 +2335,12 @@ cd to the `examples/snippets` directory and run:
 import asyncio
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from pydantic import AnyUrl
 
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 
@@ -2314,15 +2394,16 @@ async def main():
         callback_handler=handle_callback,
     )
 
-    async with streamablehttp_client("http://localhost:8001/mcp", auth=oauth_auth) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+    async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
+        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
 
-            tools = await session.list_tools()
-            print(f"Available tools: {[tool.name for tool in tools.tools]}")
+                tools = await session.list_tools()
+                print(f"Available tools: {[tool.name for tool in tools.tools]}")
 
-            resources = await session.list_resources()
-            print(f"Available resources: {[r.uri for r in resources.resources]}")
+                resources = await session.list_resources()
+                print(f"Available resources: {[r.uri for r in resources.resources]}")
 
 
 def run():
@@ -2432,6 +2513,7 @@ MCP servers declare capabilities during initialization:
 ## Documentation
 
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
+- [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
 - [Model Context Protocol documentation](https://modelcontextprotocol.io)
 - [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest)
 - [Officially supported servers](https://github.com/modelcontextprotocol/servers)

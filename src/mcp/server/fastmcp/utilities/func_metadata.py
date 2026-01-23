@@ -1,3 +1,4 @@
+import functools
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
@@ -5,15 +6,10 @@ from itertools import chain
 from types import GenericAlias
 from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 
+import anyio
+import anyio.to_thread
 import pydantic_core
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    RootModel,
-    WithJsonSchema,
-    create_model,
-)
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
 from typing_extensions import is_typeddict
@@ -60,9 +56,7 @@ class ArgModelBase(BaseModel):
             kwargs[output_name] = value
         return kwargs
 
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-    )
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class FuncMetadata(BaseModel):
@@ -92,11 +86,10 @@ class FuncMetadata(BaseModel):
         if fn_is_async:
             return await fn(**arguments_parsed_dict)
         else:
-            return fn(**arguments_parsed_dict)
+            return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
     def convert_result(self, result: Any) -> Any:
-        """
-        Convert the result of a function call to the appropriate format for
+        """Convert the result of a function call to the appropriate format for
          the lowlevel server tool call handler:
 
         - If output_model is None, return the unstructured content directly.
@@ -113,7 +106,7 @@ class FuncMetadata(BaseModel):
         if isinstance(result, CallToolResult):
             if self.output_schema is not None:
                 assert self.output_model is not None, "Output model must be set if output schema is defined"
-                self.output_model.model_validate(result.structuredContent)
+                self.output_model.model_validate(result.structured_content)
             return result
 
         unstructured_content = _convert_to_content(result)
@@ -485,6 +478,8 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
 
 def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
     """Create a RootModel for dict[str, T] types."""
+    # TODO(Marcelo): We should not rely on RootModel for this.
+    from pydantic import RootModel  # noqa: TID251
 
     class DictModel(RootModel[dict_annotation]):
         pass
@@ -496,11 +491,8 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
     return DictModel
 
 
-def _convert_to_content(
-    result: Any,
-) -> Sequence[ContentBlock]:
-    """
-    Convert a result to a sequence of content objects.
+def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
+    """Convert a result to a sequence of content objects.
 
     Note: This conversion logic comes from previous versions of FastMCP and is being
     retained for purposes of backwards compatibility. It produces different unstructured

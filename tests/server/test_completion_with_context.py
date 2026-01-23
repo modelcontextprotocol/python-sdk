@@ -1,13 +1,11 @@
-"""
-Tests for completion handler with context functionality.
-"""
+"""Tests for completion handler with context functionality."""
 
 from typing import Any
 
 import pytest
 
+from mcp import Client
 from mcp.server.lowlevel import Server
-from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
     Completion,
     CompletionArgument,
@@ -36,9 +34,9 @@ async def test_completion_handler_receives_context():
         received_args["context"] = context
 
         # Return test completion
-        return Completion(values=["test-completion"], total=1, hasMore=False)
+        return Completion(values=["test-completion"], total=1, has_more=False)
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # Test with context
         result = await client.complete(
             ref=ResourceTemplateReference(type="ref/resource", uri="test://resource/{param}"),
@@ -68,9 +66,9 @@ async def test_completion_backward_compatibility():
         nonlocal context_was_none
         context_was_none = context is None
 
-        return Completion(values=["no-context-completion"], total=1, hasMore=False)
+        return Completion(values=["no-context-completion"], total=1, has_more=False)
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # Test without context
         result = await client.complete(
             ref=PromptReference(type="ref/prompt", name="test-prompt"), argument={"name": "arg", "value": "val"}
@@ -97,19 +95,19 @@ async def test_dependent_completion_scenario():
             if ref.uri == "db://{database}/{table}":
                 if argument.name == "database":
                     # Complete database names
-                    return Completion(values=["users_db", "products_db", "analytics_db"], total=3, hasMore=False)
+                    return Completion(values=["users_db", "products_db", "analytics_db"], total=3, has_more=False)
                 elif argument.name == "table":
                     # Complete table names based on selected database
                     if context and context.arguments:
                         db = context.arguments.get("database")
                         if db == "users_db":
-                            return Completion(values=["users", "sessions", "permissions"], total=3, hasMore=False)
+                            return Completion(values=["users", "sessions", "permissions"], total=3, has_more=False)
                         elif db == "products_db":  # pragma: no cover
-                            return Completion(values=["products", "categories", "inventory"], total=3, hasMore=False)
+                            return Completion(values=["products", "categories", "inventory"], total=3, has_more=False)
 
-        return Completion(values=[], total=0, hasMore=False)  # pragma: no cover
+        return Completion(values=[], total=0, has_more=False)  # pragma: no cover
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # First, complete database
         db_result = await client.complete(
             ref=ResourceTemplateReference(type="ref/resource", uri="db://{database}/{table}"),
@@ -156,11 +154,11 @@ async def test_completion_error_on_missing_context():
                     # Normal completion if context is provided
                     db = context.arguments.get("database")
                     if db == "test_db":  # pragma: no cover
-                        return Completion(values=["users", "orders", "products"], total=3, hasMore=False)
+                        return Completion(values=["users", "orders", "products"], total=3, has_more=False)
 
-        return Completion(values=[], total=0, hasMore=False)  # pragma: no cover
+        return Completion(values=[], total=0, has_more=False)  # pragma: no cover
 
-    async with create_connected_server_and_client_session(server) as client:
+    async with Client(server) as client:
         # Try to complete table without database context - should raise error
         with pytest.raises(Exception) as exc_info:
             await client.complete(

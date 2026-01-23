@@ -6,11 +6,12 @@
 # pyright: reportUnknownMemberType=false
 
 import sys
+from pathlib import Path
 
 import pytest
 from pytest_examples import CodeExample, EvalExample, find_examples
 
-from mcp.shared.memory import create_connected_server_and_client_session as client_session
+from mcp import Client
 from mcp.types import TextContent, TextResourceContents
 
 
@@ -19,7 +20,7 @@ async def test_simple_echo():
     """Test the simple echo server"""
     from examples.fastmcp.simple_echo import mcp
 
-    async with client_session(mcp._mcp_server) as client:
+    async with Client(mcp) as client:
         result = await client.call_tool("echo", {"text": "hello"})
         assert len(result.content) == 1
         content = result.content[0]
@@ -32,7 +33,7 @@ async def test_complex_inputs():
     """Test the complex inputs server"""
     from examples.fastmcp.complex_inputs import mcp
 
-    async with client_session(mcp._mcp_server) as client:
+    async with Client(mcp) as client:
         tank = {"shrimp": [{"name": "bob"}, {"name": "alice"}]}
         result = await client.call_tool("name_shrimp", {"tank": tank, "extra_names": ["charlie"]})
         assert len(result.content) == 3
@@ -49,14 +50,14 @@ async def test_direct_call_tool_result_return():
     """Test the CallToolResult echo server"""
     from examples.fastmcp.direct_call_tool_result_return import mcp
 
-    async with client_session(mcp._mcp_server) as client:
+    async with Client(mcp) as client:
         result = await client.call_tool("echo", {"text": "hello"})
         assert len(result.content) == 1
         content = result.content[0]
         assert isinstance(content, TextContent)
         assert content.text == "hello"
-        assert result.structuredContent
-        assert result.structuredContent["text"] == "hello"
+        assert result.structured_content
+        assert result.structured_content["text"] == "hello"
         assert isinstance(result.meta, dict)
         assert result.meta["some"] == "metadata"
 
@@ -64,18 +65,14 @@ async def test_direct_call_tool_result_return():
 @pytest.mark.anyio
 async def test_desktop(monkeypatch: pytest.MonkeyPatch):
     """Test the desktop server"""
-    from pathlib import Path
-
-    from pydantic import AnyUrl
-
-    from examples.fastmcp.desktop import mcp
-
     # Mock desktop directory listing
     mock_files = [Path("/fake/path/file1.txt"), Path("/fake/path/file2.txt")]
     monkeypatch.setattr(Path, "iterdir", lambda self: mock_files)  # type: ignore[reportUnknownArgumentType]
     monkeypatch.setattr(Path, "home", lambda: Path("/fake/home"))
 
-    async with client_session(mcp._mcp_server) as client:
+    from examples.fastmcp.desktop import mcp
+
+    async with Client(mcp) as client:
         # Test the sum function
         result = await client.call_tool("sum", {"a": 1, "b": 2})
         assert len(result.content) == 1
@@ -84,7 +81,7 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
         assert content.text == "3"
 
         # Test the desktop resource
-        result = await client.read_resource(AnyUrl("dir://desktop"))
+        result = await client.read_resource("dir://desktop")
         assert len(result.contents) == 1
         content = result.contents[0]
         assert isinstance(content, TextResourceContents)

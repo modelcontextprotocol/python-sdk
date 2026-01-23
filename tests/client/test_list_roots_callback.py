@@ -2,19 +2,17 @@ import pytest
 from pydantic import FileUrl
 
 from mcp.client.transport_session import ClientTransportSession
+from mcp import Client
+from mcp.client.session import ClientSession
+from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as create_session,
-)
 from mcp.types import ListRootsResult, Root, TextContent
 
 
 @pytest.mark.anyio
 async def test_list_roots_callback():
-    from mcp.server.fastmcp import FastMCP
-
     server = FastMCP("test")
 
     callback_return = ListRootsResult(
@@ -42,17 +40,17 @@ async def test_list_roots_callback():
         return True
 
     # Test with list_roots callback
-    async with create_session(server._mcp_server, list_roots_callback=list_roots_callback) as client_session:
+    async with Client(server, list_roots_callback=list_roots_callback) as client:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool("test_list_roots", {"message": "test message"})
-        assert result.isError is False
+        result = await client.call_tool("test_list_roots", {"message": "test message"})
+        assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
     # Test without list_roots callback
-    async with create_session(server._mcp_server) as client_session:
+    async with Client(server) as client:
         # Make a request to trigger sampling callback
-        result = await client_session.call_tool("test_list_roots", {"message": "test message"})
-        assert result.isError is True
+        result = await client.call_tool("test_list_roots", {"message": "test message"})
+        assert result.is_error is True
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Error executing tool test_list_roots: List roots not supported"

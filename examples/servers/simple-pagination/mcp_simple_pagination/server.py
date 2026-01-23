@@ -1,5 +1,4 @@
-"""
-Simple MCP server demonstrating pagination for tools, resources, and prompts.
+"""Simple MCP server demonstrating pagination for tools, resources, and prompts.
 
 This example shows how to use the paginated decorators to handle large lists
 of items that need to be split across multiple pages.
@@ -11,7 +10,6 @@ import anyio
 import click
 import mcp.types as types
 from mcp.server.lowlevel import Server
-from pydantic import AnyUrl
 from starlette.requests import Request
 
 # Sample data - in real scenarios, this might come from a database
@@ -20,14 +18,14 @@ SAMPLE_TOOLS = [
         name=f"tool_{i}",
         title=f"Tool {i}",
         description=f"This is sample tool number {i}",
-        inputSchema={"type": "object", "properties": {"input": {"type": "string"}}},
+        input_schema={"type": "object", "properties": {"input": {"type": "string"}}},
     )
     for i in range(1, 26)  # 25 tools total
 ]
 
 SAMPLE_RESOURCES = [
     types.Resource(
-        uri=AnyUrl(f"file:///path/to/resource_{i}.txt"),
+        uri=f"file:///path/to/resource_{i}.txt",
         name=f"resource_{i}",
         description=f"This is sample resource number {i}",
     )
@@ -72,7 +70,7 @@ def main(port: int, transport: str) -> int:
                 start_idx = int(cursor)
             except (ValueError, TypeError):
                 # Invalid cursor, return empty
-                return types.ListToolsResult(tools=[], nextCursor=None)
+                return types.ListToolsResult(tools=[], next_cursor=None)
 
         # Get the page of tools
         page_tools = SAMPLE_TOOLS[start_idx : start_idx + page_size]
@@ -82,7 +80,7 @@ def main(port: int, transport: str) -> int:
         if start_idx + page_size < len(SAMPLE_TOOLS):
             next_cursor = str(start_idx + page_size)
 
-        return types.ListToolsResult(tools=page_tools, nextCursor=next_cursor)
+        return types.ListToolsResult(tools=page_tools, next_cursor=next_cursor)
 
     # Paginated list_resources - returns 10 resources per page
     @app.list_resources()
@@ -101,7 +99,7 @@ def main(port: int, transport: str) -> int:
                 start_idx = int(cursor)
             except (ValueError, TypeError):
                 # Invalid cursor, return empty
-                return types.ListResourcesResult(resources=[], nextCursor=None)
+                return types.ListResourcesResult(resources=[], next_cursor=None)
 
         # Get the page of resources
         page_resources = SAMPLE_RESOURCES[start_idx : start_idx + page_size]
@@ -111,7 +109,7 @@ def main(port: int, transport: str) -> int:
         if start_idx + page_size < len(SAMPLE_RESOURCES):
             next_cursor = str(start_idx + page_size)
 
-        return types.ListResourcesResult(resources=page_resources, nextCursor=next_cursor)
+        return types.ListResourcesResult(resources=page_resources, next_cursor=next_cursor)
 
     # Paginated list_prompts - returns 7 prompts per page
     @app.list_prompts()
@@ -130,7 +128,7 @@ def main(port: int, transport: str) -> int:
                 start_idx = int(cursor)
             except (ValueError, TypeError):
                 # Invalid cursor, return empty
-                return types.ListPromptsResult(prompts=[], nextCursor=None)
+                return types.ListPromptsResult(prompts=[], next_cursor=None)
 
         # Get the page of prompts
         page_prompts = SAMPLE_PROMPTS[start_idx : start_idx + page_size]
@@ -140,7 +138,7 @@ def main(port: int, transport: str) -> int:
         if start_idx + page_size < len(SAMPLE_PROMPTS):
             next_cursor = str(start_idx + page_size)
 
-        return types.ListPromptsResult(prompts=page_prompts, nextCursor=next_cursor)
+        return types.ListPromptsResult(prompts=page_prompts, next_cursor=next_cursor)
 
     # Implement call_tool handler
     @app.call_tool()
@@ -160,7 +158,7 @@ def main(port: int, transport: str) -> int:
 
     # Implement read_resource handler
     @app.read_resource()
-    async def read_resource(uri: AnyUrl) -> str:
+    async def read_resource(uri: str) -> str:
         # Find the resource in our sample data
         resource = next((r for r in SAMPLE_RESOURCES if r.uri == uri), None)
         if not resource:

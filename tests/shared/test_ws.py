@@ -3,11 +3,11 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from urllib.parse import urlparse
 
 import anyio
 import pytest
 import uvicorn
-from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket
@@ -50,13 +50,14 @@ class ServerTest(Server):  # pragma: no cover
         super().__init__(SERVER_NAME)
 
         @self.read_resource()
-        async def handle_read_resource(uri: AnyUrl) -> str | bytes:
-            if uri.scheme == "foobar":
-                return f"Read {uri.host}"
-            elif uri.scheme == "slow":
+        async def handle_read_resource(uri: str) -> str | bytes:
+            parsed = urlparse(uri)
+            if parsed.scheme == "foobar":
+                return f"Read {parsed.netloc}"
+            elif parsed.scheme == "slow":
                 # Simulate a slow resource
                 await anyio.sleep(2.0)
-                return f"Slow response from {uri.host}"
+                return f"Slow response from {parsed.netloc}"
 
             raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
@@ -66,7 +67,7 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 )
             ]
 
@@ -133,7 +134,7 @@ async def initialized_ws_client_session(server: None, server_url: str) -> AsyncG
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -151,7 +152,7 @@ async def test_ws_client_basic_connection(server: None, server_url: str) -> None
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -163,7 +164,7 @@ async def test_ws_client_happy_request_and_response(
     initialized_ws_client_session: ClientSession,
 ) -> None:
     """Test a successful request and response via WebSocket"""
-    result = await initialized_ws_client_session.read_resource(AnyUrl("foobar://example"))
+    result = await initialized_ws_client_session.read_resource("foobar://example")
     assert isinstance(result, ReadResourceResult)
     assert isinstance(result.contents, list)
     assert len(result.contents) > 0
@@ -177,7 +178,7 @@ async def test_ws_client_exception_handling(
 ) -> None:
     """Test exception handling in WebSocket communication"""
     with pytest.raises(McpError) as exc_info:
-        await initialized_ws_client_session.read_resource(AnyUrl("unknown://example"))
+        await initialized_ws_client_session.read_resource("unknown://example")
     assert exc_info.value.error.code == 404
 
 
@@ -189,11 +190,11 @@ async def test_ws_client_timeout(
     # Set a very short timeout to trigger a timeout exception
     with pytest.raises(TimeoutError):
         with anyio.fail_after(0.1):  # 100ms timeout
-            await initialized_ws_client_session.read_resource(AnyUrl("slow://example"))
+            await initialized_ws_client_session.read_resource("slow://example")
 
     # Now test that we can still use the session after a timeout
     with anyio.fail_after(5):  # Longer timeout to allow completion
-        result = await initialized_ws_client_session.read_resource(AnyUrl("foobar://example"))
+        result = await initialized_ws_client_session.read_resource("foobar://example")
         assert isinstance(result, ReadResourceResult)
         assert isinstance(result.contents, list)
         assert len(result.contents) > 0

@@ -1,16 +1,12 @@
-"""
-StreamableHTTP Client Transport Module
+"""Implements StreamableHTTP transport for MCP clients."""
 
-This module implements the StreamableHTTP transport for MCP clients,
-providing support for HTTP POST requests with optional SSE streaming responses
-and session management.
-"""
+from __future__ import annotations as _annotations
 
+import contextlib
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import timedelta
 
 import anyio
 import httpx
@@ -18,7 +14,7 @@ from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     ErrorData,
@@ -29,6 +25,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    jsonrpc_message_adapter,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,12 +39,10 @@ GetSessionIdCallback = Callable[[], str | None]
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
 LAST_EVENT_ID = "last-event-id"
-CONTENT_TYPE = "content-type"
-ACCEPT = "accept"
 
-
-JSON = "application/json"
-SSE = "text/event-stream"
+# Reconnection defaults
+DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
+MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
 
 
 class StreamableHTTPError(Exception):
@@ -63,52 +58,36 @@ class RequestContext:
     """Context for a request operation."""
 
     client: httpx.AsyncClient
-    headers: dict[str, str]
     session_id: str | None
     session_message: SessionMessage
     metadata: ClientMessageMetadata | None
     read_stream_writer: StreamWriter
-    sse_read_timeout: float
 
 
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(
-        self,
-        url: str,
-        headers: dict[str, str] | None = None,
-        timeout: float | timedelta = 30,
-        sse_read_timeout: float | timedelta = 60 * 5,
-        auth: httpx.Auth | None = None,
-    ) -> None:
+    def __init__(self, url: str) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
-            headers: Optional headers to include in requests.
-            timeout: HTTP timeout for regular operations.
-            sse_read_timeout: Timeout for SSE read operations.
-            auth: Optional HTTPX authentication handler.
         """
         self.url = url
-        self.headers = headers or {}
-        self.timeout = timeout.total_seconds() if isinstance(timeout, timedelta) else timeout
-        self.sse_read_timeout = (
-            sse_read_timeout.total_seconds() if isinstance(sse_read_timeout, timedelta) else sse_read_timeout
-        )
-        self.auth = auth
-        self.session_id = None
-        self.protocol_version = None
-        self.request_headers = {
-            ACCEPT: f"{JSON}, {SSE}",
-            CONTENT_TYPE: JSON,
-            **self.headers,
-        }
+        self.session_id: str | None = None
+        self.protocol_version: str | None = None
 
-    def _prepare_request_headers(self, base_headers: dict[str, str]) -> dict[str, str]:
-        """Update headers with session ID and protocol version if available."""
-        headers = base_headers.copy()
+    def _prepare_headers(self) -> dict[str, str]:
+        """Build MCP-specific request headers.
+
+        These headers will be merged with the httpx.AsyncClient's default headers,
+        with these MCP-specific headers taking precedence.
+        """
+        headers: dict[str, str] = {
+            "accept": "application/json, text/event-stream",
+            "content-type": "application/json",
+        }
+        # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
         if self.protocol_version:
@@ -117,38 +96,30 @@ class StreamableHTTPTransport:
 
     def _is_initialization_request(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialization request."""
-        return isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
+        return isinstance(message, JSONRPCRequest) and message.method == "initialize"
 
     def _is_initialized_notification(self, message: JSONRPCMessage) -> bool:
         """Check if the message is an initialized notification."""
-        return isinstance(message.root, JSONRPCNotification) and message.root.method == "notifications/initialized"
+        return isinstance(message, JSONRPCNotification) and message.method == "notifications/initialized"
 
-    def _maybe_extract_session_id_from_response(
-        self,
-        response: httpx.Response,
-    ) -> None:
+    def _maybe_extract_session_id_from_response(self, response: httpx.Response) -> None:
         """Extract and store session ID from response headers."""
         new_session_id = response.headers.get(MCP_SESSION_ID)
         if new_session_id:
             self.session_id = new_session_id
             logger.info(f"Received session ID: {self.session_id}")
 
-    def _maybe_extract_protocol_version_from_message(
-        self,
-        message: JSONRPCMessage,
-    ) -> None:
+    def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
         """Extract protocol version from initialization response message."""
-        if isinstance(message.root, JSONRPCResponse) and message.root.result:  # pragma: no branch
+        if isinstance(message, JSONRPCResponse) and message.result:  # pragma: no branch
             try:
                 # Parse the result as InitializeResult for type safety
-                init_result = InitializeResult.model_validate(message.root.result)
-                self.protocol_version = str(init_result.protocolVersion)
+                init_result = InitializeResult.model_validate(message.result, by_name=False)
+                self.protocol_version = str(init_result.protocol_version)
                 logger.info(f"Negotiated protocol version: {self.protocol_version}")
-            except Exception as exc:  # pragma: no cover
-                logger.warning(
-                    f"Failed to parse initialization response as InitializeResult: {exc}"
-                )  # pragma: no cover
-                logger.warning(f"Raw result: {message.root.result}")
+            except Exception:  # pragma: no cover
+                logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)
+                logger.warning(f"Raw result: {message.result}")
 
     async def _handle_sse_event(
         self,
@@ -160,8 +131,14 @@ class StreamableHTTPTransport:
     ) -> bool:
         """Handle an SSE event, returning True if the response is complete."""
         if sse.event == "message":
+            # Handle priming events (empty data with ID) for resumability
+            if not sse.data:
+                # Call resumption callback for priming events that have an ID
+                if sse.id and resumption_callback:
+                    await resumption_callback(sse.id)
+                return False
             try:
-                message = JSONRPCMessage.model_validate_json(sse.data)
+                message = jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
                 logger.debug(f"SSE message: {message}")
 
                 # Extract protocol version from initialization response
@@ -169,8 +146,8 @@ class StreamableHTTPTransport:
                     self._maybe_extract_protocol_version_from_message(message)
 
                 # If this is a response and we have original_request_id, replace it
-                if original_request_id is not None and isinstance(message.root, JSONRPCResponse | JSONRPCError):
-                    message.root.id = original_request_id
+                if original_request_id is not None and isinstance(message, JSONRPCResponse | JSONRPCError):
+                    message.id = original_request_id
 
                 session_message = SessionMessage(message)
                 await read_stream_writer.send(session_message)
@@ -181,7 +158,7 @@ class StreamableHTTPTransport:
 
                 # If this is a response or error return True indicating completion
                 # Otherwise, return False to continue listening
-                return isinstance(message.root, JSONRPCResponse | JSONRPCError)
+                return isinstance(message, JSONRPCResponse | JSONRPCError)
 
             except Exception as exc:  # pragma: no cover
                 logger.exception("Error parsing SSE message")
@@ -191,37 +168,54 @@ class StreamableHTTPTransport:
             logger.warning(f"Unknown SSE event: {sse.event}")
             return False
 
-    async def handle_get_stream(
-        self,
-        client: httpx.AsyncClient,
-        read_stream_writer: StreamWriter,
-    ) -> None:
-        """Handle GET stream for server-initiated messages."""
-        try:
-            if not self.session_id:
+    async def handle_get_stream(self, client: httpx.AsyncClient, read_stream_writer: StreamWriter) -> None:
+        """Handle GET stream for server-initiated messages with auto-reconnect."""
+        last_event_id: str | None = None
+        retry_interval_ms: int | None = None
+        attempt: int = 0
+
+        while attempt < MAX_RECONNECTION_ATTEMPTS:  # pragma: no branch
+            try:
+                if not self.session_id:
+                    return
+
+                headers = self._prepare_headers()
+                if last_event_id:
+                    headers[LAST_EVENT_ID] = last_event_id  # pragma: no cover
+
+                async with aconnect_sse(client, "GET", self.url, headers=headers) as event_source:
+                    event_source.response.raise_for_status()
+                    logger.debug("GET SSE connection established")
+
+                    async for sse in event_source.aiter_sse():
+                        # Track last event ID for reconnection
+                        if sse.id:
+                            last_event_id = sse.id  # pragma: no cover
+                        # Track retry interval from server
+                        if sse.retry is not None:
+                            retry_interval_ms = sse.retry  # pragma: no cover
+
+                        await self._handle_sse_event(sse, read_stream_writer)
+
+                    # Stream ended normally (server closed) - reset attempt counter
+                    attempt = 0
+
+            except Exception as exc:  # pragma: no cover
+                logger.debug(f"GET stream error: {exc}")
+                attempt += 1
+
+            if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+                logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
                 return
 
-            headers = self._prepare_request_headers(self.request_headers)
-
-            async with aconnect_sse(
-                client,
-                "GET",
-                self.url,
-                headers=headers,
-                timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
-            ) as event_source:
-                event_source.response.raise_for_status()
-                logger.debug("GET SSE connection established")
-
-                async for sse in event_source.aiter_sse():
-                    await self._handle_sse_event(sse, read_stream_writer)
-
-        except Exception as exc:
-            logger.debug(f"GET stream error (non-fatal): {exc}")  # pragma: no cover
+            # Wait before reconnecting
+            delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+            logger.info(f"GET stream disconnected, reconnecting in {delay_ms}ms...")
+            await anyio.sleep(delay_ms / 1000.0)
 
     async def _handle_resumption_request(self, ctx: RequestContext) -> None:
         """Handle a resumption request using GET with SSE."""
-        headers = self._prepare_request_headers(ctx.headers)
+        headers = self._prepare_headers()
         if ctx.metadata and ctx.metadata.resumption_token:
             headers[LAST_EVENT_ID] = ctx.metadata.resumption_token
         else:
@@ -229,16 +223,10 @@ class StreamableHTTPTransport:
 
         # Extract original request ID to map responses
         original_request_id = None
-        if isinstance(ctx.session_message.message.root, JSONRPCRequest):  # pragma: no branch
-            original_request_id = ctx.session_message.message.root.id
+        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
+            original_request_id = ctx.session_message.message.id
 
-        async with aconnect_sse(
-            ctx.client,
-            "GET",
-            self.url,
-            headers=headers,
-            timeout=httpx.Timeout(self.timeout, read=self.sse_read_timeout),
-        ) as event_source:
+        async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
             event_source.response.raise_for_status()
             logger.debug("Resumption GET SSE connection established")
 
@@ -255,7 +243,7 @@ class StreamableHTTPTransport:
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:
         """Handle a POST request with response processing."""
-        headers = self._prepare_request_headers(ctx.headers)
+        headers = self._prepare_headers()
         message = ctx.session_message.message
         is_initialization = self._is_initialization_request(message)
 
@@ -270,12 +258,9 @@ class StreamableHTTPTransport:
                 return
 
             if response.status_code == 404:  # pragma: no branch
-                if isinstance(message.root, JSONRPCRequest):
-                    await self._send_session_terminated_error(  # pragma: no cover
-                        ctx.read_stream_writer,  # pragma: no cover
-                        message.root.id,  # pragma: no cover
-                    )  # pragma: no cover
-                return  # pragma: no cover
+                if isinstance(message, JSONRPCRequest):  # pragma: no branch
+                    await self._send_session_terminated_error(ctx.read_stream_writer, message.id)
+                return
 
             response.raise_for_status()
             if is_initialization:
@@ -283,11 +268,11 @@ class StreamableHTTPTransport:
 
             # Per https://modelcontextprotocol.io/specification/2025-06-18/basic#notifications:
             # The server MUST NOT send a response to notifications.
-            if isinstance(message.root, JSONRPCRequest):
-                content_type = response.headers.get(CONTENT_TYPE, "").lower()
-                if content_type.startswith(JSON):
+            if isinstance(message, JSONRPCRequest):
+                content_type = response.headers.get("content-type", "").lower()
+                if content_type.startswith("application/json"):
                     await self._handle_json_response(response, ctx.read_stream_writer, is_initialization)
-                elif content_type.startswith(SSE):
+                elif content_type.startswith("text/event-stream"):
                     await self._handle_sse_response(response, ctx, is_initialization)
                 else:
                     await self._handle_unexpected_content_type(  # pragma: no cover
@@ -304,7 +289,7 @@ class StreamableHTTPTransport:
         """Handle JSON response from the server."""
         try:
             content = await response.aread()
-            message = JSONRPCMessage.model_validate_json(content)
+            message = jsonrpc_message_adapter.validate_json(content, by_name=False)
 
             # Extract protocol version from initialization response
             if is_initialization:
@@ -323,9 +308,20 @@ class StreamableHTTPTransport:
         is_initialization: bool = False,
     ) -> None:
         """Handle SSE response from the server."""
+        last_event_id: str | None = None
+        retry_interval_ms: int | None = None
+
         try:
             event_source = EventSource(response)
             async for sse in event_source.aiter_sse():  # pragma: no branch
+                # Track last event ID for potential reconnection
+                if sse.id:
+                    last_event_id = sse.id
+
+                # Track retry interval from server
+                if sse.retry is not None:
+                    retry_interval_ms = sse.retry
+
                 is_complete = await self._handle_sse_event(
                     sse,
                     ctx.read_stream_writer,
@@ -336,33 +332,89 @@ class StreamableHTTPTransport:
                 # break the loop
                 if is_complete:
                     await response.aclose()
-                    break
-        except Exception as e:
-            logger.exception("Error reading SSE stream:")  # pragma: no cover
-            await ctx.read_stream_writer.send(e)  # pragma: no cover
+                    return  # Normal completion, no reconnect needed
+        except Exception as e:  # pragma: no cover
+            logger.debug(f"SSE stream ended: {e}")
+
+        # Stream ended without response - reconnect if we received an event with ID
+        if last_event_id is not None:  # pragma: no branch
+            logger.info("SSE stream disconnected, reconnecting...")
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+
+    async def _handle_reconnection(
+        self,
+        ctx: RequestContext,
+        last_event_id: str,
+        retry_interval_ms: int | None = None,
+        attempt: int = 0,
+    ) -> None:
+        """Reconnect with Last-Event-ID to resume stream after server disconnect."""
+        # Bail if max retries exceeded
+        if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+            logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+            return
+
+        # Always wait - use server value or default
+        delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        await anyio.sleep(delay_ms / 1000.0)
+
+        headers = self._prepare_headers()
+        headers[LAST_EVENT_ID] = last_event_id
+
+        # Extract original request ID to map responses
+        original_request_id = None
+        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
+            original_request_id = ctx.session_message.message.id
+
+        try:
+            async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
+                event_source.response.raise_for_status()
+                logger.info("Reconnected to SSE stream")
+
+                # Track for potential further reconnection
+                reconnect_last_event_id: str = last_event_id
+                reconnect_retry_ms = retry_interval_ms
+
+                async for sse in event_source.aiter_sse():
+                    if sse.id:  # pragma: no branch
+                        reconnect_last_event_id = sse.id
+                    if sse.retry is not None:
+                        reconnect_retry_ms = sse.retry
+
+                    is_complete = await self._handle_sse_event(
+                        sse,
+                        ctx.read_stream_writer,
+                        original_request_id,
+                        ctx.metadata.on_resumption_token_update if ctx.metadata else None,
+                    )
+                    if is_complete:
+                        await event_source.response.aclose()
+                        return
+
+                # Stream ended again without response - reconnect again (reset attempt counter)
+                logger.info("SSE stream disconnected, reconnecting...")
+                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+        except Exception as e:  # pragma: no cover
+            logger.debug(f"Reconnection failed: {e}")
+            # Try to reconnect again if we still have an event ID
+            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
 
     async def _handle_unexpected_content_type(
-        self,
-        content_type: str,
-        read_stream_writer: StreamWriter,
+        self, content_type: str, read_stream_writer: StreamWriter
     ) -> None:  # pragma: no cover
         """Handle unexpected content type in response."""
         error_msg = f"Unexpected content type: {content_type}"  # pragma: no cover
         logger.error(error_msg)  # pragma: no cover
         await read_stream_writer.send(ValueError(error_msg))  # pragma: no cover
 
-    async def _send_session_terminated_error(
-        self,
-        read_stream_writer: StreamWriter,
-        request_id: RequestId,
-    ) -> None:
+    async def _send_session_terminated_error(self, read_stream_writer: StreamWriter, request_id: RequestId) -> None:
         """Send a session terminated error response."""
         jsonrpc_error = JSONRPCError(
             jsonrpc="2.0",
             id=request_id,
             error=ErrorData(code=32600, message="Session terminated"),
         )
-        session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
+        session_message = SessionMessage(jsonrpc_error)
         await read_stream_writer.send(session_message)
 
     async def post_writer(
@@ -396,12 +448,10 @@ class StreamableHTTPTransport:
 
                     ctx = RequestContext(
                         client=client,
-                        headers=self.request_headers,
                         session_id=self.session_id,
                         session_message=session_message,
                         metadata=metadata,
                         read_stream_writer=read_stream_writer,
-                        sse_read_timeout=self.sse_read_timeout,
                     )
 
                     async def handle_request_async():
@@ -411,7 +461,7 @@ class StreamableHTTPTransport:
                             await self._handle_post_request(ctx)
 
                     # If this is a request, start a new task to handle it
-                    if isinstance(message.root, JSONRPCRequest):
+                    if isinstance(message, JSONRPCRequest):
                         tg.start_soon(handle_request_async)
                     else:
                         await handle_request_async()
@@ -428,7 +478,7 @@ class StreamableHTTPTransport:
             return
 
         try:
-            headers = self._prepare_request_headers(self.request_headers)
+            headers = self._prepare_headers()
             response = await client.delete(self.url, headers=headers)
 
             if response.status_code == 405:
@@ -444,14 +494,11 @@ class StreamableHTTPTransport:
 
 
 @asynccontextmanager
-async def streamablehttp_client(
+async def streamable_http_client(
     url: str,
-    headers: dict[str, str] | None = None,
-    timeout: float | timedelta = 30,
-    sse_read_timeout: float | timedelta = 60 * 5,
+    *,
+    http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
-    httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
-    auth: httpx.Auth | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -460,33 +507,46 @@ async def streamablehttp_client(
     ],
     None,
 ]:
-    """
-    Client transport for StreamableHTTP.
+    """Client transport for StreamableHTTP.
 
-    `sse_read_timeout` determines how long (in seconds) the client will wait for a new
-    event before disconnecting. All other HTTP operations are controlled by `timeout`.
+    Args:
+        url: The MCP server endpoint URL.
+        http_client: Optional pre-configured httpx.AsyncClient. If None, a default
+            client with recommended MCP timeouts will be created. To configure headers,
+            authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+        terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:
         Tuple containing:
             - read_stream: Stream for reading messages from the server
             - write_stream: Stream for sending messages to the server
             - get_session_id_callback: Function to retrieve the current session ID
-    """
-    transport = StreamableHTTPTransport(url, headers, timeout, sse_read_timeout, auth)
 
+    Example:
+        See examples/snippets/clients/ for usage patterns.
+    """
     read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
+
+    # Determine if we need to create and manage the client
+    client_provided = http_client is not None
+    client = http_client
+
+    if client is None:
+        # Create default client with recommended MCP timeouts
+        client = create_mcp_http_client()
+
+    transport = StreamableHTTPTransport(url)
 
     async with anyio.create_task_group() as tg:
         try:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with httpx_client_factory(
-                headers=transport.request_headers,
-                timeout=httpx.Timeout(transport.timeout, read=transport.sse_read_timeout),
-                auth=transport.auth,
-            ) as client:
-                # Define callbacks that need access to tg
+            async with contextlib.AsyncExitStack() as stack:
+                # Only manage client lifecycle if we created it
+                if not client_provided:
+                    await stack.enter_async_context(client)
+
                 def start_get_stream() -> None:
                     tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
 
@@ -501,11 +561,7 @@ async def streamablehttp_client(
                 )
 
                 try:
-                    yield (
-                        read_stream,
-                        write_stream,
-                        transport.get_session_id,
-                    )
+                    yield (read_stream, write_stream, transport.get_session_id)
                 finally:
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)

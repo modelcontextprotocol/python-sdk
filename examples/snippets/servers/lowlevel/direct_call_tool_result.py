@@ -1,6 +1,5 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
+"""Run from the repository root:
+uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
 """
 
 import asyncio
@@ -21,7 +20,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="advanced_tool",
             description="Tool with full control including _meta field",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {"message": {"type": "string"}},
                 "required": ["message"],
@@ -37,7 +36,7 @@ async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallTo
         message = str(arguments.get("message", ""))
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Processed: {message}")],
-            structuredContent={"result": "success", "message": message},
+            structured_content={"result": "success", "message": message},
             _meta={"hidden": "data for client applications only"},
         )
 

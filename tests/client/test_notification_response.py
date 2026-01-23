@@ -1,5 +1,4 @@
-"""
-Tests for StreamableHTTP client transport with non-SDK servers.
+"""Tests for StreamableHTTP client transport with non-SDK servers.
 
 These tests verify client behavior when interacting with servers
 that don't follow SDK conventions.
@@ -18,9 +17,9 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from mcp import ClientSession, types
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.session import RequestResponder
-from mcp.types import ClientNotification, RootsListChangedNotification
+from mcp.types import RootsListChangedNotification
 from tests.test_helpers import wait_for_server
 
 
@@ -110,8 +109,7 @@ def non_sdk_server(non_sdk_server_port: int) -> Generator[None, None, None]:
 
 @pytest.mark.anyio
 async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk_server_port: int) -> None:
-    """
-    This test verifies that the client ignores unexpected responses to notifications: the spec states they should
+    """This test verifies that the client ignores unexpected responses to notifications: the spec states they should
     either be 202 + no response body, or 4xx + optional error body
     (https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#sending-messages-to-the-server),
     but some servers wrongly return other 2xx codes (e.g. 204). For now we simply ignore unexpected responses
@@ -127,7 +125,7 @@ async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk
         if isinstance(message, Exception):
             returned_exception = message
 
-    async with streamablehttp_client(server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(server_url) as (read_stream, write_stream, _):
         async with ClientSession(
             read_stream,
             write_stream,
@@ -137,9 +135,7 @@ async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk
             await session.initialize()
 
             # The test server returns a 204 instead of the expected 202
-            await session.send_notification(
-                ClientNotification(RootsListChangedNotification(method="notifications/roots/list_changed"))
-            )
+            await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
 
     if returned_exception:  # pragma: no cover
         pytest.fail(f"Server encountered an exception: {returned_exception}")

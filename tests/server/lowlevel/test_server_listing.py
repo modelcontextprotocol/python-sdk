@@ -3,7 +3,6 @@
 import warnings
 
 import pytest
-from pydantic import AnyUrl
 
 from mcp.server import Server
 from mcp.types import (
@@ -42,8 +41,8 @@ async def test_list_prompts_basic() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListPromptsResult)
-    assert result.root.prompts == test_prompts
+    assert isinstance(result, ListPromptsResult)
+    assert result.prompts == test_prompts
 
 
 @pytest.mark.anyio
@@ -52,8 +51,8 @@ async def test_list_resources_basic() -> None:
     server = Server("test")
 
     test_resources = [
-        Resource(uri=AnyUrl("file:///test1.txt"), name="Test 1"),
-        Resource(uri=AnyUrl("file:///test2.txt"), name="Test 2"),
+        Resource(uri="file:///test1.txt", name="Test 1"),
+        Resource(uri="file:///test2.txt", name="Test 2"),
     ]
 
     with warnings.catch_warnings():
@@ -68,8 +67,8 @@ async def test_list_resources_basic() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListResourcesResult)
-    assert result.root.resources == test_resources
+    assert isinstance(result, ListResourcesResult)
+    assert result.resources == test_resources
 
 
 @pytest.mark.anyio
@@ -81,7 +80,7 @@ async def test_list_tools_basic() -> None:
         Tool(
             name="tool1",
             description="First tool",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "message": {"type": "string"},
@@ -92,7 +91,7 @@ async def test_list_tools_basic() -> None:
         Tool(
             name="tool2",
             description="Second tool",
-            inputSchema={
+            input_schema={
                 "type": "object",
                 "properties": {
                     "count": {"type": "number"},
@@ -115,8 +114,8 @@ async def test_list_tools_basic() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListToolsResult)
-    assert result.root.tools == test_tools
+    assert isinstance(result, ListToolsResult)
+    assert result.tools == test_tools
 
 
 @pytest.mark.anyio
@@ -136,8 +135,8 @@ async def test_list_prompts_empty() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListPromptsResult)
-    assert result.root.prompts == []
+    assert isinstance(result, ListPromptsResult)
+    assert result.prompts == []
 
 
 @pytest.mark.anyio
@@ -157,8 +156,8 @@ async def test_list_resources_empty() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListResourcesResult)
-    assert result.root.resources == []
+    assert isinstance(result, ListResourcesResult)
+    assert result.resources == []
 
 
 @pytest.mark.anyio
@@ -178,5 +177,5 @@ async def test_list_tools_empty() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListToolsResult)
-    assert result.root.tools == []
+    assert isinstance(result, ListToolsResult)
+    assert result.tools == []

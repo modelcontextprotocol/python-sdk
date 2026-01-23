@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, RootModel, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError
 from starlette.requests import Request
 
 from mcp.server.auth.errors import stringify_pydantic_error
@@ -40,35 +40,22 @@ class RefreshTokenRequest(BaseModel):
     resource: str | None = Field(None, description="Resource indicator for the token")
 
 
-class TokenRequest(
-    RootModel[
-        Annotated[
-            AuthorizationCodeRequest | RefreshTokenRequest,
-            Field(discriminator="grant_type"),
-        ]
-    ]
-):
-    root: Annotated[
-        AuthorizationCodeRequest | RefreshTokenRequest,
-        Field(discriminator="grant_type"),
-    ]
+TokenRequest = Annotated[AuthorizationCodeRequest | RefreshTokenRequest, Field(discriminator="grant_type")]
+token_request_adapter = TypeAdapter[TokenRequest](TokenRequest)
 
 
 class TokenErrorResponse(BaseModel):
-    """
-    See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
-    """
+    """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.2"""
 
     error: TokenErrorCode
     error_description: str | None = None
     error_uri: AnyHttpUrl | None = None
 
 
-class TokenSuccessResponse(RootModel[OAuthToken]):
-    # this is just a wrapper over OAuthToken; the only reason we do this
-    # is to have some separation between the HTTP response type, and the
-    # type returned by the provider
-    root: OAuthToken
+# this is just an alias over OAuthToken; the only reason we do this
+# is to have some separation between the HTTP response type, and the
+# type returned by the provider
+TokenSuccessResponse = OAuthToken
 
 
 @dataclass
@@ -92,26 +79,30 @@ class TokenHandler:
 
     async def handle(self, request: Request):
         try:
+            client_info = await self.client_authenticator.authenticate_request(request)
+        except AuthenticationError as e:
+            # Authentication failures should return 401
+            return PydanticJSONResponse(
+                content=TokenErrorResponse(
+                    error="invalid_client",
+                    error_description=e.message,
+                ),
+                status_code=401,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Pragma": "no-cache",
+                },
+            )
+
+        try:
             form_data = await request.form()
-            token_request = TokenRequest.model_validate(dict(form_data)).root
-        except ValidationError as validation_error:
+            # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
+            token_request = token_request_adapter.validate_python(dict(form_data))
+        except ValidationError as validation_error:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
                     error="invalid_request",
                     error_description=stringify_pydantic_error(validation_error),
-                )
-            )
-
-        try:
-            client_info = await self.client_authenticator.authenticate(
-                client_id=token_request.client_id,
-                client_secret=token_request.client_secret,
-            )
-        except AuthenticationError as e:  # pragma: no cover
-            return self.response(
-                TokenErrorResponse(
-                    error="unauthorized_client",
-                    error_description=e.message,
                 )
             )
 
@@ -185,12 +176,7 @@ class TokenHandler:
                     # Exchange authorization code for tokens
                     tokens = await self.provider.exchange_authorization_code(client_info, auth_code)
                 except TokenError as e:
-                    return self.response(
-                        TokenErrorResponse(
-                            error=e.error,
-                            error_description=e.error_description,
-                        )
-                    )
+                    return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
             case RefreshTokenRequest():  # pragma: no cover
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
@@ -228,11 +214,6 @@ class TokenHandler:
                     # Exchange refresh token for new tokens
                     tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
                 except TokenError as e:
-                    return self.response(
-                        TokenErrorResponse(
-                            error=e.error,
-                            error_description=e.error_description,
-                        )
-                    )
+                    return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
-        return self.response(TokenSuccessResponse(root=tokens))
+        return self.response(tokens)
