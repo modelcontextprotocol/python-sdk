@@ -158,7 +158,32 @@ In HTTP/JSON-RPC, paginating large lists (like `ListTools` or `ListResources`) i
 
 **Question:** Should we add an optional `limit` field to Request messages to allow the server to stop generating early, optimizing server-side work? Or rely on client cancellation?
 
+### ClientStreamingTransportSession Interface
 
+The current `ClientTransportSession` interface returns complete results (e.g., `ListToolsResult` with a full list). For gRPC, this means buffering the entire stream into memory before returning, which works but loses the memory efficiency benefits of streaming.
+
+**Proposed:** Add a `ClientStreamingTransportSession` interface that extends `ClientTransportSession`:
+
+```python
+class ClientTransportSession(ABC):
+    # Existing - returns complete results (backward compat)
+    async def list_tools(...) -> ListToolsResult
+
+class ClientStreamingTransportSession(ClientTransportSession):
+    # Adds streaming variants
+    def stream_list_tools(self) -> AsyncIterator[Tool]
+    def stream_list_resources(self) -> AsyncIterator[Resource]
+    def stream_list_prompts(self) -> AsyncIterator[Prompt]
+    async def call_tool_with_progress(...) -> AsyncIterator[ProgressNotification | ToolResult]
+```
+
+**Benefits:**
+- gRPC transport implements both - callers choose based on their needs
+- `list_tools()` for simple use cases, `stream_list_tools()` for memory-efficient processing
+- Existing code using `ClientTransportSession` continues to work unchanged
+- HTTP/JSON-RPC transports implement only the base interface
+
+**Question:** Is this the right abstraction? Should streaming be opt-in via a separate interface, or should we change the base interface to always return iterators?
 
 ## Implementation Notes
 
