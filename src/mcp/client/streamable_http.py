@@ -17,6 +17,7 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    CONNECTION_CLOSED,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -337,9 +338,25 @@ class StreamableHTTPTransport:
             logger.debug(f"SSE stream ended: {e}")
 
         # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:
+            # No event ID received - cannot reconnect, notify session of failure
+            request_id: RequestId | None = None
+            if isinstance(ctx.session_message.message, JSONRPCRequest):
+                request_id = ctx.session_message.message.id
+
+            if request_id is not None:
+                jsonrpc_error = JSONRPCError(
+                    jsonrpc="2.0",
+                    id=request_id,
+                    error=ErrorData(
+                        code=CONNECTION_CLOSED,
+                        message="SSE stream closed unexpectedly without response",
+                    ),
+                )
+                await ctx.read_stream_writer.send(SessionMessage(jsonrpc_error))
 
     async def _handle_reconnection(
         self,
