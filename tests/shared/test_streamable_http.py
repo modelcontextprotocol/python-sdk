@@ -1304,9 +1304,9 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
 
             # Verify we received exactly one notification (inside ClientSession
             # so coverage tracks these on Python 3.11, see PR #1897 for details)
-            assert len(captured_notifications) == 1
-            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
-            assert captured_notifications[0].params.data == "First notification before lock"
+            assert len(captured_notifications) == 1  # pragma: lax no cover
+            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: lax no cover
+            assert captured_notifications[0].params.data == "First notification before lock"  # pragma: lax no cover
 
     # Clear notifications and set up headers for phase 2 (between connections,
     # not tracked by coverage on Python 3.11 due to cancel scope + sys.settrace bug)
@@ -1324,7 +1324,9 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            async with ClientSession(
+                read_stream, write_stream, message_handler=message_handler
+            ) as session:  # pragma: no branch
                 result = await session.send_request(
                     types.CallToolRequest(params=types.CallToolRequestParams(name="release_lock", arguments={})),
                     types.CallToolResult,
