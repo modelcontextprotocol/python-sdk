@@ -66,10 +66,7 @@ class Client:
         self,
         server: Server[Any] | FastMCP,
         *,
-        # Note: raise_exceptions only affects transport/stream errors and exceptions
-        # that escape request handlers. Tool exceptions in FastMCP are caught by
-        # the call_tool decorator and converted to error results. See test_client.py
-        # test_raise_exceptions_returns_error_result_for_tool_exceptions for details.
+        # TODO(Marcelo): When do `raise_exceptions=True` actually raises?
         raise_exceptions: bool = False,
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
