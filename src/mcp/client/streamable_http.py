@@ -200,6 +200,18 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
+            except httpx.HTTPStatusError as exc:  # pragma: no cover
+                # Handle HTTP errors that are retryable
+                if exc.response.status_code == 405:
+                    # Method Not Allowed - server doesn't support GET for SSE
+                    logger.warning(
+                        "Server does not support GET for SSE events (405 Method Not Allowed). "
+                        "Server-initiated messages will not be available."
+                    )
+                    return
+                # For other HTTP errors, log and retry
+                logger.debug(f"GET stream HTTP error: {exc.response.status_code} - {exc}")
+                attempt += 1
             except Exception as exc:  # pragma: no cover
                 logger.debug(f"GET stream error: {exc}")
                 attempt += 1
