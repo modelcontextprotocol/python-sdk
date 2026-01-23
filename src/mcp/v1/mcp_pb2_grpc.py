@@ -49,7 +49,7 @@ class McpServiceStub(object):
                 request_serializer=mcp_dot_v1_dot_mcp__pb2.PingRequest.SerializeToString,
                 response_deserializer=mcp_dot_v1_dot_mcp__pb2.PingResponse.FromString,
                 _registered_method=True)
-        self.ListTools = channel.unary_unary(
+        self.ListTools = channel.unary_stream(
                 '/mcp.v1.McpService/ListTools',
                 request_serializer=mcp_dot_v1_dot_mcp__pb2.ListToolsRequest.SerializeToString,
                 response_deserializer=mcp_dot_v1_dot_mcp__pb2.ListToolsResponse.FromString,
@@ -69,12 +69,12 @@ class McpServiceStub(object):
                 request_serializer=mcp_dot_v1_dot_mcp__pb2.StreamToolCallsRequest.SerializeToString,
                 response_deserializer=mcp_dot_v1_dot_mcp__pb2.StreamToolCallsResponse.FromString,
                 _registered_method=True)
-        self.ListResources = channel.unary_unary(
+        self.ListResources = channel.unary_stream(
                 '/mcp.v1.McpService/ListResources',
                 request_serializer=mcp_dot_v1_dot_mcp__pb2.ListResourcesRequest.SerializeToString,
                 response_deserializer=mcp_dot_v1_dot_mcp__pb2.ListResourcesResponse.FromString,
                 _registered_method=True)
-        self.ListResourceTemplates = channel.unary_unary(
+        self.ListResourceTemplates = channel.unary_stream(
                 '/mcp.v1.McpService/ListResourceTemplates',
                 request_serializer=mcp_dot_v1_dot_mcp__pb2.ListResourceTemplatesRequest.SerializeToString,
                 response_deserializer=mcp_dot_v1_dot_mcp__pb2.ListResourceTemplatesResponse.FromString,
@@ -94,7 +94,7 @@ class McpServiceStub(object):
                 request_serializer=mcp_dot_v1_dot_mcp__pb2.WatchResourcesRequest.SerializeToString,
                 response_deserializer=mcp_dot_v1_dot_mcp__pb2.WatchResourcesResponse.FromString,
                 _registered_method=True)
-        self.ListPrompts = channel.unary_unary(
+        self.ListPrompts = channel.unary_stream(
                 '/mcp.v1.McpService/ListPrompts',
                 request_serializer=mcp_dot_v1_dot_mcp__pb2.ListPromptsRequest.SerializeToString,
                 response_deserializer=mcp_dot_v1_dot_mcp__pb2.ListPromptsResponse.FromString,
@@ -146,7 +146,7 @@ class McpServiceServicer(object):
     def ListTools(self, request, context):
         """--- Tools ---
 
-        List available tools (paginated)
+        List available tools (streaming)
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -178,14 +178,14 @@ class McpServiceServicer(object):
     def ListResources(self, request, context):
         """--- Resources ---
 
-        List available resources (paginated)
+        List available resources (streaming)
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def ListResourceTemplates(self, request, context):
-        """List resource templates (paginated)
+        """List resource templates (streaming)
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -216,7 +216,7 @@ class McpServiceServicer(object):
     def ListPrompts(self, request, context):
         """--- Prompts ---
 
-        List available prompts (paginated)
+        List available prompts (streaming)
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -268,7 +268,7 @@ def add_McpServiceServicer_to_server(servicer, server):
                     request_deserializer=mcp_dot_v1_dot_mcp__pb2.PingRequest.FromString,
                     response_serializer=mcp_dot_v1_dot_mcp__pb2.PingResponse.SerializeToString,
             ),
-            'ListTools': grpc.unary_unary_rpc_method_handler(
+            'ListTools': grpc.unary_stream_rpc_method_handler(
                     servicer.ListTools,
                     request_deserializer=mcp_dot_v1_dot_mcp__pb2.ListToolsRequest.FromString,
                     response_serializer=mcp_dot_v1_dot_mcp__pb2.ListToolsResponse.SerializeToString,
@@ -288,12 +288,12 @@ def add_McpServiceServicer_to_server(servicer, server):
                     request_deserializer=mcp_dot_v1_dot_mcp__pb2.StreamToolCallsRequest.FromString,
                     response_serializer=mcp_dot_v1_dot_mcp__pb2.StreamToolCallsResponse.SerializeToString,
             ),
-            'ListResources': grpc.unary_unary_rpc_method_handler(
+            'ListResources': grpc.unary_stream_rpc_method_handler(
                     servicer.ListResources,
                     request_deserializer=mcp_dot_v1_dot_mcp__pb2.ListResourcesRequest.FromString,
                     response_serializer=mcp_dot_v1_dot_mcp__pb2.ListResourcesResponse.SerializeToString,
             ),
-            'ListResourceTemplates': grpc.unary_unary_rpc_method_handler(
+            'ListResourceTemplates': grpc.unary_stream_rpc_method_handler(
                     servicer.ListResourceTemplates,
                     request_deserializer=mcp_dot_v1_dot_mcp__pb2.ListResourceTemplatesRequest.FromString,
                     response_serializer=mcp_dot_v1_dot_mcp__pb2.ListResourceTemplatesResponse.SerializeToString,
@@ -313,7 +313,7 @@ def add_McpServiceServicer_to_server(servicer, server):
                     request_deserializer=mcp_dot_v1_dot_mcp__pb2.WatchResourcesRequest.FromString,
                     response_serializer=mcp_dot_v1_dot_mcp__pb2.WatchResourcesResponse.SerializeToString,
             ),
-            'ListPrompts': grpc.unary_unary_rpc_method_handler(
+            'ListPrompts': grpc.unary_stream_rpc_method_handler(
                     servicer.ListPrompts,
                     request_deserializer=mcp_dot_v1_dot_mcp__pb2.ListPromptsRequest.FromString,
                     response_serializer=mcp_dot_v1_dot_mcp__pb2.ListPromptsResponse.SerializeToString,
@@ -419,7 +419,7 @@ class McpService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/mcp.v1.McpService/ListTools',
@@ -527,7 +527,7 @@ class McpService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/mcp.v1.McpService/ListResources',
@@ -554,7 +554,7 @@ class McpService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/mcp.v1.McpService/ListResourceTemplates',
@@ -662,7 +662,7 @@ class McpService(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/mcp.v1.McpService/ListPrompts',
