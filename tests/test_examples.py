@@ -92,7 +92,7 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
             assert file_1 in content.text
             assert file_2 in content.text
             # might be a bug, but the test is passing
-        else:  # pragma: no cover
+        else:  # pragma: lax no cover
             assert "/fake/path/file1.txt" in content.text
             assert "/fake/path/file2.txt" in content.text
 

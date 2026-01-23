@@ -516,7 +516,7 @@ async def test_str_annotation_runtime_validation():
     containing valid JSON to ensure they are passed as strings, not parsed objects.
     """
 
-    def handle_json_payload(payload: str, strict_mode: bool = False) -> str:  # pragma: no cover
+    def handle_json_payload(payload: str, strict_mode: bool = False) -> str:
         """Function that processes a JSON payload as a string."""
         # This function expects to receive the raw JSON string
         # It might parse it later after validation or logging
@@ -833,7 +833,7 @@ def test_unstructured_output_unannotated_class():
 
 
 def test_tool_call_result_is_unstructured_and_not_converted():
-    def func_returning_call_tool_result() -> CallToolResult:  # pragma: no cover
+    def func_returning_call_tool_result() -> CallToolResult:
         return CallToolResult(content=[])
 
     meta = func_metadata(func_returning_call_tool_result)
@@ -846,7 +846,7 @@ def test_tool_call_result_annotated_is_structured_and_converted():
     class PersonClass(BaseModel):
         name: str
 
-    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:  # pragma: no cover
+    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:
         return CallToolResult(content=[], structured_content={"name": "Brandon"})
 
     meta = func_metadata(func_returning_annotated_tool_call_result)
@@ -866,7 +866,7 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
     class PersonClass(BaseModel):
         name: str
 
-    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:  # pragma: no cover
+    def func_returning_annotated_tool_call_result() -> Annotated[CallToolResult, PersonClass]:
         return CallToolResult(content=[], structured_content={"person": "Brandon"})
 
     meta = func_metadata(func_returning_annotated_tool_call_result)
@@ -1092,7 +1092,7 @@ def test_basemodel_reserved_names():
 async def test_basemodel_reserved_names_validation():
     """Test that validation and calling works with reserved parameter names"""
 
-    def func_with_reserved_names(  # pragma: no cover
+    def func_with_reserved_names(
         model_dump: str,
         model_validate: int,
         dict: list[str],

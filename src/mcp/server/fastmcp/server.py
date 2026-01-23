@@ -873,10 +873,10 @@ class FastMCP(Generic[LifespanResultT]):
                     app=RequireAuthMiddleware(sse.handle_post_message, required_scopes, resource_metadata_url),
                 )
             )
-        else:  # pragma: no cover
+        else:
             # Auth is disabled, no need for RequireAuthMiddleware
             # Since handle_sse is an ASGI app, we need to create a compatible endpoint
-            async def sse_endpoint(request: Request) -> Response:
+            async def sse_endpoint(request: Request) -> Response:  # pragma: no cover
                 # Convert the Starlette request to ASGI parameters
                 return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
 

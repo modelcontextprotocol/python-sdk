@@ -172,7 +172,7 @@ class MockOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Refr
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         match token:
-            case RefreshToken():  # pragma: no cover
+            case RefreshToken():  # pragma: lax no cover
                 # Remove the refresh token
                 del self.refresh_tokens[token.token]
 

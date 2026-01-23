@@ -118,7 +118,7 @@ class Tool(BaseModel):
 
 
 def _is_async_callable(obj: Any) -> bool:
-    while isinstance(obj, functools.partial):  # pragma: no cover
+    while isinstance(obj, functools.partial):  # pragma: lax no cover
         obj = obj.func
 
     return inspect.iscoroutinefunction(obj) or (
