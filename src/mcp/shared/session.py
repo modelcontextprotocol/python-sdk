@@ -280,6 +280,16 @@ class BaseSession(
                         ),
                     )
                 )
+            except (anyio.EndOfStream, anyio.ClosedResourceError) as e:
+                raise McpError(
+                    ErrorData(
+                        code=CONNECTION_CLOSED,
+                        message=(
+                            f"Connection closed while waiting for response to "
+                            f"{request.__class__.__name__}: {e}"
+                        ),
+                    )
+                )
 
             if isinstance(response_or_error, JSONRPCError):
                 raise McpError(response_or_error.error)
