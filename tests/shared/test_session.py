@@ -6,7 +6,6 @@ import pytest
 import mcp.types as types
 from mcp import Client
 from mcp.client.session import ClientSession
-from mcp.client.transport_session import ClientTransportSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_client_server_memory_streams

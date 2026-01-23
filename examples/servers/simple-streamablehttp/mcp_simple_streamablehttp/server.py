@@ -13,7 +13,6 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
-from pydantic import AnyUrl
 
 from .event_store import InMemoryEventStore
 
@@ -75,7 +74,7 @@ def main(
 
         # This will send a resource notificaiton though standalone SSE
         # established by GET request
-        await ctx.session.send_resource_updated(uri=AnyUrl("http:///test_resource"))
+        await ctx.session.send_resource_updated(uri="http:///test_resource")
         return [
             types.TextContent(
                 type="text",

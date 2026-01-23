@@ -3,13 +3,17 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pydantic import AnyUrl
 
 import mcp.types as types
+from mcp.shared.message import SessionMessage
 
 
 class ServerTransportSession(ABC):
     """Abstract base class for transport sessions."""
+    @abstractmethod
+    async def send_message(self, message: SessionMessage) -> None:
+        """Send a raw session message."""
+        raise NotImplementedError
 
     @abstractmethod
     async def send_log_message(
@@ -23,7 +27,7 @@ class ServerTransportSession(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def send_resource_updated(self, uri: AnyUrl) -> None:
+    async def send_resource_updated(self, uri: str) -> None:
         """Send a resource updated notification."""
         raise NotImplementedError
 
@@ -36,10 +40,31 @@ class ServerTransportSession(ABC):
     async def elicit(
         self,
         message: str,
-        requestedSchema: types.ElicitRequestedSchema,
+        requested_schema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
     ) -> types.ElicitResult:
         """Send an elicitation/create request."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def elicit_form(
+        self,
+        message: str,
+        requested_schema: types.ElicitRequestedSchema,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.ElicitResult:
+        """Send a form mode elicitation/create request."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def elicit_url(
+        self,
+        message: str,
+        url: str,
+        elicitation_id: str,
+        related_request_id: types.RequestId | None = None,
+    ) -> types.ElicitResult:
+        """Send a URL mode elicitation/create request."""
         raise NotImplementedError
 
     @abstractmethod

@@ -9,7 +9,10 @@ from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 from pydantic import BaseModel
 
 from mcp.server.transport_session import ServerTransportSession
-from mcp.types import RequestId
+from mcp.types import (
+    ElicitResult,
+    RequestId,
+)
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
 
@@ -123,7 +126,7 @@ async def elicit_with_validation(
 
     json_schema = schema.model_json_schema()
 
-    result = await session.elicit_form(
+    result: ElicitResult = await session.elicit(
         message=message,
         requested_schema=json_schema,
         related_request_id=related_request_id,
@@ -143,7 +146,7 @@ async def elicit_with_validation(
 
 
 async def elicit_url(
-    session: ServerSession,
+    session: ServerTransportSession,
     message: str,
     url: str,
     elicitation_id: str,

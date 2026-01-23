@@ -42,7 +42,7 @@ from typing import Any, TypeVar, overload
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import TypeAdapter
 
 import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
@@ -232,7 +232,7 @@ class ServerSession(
             related_request_id,
         )
 
-    async def send_resource_updated(self, uri: str | AnyUrl) -> None:  # pragma: no cover
+    async def send_resource_updated(self, uri: str) -> None:  # pragma: no cover
         """Send a resource updated notification."""
         await self.send_notification(
             types.ResourceUpdatedNotification(

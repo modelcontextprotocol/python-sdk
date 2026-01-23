@@ -1,6 +1,5 @@
 import pytest
 
-from mcp.client.transport_session import ClientTransportSession
 from mcp.server.session import ServerSession
 from mcp import Client
 from mcp.client.session import ClientSession
@@ -28,7 +27,7 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientTransportSession, None],
+        context: RequestContext[ClientSession, None],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
@@ -83,7 +82,9 @@ async def test_create_message_backwards_compat_single_content():
     @server.tool("test_backwards_compat")
     async def test_tool(message: str):
         # Call create_message WITHOUT tools
-        result = await server.get_context().session.create_message(
+        session = server.get_context().session
+        assert isinstance(session, ServerSession)
+        result = await session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )

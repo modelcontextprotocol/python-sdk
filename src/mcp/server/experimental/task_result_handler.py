@@ -14,7 +14,7 @@ from typing import Any
 
 import anyio
 
-from mcp.server.session import ServerSession
+from mcp.server.session import ServerTransportSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY, is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
@@ -69,7 +69,7 @@ class TaskResultHandler:
 
     async def send_message(
         self,
-        session: ServerSession,
+        session: ServerTransportSession,
         message: SessionMessage,
     ) -> None:
         """Send a message via the session.
@@ -81,7 +81,7 @@ class TaskResultHandler:
     async def handle(
         self,
         request: GetTaskPayloadRequest,
-        session: ServerSession,
+        session: ServerTransportSession,
         request_id: RequestId,
     ) -> GetTaskPayloadResult:
         """Handle a tasks/result request.
@@ -131,7 +131,7 @@ class TaskResultHandler:
     async def _deliver_queued_messages(
         self,
         task_id: str,
-        session: ServerSession,
+        session: ServerTransportSession,
         request_id: RequestId,
     ) -> None:
         """Dequeue and send all pending messages for a task.

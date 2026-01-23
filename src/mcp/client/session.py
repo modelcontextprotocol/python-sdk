@@ -23,7 +23,7 @@ logger = logging.getLogger("client")
 class SamplingFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientTransportSession", Any],
+        context: RequestContext["ClientSession", Any],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
@@ -31,14 +31,14 @@ class SamplingFnT(Protocol):
 class ElicitationFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientTransportSession", Any],
+        context: RequestContext["ClientSession", Any],
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
-        self, context: RequestContext["ClientTransportSession", Any]
+        self, context: RequestContext["ClientSession", Any]
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
@@ -418,7 +418,7 @@ class ClientSession(
         await self.send_notification(types.RootsListChangedNotification())
 
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
-        ctx = RequestContext[ClientTransportSession, Any](
+        ctx = RequestContext[ClientSession, Any](
             request_id=responder.request_id,
             meta=responder.request_meta,
             session=self,
