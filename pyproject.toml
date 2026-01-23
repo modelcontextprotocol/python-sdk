@@ -42,6 +42,7 @@ dependencies = [
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
+grpc = ["grpcio>=1.76.0", "grpcio-tools>=1.76.0"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
@@ -63,6 +64,8 @@ dev = [
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
     "coverage[toml]==7.10.7",
+    "grpcio==1.76.0",
+    "grpcio-tools==1.76.0",
 ]
 docs = [
     "mkdocs>=1.6.1",

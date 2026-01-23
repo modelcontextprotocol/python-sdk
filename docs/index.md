@@ -49,8 +49,10 @@ uv run mcp dev server.py
 <!-- TODO(Marcelo): automatically generate the follow references with a header on each of those files. -->
 1. **[Install](installation.md)** the MCP SDK
 2. **[Learn concepts](concepts.md)** - understand the three primitives and architecture
-3. **[Explore authorization](authorization.md)** - add security to your servers
-4. **[Use low-level APIs](low-level-server.md)** - for advanced customization
+3. **[gRPC Transport (Experimental)](../proto/README.md)** - high-performance binary transport
+4. **[Streaming & Multiplexing](experimental/grpc-streaming.md)** - advanced gRPC patterns
+5. **[Explore authorization](authorization.md)** - add security to your servers
+6. **[Use low-level APIs](low-level-server.md)** - for advanced customization
 
 ## API Reference
 

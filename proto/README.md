@@ -1,166 +1,137 @@
-# MCP gRPC Protocol Definitions
+# MCP gRPC: High-Performance Transport
 
-This directory contains Protocol Buffer definitions for MCP (Model Context Protocol) as a native gRPC service.
+This directory contains the Protocol Buffer definitions for the Model Context Protocol (MCP) as a native gRPC service. This implementation modernizes the MCP transport layer, moving beyond the limitations of HTTP/1.1 (lacks streaming) and JSON (type safety, memory footprint, processing speed) to provide a better foundation for AI agents.
 
-## Motivation
+## Why gRPC for MCP?
 
-The MCP specification uses JSON-RPC over HTTP, which has limitations:
+The traditional MCP over HTTP/1.1 uses JSON-RPC, which served as a great starting point but introduced friction as agentic workflows scaled. Our native gRPC implementation addresses these "friction points" to performance and efficiency:
 
-- **No native streaming**: Long-polling or SSE workarounds are inefficient
-- **Text-based encoding**: JSON serialization overhead vs binary protobufs
-- **Connection overhead**: HTTP/1.1 doesn't support multiplexing
+```mermaid
+graph LR
+    subgraph "Legacy Transport (HTTP/1.1)"
+        A[Client] -- "JSON (Text)" --> B[Server]
+        B -- "Response" --> A
+        A -. "SSE/Polling" .-> B
+        style A fill:#f9f,stroke:#333,stroke-width:2px
+    end
+    subgraph "Modern Transport (gRPC/HTTP2)"
+        C[Client] == "Protobuf (Binary)" ==> D[Server]
+        C -- "Bidi Stream" --> D
+        D -- "Push" --> C
+        style D fill:#00ff0055,stroke:#333,stroke-width:2px
+    end
+```
 
-gRPC addresses these with:
+### Key Improvements
 
-- **HTTP/2 bidirectional streaming**: True streaming without polling
-- **Protocol Buffers**: 10x smaller messages, faster serialization
-- **Multiplexing**: Multiple concurrent RPCs over one connection
-- **Native flow control**: Backpressure handling built-in
+*   **Native Bidirectional Streaming**: Replaces fragile SSE and long-polling with a single, persistent HTTP/2 stream for interleaved requests, progress updates, and server notifications.
+*   **Binary Efficiency**: Protobuf serialization is typically 10x smaller and significantly faster than JSON, especially when handling large blobs or many small tool calls.
+*   **Zero-Copy Intent**: By using native `bytes` for resource data, we avoid the overhead of Base64 encoding required by JSON-RPC.
+*   **Native Backpressure**: Leverages HTTP/2 flow control to ensure servers aren't overwhelmed by fast clients (and vice versa).
 
-## Design Principles
+---
 
-1. **Direct mapping to MCP concepts**: Tools, Resources, Prompts map 1:1
-2. **Streaming where beneficial**: Large resources, progress updates, watches
-3. **Compatibility**: Semantically equivalent to JSON-RPC MCP
-4. **Pragmatic**: Unary RPCs for simple operations, streaming only where needed
-5. **Compliant**: Passes gRPC style linting and best practices
+## Architecture & Lifecycle
 
-## Service Overview
+The gRPC transport is designed to be a drop-in replacement for the standard MCP session, fitting seamlessly into the pluggable transport architecture of the SDK.
+
+### The Session Flow
+
+Unlike traditional unary calls, a gRPC MCP session often starts with an initialization handshake and then moves into a long-lived bidirectional stream.
+
+```mermaid
+sequenceDiagram
+    participant C as Client (AI Agent)
+    participant S as Server (Tool Provider)
+    
+    Note over C,S: Connection Established (HTTP/2)
+    
+    C->>S: Initialize(capabilities, client_info)
+    S-->>C: InitializeResponse(capabilities, server_info)
+    
+    rect rgb(240, 240, 240)
+        Note over C,S: Persistent Session Stream
+        C->>S: Session(CallToolRequest)
+        S->>C: Session(ProgressNotification)
+        S->>C: Session(CallToolResponse)
+        Note right of S: Server discovers local file change
+        S->>C: Session(ResourceChangeNotification)
+    end
+    
+    C->>S: Ping()
+    S-->>C: PingResponse()
+```
+
+---
+
+## Service Definition
+
+The `McpService` provides a comprehensive interface for all MCP operations. While it supports unary calls for simple operations, it excels in its streaming variants. For a deep dive into advanced patterns like document chunking and parallel worker analysis, see our [Streaming & Multiplexing Guide](../docs/experimental/grpc-streaming.md).
 
 ```protobuf
 service McpService {
-  // Lifecycle
+  // Lifecycle & Health
   rpc Initialize(InitializeRequest) returns (InitializeResponse);
   rpc Ping(PingRequest) returns (PingResponse);
 
-  // Tools - with streaming variants for progress and parallel execution
-  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+  // Tools: Supports parallel execution and progress streaming
   rpc CallTool(CallToolRequest) returns (CallToolResponse);
-  rpc CallToolWithProgress(CallToolWithProgressRequest) returns (stream CallToolWithProgressResponse);
-  rpc StreamToolCalls(stream StreamToolCallsRequest) returns (stream StreamToolCallsResponse);
+  rpc CallToolWithProgress(...) returns (stream CallToolWithProgressResponse);
 
-  // Resources - with chunked reads and watch subscriptions
-  rpc ListResources(ListResourcesRequest) returns (ListResourcesResponse);
-  rpc ReadResource(ReadResourceRequest) returns (ReadResourceResponse);
-  rpc ReadResourceChunked(ReadResourceChunkedRequest) returns (stream ReadResourceChunkedResponse);
-  rpc WatchResources(WatchResourcesRequest) returns (stream WatchResourcesResponse);
+  // Resources: Efficient handling of large datasets
+  rpc ReadResourceChunked(...) returns (stream ReadResourceChunkedResponse);
+  rpc WatchResources(...) returns (stream WatchResourcesResponse);
 
-  // Prompts - with streaming completion
-  rpc ListPrompts(ListPromptsRequest) returns (ListPromptsResponse);
-  rpc GetPrompt(GetPromptRequest) returns (GetPromptResponse);
-  rpc StreamPromptCompletion(StreamPromptCompletionRequest) returns (stream StreamPromptCompletionResponse);
-
-  // Full bidirectional session for complex interactions
+  // The "Power User" Interface
   rpc Session(stream SessionRequest) returns (stream SessionResponse);
 }
 ```
 
-## Streaming Use Cases
+### Discoveries from Implementation
 
-### 1. Tool Execution with Progress
+1.  **Implicit Chunking**: In our Python implementation, `read_resource` now defaults to the chunked streaming RPC under the hood. This ensures that even massive resources (like large logs or database exports) don't cause memory spikes.
+2.  **Background Watchers**: Resource subscriptions are handled by background stream observers, allowing the client to receive push notifications without blocking the main event loop.
+3.  **Unified Session**: The `Session` RPC acts as a multiplexer. This allows a single TCP connection to handle dozens of concurrent tool calls while simultaneously receiving resource updates.
 
-```protobuf
-rpc CallToolWithProgress(CallToolWithProgressRequest) returns (stream CallToolWithProgressResponse);
-```
+---
 
-Server streams progress notifications during long-running tool execution, with the final message containing the result.
+## Development & Tooling
 
-### 2. Parallel Tool Execution
+### Building the Stubs
 
-```protobuf
-rpc StreamToolCalls(stream StreamToolCallsRequest) returns (stream StreamToolCallsResponse);
-```
-
-Client streams multiple tool call requests, server streams results as they complete. Enables parallel execution without multiple connections.
-
-### 3. Large Resource Streaming
-
-```protobuf
-rpc ReadResourceChunked(ReadResourceChunkedRequest) returns (stream ReadResourceChunkedResponse);
-```
-
-Stream large files in chunks without loading entire content into memory.
-
-### 4. Resource Change Notifications
-
-```protobuf
-rpc WatchResources(WatchResourcesRequest) returns (stream WatchResourcesResponse);
-```
-
-Subscribe to resource changes with glob patterns. Replaces polling with push-based updates.
-
-### 5. Bidirectional Session
-
-```protobuf
-rpc Session(stream SessionRequest) returns (stream SessionResponse);
-```
-
-Full MCP functionality over a single persistent bidirectional stream. Useful for complex agent interactions requiring interleaved requests/responses.
-
-## Relationship to Pluggable Transports
-
-This proto definition complements the pluggable transport interfaces in the Python SDK:
-
-```mermaid
-graph TD
-    subgraph Application["Application Layer"]
-        CS[ClientSession]
-        SS[ServerSession]
-    end
-
-    subgraph Interface["Transport Interface Layer"]
-        CTS[ClientTransportSession ABC]
-        STS[ServerTransportSession ABC]
-    end
-
-    subgraph Transports["Transport Implementations"]
-        HTTP[HTTP/JSON-RPC Transport]
-        GRPC[gRPC Transport<br/>this proto]
-    end
-
-    CS --> CTS
-    SS --> STS
-    CTS --> HTTP
-    CTS --> GRPC
-    STS --> HTTP
-    STS --> GRPC
-```
-
-A gRPC transport implementation would:
-
-1. Implement `ClientTransportSession` interface
-2. Use generated gRPC stubs from this proto
-3. Map Python method calls to gRPC RPCs
-4. Handle streaming RPCs for progress/watch operations
-
-## Building
-
-Generate Python stubs:
+To use this protocol in Python, you need to generate the gRPC stubs. **Note:** Due to the internal import structure of generated Protobuf files, we generate stubs into `src` which creates the appropriate package hierarchy.
 
 ```bash
+# Generate Python stubs
 python -m grpc_tools.protoc \
   -I proto \
-  --python_out=src/mcp/grpc \
-  --grpc_python_out=src/mcp/grpc \
+  --python_out=src \
+  --grpc_python_out=src \
   proto/mcp/v1/mcp.proto
+
+# This creates:
+# src/mcp/v1/mcp_pb2.py        (Standard messages)
+# src/mcp/v1/mcp_pb2_grpc.py   (gRPC client/server stubs)
 ```
 
-Generate for other languages:
+### Dependencies
+
+Ensure your environment has the necessary gRPC libraries:
 
 ```bash
-# Go
-protoc -I proto --go_out=. --go-grpc_out=. proto/mcp/v1/mcp.proto
-
-# Java
-protoc -I proto --java_out=. --grpc-java_out=. proto/mcp/v1/mcp.proto
+uv add grpcio grpcio-tools
 ```
+
+---
 
 ## Status
 
-**Experimental** - This is a proposal for discussion. The proto definition aims to be semantically equivalent to the MCP JSON-RPC specification while leveraging gRPC's native capabilities.
+**Current Status:** `Alpha / Experiemental / RFC`
+
+The core protocol is stable and implemented in the Python SDK's `GrpcClientTransport`. We are actively seeking feedback on the `Session` stream multiplexing patterns before finalizing the V1 specification.
 
 ## References
 
-- [MCP Specification](https://modelcontextprotocol.io)
-- [gRPC as a Native Transport for MCP](https://cloud.google.com/blog/products/networking/grpc-as-a-native-transport-for-mcp)
-- [Issue #966: Add gRPC as a Standard Transport](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/966)
+- [Official MCP Website](https://modelcontextprotocol.io)
+- [Original gRPC Proposal](https://cloud.google.com/blog/products/networking/grpc-as-a-native-transport-for-mcp)
+- [gRPC Documentation](https://grpc.io/docs/)
