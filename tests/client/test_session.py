@@ -608,6 +608,59 @@ async def test_get_server_capabilities():
 
 
 @pytest.mark.anyio
+async def test_get_server_info():
+    """Test that get_server_info returns None before init and server info after"""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    expected_server_info = Implementation(name="test-server", version="1.2.3")
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=expected_server_info,
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        assert session.get_server_info() is None
+
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+        server_info = session.get_server_info()
+        assert server_info is not None
+        assert server_info.name == "test-server"
+        assert server_info.version == "1.2.3"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
     """Test that client tool call requests can include metadata"""

@@ -133,6 +133,7 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
+        self._server_info: types.Implementation | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
 
         # Experimental: Task handlers (use defaults if not provided)
@@ -190,6 +191,7 @@ class ClientSession(
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
         self._server_capabilities = result.capabilities
+        self._server_info = result.server_info
 
         await self.send_notification(types.InitializedNotification())
 
@@ -201,6 +203,13 @@ class ClientSession(
         Returns None if the session has not been initialized yet.
         """
         return self._server_capabilities
+
+    def get_server_info(self) -> types.Implementation | None:
+        """Return the server info (name and version) received during initialization.
+
+        Returns None if the session has not been initialized yet.
+        """
+        return self._server_info
 
     @property
     def experimental(self) -> ExperimentalClientFeatures:
