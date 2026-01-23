@@ -476,7 +476,7 @@ class GetTaskPayloadResult(Result):
     For example, a tools/call task would return the CallToolResult structure.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", alias_generator=to_camel, populate_by_name=True)
 
 
 class CancelTaskRequestParams(RequestParams):
