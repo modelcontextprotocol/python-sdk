@@ -19,6 +19,7 @@ from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.server.session import ServerSession
 from mcp.server.lowlevel import NotificationOptions
 from mcp.shared.context import RequestContext
 from mcp.shared.experimental.tasks.helpers import is_terminal
@@ -283,8 +284,11 @@ async def test_scenario2_normal_tool_task_augmented_elicitation() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         ctx = server.request_context
 
+        session = ctx.session
+        assert isinstance(session, ServerSession)
+
         # Task-augmented elicitation - server polls client
-        result = await ctx.session.experimental.elicit_as_task(
+        result = await session.experimental.elicit_as_task(
             message="Please confirm the action",
             requested_schema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
             ttl=60000,
@@ -574,8 +578,11 @@ async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
     async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         ctx = server.request_context
 
+        session = ctx.session
+        assert isinstance(session, ServerSession)
+
         # Task-augmented sampling - server polls client
-        result = await ctx.session.experimental.create_message_as_task(
+        result = await session.experimental.create_message_as_task(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
             max_tokens=100,
             ttl=60000,
