@@ -1312,10 +1312,10 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
 
     # Now resume the session with the same mcp-session-id and protocol version
     headers: dict[str, Any] = {}
-    if captured_session_id:
-        headers[MCP_SESSION_ID_HEADER] = captured_session_id
-    if captured_protocol_version:
-        headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
+    assert captured_session_id is not None
+    headers[MCP_SESSION_ID_HEADER] = captured_session_id
+    assert captured_protocol_version is not None
+    headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
         async with streamable_http_client(f"{server_url}/mcp", http_client=httpx_client) as (
