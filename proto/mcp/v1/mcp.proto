@@ -36,8 +36,8 @@ service McpService {
 
   // --- Tools ---
 
-  // List available tools (paginated)
-  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+  // List available tools (streaming)
+  rpc ListTools(ListToolsRequest) returns (stream ListToolsResponse);
 
   // Call a tool - unary for simple calls
   rpc CallTool(CallToolRequest) returns (CallToolResponse);
@@ -52,11 +52,11 @@ service McpService {
 
   // --- Resources ---
 
-  // List available resources (paginated)
-  rpc ListResources(ListResourcesRequest) returns (ListResourcesResponse);
+  // List available resources (streaming)
+  rpc ListResources(ListResourcesRequest) returns (stream ListResourcesResponse);
 
-  // List resource templates (paginated)
-  rpc ListResourceTemplates(ListResourceTemplatesRequest) returns (ListResourceTemplatesResponse);
+  // List resource templates (streaming)
+  rpc ListResourceTemplates(ListResourceTemplatesRequest) returns (stream ListResourceTemplatesResponse);
 
   // Read a resource - unary for small resources
   rpc ReadResource(ReadResourceRequest) returns (ReadResourceResponse);
@@ -70,8 +70,8 @@ service McpService {
 
   // --- Prompts ---
 
-  // List available prompts (paginated)
-  rpc ListPrompts(ListPromptsRequest) returns (ListPromptsResponse);
+  // List available prompts (streaming)
+  rpc ListPrompts(ListPromptsRequest) returns (stream ListPromptsResponse);
 
   // Get a prompt
   rpc GetPrompt(GetPromptRequest) returns (GetPromptResponse);
@@ -207,12 +207,11 @@ message ToolAnnotations {
 }
 
 message ListToolsRequest {
-  Cursor cursor = 1;
+  // No cursor needed for streaming
 }
 
 message ListToolsResponse {
-  repeated Tool tools = 1;
-  Cursor next_cursor = 2;
+  Tool tool = 1;
 }
 
 // Unary tool call
@@ -324,21 +323,19 @@ message ResourceTemplate {
 }
 
 message ListResourcesRequest {
-  Cursor cursor = 1;
+  // No cursor needed
 }
 
 message ListResourcesResponse {
-  repeated Resource resources = 1;
-  Cursor next_cursor = 2;
+  Resource resource = 1;
 }
 
 message ListResourceTemplatesRequest {
-  Cursor cursor = 1;
+  // No cursor needed
 }
 
 message ListResourceTemplatesResponse {
-  repeated ResourceTemplate resource_templates = 1;
-  Cursor next_cursor = 2;
+  ResourceTemplate resource_template = 1;
 }
 
 // Unary resource read
@@ -418,12 +415,11 @@ message PromptArgument {
 }
 
 message ListPromptsRequest {
-  Cursor cursor = 1;
+  // No cursor needed
 }
 
 message ListPromptsResponse {
-  repeated Prompt prompts = 1;
-  Cursor next_cursor = 2;
+  Prompt prompt = 1;
 }
 
 // Unary prompt get
