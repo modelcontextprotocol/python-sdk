@@ -33,8 +33,8 @@ from examples.snippets.servers import (
 )
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.transport_session import ClientTransportSession
 from mcp.client.streamable_http import GetSessionIdCallback, streamable_http_client
+from mcp.client.transport_session import ClientTransportSession
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder

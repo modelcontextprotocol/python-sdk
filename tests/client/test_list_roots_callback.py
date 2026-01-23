@@ -1,8 +1,8 @@
 import pytest
 from pydantic import FileUrl
 
-from mcp.client.session import ClientSession
 from mcp import Client
+from mcp.client.session import ClientSession
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import Context
 from mcp.server.session import ServerSession

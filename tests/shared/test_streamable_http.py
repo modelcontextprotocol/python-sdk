@@ -27,9 +27,8 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-from mcp.client.transport_session import ClientTransportSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
 from mcp.server.session import ServerSession
 from mcp.server.streamable_http import (

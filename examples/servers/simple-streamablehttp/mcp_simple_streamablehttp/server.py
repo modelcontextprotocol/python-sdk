@@ -13,7 +13,6 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
 
-
 from .event_store import InMemoryEventStore
 
 # Configure logging

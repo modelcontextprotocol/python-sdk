@@ -47,11 +47,11 @@ from pydantic import TypeAdapter
 import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
+from mcp.server.transport_session import ServerTransportSession
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
-from mcp.server.transport_session import ServerTransportSession
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,

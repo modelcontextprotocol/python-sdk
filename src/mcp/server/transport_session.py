@@ -3,13 +3,13 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-
 import mcp.types as types
 from mcp.shared.message import SessionMessage
 
 
 class ServerTransportSession(ABC):
     """Abstract base class for transport sessions."""
+
     @abstractmethod
     async def send_message(self, message: SessionMessage) -> None:
         """Send a raw session message."""

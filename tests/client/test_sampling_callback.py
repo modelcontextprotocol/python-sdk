@@ -1,9 +1,9 @@
 import pytest
 
-from mcp.server.session import ServerSession
 from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.fastmcp import FastMCP
+from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,

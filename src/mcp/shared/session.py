@@ -153,8 +153,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     def cancelled(self) -> bool:  # pragma: no cover
         return self._cancel_scope.cancel_called
 
+
 class Session:
     """Base class for a session that can send progress notifications."""
+
     async def send_progress_notification(
         self,
         progress_token: ProgressToken,
@@ -163,6 +165,7 @@ class Session:
         message: str | None = None,
     ) -> None:
         """Sends a progress notification for a request that is currently being processed."""
+
 
 class BaseSession(
     Session,

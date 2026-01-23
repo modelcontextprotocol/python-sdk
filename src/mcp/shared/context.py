@@ -12,8 +12,8 @@ from mcp.types import RequestId, RequestParamsMeta
 if TYPE_CHECKING:
     from mcp import ClientTransportSession, ServerTransportSession
 
-SessionT = TypeVar(
-    "SessionT",
+SessionT_co = TypeVar(
+    "SessionT_co",
     bound=BaseSession[Any, Any, Any, Any, Any] | "ClientTransportSession" | "ServerTransportSession",
     covariant=True,
 )
@@ -22,10 +22,10 @@ RequestT = TypeVar("RequestT", default=Any)
 
 
 @dataclass
-class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
+class RequestContext(Generic[SessionT_co, LifespanContextT, RequestT]):
     request_id: RequestId
     meta: RequestParamsMeta | None
-    session: SessionT
+    session: SessionT_co
     lifespan_context: LifespanContextT
     # NOTE: This is typed as Any to avoid circular imports. The actual type is
     # mcp.server.experimental.request_context.Experimental, but importing it here

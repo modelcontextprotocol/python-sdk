@@ -5,8 +5,6 @@ uv run client
 import asyncio
 import os
 
-from mcp import ClientSession, StdioServerParameters, types
-
 from mcp import ClientSession, ClientTransportSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext

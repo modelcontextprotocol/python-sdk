@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
+from mcp.server.transport_session import ServerTransportSession
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.types import ElicitRequestURLParams
-from mcp.server.transport_session import ServerTransportSession
 
 mcp = FastMCP(name="Elicitation Example")
 

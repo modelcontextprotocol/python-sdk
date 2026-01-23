@@ -22,7 +22,6 @@ import mcp.client.sse
 import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
-from mcp.client.sse import sse_client
 from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
