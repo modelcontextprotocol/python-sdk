@@ -30,7 +30,7 @@ from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
-    """Parameters for intializing a sse_client."""
+    """Parameters for initializing a sse_client."""
 
     # The endpoint URL.
     url: str
@@ -46,7 +46,7 @@ class SseServerParameters(BaseModel):
 
 
 class StreamableHttpParameters(BaseModel):
-    """Parameters for intializing a streamable_http_client."""
+    """Parameters for initializing a streamable_http_client."""
 
     # The endpoint URL.
     url: str
