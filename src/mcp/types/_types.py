@@ -32,8 +32,7 @@ TASK_REQUIRED: Final[Literal["required"]] = "required"
 class MCPModel(BaseModel):
     """Base class for all MCP protocol types. Allows extra fields for forward compatibility."""
 
-    # TODO(Marcelo): The extra="allow" should be only on specific types e.g. `Meta`, not on the base class.
-    model_config = ConfigDict(extra="allow", alias_generator=to_camel, populate_by_name=True)
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
 Meta: TypeAlias = dict[str, Any]
@@ -472,9 +471,12 @@ class GetTaskPayloadRequest(Request[GetTaskPayloadRequestParams, Literal["tasks/
 
 class GetTaskPayloadResult(Result):
     """The response to a tasks/result request.
+
     The structure matches the result type of the original request.
     For example, a tools/call task would return the CallToolResult structure.
     """
+
+    model_config = ConfigDict(extra="allow")
 
 
 class CancelTaskRequestParams(RequestParams):
