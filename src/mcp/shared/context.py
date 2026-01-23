@@ -1,7 +1,7 @@
 """Request context for MCP handlers."""
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generic
+from typing import TYPE_CHECKING, Any, Generic, Union
 
 from typing_extensions import TypeVar
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 SessionT_co = TypeVar(
     "SessionT_co",
-    bound=BaseSession[Any, Any, Any, Any, Any] | "ClientTransportSession" | "ServerTransportSession",
+    bound=Union[BaseSession[Any, Any, Any, Any, Any], "ClientTransportSession", "ServerTransportSession"],
     covariant=True,
 )
 LifespanContextT = TypeVar("LifespanContextT")
