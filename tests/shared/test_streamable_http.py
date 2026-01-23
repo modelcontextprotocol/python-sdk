@@ -1302,20 +1302,21 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 # Kill the client session while tool is waiting on lock
                 tg.cancel_scope.cancel()
 
-    # Verify we received exactly one notification
-    assert len(captured_notifications) == 1
-    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
-    assert captured_notifications[0].params.data == "First notification before lock"
+            # Verify we received exactly one notification (inside ClientSession
+            # so coverage tracks these on Python 3.11, see PR #1897 for details)
+            assert len(captured_notifications) == 1
+            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
+            assert captured_notifications[0].params.data == "First notification before lock"
 
-    # Clear notifications for the second phase
-    captured_notifications = []
-
-    # Now resume the session with the same mcp-session-id and protocol version
-    headers: dict[str, Any] = {}
-    assert captured_session_id is not None
-    headers[MCP_SESSION_ID_HEADER] = captured_session_id
-    assert captured_protocol_version is not None
-    headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
+    # Clear notifications and set up headers for phase 2 (between connections,
+    # not tracked by coverage on Python 3.11 due to cancel scope + sys.settrace bug)
+    captured_notifications = []  # pragma: lax no cover
+    assert captured_session_id is not None  # pragma: lax no cover
+    assert captured_protocol_version is not None  # pragma: lax no cover
+    headers: dict[str, Any] = {  # pragma: lax no cover
+        MCP_SESSION_ID_HEADER: captured_session_id,
+        MCP_PROTOCOL_VERSION_HEADER: captured_protocol_version,
+    }
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
         async with streamable_http_client(f"{server_url}/mcp", http_client=httpx_client) as (
@@ -1345,9 +1346,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
 
                 # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
-
-            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
-            assert captured_notifications[0].params.data == "Second notification after lock"
+                assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
+                assert captured_notifications[0].params.data == "Second notification after lock"
 
 
 @pytest.mark.anyio
