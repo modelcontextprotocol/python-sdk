@@ -41,19 +41,19 @@ class ClientTransportSession(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def list_resources(
-        self,
-        cursor: str | None = None,
-    ) -> types.ListResourcesResult:
+    async def list_resources(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListResourcesResult:
         """Send a resources/list request."""
         raise NotImplementedError
 
     @abstractmethod
     async def list_resource_templates(
-        self,
-        cursor: str | None = None,
+        self, *, params: types.PaginatedRequestParams | None = None
     ) -> types.ListResourceTemplatesResult:
-        """Send a resources/templates/list request."""
+        """Send a resources/templates/list request.
+
+        Args:
+            params: Full pagination parameters including cursor and any future fields
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -62,12 +62,12 @@ class ClientTransportSession(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def subscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/subscribe request."""
         raise NotImplementedError
 
     @abstractmethod
-    async def unsubscribe_resource(self, uri: AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
         raise NotImplementedError
 
@@ -75,9 +75,11 @@ class ClientTransportSession(ABC):
     async def call_tool(
         self,
         name: str,
-        arguments: Any | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
         raise NotImplementedError

@@ -6,7 +6,6 @@ import asyncio
 import os
 
 from mcp import ClientSession, StdioServerParameters, types
-from pydantic import AnyUrl
 
 from mcp import ClientSession, ClientTransportSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client

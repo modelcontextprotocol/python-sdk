@@ -6,7 +6,6 @@ import anyio
 import pytest
 
 import mcp.types as types
-from mcp.client.session import ClientSession
 from mcp import Client
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError

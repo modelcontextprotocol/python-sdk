@@ -1,8 +1,6 @@
 import pytest
 
 from mcp import Client
-from mcp.client.session import ClientSession
-from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
 from mcp.types import EmptyResult, Resource
 

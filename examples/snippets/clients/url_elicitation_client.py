@@ -30,7 +30,7 @@ import webbrowser
 from typing import Any
 from urllib.parse import urlparse
 
-from mcp import ClientSession, types
+from mcp import ClientSession, ClientTransportSession, types
 from mcp.client.sse import sse_client
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
@@ -38,7 +38,7 @@ from mcp.types import URL_ELICITATION_REQUIRED
 
 
 async def handle_elicitation(
-    context: RequestContext[ClientSession, Any],
+    context: RequestContext[ClientTransportSession, Any],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     """Handle elicitation requests from the server.
