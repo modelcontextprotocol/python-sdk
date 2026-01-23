@@ -1,0 +1,556 @@
+// Model Context Protocol (MCP) gRPC Service Definition
+//
+// This proto defines MCP as a native gRPC service, leveraging HTTP/2
+// bidirectional streaming for efficient agent-tool communication.
+//
+// Design principles:
+// - Maps directly to MCP spec concepts (tools, resources, prompts)
+// - Uses streaming where it provides clear benefits
+// - Maintains compatibility with existing MCP semantics
+// - Leverages protobuf for type safety and efficiency
+
+syntax = "proto3";
+
+package mcp.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option java_package = "io.modelcontextprotocol.api.v1";
+option java_multiple_files = true;
+option go_package = "github.com/modelcontextprotocol/go-sdk/mcpv1";
+
+// =============================================================================
+// MCP Service Definition
+// =============================================================================
+
+service McpService {
+  // --- Lifecycle ---
+
+  // Initialize the MCP session and negotiate capabilities
+  rpc Initialize(InitializeRequest) returns (InitializeResponse);
+
+  // Ping for health checks
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // --- Tools ---
+
+  // List available tools (paginated)
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+
+  // Call a tool - unary for simple calls
+  rpc CallTool(CallToolRequest) returns (CallToolResponse);
+
+  // Call a tool with streaming progress updates
+  // Server streams progress notifications, final message contains result
+  rpc CallToolWithProgress(CallToolWithProgressRequest) returns (stream CallToolWithProgressResponse);
+
+  // Stream multiple tool calls - client streams requests, server streams results
+  // Enables parallel tool execution with results as they complete
+  rpc StreamToolCalls(stream StreamToolCallsRequest) returns (stream StreamToolCallsResponse);
+
+  // --- Resources ---
+
+  // List available resources (paginated)
+  rpc ListResources(ListResourcesRequest) returns (ListResourcesResponse);
+
+  // List resource templates (paginated)
+  rpc ListResourceTemplates(ListResourceTemplatesRequest) returns (ListResourceTemplatesResponse);
+
+  // Read a resource - unary for small resources
+  rpc ReadResource(ReadResourceRequest) returns (ReadResourceResponse);
+
+  // Read a large resource in chunks - server streams chunks
+  rpc ReadResourceChunked(ReadResourceChunkedRequest) returns (stream ReadResourceChunkedResponse);
+
+  // Subscribe to resource changes - server streams notifications
+  // Replaces polling with push-based updates
+  rpc WatchResources(WatchResourcesRequest) returns (stream WatchResourcesResponse);
+
+  // --- Prompts ---
+
+  // List available prompts (paginated)
+  rpc ListPrompts(ListPromptsRequest) returns (ListPromptsResponse);
+
+  // Get a prompt
+  rpc GetPrompt(GetPromptRequest) returns (GetPromptResponse);
+
+  // Stream prompt completion tokens as they're generated
+  rpc StreamPromptCompletion(StreamPromptCompletionRequest) returns (stream StreamPromptCompletionResponse);
+
+  // --- Completion ---
+
+  // Autocomplete for resource templates or prompts
+  rpc Complete(CompleteRequest) returns (CompleteResponse);
+
+  // --- Bidirectional Session Stream ---
+
+  // Full bidirectional stream for complex agent interactions
+  // Enables any MCP operation over a single persistent connection
+  rpc Session(stream SessionRequest) returns (stream SessionResponse);
+}
+
+// =============================================================================
+// Common Types
+// =============================================================================
+
+message Metadata {
+  map<string, string> annotations = 1;
+}
+
+message ProgressToken {
+  oneof token {
+    string string_token = 1;
+    int64 int_token = 2;
+  }
+}
+
+message Cursor {
+  string value = 1;
+}
+
+// Role in a conversation
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_USER = 1;
+  ROLE_ASSISTANT = 2;
+}
+
+// =============================================================================
+// Lifecycle Messages
+// =============================================================================
+
+message InitializeRequest {
+  string protocol_version = 1;
+  ClientCapabilities capabilities = 2;
+  ClientInfo client_info = 3;
+}
+
+message InitializeResponse {
+  string protocol_version = 1;
+  ServerCapabilities capabilities = 2;
+  ServerInfo server_info = 3;
+  string instructions = 4;
+}
+
+message ClientInfo {
+  string name = 1;
+  string version = 2;
+}
+
+message ServerInfo {
+  string name = 1;
+  string version = 2;
+}
+
+message ClientCapabilities {
+  RootsCapability roots = 1;
+  SamplingCapability sampling = 2;
+  ExperimentalCapabilities experimental = 3;
+}
+
+message ServerCapabilities {
+  PromptsCapability prompts = 1;
+  ResourcesCapability resources = 2;
+  ToolsCapability tools = 3;
+  LoggingCapability logging = 4;
+  ExperimentalCapabilities experimental = 5;
+}
+
+message RootsCapability {
+  bool list_changed = 1;
+}
+
+message SamplingCapability {}
+
+message PromptsCapability {
+  bool list_changed = 1;
+}
+
+message ResourcesCapability {
+  bool subscribe = 1;
+  bool list_changed = 2;
+}
+
+message ToolsCapability {
+  bool list_changed = 1;
+}
+
+message LoggingCapability {}
+
+message ExperimentalCapabilities {
+  map<string, google.protobuf.Any> capabilities = 1;
+}
+
+message PingRequest {}
+
+message PingResponse {}
+
+// =============================================================================
+// Tool Messages
+// =============================================================================
+
+message Tool {
+  string name = 1;
+  string description = 2;
+  google.protobuf.Struct input_schema = 3;  // JSON Schema as Struct
+  ToolAnnotations annotations = 4;
+}
+
+message ToolAnnotations {
+  string title = 1;
+  bool read_only_hint = 2;
+  bool destructive_hint = 3;
+  bool idempotent_hint = 4;
+  bool open_world_hint = 5;
+}
+
+message ListToolsRequest {
+  Cursor cursor = 1;
+}
+
+message ListToolsResponse {
+  repeated Tool tools = 1;
+  Cursor next_cursor = 2;
+}
+
+// Unary tool call
+message CallToolRequest {
+  string name = 1;
+  google.protobuf.Struct arguments = 2;
+}
+
+message CallToolResponse {
+  repeated Content content = 1;
+  bool is_error = 2;
+}
+
+// Tool call with streaming progress
+message CallToolWithProgressRequest {
+  string name = 1;
+  google.protobuf.Struct arguments = 2;
+  ProgressToken progress_token = 3;
+}
+
+message CallToolWithProgressResponse {
+  oneof update {
+    ProgressNotification progress = 1;
+    ToolResult result = 2;
+  }
+}
+
+// Streaming tool calls (parallel execution)
+message StreamToolCallsRequest {
+  string request_id = 1;  // Correlate request/response in stream
+  string name = 2;
+  google.protobuf.Struct arguments = 3;
+}
+
+message StreamToolCallsResponse {
+  string request_id = 1;  // Correlates with request
+  repeated Content content = 2;
+  bool is_error = 3;
+}
+
+// Tool result (used in streaming responses)
+message ToolResult {
+  repeated Content content = 1;
+  bool is_error = 2;
+}
+
+message ProgressNotification {
+  ProgressToken progress_token = 1;
+  double progress = 2;
+  double total = 3;
+  string message = 4;
+}
+
+// =============================================================================
+// Content Types
+// =============================================================================
+
+message Content {
+  oneof content {
+    TextContent text = 1;
+    ImageContent image = 2;
+    AudioContent audio = 3;
+    EmbeddedResource resource = 4;
+  }
+  ContentAnnotations annotations = 5;
+}
+
+message TextContent {
+  string text = 1;
+}
+
+message ImageContent {
+  string data = 1;      // Base64 encoded
+  string mime_type = 2;
+}
+
+message AudioContent {
+  string data = 1;      // Base64 encoded
+  string mime_type = 2;
+}
+
+message EmbeddedResource {
+  ResourceContents resource = 1;
+}
+
+message ContentAnnotations {
+  Role audience = 1;
+  double priority = 2;  // 0.0 to 1.0
+}
+
+// =============================================================================
+// Resource Messages
+// =============================================================================
+
+message Resource {
+  string uri = 1;
+  string name = 2;
+  string description = 3;
+  string mime_type = 4;
+  int64 size = 5;
+  Metadata metadata = 6;
+}
+
+message ResourceTemplate {
+  string uri_template = 1;  // RFC 6570
+  string name = 2;
+  string description = 3;
+  string mime_type = 4;
+}
+
+message ListResourcesRequest {
+  Cursor cursor = 1;
+}
+
+message ListResourcesResponse {
+  repeated Resource resources = 1;
+  Cursor next_cursor = 2;
+}
+
+message ListResourceTemplatesRequest {
+  Cursor cursor = 1;
+}
+
+message ListResourceTemplatesResponse {
+  repeated ResourceTemplate resource_templates = 1;
+  Cursor next_cursor = 2;
+}
+
+// Unary resource read
+message ReadResourceRequest {
+  string uri = 1;
+}
+
+message ReadResourceResponse {
+  repeated ResourceContents contents = 1;
+}
+
+// Chunked resource read (streaming)
+message ReadResourceChunkedRequest {
+  string uri = 1;
+  int32 chunk_size = 2;  // Requested chunk size in bytes (0 = server default)
+  int64 offset = 3;      // Starting offset for range reads
+}
+
+message ReadResourceChunkedResponse {
+  string uri = 1;
+  string mime_type = 2;
+
+  oneof content {
+    string text_chunk = 3;
+    bytes blob_chunk = 4;
+  }
+
+  int64 offset = 5;      // Byte offset of this chunk
+  int64 total_size = 6;  // Total resource size if known
+  bool is_final = 7;     // True if this is the last chunk
+}
+
+message ResourceContents {
+  string uri = 1;
+  string mime_type = 2;
+
+  oneof content {
+    string text = 3;
+    bytes blob = 4;  // Binary data (more efficient than base64 in proto)
+  }
+}
+
+// Watch for resource changes
+message WatchResourcesRequest {
+  repeated string uri_patterns = 1;  // Glob patterns like "file://**/*.py"
+  bool include_initial = 2;          // Emit current state first
+}
+
+message WatchResourcesResponse {
+  string uri = 1;
+  ResourceChangeType change_type = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  ResourceContents contents = 4;  // Optional: include new contents
+}
+
+enum ResourceChangeType {
+  RESOURCE_CHANGE_TYPE_UNSPECIFIED = 0;
+  RESOURCE_CHANGE_TYPE_CREATED = 1;
+  RESOURCE_CHANGE_TYPE_MODIFIED = 2;
+  RESOURCE_CHANGE_TYPE_DELETED = 3;
+}
+
+// =============================================================================
+// Prompt Messages
+// =============================================================================
+
+message Prompt {
+  string name = 1;
+  string description = 2;
+  repeated PromptArgument arguments = 3;
+}
+
+message PromptArgument {
+  string name = 1;
+  string description = 2;
+  bool required = 3;
+}
+
+message ListPromptsRequest {
+  Cursor cursor = 1;
+}
+
+message ListPromptsResponse {
+  repeated Prompt prompts = 1;
+  Cursor next_cursor = 2;
+}
+
+// Unary prompt get
+message GetPromptRequest {
+  string name = 1;
+  map<string, string> arguments = 2;
+}
+
+message GetPromptResponse {
+  string description = 1;
+  repeated PromptMessage messages = 2;
+}
+
+// Streaming prompt completion
+message StreamPromptCompletionRequest {
+  string name = 1;
+  map<string, string> arguments = 2;
+}
+
+message StreamPromptCompletionResponse {
+  string token = 1;         // Individual token/chunk
+  bool is_final = 2;        // True if generation is complete
+  string finish_reason = 3; // Why generation stopped (if final)
+}
+
+message PromptMessage {
+  Role role = 1;
+  Content content = 2;
+}
+
+// =============================================================================
+// Completion (Autocomplete) Messages
+// =============================================================================
+
+message CompleteRequest {
+  oneof ref {
+    ResourceTemplateRef resource_template_ref = 1;
+    PromptRef prompt_ref = 2;
+  }
+  string argument_name = 3;
+  string argument_value = 4;  // Partial value to complete
+}
+
+message ResourceTemplateRef {
+  string type = 1;  // "ref/resource"
+  string uri = 2;
+}
+
+message PromptRef {
+  string type = 1;  // "ref/prompt"
+  string name = 2;
+}
+
+message CompleteResponse {
+  CompletionResult completion = 1;
+}
+
+message CompletionResult {
+  repeated string values = 1;
+  int32 total = 2;
+  bool has_more = 3;
+}
+
+// =============================================================================
+// Bidirectional Session Messages
+// =============================================================================
+
+// Request wrapper for bidirectional session stream
+message SessionRequest {
+  string message_id = 1;
+
+  oneof payload {
+    // Requests
+    InitializeRequest initialize = 10;
+    PingRequest ping = 11;
+    ListToolsRequest list_tools = 12;
+    CallToolRequest call_tool = 13;
+    ListResourcesRequest list_resources = 14;
+    ReadResourceRequest read_resource = 15;
+    WatchResourcesRequest watch_resources = 16;
+    ListPromptsRequest list_prompts = 17;
+    GetPromptRequest get_prompt = 18;
+    CompleteRequest complete = 19;
+    ListResourceTemplatesRequest list_resource_templates = 20;
+    ReadResourceChunkedRequest read_resource_chunked = 21;
+    StreamPromptCompletionRequest stream_prompt_completion = 22;
+
+    // Control
+    CancelRequest cancel = 70;
+  }
+}
+
+// Response wrapper for bidirectional session stream
+message SessionResponse {
+  string message_id = 1;
+  string in_reply_to = 2;  // References the request message_id
+
+  oneof payload {
+    // Responses
+    InitializeResponse initialize = 10;
+    PingResponse ping = 11;
+    ListToolsResponse list_tools = 12;
+    CallToolResponse call_tool = 13;
+    ListResourcesResponse list_resources = 14;
+    ReadResourceResponse read_resource = 15;
+    ListPromptsResponse list_prompts = 16;
+    GetPromptResponse get_prompt = 17;
+    CompleteResponse complete = 18;
+    ListResourceTemplatesResponse list_resource_templates = 19;
+
+    // Streaming data (server-initiated)
+    ReadResourceChunkedResponse resource_chunk = 50;
+    WatchResourcesResponse resource_notification = 51;
+    ProgressNotification progress = 52;
+    StreamPromptCompletionResponse completion_chunk = 53;
+
+    // Errors
+    ErrorResponse error = 60;
+  }
+}
+
+message ErrorResponse {
+  int32 code = 1;
+  string message = 2;
+  google.protobuf.Any data = 3;
+}
+
+message CancelRequest {
+  string request_id = 1;  // ID of request to cancel
+}
