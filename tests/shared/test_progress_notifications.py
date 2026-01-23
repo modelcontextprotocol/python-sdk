@@ -369,6 +369,7 @@ async def test_progress_callback_exception_logging():
     # Test with mocked logging
     with patch("mcp.shared.session.logging.exception", side_effect=mock_log_exception):
         async with Client(server) as client:
+            # Call tool with a failing progress callback
             result = await client.call_tool(
                 "progress_tool",
                 arguments={},

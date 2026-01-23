@@ -23,26 +23,12 @@ from mcp.types import (
 )
 
 
-@pytest.fixture
-def mcp_server() -> Server:
-    return Server(name="test server")
-
-
-@pytest.fixture
-async def client_connected_to_server(
-    mcp_server: Server,
-) -> AsyncGenerator[ClientTransportSession, None]:
-    async with create_connected_server_and_client_session(mcp_server) as client_session:
-        yield client_session
-
-
 @pytest.mark.anyio
 async def test_in_flight_requests_cleared_after_completion():
     """Verify that _in_flight is empty after all requests complete."""
     # Send a request and wait for response
     server = Server(name="test server")
     async with Client(server) as client:
-        # Send a request and wait for response
         response = await client.send_ping()
         assert isinstance(response, EmptyResult)
 

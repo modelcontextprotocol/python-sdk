@@ -55,8 +55,6 @@ async def test_server_remains_functional_after_cancel():
 
     async with Client(server) as client:
         # First request (will be cancelled)
-        assert isinstance(client, ClientSession)
-
         async def first_request():
             try:
                 await client.session.send_request(
