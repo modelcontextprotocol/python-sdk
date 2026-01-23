@@ -104,7 +104,7 @@ async def test_notification_validation_error(tmp_path: Path):
             # proving server is still responsive
             result = await session.call_tool("fast", read_timeout_seconds=None)
             assert result.content == [TextContent(type="text", text="fast 3")]
-        scope.cancel()  # pragma: no cover
+        scope.cancel()  # pragma: lax no cover
 
     # Run server and client in separate task groups to avoid cancellation
     server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage](1)

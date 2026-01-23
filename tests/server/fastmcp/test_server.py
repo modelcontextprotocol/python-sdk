@@ -887,7 +887,7 @@ class TestServerResourceTemplates:
             def get_data_mismatched(org: str, repo_2: str) -> str:  # pragma: no cover
                 return f"Data for {org}"
 
-        """Test that a resource with no parameters works as a regular resource"""  # pragma: no cover
+        """Test that a resource with no parameters works as a regular resource"""
         mcp = FastMCP()
 
         @mcp.resource("resource://static")

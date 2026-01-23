@@ -105,7 +105,7 @@ def run_server(server_port: int) -> None:  # pragma: no cover
         time.sleep(0.5)
 
 
-@pytest.fixture()  # pragma: no cover
+@pytest.fixture()
 def server(server_port: int) -> Generator[None, None, None]:
     proc = multiprocessing.Process(target=run_server, kwargs={"server_port": server_port}, daemon=True)
     print("starting process")

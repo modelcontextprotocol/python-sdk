@@ -86,9 +86,9 @@ class TransportSecurityMiddleware:
         logger.warning(f"Invalid Origin header: {origin}")
         return False
 
-    def _validate_content_type(self, content_type: str | None) -> bool:  # pragma: no cover
+    def _validate_content_type(self, content_type: str | None) -> bool:
         """Validate the Content-Type header for POST requests."""
-        if not content_type:
+        if not content_type:  # pragma: lax no cover
             logger.warning("Missing Content-Type header in POST request")
             return False
 
@@ -107,7 +107,7 @@ class TransportSecurityMiddleware:
         # Always validate Content-Type for POST requests
         if is_post:  # pragma: no branch
             content_type = request.headers.get("content-type")
-            if not self._validate_content_type(content_type):  # pragma: no cover
+            if not self._validate_content_type(content_type):
                 return Response("Invalid Content-Type header", status_code=400)
 
         # Skip remaining validation if DNS rebinding protection is disabled

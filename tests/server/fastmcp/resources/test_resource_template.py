@@ -15,7 +15,7 @@ class TestResourceTemplate:
     def test_template_creation(self):
         """Test creating a template from a function."""
 
-        def my_func(key: str, value: int) -> dict[str, Any]:  # pragma: no cover
+        def my_func(key: str, value: int) -> dict[str, Any]:
             return {"key": key, "value": value}
 
         template = ResourceTemplate.from_function(
@@ -239,7 +239,7 @@ class TestResourceTemplateAnnotations:
     async def test_template_created_resources_inherit_annotations(self):
         """Test that resources created from templates inherit annotations."""
 
-        def get_item(item_id: str) -> str:  # pragma: no cover
+        def get_item(item_id: str) -> str:
             return f"Item {item_id}"
 
         annotations = Annotations(priority=0.6)

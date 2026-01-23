@@ -82,7 +82,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
 
             except anyio.WouldBlock:  # pragma: no cover
                 pytest.fail("No response received - server likely crashed")
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         # Close all streams to ensure proper cleanup
         await read_send_stream.aclose()
         await write_send_stream.aclose()
@@ -143,7 +143,7 @@ async def test_multiple_concurrent_malformed_requests():
                 assert isinstance(response, JSONRPCError)
                 assert response.id == f"malformed_{i}"
                 assert response.error.code == INVALID_PARAMS
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         # Close all streams to ensure proper cleanup
         await read_send_stream.aclose()
         await write_send_stream.aclose()

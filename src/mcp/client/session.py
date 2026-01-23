@@ -250,7 +250,7 @@ class ClientSession(
         meta: RequestParamsMeta | None = None,
     ) -> types.EmptyResult:
         """Send a logging/setLevel request."""
-        return await self.send_request(  # pragma: no cover
+        return await self.send_request(
             types.SetLevelRequest(params=types.SetLevelRequestParams(level=level, _meta=meta)),
             types.EmptyResult,
         )
@@ -285,14 +285,14 @@ class ClientSession(
 
     async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/subscribe request."""
-        return await self.send_request(  # pragma: no cover
+        return await self.send_request(
             types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
 
     async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
-        return await self.send_request(  # pragma: no cover
+        return await self.send_request(
             types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
@@ -344,7 +344,7 @@ class ClientSession(
             try:
                 validate(result.structured_content, output_schema)
             except ValidationError as e:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")  # pragma: no cover
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
             except SchemaError as e:  # pragma: no cover
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
 

@@ -335,9 +335,7 @@ async def test_progress_callback_exception_logging():
         logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
-    async def failing_progress_callback(
-        progress: float, total: float | None, message: str | None
-    ) -> None:  # pragma: no cover
+    async def failing_progress_callback(progress: float, total: float | None, message: str | None) -> None:
         raise ValueError("Progress callback failed!")
 
     # Create a server with a tool that sends progress notifications

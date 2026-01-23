@@ -65,12 +65,10 @@ async def test_stdio_elicitation():
     create_ask_user_tool(mcp)
 
     # Create a custom handler for elicitation requests
-    async def elicitation_callback(
-        context: RequestContext[ClientSession, None], params: ElicitRequestParams
-    ):  # pragma: no cover
+    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
         if params.message == "Tool wants to ask: What is your name?":
             return ElicitResult(action="accept", content={"answer": "Test User"})
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unexpected elicitation message: {params.message}")
 
     await call_tool_and_assert(
@@ -99,10 +97,10 @@ async def test_elicitation_schema_validation():
 
     def create_validation_tool(name: str, schema_class: type[BaseModel]):
         @mcp.tool(name=name, description=f"Tool testing {name}")
-        async def tool(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
+        async def tool(ctx: Context[ServerSession, None]) -> str:
             try:
                 await ctx.elicit(message="This should fail validation", schema=schema_class)
-                return "Should not reach here"
+                return "Should not reach here"  # pragma: no cover
             except TypeError as e:
                 return f"Validation failed as expected: {str(e)}"
 
@@ -190,10 +188,10 @@ async def test_elicitation_with_optional_fields():
         optional_list: list[int] | None = Field(default=None, description="Invalid optional list")
 
     @mcp.tool(description="Tool with invalid optional field")
-    async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
+    async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:
         try:
             await ctx.elicit(message="This should fail", schema=InvalidOptionalSchema)
-            return "Should not reach here"
+            return "Should not reach here"  # pragma: no cover
         except TypeError as e:
             return f"Validation failed: {str(e)}"
 

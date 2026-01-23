@@ -223,22 +223,22 @@ class ClientSessionGroup:
                 )
             )
 
-        if session_known_for_components:  # pragma: no cover
+        if session_known_for_components:  # pragma: no branch
             component_names = self._sessions.pop(session)  # Pop from _sessions tracking
 
             # Remove prompts associated with the session.
             for name in component_names.prompts:
-                if name in self._prompts:
+                if name in self._prompts:  # pragma: no branch
                     del self._prompts[name]
             # Remove resources associated with the session.
             for name in component_names.resources:
-                if name in self._resources:
+                if name in self._resources:  # pragma: no branch
                     del self._resources[name]
             # Remove tools associated with the session.
             for name in component_names.tools:
-                if name in self._tools:
+                if name in self._tools:  # pragma: no branch
                     del self._tools[name]
-                if name in self._tool_to_session:
+                if name in self._tool_to_session:  # pragma: no branch
                     del self._tool_to_session[name]
 
         # Clean up the session's resources via its dedicated exit stack

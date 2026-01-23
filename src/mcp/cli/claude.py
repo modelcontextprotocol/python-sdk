@@ -72,7 +72,7 @@ def update_claude_config(
         )
 
     config_file = config_dir / "claude_desktop_config.json"
-    if not config_file.exists():  # pragma: no cover
+    if not config_file.exists():  # pragma: lax no cover
         try:
             config_file.write_text("{}")
         except Exception:

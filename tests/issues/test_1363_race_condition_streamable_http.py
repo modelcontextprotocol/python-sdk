@@ -99,7 +99,7 @@ def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_
     # Check for specific race condition errors in logs
     errors_found: list[str] = []
 
-    for record in caplog.records:  # pragma: no cover
+    for record in caplog.records:  # pragma: lax no cover
         message = record.getMessage()
         if "ClosedResourceError" in message:
             errors_found.append("ClosedResourceError")

@@ -72,14 +72,14 @@ INIT_REQUEST = {
 
 
 # Helper functions
-def extract_protocol_version_from_sse(response: requests.Response) -> str:  # pragma: no cover
+def extract_protocol_version_from_sse(response: requests.Response) -> str:
     """Extract the negotiated protocol version from an SSE initialization response."""
     assert response.headers.get("Content-Type") == "text/event-stream"
     for line in response.text.splitlines():
         if line.startswith("data: "):
             init_data = json.loads(line[6:])
             return init_data["result"]["protocolVersion"]
-    raise ValueError("Could not extract protocol version from SSE response")
+    raise ValueError("Could not extract protocol version from SSE response")  # pragma: no cover
 
 
 # Simple in-memory event store for testing
@@ -90,9 +90,7 @@ class SimpleEventStore(EventStore):
         self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage | None]] = []
         self._event_id_counter = 0
 
-    async def store_event(  # pragma: no cover
-        self, stream_id: StreamId, message: types.JSONRPCMessage | None
-    ) -> EventId:
+    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:
         """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
@@ -871,7 +869,7 @@ def test_get_sse_stream(basic_server: None, basic_server_url: str):
     init_data = None
     assert init_response.headers.get("Content-Type") == "text/event-stream"
     for line in init_response.text.splitlines():  # pragma: no branch
-        if line.startswith("data: "):  # pragma: no cover
+        if line.startswith("data: "):
             init_data = json.loads(line[6:])
             break
     assert init_data is not None
@@ -931,7 +929,7 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     init_data = None
     assert init_response.headers.get("Content-Type") == "text/event-stream"
     for line in init_response.text.splitlines():  # pragma: no branch
-        if line.startswith("data: "):  # pragma: no cover
+        if line.startswith("data: "):
             init_data = json.loads(line[6:])
             break
     assert init_data is not None
@@ -1155,8 +1153,8 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
             tools = await session.list_tools()
             assert len(tools.tools) == 10
 
-    headers: dict[str, str] = {}  # pragma: no cover
-    if captured_session_id:  # pragma: no cover
+    headers: dict[str, str] = {}  # pragma: lax no cover
+    if captured_session_id:  # pragma: lax no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
@@ -1219,8 +1217,8 @@ async def test_streamable_http_client_session_termination_204(
             tools = await session.list_tools()
             assert len(tools.tools) == 10
 
-    headers: dict[str, str] = {}  # pragma: no cover
-    if captured_session_id:  # pragma: no cover
+    headers: dict[str, str] = {}  # pragma: lax no cover
+    if captured_session_id:  # pragma: lax no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
@@ -1281,7 +1279,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             captured_protocol_version = result.protocol_version
 
             # Start the tool that will wait on lock in a task
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def run_tool():
                     metadata = ClientMessageMetadata(
@@ -1305,18 +1303,18 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 tg.cancel_scope.cancel()
 
     # Verify we received exactly one notification
-    assert len(captured_notifications) == 1  # pragma: no cover
-    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: no cover
-    assert captured_notifications[0].params.data == "First notification before lock"  # pragma: no cover
+    assert len(captured_notifications) == 1  # pragma: lax no cover
+    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: lax no cover
+    assert captured_notifications[0].params.data == "First notification before lock"  # pragma: lax no cover
 
     # Clear notifications for the second phase
-    captured_notifications = []  # pragma: no cover
+    captured_notifications = []  # pragma: lax no cover
 
     # Now resume the session with the same mcp-session-id and protocol version
-    headers: dict[str, Any] = {}  # pragma: no cover
-    if captured_session_id:  # pragma: no cover
+    headers: dict[str, Any] = {}  # pragma: lax no cover
+    if captured_session_id:  # pragma: lax no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
-    if captured_protocol_version:  # pragma: no cover
+    if captured_protocol_version:  # pragma: lax no cover
         headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
@@ -1348,8 +1346,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
 
-            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: no cover
-            assert captured_notifications[0].params.data == "Second notification after lock"  # pragma: no cover
+            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: lax no cover
+            assert captured_notifications[0].params.data == "Second notification after lock"  # pragma: lax no cover
 
 
 @pytest.mark.anyio
@@ -1582,8 +1580,8 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
                     contexts.append(context_data)
 
     # Verify each request had its own context
-    assert len(contexts) == 3  # pragma: no cover
-    for i, ctx in enumerate(contexts):  # pragma: no cover
+    assert len(contexts) == 3
+    for i, ctx in enumerate(contexts):
         assert ctx["request_id"] == f"request-{i}"
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
@@ -2153,7 +2151,7 @@ async def test_streamable_http_multiple_reconnections(
             assert "Completed 3 checkpoints" in result.content[0].text
 
     # 4 priming + 3 notifications + 1 response = 8 tokens
-    assert len(resumption_tokens) == 8, (  # pragma: no cover
+    assert len(resumption_tokens) == 8, (  # pragma: lax no cover
         f"Expected 8 resumption tokens (4 priming + 3 notifs + 1 response), "
         f"got {len(resumption_tokens)}: {resumption_tokens}"
     )

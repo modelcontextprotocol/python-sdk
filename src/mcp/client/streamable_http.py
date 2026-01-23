@@ -181,7 +181,7 @@ class StreamableHTTPTransport:
 
                 headers = self._prepare_headers()
                 if last_event_id:
-                    headers[LAST_EVENT_ID] = last_event_id  # pragma: no cover
+                    headers[LAST_EVENT_ID] = last_event_id
 
                 async with aconnect_sse(client, "GET", self.url, headers=headers) as event_source:
                     event_source.response.raise_for_status()
@@ -190,19 +190,19 @@ class StreamableHTTPTransport:
                     async for sse in event_source.aiter_sse():
                         # Track last event ID for reconnection
                         if sse.id:
-                            last_event_id = sse.id  # pragma: no cover
+                            last_event_id = sse.id
                         # Track retry interval from server
                         if sse.retry is not None:
-                            retry_interval_ms = sse.retry  # pragma: no cover
+                            retry_interval_ms = sse.retry
 
                         await self._handle_sse_event(sse, read_stream_writer)
 
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception as exc:  # pragma: no cover
-                logger.debug(f"GET stream error: {exc}")
-                attempt += 1
+            except Exception as exc:
+                logger.debug(f"GET stream error: {exc}")  # pragma: lax no cover
+                attempt += 1  # pragma: lax no cover
 
             if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
                 logger.debug(f"GET stream max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
@@ -333,8 +333,8 @@ class StreamableHTTPTransport:
                 if is_complete:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
-        except Exception as e:  # pragma: no cover
-            logger.debug(f"SSE stream ended: {e}")
+        except Exception as e:
+            logger.debug(f"SSE stream ended: {e}")  # pragma: no cover
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:  # pragma: no branch
@@ -472,20 +472,20 @@ class StreamableHTTPTransport:
             await read_stream_writer.aclose()
             await write_stream.aclose()
 
-    async def terminate_session(self, client: httpx.AsyncClient) -> None:  # pragma: no cover
+    async def terminate_session(self, client: httpx.AsyncClient) -> None:
         """Terminate the session by sending a DELETE request."""
-        if not self.session_id:
+        if not self.session_id:  # pragma: lax no cover
             return
 
         try:
             headers = self._prepare_headers()
             response = await client.delete(self.url, headers=headers)
 
-            if response.status_code == 405:
+            if response.status_code == 405:  # pragma: lax no cover
                 logger.debug("Server does not allow session termination")
-            elif response.status_code not in (200, 204):
+            elif response.status_code not in (200, 204):  # pragma: lax no cover
                 logger.warning(f"Session termination failed: {response.status_code}")
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")
 
     def get_session_id(self) -> str | None:

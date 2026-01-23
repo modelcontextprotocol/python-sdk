@@ -56,8 +56,8 @@ def get_default_environment() -> dict[str, str]:
 
     for key in DEFAULT_INHERITED_ENV_VARS:
         value = os.environ.get(key)
-        if value is None:
-            continue  # pragma: no cover
+        if value is None:  # pragma: lax no cover
+            continue
 
         if value.startswith("()"):  # pragma: no cover
             # Skip functions, which are a security risk
@@ -158,7 +158,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: no cover
+        except anyio.ClosedResourceError:  # pragma: lax no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
@@ -225,8 +225,8 @@ def _get_executable_command(command: str) -> str:
     """
     if sys.platform == "win32":  # pragma: no cover
         return get_windows_executable_command(command)
-    else:
-        return command  # pragma: no cover
+    else:  # pragma: lax no cover
+        return command
 
 
 async def _create_platform_compatible_process(
@@ -243,14 +243,14 @@ async def _create_platform_compatible_process(
     """
     if sys.platform == "win32":  # pragma: no cover
         process = await create_windows_process(command, args, env, errlog, cwd)
-    else:
+    else:  # pragma: lax no cover
         process = await anyio.open_process(
             [command, *args],
             env=env,
             stderr=errlog,
             cwd=cwd,
             start_new_session=True,
-        )  # pragma: no cover
+        )
 
     return process
 
@@ -267,7 +267,7 @@ async def _terminate_process_tree(process: Process | FallbackProcess, timeout_se
     """
     if sys.platform == "win32":  # pragma: no cover
         await terminate_windows_process_tree(process, timeout_seconds)
-    else:  # pragma: no cover
+    else:  # pragma: lax no cover
         # FallbackProcess should only be used for Windows compatibility
         assert isinstance(process, Process)
         await terminate_posix_process_tree(process, timeout_seconds)

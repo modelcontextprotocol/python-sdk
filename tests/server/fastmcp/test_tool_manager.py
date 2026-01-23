@@ -182,7 +182,7 @@ class TestAddTools:
 class TestCallTools:
     @pytest.mark.anyio
     async def test_call_tool(self):
-        def sum(a: int, b: int) -> int:  # pragma: no cover
+        def sum(a: int, b: int) -> int:
             """Add two numbers."""
             return a + b
 
@@ -193,7 +193,7 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_async_tool(self):
-        async def double(n: int) -> int:  # pragma: no cover
+        async def double(n: int) -> int:
             """Double a number."""
             return n * 2
 
@@ -260,7 +260,7 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_list_int_input(self):
-        def sum_vals(vals: list[int]) -> int:  # pragma: no cover
+        def sum_vals(vals: list[int]) -> int:
             return sum(vals)
 
         manager = ToolManager()
@@ -273,7 +273,7 @@ class TestCallTools:
 
     @pytest.mark.anyio
     async def test_call_tool_with_list_str_or_str_input(self):
-        def concat_strs(vals: list[str] | str) -> str:  # pragma: no cover
+        def concat_strs(vals: list[str] | str) -> str:
             return vals if isinstance(vals, str) else "".join(vals)
 
         manager = ToolManager()
@@ -297,7 +297,7 @@ class TestCallTools:
             shrimp: list[Shrimp]
             x: None
 
-        def name_shrimp(tank: MyShrimpTank, ctx: Context[ServerSessionT, None]) -> list[str]:  # pragma: no cover
+        def name_shrimp(tank: MyShrimpTank, ctx: Context[ServerSessionT, None]) -> list[str]:
             return [x.name for x in tank.shrimp]
 
         manager = ToolManager()
@@ -375,7 +375,7 @@ class TestContextHandling:
     async def test_context_injection_async(self):
         """Test that context is properly injected in async tools."""
 
-        async def async_tool(x: int, ctx: Context[ServerSessionT, None]) -> str:  # pragma: no cover
+        async def async_tool(x: int, ctx: Context[ServerSessionT, None]) -> str:
             assert isinstance(ctx, Context)
             return str(x)
 
@@ -467,7 +467,7 @@ class TestStructuredOutput:
             name: str
             age: int
 
-        def get_user(user_id: int) -> UserOutput:  # pragma: no cover
+        def get_user(user_id: int) -> UserOutput:
             """Get user by ID."""
             return UserOutput(name="John", age=30)
 
@@ -481,7 +481,7 @@ class TestStructuredOutput:
     async def test_tool_with_primitive_output(self):
         """Test tool with primitive return type."""
 
-        def double_number(n: int) -> int:  # pragma: no cover
+        def double_number(n: int) -> int:
             """Double a number."""
             return 10
 
@@ -502,7 +502,7 @@ class TestStructuredOutput:
 
         expected_output = {"name": "Alice", "age": 25}
 
-        def get_user_dict(user_id: int) -> UserDict:  # pragma: no cover
+        def get_user_dict(user_id: int) -> UserDict:
             """Get user as dict."""
             return UserDict(name="Alice", age=25)
 
@@ -522,7 +522,7 @@ class TestStructuredOutput:
 
         expected_output = {"name": "Bob", "age": 40}
 
-        def get_person() -> Person:  # pragma: no cover
+        def get_person() -> Person:
             """Get a person."""
             return Person("Bob", 40)
 
@@ -539,7 +539,7 @@ class TestStructuredOutput:
         expected_list = [1, 2, 3, 4, 5]
         expected_output = {"result": expected_list}
 
-        def get_numbers() -> list[int]:  # pragma: no cover
+        def get_numbers() -> list[int]:
             """Get a list of numbers."""
             return expected_list
 
@@ -590,7 +590,7 @@ class TestStructuredOutput:
     async def test_tool_with_dict_str_any_output(self):
         """Test tool with dict[str, Any] return type."""
 
-        def get_config() -> dict[str, Any]:  # pragma: no cover
+        def get_config() -> dict[str, Any]:
             """Get configuration"""
             return {"debug": True, "port": 8080, "features": ["auth", "logging"]}
 
@@ -615,7 +615,7 @@ class TestStructuredOutput:
     async def test_tool_with_dict_str_typed_output(self):
         """Test tool with dict[str, T] return type for specific T."""
 
-        def get_scores() -> dict[str, int]:  # pragma: no cover
+        def get_scores() -> dict[str, int]:
             """Get player scores"""
             return {"alice": 100, "bob": 85, "charlie": 92}
 
@@ -879,7 +879,7 @@ class TestRemoveTools:
     async def test_call_removed_tool_raises_error(self):
         """Test that calling a removed tool raises ToolError."""
 
-        def greet(name: str) -> str:  # pragma: no cover
+        def greet(name: str) -> str:
             """Greet someone."""
             return f"Hello, {name}!"
 

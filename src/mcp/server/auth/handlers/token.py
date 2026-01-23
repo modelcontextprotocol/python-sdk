@@ -178,7 +178,7 @@ class TokenHandler:
                 except TokenError as e:
                     return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
 
-            case RefreshTokenRequest():  # pragma: no cover
+            case RefreshTokenRequest():  # pragma: no branch
                 refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
                 if refresh_token is None or refresh_token.client_id != token_request.client_id:
                     # if token belongs to different client, pretend it doesn't exist

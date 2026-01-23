@@ -20,7 +20,7 @@ async def test_lowlevel_server_tool_annotations():
 
     # Create a tool with annotations
     @server.list_tools()
-    async def list_tools():  # pragma: no cover
+    async def list_tools():
         return [
             Tool(
                 name="echo",
@@ -67,8 +67,7 @@ async def test_lowlevel_server_tool_annotations():
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-                    async for message in server_session.incoming_messages:  # pragma: no cover
+                    async for message in server_session.incoming_messages:  # pragma: no branch
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
