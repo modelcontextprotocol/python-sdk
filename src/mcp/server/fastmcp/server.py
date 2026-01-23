@@ -44,7 +44,16 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import LifespanContextT, RequestContext, RequestT
-from mcp.types import Annotations, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.shared.exceptions import McpError
+from mcp.types import (
+    INVALID_PARAMS,
+    Annotations,
+    ContentBlock,
+    ErrorData,
+    GetPromptResult,
+    Icon,
+    ToolAnnotations,
+)
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -964,7 +973,7 @@ class FastMCP(Generic[LifespanResultT]):
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
-                raise ValueError(f"Unknown prompt: {name}")
+                raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Unknown prompt: {name}"))
 
             messages = await prompt.render(arguments, context=self.get_context())
 
@@ -972,6 +981,8 @@ class FastMCP(Generic[LifespanResultT]):
                 description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(messages),
             )
+        except McpError:
+            raise
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))

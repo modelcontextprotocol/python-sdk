@@ -600,6 +600,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # Re-raise UrlElicitationRequiredError so it can be properly handled
                     # by _handle_request, which converts it to an error response with code -32042
                     raise
+                except McpError:
+                    # Re-raise McpError as protocol error
+                    # (e.g., unknown tool returns INVALID_PARAMS per MCP spec)
+                    raise
                 except Exception as e:
                     return self._make_error_result(str(e))
 

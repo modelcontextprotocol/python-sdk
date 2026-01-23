@@ -48,6 +48,8 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    RESOURCE_NOT_FOUND,
+    ErrorData,
     InitializeResult,
     JSONRPCRequest,
     TextContent,
@@ -145,7 +147,7 @@ class ServerTest(Server):  # pragma: no cover
                 await anyio.sleep(2.0)
                 return f"Slow response from {parsed.netloc}"
 
-            raise ValueError(f"Unknown resource: {uri}")
+            raise McpError(ErrorData(code=RESOURCE_NOT_FOUND, message=f"Unknown resource: {uri}"))
 
         @self.list_tools()
         async def handle_list_tools() -> list[Tool]:
@@ -1034,7 +1036,7 @@ async def test_streamable_http_client_error_handling(initialized_client_session:
     """Test error handling in client."""
     with pytest.raises(McpError) as exc_info:
         await initialized_client_session.read_resource(uri="unknown://test-error")
-    assert exc_info.value.error.code == 0
+    assert exc_info.value.error.code == RESOURCE_NOT_FOUND
     assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
 
 

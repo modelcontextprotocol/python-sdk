@@ -12,7 +12,8 @@ from mcp.server.fastmcp.tools import Tool, ToolManager
 from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
 from mcp.shared.context import LifespanContextT, RequestT
-from mcp.types import TextContent, ToolAnnotations
+from mcp.shared.exceptions import McpError
+from mcp.types import INVALID_PARAMS, TextContent, ToolAnnotations
 
 
 class TestAddTools:
@@ -255,8 +256,10 @@ class TestCallTools:
     @pytest.mark.anyio
     async def test_call_unknown_tool(self):
         manager = ToolManager()
-        with pytest.raises(ToolError):
+        # Unknown tool raises McpError (protocol error) per MCP spec
+        with pytest.raises(McpError, match="Unknown tool: unknown") as exc_info:
             await manager.call_tool("unknown", {"a": 1})
+        assert exc_info.value.error.code == INVALID_PARAMS
 
     @pytest.mark.anyio
     async def test_call_tool_with_list_int_input(self):
@@ -893,9 +896,10 @@ class TestRemoveTools:
         # Remove the tool
         manager.remove_tool("greet")
 
-        # Verify calling removed tool raises error
-        with pytest.raises(ToolError, match="Unknown tool: greet"):
+        # Verify calling removed tool raises McpError (protocol error per MCP spec)
+        with pytest.raises(McpError, match="Unknown tool: greet") as exc_info:
             await manager.call_tool("greet", {"name": "World"})
+        assert exc_info.value.error.code == INVALID_PARAMS
 
     def test_remove_tool_case_sensitive(self):
         """Test that tool removal is case-sensitive."""

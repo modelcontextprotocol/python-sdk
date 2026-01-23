@@ -43,6 +43,8 @@ URL_ELICITATION_REQUIRED = -32042
 # SDK error codes
 CONNECTION_CLOSED = -32000
 REQUEST_TIMEOUT = -32001
+RESOURCE_NOT_FOUND = -32002
+"""Error code indicating that a requested resource was not found."""
 
 # Standard JSON-RPC error codes
 PARSE_ERROR = -32700
