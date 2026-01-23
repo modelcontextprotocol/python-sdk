@@ -335,11 +335,30 @@ class StreamableHTTPTransport:
                     return  # Normal completion, no reconnect needed
         except Exception as e:  # pragma: no cover
             logger.debug(f"SSE stream ended: {e}")
+            sse_error = e
+        else:  # pragma: no cover
+            sse_error = None
 
         # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:  # pragma: no cover
+            error_msg = "SSE stream disconnected without response"
+            if sse_error is not None:
+                error_msg = f"{error_msg}: {type(sse_error).__name__}: {sse_error}"
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id=ctx.session_message.message.root.id
+                if isinstance(ctx.session_message.message.root, JSONRPCRequest)
+                else "Unknown",
+                error=ErrorData(
+                    code=-32000,
+                    message=error_msg,
+                ),
+            )
+            error_message = JSONRPCMessage(root=error_response)
+            await ctx.read_stream_writer.send(SessionMessage(error_message))
 
     async def _handle_reconnection(
         self,
