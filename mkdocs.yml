@@ -13,11 +13,18 @@ site_url: https://modelcontextprotocol.github.io/python-sdk
 nav:
   - Introduction: index.md
   - Installation: installation.md
+  - Migration Guide: migration.md
   - Documentation:
       - Concepts: concepts.md
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
       - Testing: testing.md
+  - Experimental:
+      - Overview: experimental/index.md
+      - Tasks:
+          - Introduction: experimental/tasks.md
+          - Server Implementation: experimental/tasks-server.md
+          - Client Usage: experimental/tasks-client.md
   - API Reference: api.md
 
 theme:
@@ -120,7 +127,7 @@ plugins:
             group_by_category: false
             # 3 because docs are in pages with an H2 just above them
             heading_level: 3
-          import:
+          inventories:
             - url: https://docs.python.org/3/objects.inv
             - url: https://docs.pydantic.dev/latest/objects.inv
             - url: https://typing-extensions.readthedocs.io/en/latest/objects.inv

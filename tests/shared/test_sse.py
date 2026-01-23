@@ -4,20 +4,24 @@ import socket
 import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from urllib.parse import urlparse
 
 import anyio
 import httpx
 import pytest
 import uvicorn
+from httpx_sse import ServerSentEvent
 from inline_snapshot import snapshot
-from pydantic import AnyUrl
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Mount, Route
 
+import mcp.client.sse
 import mcp.types as types
 from mcp.client.session import ClientSession
+from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.client.sse import sse_client
 from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
@@ -27,8 +31,11 @@ from mcp.shared.exceptions import McpError
 from mcp.types import (
     EmptyResult,
     ErrorData,
+    Implementation,
     InitializeResult,
+    JSONRPCResponse,
     ReadResourceResult,
+    ServerCapabilities,
     TextContent,
     TextResourceContents,
     Tool,
@@ -56,13 +63,14 @@ class ServerTest(Server):  # pragma: no cover
         super().__init__(SERVER_NAME)
 
         @self.read_resource()
-        async def handle_read_resource(uri: AnyUrl) -> str | bytes:
-            if uri.scheme == "foobar":
-                return f"Read {uri.host}"
-            elif uri.scheme == "slow":
+        async def handle_read_resource(uri: str) -> str | bytes:
+            parsed = urlparse(uri)
+            if parsed.scheme == "foobar":
+                return f"Read {parsed.netloc}"
+            if parsed.scheme == "slow":
                 # Simulate a slow resource
                 await anyio.sleep(2.0)
-                return f"Slow response from {uri.host}"
+                return f"Slow response from {parsed.netloc}"
 
             raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
 
@@ -72,7 +80,7 @@ class ServerTest(Server):  # pragma: no cover
                 Tool(
                     name="test_tool",
                     description="A test tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 )
             ]
 
@@ -178,11 +186,62 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
             assert isinstance(ping_result, EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
+    captured_session_id: str | None = None
+
+    def on_session_created(session_id: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = session_id
+
+    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    assert captured_session_id is not None
+    assert len(captured_session_id) > 0
+
+
+@pytest.mark.parametrize(
+    "endpoint_url,expected",
+    [
+        ("/messages?sessionId=abc123", "abc123"),
+        ("/messages?session_id=def456", "def456"),
+        ("/messages?sessionId=abc&session_id=def", "abc"),
+        ("/messages?other=value", None),
+        ("/messages", None),
+        ("", None),
+    ],
+)
+def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
+    assert _extract_session_id_from_endpoint(endpoint_url) == expected
+
+
+@pytest.mark.anyio
+async def test_sse_client_on_session_created_not_called_when_no_session_id(
+    server: None, server_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    callback_mock = Mock()
+
+    def mock_extract(url: str) -> None:
+        return None
+
+    monkeypatch.setattr(mcp.client.sse, "_extract_session_id_from_endpoint", mock_extract)
+
+    async with sse_client(server_url + "/sse", on_session_created=callback_mock) as streams:
+        async with ClientSession(*streams) as session:
+            result = await session.initialize()
+            assert isinstance(result, InitializeResult)
+
+    callback_mock.assert_not_called()
 
 
 @pytest.fixture
@@ -198,7 +257,7 @@ async def test_sse_client_happy_request_and_response(
     initialized_sse_client_session: ClientSession,
 ) -> None:
     session = initialized_sse_client_session
-    response = await session.read_resource(uri=AnyUrl("foobar://should-work"))
+    response = await session.read_resource(uri="foobar://should-work")
     assert len(response.contents) == 1
     assert isinstance(response.contents[0], TextResourceContents)
     assert response.contents[0].text == "Read should-work"
@@ -210,7 +269,7 @@ async def test_sse_client_exception_handling(
 ) -> None:
     session = initialized_sse_client_session
     with pytest.raises(McpError, match="OOPS! no resource with that URI was found"):
-        await session.read_resource(uri=AnyUrl("xxx://will-not-work"))
+        await session.read_resource(uri="xxx://will-not-work")
 
 
 @pytest.mark.anyio
@@ -221,12 +280,12 @@ async def test_sse_client_timeout(  # pragma: no cover
     session = initialized_sse_client_session
 
     # sanity check that normal, fast responses are working
-    response = await session.read_resource(uri=AnyUrl("foobar://1"))
+    response = await session.read_resource(uri="foobar://1")
     assert isinstance(response, ReadResourceResult)
 
     with anyio.move_on_after(3):
         with pytest.raises(McpError, match="Read timed out"):
-            response = await session.read_resource(uri=AnyUrl("slow://2"))
+            response = await session.read_resource(uri="slow://2")
             # we should receive an error here
         return
 
@@ -273,7 +332,7 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
             # Test initialization
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-            assert result.serverInfo.name == SERVER_NAME
+            assert result.server_info.name == SERVER_NAME
 
             # Test ping
             ping_result = await session.send_ping()
@@ -309,12 +368,12 @@ class RequestContextServer(Server[object, Request]):  # pragma: no cover
                 Tool(
                     name="echo_headers",
                     description="Echoes request headers",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 ),
                 Tool(
                     name="echo_context",
                     description="Echoes request context",
-                    inputSchema={
+                    input_schema={
                         "type": "object",
                         "properties": {"request_id": {"type": "string"}},
                         "required": ["request_id"],
@@ -446,12 +505,12 @@ def test_sse_message_id_coercion():
     See <https://www.jsonrpc.org/specification#response_object> for more details.
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123")))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123"))
 
     json_message = '{"jsonrpc": "2.0", "id": 123, "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123))
 
 
 @pytest.mark.parametrize(
@@ -480,3 +539,69 @@ def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result
         sse = SseServerTransport(endpoint)
         assert sse._endpoint == expected_result
         assert sse._endpoint.startswith("/")
+
+
+# ResourceWarning filter: When mocking aconnect_sse, the sse_client's internal task
+# group doesn't receive proper cancellation signals, so the sse_reader task's finally
+# block (which closes read_stream_writer) doesn't execute. This is a test artifact -
+# the actual code path (`if not sse.data: continue`) IS exercised and works correctly.
+# Production code with real SSE connections cleans up properly.
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
+@pytest.mark.anyio
+async def test_sse_client_handles_empty_keepalive_pings() -> None:
+    """Test that SSE client properly handles empty data lines (keep-alive pings).
+
+    Per the MCP spec (Streamable HTTP transport): "The server SHOULD immediately
+    send an SSE event consisting of an event ID and an empty data field in order
+    to prime the client to reconnect."
+
+    This test mocks the SSE event stream to include empty "message" events and
+    verifies the client skips them without crashing.
+    """
+    # Build a proper JSON-RPC response using types (not hardcoded strings)
+    init_result = InitializeResult(
+        protocol_version="2024-11-05",
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="test", version="1.0"),
+    )
+    response = JSONRPCResponse(
+        jsonrpc="2.0",
+        id=1,
+        result=init_result.model_dump(by_alias=True, exclude_none=True),
+    )
+    response_json = response.model_dump_json(by_alias=True, exclude_none=True)
+
+    # Create mock SSE events using httpx_sse's ServerSentEvent
+    async def mock_aiter_sse() -> AsyncGenerator[ServerSentEvent, None]:
+        # First: endpoint event
+        yield ServerSentEvent(event="endpoint", data="/messages/?session_id=abc123")
+        # Empty data keep-alive ping - this is what we're testing
+        yield ServerSentEvent(event="message", data="")
+        # Real JSON-RPC response
+        yield ServerSentEvent(event="message", data=response_json)
+
+    mock_event_source = MagicMock()
+    mock_event_source.aiter_sse.return_value = mock_aiter_sse()
+    mock_event_source.response = MagicMock()
+    mock_event_source.response.raise_for_status = MagicMock()
+
+    mock_aconnect_sse = MagicMock()
+    mock_aconnect_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_aconnect_sse.__aexit__ = AsyncMock(return_value=None)
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
+
+    with (
+        patch("mcp.client.sse.create_mcp_http_client", return_value=mock_client),
+        patch("mcp.client.sse.aconnect_sse", return_value=mock_aconnect_sse),
+    ):
+        async with sse_client("http://test/sse") as (read_stream, _):
+            # Read the message - should skip the empty one and get the real response
+            msg = await read_stream.receive()
+            # If we get here without error, the empty message was skipped successfully
+            assert not isinstance(msg, Exception)
+            assert isinstance(msg.message, types.JSONRPCResponse)
+            assert msg.message.id == 1

@@ -1,0 +1,40 @@
+name: Weekly Lockfile Update
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every Thursday at 8:00 UTC
+    - cron: "0 8 * * 4"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.1
+
+      - uses: astral-sh/setup-uv@v7.2.0
+        with:
+          version: 0.9.5
+
+      - name: Update lockfile
+        run: |
+          echo '## Updated Dependencies' > pr_body.md
+          echo '' >> pr_body.md
+          echo '```' >> pr_body.md
+          uv lock --upgrade 2>&1 | tee -a pr_body.md
+          echo '```' >> pr_body.md
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v7
+        with:
+          commit-message: "chore: update uv.lock with latest dependencies"
+          title: "chore: weekly dependency update"
+          body-path: pr_body.md
+          branch: weekly-lockfile-update
+          delete-branch: true
+          add-paths: uv.lock
+          labels: dependencies

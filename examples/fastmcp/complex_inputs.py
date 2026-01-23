@@ -1,5 +1,4 @@
-"""
-FastMCP Complex inputs Example
+"""FastMCP Complex inputs Example
 
 Demonstrates validation via pydantic with complex models.
 """

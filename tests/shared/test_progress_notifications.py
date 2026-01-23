@@ -5,15 +5,16 @@ import anyio
 import pytest
 
 import mcp.types as types
+from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.shared.message import SessionMessage
 from mcp.shared.progress import progress
-from mcp.shared.session import BaseSession, RequestResponder, SessionMessage
+from mcp.shared.session import BaseSession, RequestResponder
 
 
 @pytest.mark.anyio
@@ -79,7 +80,7 @@ async def test_bidirectional_progress_notifications():
             types.Tool(
                 name="test_tool",
                 description="A tool that sends progress notifications <o/",
-                inputSchema={},
+                input_schema={},
             )
         ]
 
@@ -134,11 +135,11 @@ async def test_bidirectional_progress_notifications():
             raise message
 
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message.root, types.ProgressNotification):  # pragma: no branch
-                params = message.root.params
+            if isinstance(message, types.ProgressNotification):  # pragma: no branch
+                params = message.params
                 client_progress_updates.append(
                     {
-                        "token": params.progressToken,
+                        "token": params.progress_token,
                         "progress": params.progress,
                         "total": params.total,
                         "message": params.message,
@@ -274,11 +275,10 @@ async def test_progress_context_manager():
         progress_token = "client_token_456"
 
         # Create request context
-        meta = types.RequestParams.Meta(progressToken=progress_token)
         request_context = RequestContext(
             request_id="test-request",
             session=client_session,
-            meta=meta,
+            meta={"progress_token": progress_token},
             lifespan_context=None,
         )
 
@@ -331,7 +331,7 @@ async def test_progress_callback_exception_logging():
     # Track logged warnings
     logged_errors: list[str] = []
 
-    def mock_log_error(msg: str, *args: Any) -> None:
+    def mock_log_exception(msg: str, *args: Any, **kwargs: Any) -> None:
         logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
@@ -362,23 +362,16 @@ async def test_progress_callback_exception_logging():
             types.Tool(
                 name="progress_tool",
                 description="A tool that sends progress notifications",
-                inputSchema={},
+                input_schema={},
             )
         ]
 
     # Test with mocked logging
-    with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
-        async with create_connected_server_and_client_session(server) as client_session:
-            # Send a request with a failing progress callback
-            assert isinstance(client_session, ClientSession)
-            result = await client_session.send_request(
-                types.ClientRequest(
-                    types.CallToolRequest(
-                        method="tools/call",
-                        params=types.CallToolRequestParams(name="progress_tool", arguments={}),
-                    )
-                ),
-                types.CallToolResult,
+    with patch("mcp.shared.session.logging.exception", side_effect=mock_log_exception):
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "progress_tool",
+                arguments={},
                 progress_callback=failing_progress_callback,
             )
 

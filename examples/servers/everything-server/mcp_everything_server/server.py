@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-MCP Everything Server - Conformance Test Server
+"""MCP Everything Server - Conformance Test Server
 
 Server implementing all MCP features for conformance testing based on Conformance Server Specification.
 """
@@ -14,6 +13,7 @@ import click
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.prompts.base import UserMessage
 from mcp.server.session import ServerSession
+from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.types import (
     AudioContent,
     Completion,
@@ -21,15 +21,53 @@ from mcp.types import (
     CompletionContext,
     EmbeddedResource,
     ImageContent,
+    JSONRPCMessage,
     PromptReference,
     ResourceTemplateReference,
     SamplingMessage,
     TextContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+# Type aliases for event store
+StreamId = str
+EventId = str
+
+
+class InMemoryEventStore(EventStore):
+    """Simple in-memory event store for SSE resumability testing."""
+
+    def __init__(self) -> None:
+        self._events: list[tuple[StreamId, EventId, JSONRPCMessage | None]] = []
+        self._event_id_counter = 0
+
+    async def store_event(self, stream_id: StreamId, message: JSONRPCMessage | None) -> EventId:
+        """Store an event and return its ID."""
+        self._event_id_counter += 1
+        event_id = str(self._event_id_counter)
+        self._events.append((stream_id, event_id, message))
+        return event_id
+
+    async def replay_events_after(self, last_event_id: EventId, send_callback: EventCallback) -> StreamId | None:
+        """Replay events after the specified ID."""
+        target_stream_id = None
+        for stream_id, event_id, _ in self._events:
+            if event_id == last_event_id:
+                target_stream_id = stream_id
+                break
+        if target_stream_id is None:
+            return None
+        last_event_id_int = int(last_event_id)
+        for stream_id, event_id, message in self._events:
+            if stream_id == target_stream_id and int(event_id) > last_event_id_int:
+                # Skip priming events (None message)
+                if message is not None:
+                    await send_callback(EventMessage(message, event_id))
+        return target_stream_id
+
 
 # Test data
 TEST_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
@@ -38,6 +76,9 @@ TEST_AUDIO_BASE64 = "UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA
 # Server state
 resource_subscriptions: set[str] = set()
 watched_resource_content = "Watched resource content"
+
+# Create event store for SSE resumability (SEP-1699)
+event_store = InMemoryEventStore()
 
 mcp = FastMCP(
     name="mcp-conformance-test-server",
@@ -54,13 +95,13 @@ def test_simple_text() -> str:
 @mcp.tool()
 def test_image_content() -> list[ImageContent]:
     """Tests image content response"""
-    return [ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png")]
+    return [ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png")]
 
 
 @mcp.tool()
 def test_audio_content() -> list[AudioContent]:
     """Tests audio content response"""
-    return [AudioContent(type="audio", data=TEST_AUDIO_BASE64, mimeType="audio/wav")]
+    return [AudioContent(type="audio", data=TEST_AUDIO_BASE64, mime_type="audio/wav")]
 
 
 @mcp.tool()
@@ -70,8 +111,8 @@ def test_embedded_resource() -> list[EmbeddedResource]:
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("test://embedded-resource"),
-                mimeType="text/plain",
+                uri="test://embedded-resource",
+                mime_type="text/plain",
                 text="This is an embedded resource content.",
             ),
         )
@@ -83,12 +124,12 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
     """Tests response with multiple content types (text, image, resource)"""
     return [
         TextContent(type="text", text="Multiple content types test:"),
-        ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png"),
+        ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png"),
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("test://mixed-content-resource"),
-                mimeType="application/json",
+                uri="test://mixed-content-resource",
+                mime_type="application/json",
                 text='{"test": "data", "value": 123}',
             ),
         ),
@@ -120,7 +161,9 @@ async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
     await ctx.report_progress(progress=100, total=100, message="Completed step 100 of 100")
 
     # Return progress token as string
-    progress_token = ctx.request_context.meta.progressToken if ctx.request_context and ctx.request_context.meta else 0
+    progress_token = (
+        ctx.request_context.meta.get("progress_token") if ctx.request_context and ctx.request_context.meta else 0
+    )
     return str(progress_token)
 
 
@@ -134,6 +177,7 @@ async def test_sampling(prompt: str, ctx: Context[ServerSession, None]) -> str:
             max_tokens=100,
         )
 
+        # Since we're not passing tools param, result.content is single content
         if result.content.type == "text":
             model_response = result.content.text
         else:
@@ -198,10 +242,82 @@ async def test_elicitation_sep1034_defaults(ctx: Context[ServerSession, None]) -
         return f"Elicitation not supported or error: {str(e)}"
 
 
+class EnumSchemasTestSchema(BaseModel):
+    """Schema for testing enum schema variations (SEP-1330)"""
+
+    untitledSingle: str = Field(
+        description="Simple enum without titles", json_schema_extra={"enum": ["active", "inactive", "pending"]}
+    )
+    titledSingle: str = Field(
+        description="Enum with titled options (oneOf)",
+        json_schema_extra={
+            "oneOf": [
+                {"const": "low", "title": "Low Priority"},
+                {"const": "medium", "title": "Medium Priority"},
+                {"const": "high", "title": "High Priority"},
+            ]
+        },
+    )
+    untitledMulti: list[str] = Field(
+        description="Multi-select without titles",
+        json_schema_extra={"items": {"type": "string", "enum": ["read", "write", "execute"]}},
+    )
+    titledMulti: list[str] = Field(
+        description="Multi-select with titled options",
+        json_schema_extra={
+            "items": {
+                "anyOf": [
+                    {"const": "feature", "title": "New Feature"},
+                    {"const": "bug", "title": "Bug Fix"},
+                    {"const": "docs", "title": "Documentation"},
+                ]
+            }
+        },
+    )
+    legacyEnum: str = Field(
+        description="Legacy enum with enumNames",
+        json_schema_extra={
+            "enum": ["small", "medium", "large"],
+            "enumNames": ["Small Size", "Medium Size", "Large Size"],
+        },
+    )
+
+
+@mcp.tool()
+async def test_elicitation_sep1330_enums(ctx: Context[ServerSession, None]) -> str:
+    """Tests elicitation with enum schema variations per SEP-1330"""
+    try:
+        result = await ctx.elicit(
+            message="Please select values using different enum schema types", schema=EnumSchemasTestSchema
+        )
+
+        if result.action == "accept":
+            content = result.data.model_dump_json()
+        else:
+            content = "{}"
+
+        return f"Elicitation completed: action={result.action}, content={content}"
+    except Exception as e:
+        return f"Elicitation not supported or error: {str(e)}"
+
+
 @mcp.tool()
 def test_error_handling() -> str:
     """Tests error response handling"""
     raise RuntimeError("This tool intentionally returns an error for testing")
+
+
+@mcp.tool()
+async def test_reconnection(ctx: Context[ServerSession, None]) -> str:
+    """Tests SSE polling by closing stream mid-call (SEP-1699)"""
+    await ctx.info("Before disconnect")
+
+    await ctx.close_sse_stream()
+
+    await asyncio.sleep(0.2)  # Wait for client to reconnect
+
+    await ctx.info("After reconnect")
+    return "Reconnection test completed"
 
 
 # Resources
@@ -255,8 +371,8 @@ def test_prompt_with_embedded_resource(resourceUri: str) -> list[UserMessage]:
             content=EmbeddedResource(
                 type="resource",
                 resource=TextResourceContents(
-                    uri=AnyUrl(resourceUri),
-                    mimeType="text/plain",
+                    uri=resourceUri,
+                    mime_type="text/plain",
                     text="Embedded resource content for testing.",
                 ),
             ),
@@ -269,7 +385,7 @@ def test_prompt_with_embedded_resource(resourceUri: str) -> list[UserMessage]:
 def test_prompt_with_image() -> list[UserMessage]:
     """A prompt that includes image content"""
     return [
-        UserMessage(role="user", content=ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png")),
+        UserMessage(role="user", content=ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png")),
         UserMessage(role="user", content=TextContent(type="text", text="Please analyze the image above.")),
     ]
 
@@ -285,13 +401,13 @@ async def handle_set_logging_level(level: str) -> None:
     # For conformance testing, we just acknowledge the request
 
 
-async def handle_subscribe(uri: AnyUrl) -> None:
+async def handle_subscribe(uri: str) -> None:
     """Handle resource subscription"""
     resource_subscriptions.add(str(uri))
     logger.info(f"Subscribed to resource: {uri}")
 
 
-async def handle_unsubscribe(uri: AnyUrl) -> None:
+async def handle_unsubscribe(uri: str) -> None:
     """Handle resource unsubscription"""
     resource_subscriptions.discard(str(uri))
     logger.info(f"Unsubscribed from resource: {uri}")
@@ -310,7 +426,7 @@ async def _handle_completion(
     """Handle completion requests"""
     # Basic completion support - returns empty array for conformance
     # Real implementations would provide contextual suggestions
-    return Completion(values=[], total=0, hasMore=False)
+    return Completion(values=[], total=0, has_more=False)
 
 
 # CLI
@@ -331,8 +447,12 @@ def main(port: int, log_level: str) -> int:
     logger.info(f"Starting MCP Everything Server on port {port}")
     logger.info(f"Endpoint will be: http://localhost:{port}/mcp")
 
-    mcp.settings.port = port
-    mcp.run(transport="streamable-http")
+    mcp.run(
+        transport="streamable-http",
+        port=port,
+        event_store=event_store,
+        retry_interval=100,  # 100ms retry interval for SSE polling
+    )
 
     return 0
 

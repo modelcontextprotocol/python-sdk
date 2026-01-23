@@ -1,19 +1,10 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/streamable_config.py
+"""Run from the repository root:
+uv run examples/snippets/servers/streamable_config.py
 """
 
 from mcp.server.fastmcp import FastMCP
 
-# Stateful server (maintains session state)
-mcp = FastMCP("StatefulServer")
-
-# Other configuration options:
-# Stateless server (no session persistence)
-# mcp = FastMCP("StatelessServer", stateless_http=True)
-
-# Stateless server (no session persistence, no sse stream with supported client)
-# mcp = FastMCP("StatelessServer", stateless_http=True, json_response=True)
+mcp = FastMCP("StatelessServer")
 
 
 # Add a simple tool to demonstrate the server
@@ -24,5 +15,14 @@ def greet(name: str = "World") -> str:
 
 
 # Run server with streamable_http transport
+# Transport-specific options (stateless_http, json_response) are passed to run()
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    # Stateless server with JSON responses (recommended)
+    mcp.run(transport="streamable-http", stateless_http=True, json_response=True)
+
+    # Other configuration options:
+    # Stateless server with SSE streaming responses
+    # mcp.run(transport="streamable-http", stateless_http=True)
+
+    # Stateful server with session persistence
+    # mcp.run(transport="streamable-http")

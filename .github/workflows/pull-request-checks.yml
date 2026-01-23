@@ -1,8 +1,0 @@
-name: Pull request checks
-
-on:
-  pull_request:
-
-jobs:
-  checks:
-    uses: ./.github/workflows/shared.yml

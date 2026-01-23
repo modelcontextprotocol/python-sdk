@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, RootModel, ValidationError
+from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -14,11 +14,9 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, Registrat
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
-
-class RegistrationRequest(RootModel[OAuthClientMetadata]):
-    # this wrapper is a no-op; it's just to separate out the types exposed to the
-    # provider from what we use in the HTTP handler
-    root: OAuthClientMetadata
+# this alias is a no-op; it's just to separate out the types exposed to the
+# provider from what we use in the HTTP handler
+RegistrationRequest = OAuthClientMetadata
 
 
 class RegistrationErrorResponse(BaseModel):
@@ -34,9 +32,8 @@ class RegistrationHandler:
     async def handle(self, request: Request) -> Response:
         # Implements dynamic client registration as defined in https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
         try:
-            # Parse request body as JSON
-            body = await request.json()
-            client_metadata = OAuthClientMetadata.model_validate(body)
+            body = await request.body()
+            client_metadata = OAuthClientMetadata.model_validate_json(body)
 
             # Scope validation is handled below
         except ValidationError as validation_error:
@@ -49,6 +46,11 @@ class RegistrationHandler:
             )
 
         client_id = str(uuid4())
+
+        # If auth method is None, default to client_secret_post
+        if client_metadata.token_endpoint_auth_method is None:
+            client_metadata.token_endpoint_auth_method = "client_secret_post"
+
         client_secret = None
         if client_metadata.token_endpoint_auth_method != "none":  # pragma: no branch
             # cryptographically secure random 32-byte hex string
@@ -68,11 +70,11 @@ class RegistrationHandler:
                     ),
                     status_code=400,
                 )
-        if not {"authorization_code", "refresh_token"}.issubset(set(client_metadata.grant_types)):
+        if "authorization_code" not in client_metadata.grant_types:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(
                     error="invalid_client_metadata",
-                    error_description="grant_types must be authorization_code and refresh_token",
+                    error_description="grant_types must include 'authorization_code'",
                 ),
                 status_code=400,
             )

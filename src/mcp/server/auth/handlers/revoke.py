@@ -15,9 +15,7 @@ from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvid
 
 
 class RevocationRequest(BaseModel):
-    """
-    # See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1
-    """
+    """# See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1"""
 
     token: str
     token_type_hint: Literal["access_token", "refresh_token"] | None = None
@@ -36,9 +34,18 @@ class RevocationHandler:
     client_authenticator: ClientAuthenticator
 
     async def handle(self, request: Request) -> Response:
-        """
-        Handler for the OAuth 2.0 Token Revocation endpoint.
-        """
+        """Handler for the OAuth 2.0 Token Revocation endpoint."""
+        try:
+            client = await self.client_authenticator.authenticate_request(request)
+        except AuthenticationError as e:  # pragma: no cover
+            return PydanticJSONResponse(
+                status_code=401,
+                content=RevocationErrorResponse(
+                    error="unauthorized_client",
+                    error_description=e.message,
+                ),
+            )
+
         try:
             form_data = await request.form()
             revocation_request = RevocationRequest.model_validate(dict(form_data))
@@ -48,20 +55,6 @@ class RevocationHandler:
                 content=RevocationErrorResponse(
                     error="invalid_request",
                     error_description=stringify_pydantic_error(e),
-                ),
-            )
-
-        # Authenticate client
-        try:
-            client = await self.client_authenticator.authenticate(
-                revocation_request.client_id, revocation_request.client_secret
-            )
-        except AuthenticationError as e:  # pragma: no cover
-            return PydanticJSONResponse(
-                status_code=401,
-                content=RevocationErrorResponse(
-                    error="unauthorized_client",
-                    error_description=e.message,
                 ),
             )
 

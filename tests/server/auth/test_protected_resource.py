@@ -1,6 +1,6 @@
-"""
-Integration tests for MCP Oauth Protected Resource.
-"""
+"""Integration tests for MCP Oauth Protected Resource."""
+
+from urllib.parse import urlparse
 
 import httpx
 import pytest
@@ -105,94 +105,94 @@ async def test_metadata_endpoint_without_path(root_resource_client: httpx.AsyncC
     )
 
 
-class TestMetadataUrlConstruction:
-    """Test URL construction utility function."""
+# Tests for URL construction utility function
 
-    def test_url_without_path(self):
-        """Test URL construction for resource without path component."""
-        resource_url = AnyHttpUrl("https://example.com")
-        result = build_resource_metadata_url(resource_url)
-        assert str(result) == "https://example.com/.well-known/oauth-protected-resource"
 
-    def test_url_with_path_component(self):
-        """Test URL construction for resource with path component."""
-        resource_url = AnyHttpUrl("https://example.com/mcp")
-        result = build_resource_metadata_url(resource_url)
-        assert str(result) == "https://example.com/.well-known/oauth-protected-resource/mcp"
+def test_metadata_url_construction_url_without_path():
+    """Test URL construction for resource without path component."""
+    resource_url = AnyHttpUrl("https://example.com")
+    result = build_resource_metadata_url(resource_url)
+    assert str(result) == "https://example.com/.well-known/oauth-protected-resource"
 
-    def test_url_with_trailing_slash_only(self):
-        """Test URL construction for resource with trailing slash only."""
-        resource_url = AnyHttpUrl("https://example.com/")
-        result = build_resource_metadata_url(resource_url)
-        # Trailing slash should be treated as empty path
-        assert str(result) == "https://example.com/.well-known/oauth-protected-resource"
 
-    @pytest.mark.parametrize(
-        "resource_url,expected_url",
-        [
-            ("https://example.com", "https://example.com/.well-known/oauth-protected-resource"),
-            ("https://example.com/", "https://example.com/.well-known/oauth-protected-resource"),
-            ("https://example.com/mcp", "https://example.com/.well-known/oauth-protected-resource/mcp"),
-            ("http://localhost:8001/mcp", "http://localhost:8001/.well-known/oauth-protected-resource/mcp"),
-        ],
+def test_metadata_url_construction_url_with_path_component():
+    """Test URL construction for resource with path component."""
+    resource_url = AnyHttpUrl("https://example.com/mcp")
+    result = build_resource_metadata_url(resource_url)
+    assert str(result) == "https://example.com/.well-known/oauth-protected-resource/mcp"
+
+
+def test_metadata_url_construction_url_with_trailing_slash_only():
+    """Test URL construction for resource with trailing slash only."""
+    resource_url = AnyHttpUrl("https://example.com/")
+    result = build_resource_metadata_url(resource_url)
+    # Trailing slash should be treated as empty path
+    assert str(result) == "https://example.com/.well-known/oauth-protected-resource"
+
+
+@pytest.mark.parametrize(
+    "resource_url,expected_url",
+    [
+        ("https://example.com", "https://example.com/.well-known/oauth-protected-resource"),
+        ("https://example.com/", "https://example.com/.well-known/oauth-protected-resource"),
+        ("https://example.com/mcp", "https://example.com/.well-known/oauth-protected-resource/mcp"),
+        ("http://localhost:8001/mcp", "http://localhost:8001/.well-known/oauth-protected-resource/mcp"),
+    ],
+)
+def test_metadata_url_construction_various_resource_configurations(resource_url: str, expected_url: str):
+    """Test URL construction with various resource configurations."""
+    result = build_resource_metadata_url(AnyHttpUrl(resource_url))
+    assert str(result) == expected_url
+
+
+# Tests for consistency between URL generation and route registration
+
+
+def test_route_consistency_route_path_matches_metadata_url():
+    """Test that route path matches the generated metadata URL."""
+    resource_url = AnyHttpUrl("https://example.com/mcp")
+
+    # Generate metadata URL
+    metadata_url = build_resource_metadata_url(resource_url)
+
+    # Create routes
+    routes = create_protected_resource_routes(
+        resource_url=resource_url,
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
     )
-    def test_various_resource_configurations(self, resource_url: str, expected_url: str):
-        """Test URL construction with various resource configurations."""
-        result = build_resource_metadata_url(AnyHttpUrl(resource_url))
-        assert str(result) == expected_url
+
+    # Extract path from metadata URL
+    metadata_path = urlparse(str(metadata_url)).path
+
+    # Verify consistency
+    assert len(routes) == 1
+    assert routes[0].path == metadata_path
 
 
-class TestRouteConsistency:
-    """Test consistency between URL generation and route registration."""
+@pytest.mark.parametrize(
+    "resource_url,expected_path",
+    [
+        ("https://example.com", "/.well-known/oauth-protected-resource"),
+        ("https://example.com/", "/.well-known/oauth-protected-resource"),
+        ("https://example.com/mcp", "/.well-known/oauth-protected-resource/mcp"),
+    ],
+)
+def test_route_consistency_consistent_paths_for_various_resources(resource_url: str, expected_path: str):
+    """Test that URL generation and route creation are consistent."""
+    resource_url_obj = AnyHttpUrl(resource_url)
 
-    def test_route_path_matches_metadata_url(self):
-        """Test that route path matches the generated metadata URL."""
-        resource_url = AnyHttpUrl("https://example.com/mcp")
+    # Test URL generation
+    metadata_url = build_resource_metadata_url(resource_url_obj)
+    url_path = urlparse(str(metadata_url)).path
 
-        # Generate metadata URL
-        metadata_url = build_resource_metadata_url(resource_url)
-
-        # Create routes
-        routes = create_protected_resource_routes(
-            resource_url=resource_url,
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
-
-        # Extract path from metadata URL
-        from urllib.parse import urlparse
-
-        metadata_path = urlparse(str(metadata_url)).path
-
-        # Verify consistency
-        assert len(routes) == 1
-        assert routes[0].path == metadata_path
-
-    @pytest.mark.parametrize(
-        "resource_url,expected_path",
-        [
-            ("https://example.com", "/.well-known/oauth-protected-resource"),
-            ("https://example.com/", "/.well-known/oauth-protected-resource"),
-            ("https://example.com/mcp", "/.well-known/oauth-protected-resource/mcp"),
-        ],
+    # Test route creation
+    routes = create_protected_resource_routes(
+        resource_url=resource_url_obj,
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
     )
-    def test_consistent_paths_for_various_resources(self, resource_url: str, expected_path: str):
-        """Test that URL generation and route creation are consistent."""
-        resource_url_obj = AnyHttpUrl(resource_url)
+    route_path = routes[0].path
 
-        # Test URL generation
-        metadata_url = build_resource_metadata_url(resource_url_obj)
-        from urllib.parse import urlparse
-
-        url_path = urlparse(str(metadata_url)).path
-
-        # Test route creation
-        routes = create_protected_resource_routes(
-            resource_url=resource_url_obj,
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
-        route_path = routes[0].path
-
-        # Both should match expected path
-        assert url_path == expected_path
-        assert route_path == expected_path
-        assert url_path == route_path
+    # Both should match expected path
+    assert url_path == expected_path
+    assert route_path == expected_path
+    assert url_path == route_path

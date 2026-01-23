@@ -1,8 +1,7 @@
-"""
-FastMCP quickstart example.
+"""FastMCP quickstart example.
 
-cd to the `examples/snippets/clients` directory and run:
-    uv run server fastmcp_quickstart stdio
+Run from the repository root:
+    uv run examples/snippets/servers/fastmcp_quickstart.py
 """
 
 from mcp.server.fastmcp import FastMCP
@@ -36,3 +35,8 @@ def greet_user(name: str, style: str = "friendly") -> str:
     }
 
     return f"{styles.get(style, styles['friendly'])} for someone named {name}."
+
+
+# Run with streamable HTTP transport
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http", json_response=True)
