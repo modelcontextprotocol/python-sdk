@@ -365,9 +365,7 @@ class ClientSession(
     ) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
-            types.GetPromptRequest(
-                params=types.GetPromptRequestParams(name=name, arguments=arguments, _meta=meta),
-            ),
+            types.GetPromptRequest(params=types.GetPromptRequestParams(name=name, arguments=arguments, _meta=meta)),
             types.GetPromptResult,
         )
 
