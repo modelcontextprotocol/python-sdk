@@ -45,7 +45,7 @@ class SimpleServer(Server):
         super().__init__(SERVER_NAME)
 
         @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
+        async def handle_list_tools() -> list[Tool]:  # pragma: no cover
             return []
 
 
