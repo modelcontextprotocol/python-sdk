@@ -10,6 +10,7 @@
 [![Documentation][docs-badge]][docs-url]
 [![Protocol][protocol-badge]][protocol-url]
 [![Specification][spec-badge]][spec-url]
+[![Discord][discord-badge]][discord-url]
 
 </div>
 
@@ -87,6 +88,8 @@
 [protocol-url]: https://modelcontextprotocol.io
 [spec-badge]: https://img.shields.io/badge/spec-spec.modelcontextprotocol.io-blue.svg
 [spec-url]: https://modelcontextprotocol.io/specification/latest
+[discord-badge]: https://img.shields.io/discord/1358869848138059966?logo=discord
+[discord-url]: https://discord.gg/6CSzBmMkjX
 
 ## Overview
 
