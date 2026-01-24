@@ -334,7 +334,7 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception as e:
-            logger.debug(f"SSE stream ended: {e}")  # pragma: no cover
+            logger.debug(f"SSE stream ended: {e}")
 
         # Stream ended without response - reconnect if we received an event with ID
         if last_event_id is not None:
