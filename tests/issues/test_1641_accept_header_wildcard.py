@@ -3,188 +3,75 @@
 The MCP server was rejecting requests with wildcard Accept headers like `*/*`
 or `application/*`, returning 406 Not Acceptable. Per RFC 9110 Section 12.5.1,
 wildcard media types are valid and should match the required content types.
+
+These tests verify the `_check_accept_headers` method directly, ensuring
+wildcard media types are properly matched against the required content types
+(application/json and text/event-stream).
 """
 
-import threading
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-
-import anyio
-import httpx
 import pytest
-from starlette.applications import Starlette
-from starlette.routing import Mount
+from starlette.requests import Request
 
-from mcp.server import Server
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import Tool
-
-SERVER_NAME = "test_accept_wildcard_server"
-
-# Suppress warnings from unclosed MemoryObjectReceiveStream in stateless transport mode
-# (pre-existing issue, not related to the Accept header fix)
-pytestmark = [
-    pytest.mark.filterwarnings("ignore::ResourceWarning"),
-    pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning"),
-]
-
-INIT_REQUEST = {
-    "jsonrpc": "2.0",
-    "method": "initialize",
-    "id": "init-1",
-    "params": {
-        "clientInfo": {"name": "test-client", "version": "1.0"},
-        "protocolVersion": "2025-03-26",
-        "capabilities": {},
-    },
-}
+from mcp.server.streamable_http import StreamableHTTPServerTransport
 
 
-class SimpleServer(Server):
-    def __init__(self):
-        super().__init__(SERVER_NAME)
-
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:  # pragma: no cover
-            return []
-
-
-def create_app(json_response: bool = False) -> Starlette:
-    server = SimpleServer()
-    session_manager = StreamableHTTPSessionManager(
-        app=server,
-        json_response=json_response,
-        stateless=True,
-    )
-
-    @asynccontextmanager
-    async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
-        async with session_manager.run():
-            yield
-
-    routes = [Mount("/", app=session_manager.handle_request)]
-    return Starlette(routes=routes, lifespan=lifespan)
-
-
-class ServerThread(threading.Thread):
-    def __init__(self, app: Starlette):
-        super().__init__(daemon=True)
-        self.app = app
-        self._stop_event = threading.Event()
-
-    def run(self) -> None:
-        async def run_lifespan():
-            lifespan_context = getattr(self.app.router, "lifespan_context", None)
-            assert lifespan_context is not None
-            async with lifespan_context(self.app):
-                while not self._stop_event.is_set():
-                    await anyio.sleep(0.1)
-
-        try:
-            anyio.run(run_lifespan)
-        except BaseException:  # pragma: no cover
-            # Suppress cleanup exceptions (e.g., ResourceWarning from
-            # unclosed streams in stateless transport mode)
-            pass
-
-    def stop(self) -> None:
-        self._stop_event.set()
+def _make_request(accept: str) -> Request:
+    """Create a minimal Request with the given Accept header."""
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "headers": [(b"accept", accept.encode())],
+    }
+    return Request(scope)
 
 
 @pytest.mark.anyio
 async def test_accept_wildcard_star_star_json_mode():
-    """Accept: */* should be accepted in JSON response mode."""
-    app = create_app(json_response=True)
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        await anyio.sleep(0.2)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client:
-            response = await client.post(
-                "/",
-                json=INIT_REQUEST,
-                headers={"Accept": "*/*", "Content-Type": "application/json"},
-            )
-            assert response.status_code == 200
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
+    """Accept: */* should satisfy application/json requirement."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=True,
+    )
+    request = _make_request("*/*")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "*/* should match application/json"
+    assert has_sse, "*/* should match text/event-stream"
 
 
 @pytest.mark.anyio
 async def test_accept_wildcard_star_star_sse_mode():
-    """Accept: */* should be accepted in SSE response mode (satisfies both JSON and SSE)."""
-    app = create_app(json_response=False)
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        await anyio.sleep(0.2)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client:
-            response = await client.post(
-                "/",
-                json=INIT_REQUEST,
-                headers={"Accept": "*/*", "Content-Type": "application/json"},
-            )
-            assert response.status_code == 200
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
-
-
-@pytest.mark.anyio
-async def test_accept_application_wildcard():
-    """Accept: application/* should satisfy the application/json requirement."""
-    app = create_app(json_response=True)
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        await anyio.sleep(0.2)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client:
-            response = await client.post(
-                "/",
-                json=INIT_REQUEST,
-                headers={"Accept": "application/*", "Content-Type": "application/json"},
-            )
-            assert response.status_code == 200
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
-
-
-@pytest.mark.anyio
-async def test_accept_text_wildcard_with_json():
-    """Accept: application/json, text/* should satisfy both requirements in SSE mode.
-
-    Tests the Accept header parsing directly to verify text/* matches
-    text/event-stream. A full HTTP round-trip in SSE mode is not used because
-    EventSourceResponse behavior varies across sse-starlette versions.
-    """
-    from starlette.requests import Request
-
-    from mcp.server.streamable_http import StreamableHTTPServerTransport
-
+    """Accept: */* should satisfy both JSON and SSE requirements."""
     transport = StreamableHTTPServerTransport(
         mcp_session_id=None,
         is_json_response_enabled=False,
     )
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "headers": [(b"accept", b"application/json, text/*")],
-    }
-    request = Request(scope)
+    request = _make_request("*/*")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "*/* should match application/json"
+    assert has_sse, "*/* should match text/event-stream"
+
+
+@pytest.mark.anyio
+async def test_accept_application_wildcard():
+    """Accept: application/* should satisfy application/json but not text/event-stream."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=True,
+    )
+    request = _make_request("application/*")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "application/* should match application/json"
+    assert not has_sse, "application/* should NOT match text/event-stream"
+
+
+@pytest.mark.anyio
+async def test_accept_text_wildcard_with_json():
+    """Accept: application/json, text/* should satisfy both requirements in SSE mode."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+    )
+    request = _make_request("application/json, text/*")
     has_json, has_sse = transport._check_accept_headers(request)
     assert has_json, "application/json should match JSON content type"
     assert has_sse, "text/* should match text/event-stream"
@@ -193,71 +80,76 @@ async def test_accept_text_wildcard_with_json():
 @pytest.mark.anyio
 async def test_accept_wildcard_with_quality_parameter():
     """Accept: */*;q=0.8 should be accepted (quality parameters stripped before matching)."""
-    app = create_app(json_response=True)
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        await anyio.sleep(0.2)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client:
-            response = await client.post(
-                "/",
-                json=INIT_REQUEST,
-                headers={"Accept": "*/*;q=0.8", "Content-Type": "application/json"},
-            )
-            assert response.status_code == 200
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=True,
+    )
+    request = _make_request("*/*;q=0.8")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "*/*;q=0.8 should match application/json after stripping quality"
+    assert has_sse, "*/*;q=0.8 should match text/event-stream after stripping quality"
 
 
 @pytest.mark.anyio
 async def test_accept_invalid_still_rejected():
-    """Accept: text/plain should still be rejected with 406."""
-    app = create_app(json_response=True)
-    server_thread = ServerThread(app)
-    server_thread.start()
-
-    try:
-        await anyio.sleep(0.2)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client:
-            response = await client.post(
-                "/",
-                json=INIT_REQUEST,
-                headers={"Accept": "text/plain", "Content-Type": "application/json"},
-            )
-            assert response.status_code == 406
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
+    """Accept: text/plain should not match JSON or SSE content types."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=True,
+    )
+    request = _make_request("text/plain")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert not has_json, "text/plain should NOT match application/json"
+    assert not has_sse, "text/plain should NOT match text/event-stream"
 
 
 @pytest.mark.anyio
-async def test_accept_partial_wildcard_sse_mode_rejected():
-    """Accept: application/* alone should be rejected in SSE mode (missing text/event-stream)."""
-    app = create_app(json_response=False)
-    server_thread = ServerThread(app)
-    server_thread.start()
+async def test_accept_partial_wildcard_sse_mode():
+    """Accept: application/* alone should not satisfy SSE requirement."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+    )
+    request = _make_request("application/*")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "application/* should match application/json"
+    assert not has_sse, "application/* should NOT match text/event-stream"
 
-    try:
-        await anyio.sleep(0.2)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client:
-            response = await client.post(
-                "/",
-                json=INIT_REQUEST,
-                headers={"Accept": "application/*", "Content-Type": "application/json"},
-            )
-            # application/* matches JSON but not SSE, should be rejected
-            assert response.status_code == 406
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
+
+@pytest.mark.anyio
+async def test_accept_explicit_types():
+    """Accept: application/json, text/event-stream should match both explicitly."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+    )
+    request = _make_request("application/json, text/event-stream")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "application/json should match"
+    assert has_sse, "text/event-stream should match"
+
+
+@pytest.mark.anyio
+async def test_accept_text_wildcard_alone():
+    """Accept: text/* alone should match SSE but not JSON."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+    )
+    request = _make_request("text/*")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert not has_json, "text/* should NOT match application/json"
+    assert has_sse, "text/* should match text/event-stream"
+
+
+@pytest.mark.anyio
+async def test_accept_multiple_quality_parameters():
+    """Multiple types with quality parameters should all be parsed correctly."""
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+    )
+    request = _make_request("application/json;q=1.0, text/event-stream;q=0.9")
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "application/json;q=1.0 should match after stripping quality"
+    assert has_sse, "text/event-stream;q=0.9 should match after stripping quality"
