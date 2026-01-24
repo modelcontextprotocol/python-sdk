@@ -296,5 +296,4 @@ class Client:
 
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
-        # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
-        await self.session.send_roots_list_changed()  # pragma: no cover
+        await self.session.send_roots_list_changed()

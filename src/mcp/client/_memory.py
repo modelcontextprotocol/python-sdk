@@ -64,7 +64,7 @@ class InMemoryTransport:
         # Unwrap FastMCP to get underlying Server
         actual_server: Server[Any]
         if isinstance(self._server, FastMCP):
-            actual_server = self._server._mcp_server  # type: ignore[reportPrivateUsage]
+            actual_server = self._server.mcp_server
         else:
             actual_server = self._server
 

@@ -128,37 +128,42 @@ class ServerSession(
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
-        if self._client_params is None:  # pragma: lax no cover
+        if self._client_params is None:
             return False
 
         client_caps = self._client_params.capabilities
 
-        if capability.roots is not None:  # pragma: lax no cover
-            if client_caps.roots is None:
-                return False
-            if capability.roots.list_changed and not client_caps.roots.list_changed:
-                return False
-
-        if capability.sampling is not None:  # pragma: lax no cover
-            if client_caps.sampling is None:
-                return False
-            if capability.sampling.context is not None and client_caps.sampling.context is None:
-                return False
-            if capability.sampling.tools is not None and client_caps.sampling.tools is None:
-                return False
-
-        if capability.elicitation is not None and client_caps.elicitation is None:  # pragma: lax no cover
+        # Check roots capability
+        if capability.roots and not client_caps.roots:
+            return False
+        if (capability.roots and capability.roots.list_changed and 
+            client_caps.roots and not client_caps.roots.list_changed):
             return False
 
-        if capability.experimental is not None:  # pragma: lax no cover
-            if client_caps.experimental is None:
+        # Check sampling capability
+        if capability.sampling and not client_caps.sampling:
+            return False
+        if capability.sampling:
+            if capability.sampling.context and not client_caps.sampling.context:
+                return False
+            if capability.sampling.tools and not client_caps.sampling.tools:
+                return False
+
+        # Check elicitation capability
+        if capability.elicitation and not client_caps.elicitation:
+            return False
+
+        # Check experimental capability
+        if capability.experimental:
+            if not client_caps.experimental:
                 return False
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
 
-        if capability.tasks is not None:  # pragma: lax no cover
-            if client_caps.tasks is None:
+        # Check tasks capability
+        if capability.tasks:
+            if not client_caps.tasks:
                 return False
             if not check_tasks_capability(capability.tasks, client_caps.tasks):
                 return False
@@ -207,6 +212,9 @@ class ServerSession(
         match notification:
             case types.InitializedNotification():
                 self._initialization_state = InitializationState.Initialized
+            case types.RootsListChangedNotification():
+                # When roots list changes, server should request updated list
+                await self.list_roots()
             case _:
                 if self._initialization_state != InitializationState.Initialized:  # pragma: no cover
                     raise RuntimeError("Received notification before initialization was complete")

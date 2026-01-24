@@ -213,6 +213,14 @@ class FastMCP(Generic[LifespanResultT]):
             RuntimeError: If called before streamable_http_app() has been called.
         """
         return self._mcp_server.session_manager  # pragma: no cover
+    
+    @property
+    def mcp_server(self):
+        """Get the underlying MCP server instance.
+        
+        This is exposed to enable advanced use cases like in-memory testing.
+        """
+        return self._mcp_server
 
     @overload
     def run(self, transport: Literal["stdio"] = ...) -> None: ...
@@ -255,8 +263,8 @@ class FastMCP(Generic[LifespanResultT]):
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
             **kwargs: Transport-specific options (see overloads for details)
         """
-        TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
-        if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
+        SUPPORTED_TRANSPORTS = {"stdio", "sse", "streamable-http"}
+        if transport not in SUPPORTED_TRANSPORTS:  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
 
         match transport:
