@@ -5,6 +5,8 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.server.fastmcp.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
+from mcp.shared.exceptions import McpError
+from mcp.types import RESOURCE_NOT_FOUND
 
 
 @pytest.fixture
@@ -111,10 +113,11 @@ class TestResourceManager:
 
     @pytest.mark.anyio
     async def test_get_unknown_resource(self):
-        """Test getting a non-existent resource."""
+        """Test getting a non-existent resource raises protocol error."""
         manager = ResourceManager()
-        with pytest.raises(ValueError, match="Unknown resource"):
+        with pytest.raises(McpError, match="Unknown resource") as exc_info:
             await manager.get_resource(AnyUrl("unknown://test"))
+        assert exc_info.value.error.code == RESOURCE_NOT_FOUND
 
     def test_list_resources(self, temp_file: Path):
         """Test listing all resources."""
