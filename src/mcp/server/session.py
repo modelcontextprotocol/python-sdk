@@ -114,7 +114,7 @@ class ServerSession(
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
-        return self._client_params  # pragma: no cover
+        return self._client_params
 
     @property
     def experimental(self) -> ExperimentalServerSessionFeatures:
@@ -126,20 +126,20 @@ class ServerSession(
             self._experimental_features = ExperimentalServerSessionFeatures(self)
         return self._experimental_features
 
-    def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
+    def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
-        if self._client_params is None:
+        if self._client_params is None:  # pragma: lax no cover
             return False
 
         client_caps = self._client_params.capabilities
 
-        if capability.roots is not None:
+        if capability.roots is not None:  # pragma: lax no cover
             if client_caps.roots is None:
                 return False
             if capability.roots.list_changed and not client_caps.roots.list_changed:
                 return False
 
-        if capability.sampling is not None:
+        if capability.sampling is not None:  # pragma: lax no cover
             if client_caps.sampling is None:
                 return False
             if capability.sampling.context is not None and client_caps.sampling.context is None:
@@ -147,17 +147,17 @@ class ServerSession(
             if capability.sampling.tools is not None and client_caps.sampling.tools is None:
                 return False
 
-        if capability.elicitation is not None and client_caps.elicitation is None:
+        if capability.elicitation is not None and client_caps.elicitation is None:  # pragma: lax no cover
             return False
 
-        if capability.experimental is not None:
+        if capability.experimental is not None:  # pragma: lax no cover
             if client_caps.experimental is None:
                 return False
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
 
-        if capability.tasks is not None:
+        if capability.tasks is not None:  # pragma: lax no cover
             if client_caps.tasks is None:
                 return False
             if not check_tasks_capability(capability.tasks, client_caps.tasks):
@@ -544,7 +544,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id
@@ -589,7 +589,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id
@@ -659,7 +659,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id

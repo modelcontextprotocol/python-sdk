@@ -18,9 +18,9 @@ def temp_file():
         f.write(content)
         path = Path(f.name).resolve()
     yield path
-    try:  # pragma: no cover
+    try:  # pragma: lax no cover
         path.unlink()
-    except FileNotFoundError:  # pragma: no cover
+    except FileNotFoundError:  # pragma: lax no cover
         pass  # File was already deleted by the test
 
 
@@ -101,7 +101,7 @@ class TestFileResource:
 
     @pytest.mark.skipif(os.name == "nt", reason="File permissions behave differently on Windows")
     @pytest.mark.anyio
-    async def test_permission_error(self, temp_file: Path):  # pragma: no cover
+    async def test_permission_error(self, temp_file: Path):  # pragma: lax no cover
         """Test reading a file without permissions."""
         temp_file.chmod(0o000)  # Remove all permissions
         try:

@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from pydantic import AnyUrl
 from pytest_examples import CodeExample, EvalExample, find_examples
 
 from mcp import Client
@@ -82,7 +81,7 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
         assert content.text == "3"
 
         # Test the desktop resource
-        result = await client.read_resource(AnyUrl("dir://desktop"))
+        result = await client.read_resource("dir://desktop")
         assert len(result.contents) == 1
         content = result.contents[0]
         assert isinstance(content, TextResourceContents)
@@ -93,7 +92,7 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
             assert file_1 in content.text
             assert file_2 in content.text
             # might be a bug, but the test is passing
-        else:  # pragma: no cover
+        else:  # pragma: lax no cover
             assert "/fake/path/file1.txt" in content.text
             assert "/fake/path/file2.txt" in content.text
 

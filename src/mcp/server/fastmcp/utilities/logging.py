@@ -25,7 +25,7 @@ def configure_logging(
         level: the log level to use
     """
     handlers: list[logging.Handler] = []
-    try:  # pragma: no cover
+    try:
         from rich.console import Console
         from rich.logging import RichHandler
 

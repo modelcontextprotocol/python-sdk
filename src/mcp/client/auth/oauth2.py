@@ -192,7 +192,7 @@ class OAuthContext:
             headers = {}  # pragma: no cover
 
         if not self.client_info:
-            return data, headers  # pragma: no cover
+            return data, headers
 
         auth_method = self.client_info.token_endpoint_auth_method
 
@@ -418,7 +418,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthTokenError("No client info available")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
-            token_url = str(self.context.oauth_metadata.token_endpoint)  # pragma: no cover
+            token_url = str(self.context.oauth_metadata.token_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
@@ -534,7 +534,7 @@ class OAuthClientProvider(httpx.Auth):
                     )
 
                     # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
-                    for url in asm_discovery_urls:  # pragma: no cover
+                    for url in asm_discovery_urls:  # pragma: no branch
                         oauth_metadata_request = create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
 

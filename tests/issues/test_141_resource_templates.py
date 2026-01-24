@@ -1,5 +1,4 @@
 import pytest
-from pydantic import AnyUrl
 
 from mcp import Client
 from mcp.server.fastmcp import FastMCP
@@ -88,14 +87,14 @@ async def test_resource_template_client_interaction():
         assert "resource://users/{user_id}/profile" in templates
 
         # Read a resource with valid parameters
-        result = await session.read_resource(AnyUrl("resource://users/123/posts/456"))
+        result = await session.read_resource("resource://users/123/posts/456")
         contents = result.contents[0]
         assert isinstance(contents, TextResourceContents)
         assert contents.text == "Post 456 by user 123"
         assert contents.mime_type == "text/plain"
 
         # Read another resource with valid parameters
-        result = await session.read_resource(AnyUrl("resource://users/789/profile"))
+        result = await session.read_resource("resource://users/789/profile")
         contents = result.contents[0]
         assert isinstance(contents, TextResourceContents)
         assert contents.text == "Profile for user 789"
@@ -103,7 +102,7 @@ async def test_resource_template_client_interaction():
 
         # Verify invalid resource URIs raise appropriate errors
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(AnyUrl("resource://users/123/posts"))  # Missing post_id
+            await session.read_resource("resource://users/123/posts")  # Missing post_id
 
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(AnyUrl("resource://users/123/invalid"))  # Invalid template
+            await session.read_resource("resource://users/123/invalid")  # Invalid template

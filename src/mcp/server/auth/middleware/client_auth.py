@@ -13,7 +13,7 @@ from mcp.shared.auth import OAuthClientInformationFull
 
 class AuthenticationError(Exception):
     def __init__(self, message: str):
-        self.message = message  # pragma: no cover
+        self.message = message
 
 
 class ClientAuthenticator:
@@ -96,15 +96,15 @@ class ClientAuthenticator:
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
-        if client.client_secret:  # pragma: no branch
+        if client.client_secret:
             if not request_client_secret:
-                raise AuthenticationError("Client secret is required")  # pragma: no cover
+                raise AuthenticationError("Client secret is required")
 
             # hmac.compare_digest requires that both arguments are either bytes or a `str` containing
             # only ASCII characters. Since we do not control `request_client_secret`, we encode both
             # arguments to bytes.
             if not hmac.compare_digest(client.client_secret.encode(), request_client_secret.encode()):
-                raise AuthenticationError("Invalid client_secret")  # pragma: no cover
+                raise AuthenticationError("Invalid client_secret")
 
             if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
                 raise AuthenticationError("Client secret has expired")  # pragma: no cover

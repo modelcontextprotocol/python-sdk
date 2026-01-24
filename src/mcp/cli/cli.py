@@ -77,7 +77,7 @@ def _build_uv_command(
 
     if with_packages:
         for pkg in with_packages:
-            if pkg:  # pragma: no cover
+            if pkg:  # pragma: no branch
                 cmd.extend(["--with", pkg])
 
     # Add mcp run command

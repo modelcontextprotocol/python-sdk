@@ -78,8 +78,8 @@ async def test_run_task_basic_flow() -> None:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         # Capture the meta from the request (if present)
-        if ctx.meta is not None and ctx.meta.model_extra:  # pragma: no branch
-            received_meta[0] = ctx.meta.model_extra.get("custom_field")
+        if ctx.meta is not None:  # pragma: no branch
+            received_meta[0] = ctx.meta.get("custom_field")
 
         async def work(task: ServerTaskContext) -> CallToolResult:
             await task.update_status("Working...")

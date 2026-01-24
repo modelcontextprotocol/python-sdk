@@ -34,10 +34,8 @@ def fastmcp_server() -> FastMCP:
     """Create a FastMCP server for testing."""
     server = FastMCP("test")
 
-    # pragma: no cover on handlers below - they exist only to register capabilities.
-    # Transport tests verify stream creation and basic protocol, not handler invocation.
     @server.tool()
-    def greet(name: str) -> str:  # pragma: no cover
+    def greet(name: str) -> str:
         """Greet someone by name."""
         return f"Hello, {name}!"
 

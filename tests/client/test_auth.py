@@ -1696,7 +1696,7 @@ class TestSEP985Discovery:
         final_response = httpx.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
-        except StopAsyncIteration:  # pragma: no cover
+        except StopAsyncIteration:
             pass
 
     @pytest.mark.anyio

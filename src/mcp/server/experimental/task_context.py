@@ -247,8 +247,7 @@ class ServerTaskContext:
             response_data = await resolver.wait()
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return ElicitResult.model_validate(response_data)
-        except anyio.get_cancelled_exc_class():  # pragma: no cover
-            # Coverage can't track async exception handlers reliably.
+        except anyio.get_cancelled_exc_class():
             # This path is tested in test_elicit_restores_status_on_cancellation
             # which verifies status is restored to "working" after cancellation.
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
@@ -408,8 +407,7 @@ class ServerTaskContext:
             response_data = await resolver.wait()
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return CreateMessageResult.model_validate(response_data)
-        except anyio.get_cancelled_exc_class():  # pragma: no cover
-            # Coverage can't track async exception handlers reliably.
+        except anyio.get_cancelled_exc_class():
             # This path is tested in test_create_message_restores_status_on_cancellation
             # which verifies status is restored to "working" after cancellation.
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)

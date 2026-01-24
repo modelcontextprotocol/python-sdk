@@ -19,6 +19,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    RequestParamsMeta,
     ServerCapabilities,
     TextContent,
     client_notification_adapter,
@@ -608,7 +609,7 @@ async def test_get_server_capabilities():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
-async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
+async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
     """Test that client tool call requests can include metadata"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)

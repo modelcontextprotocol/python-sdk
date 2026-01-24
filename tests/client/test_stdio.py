@@ -157,7 +157,7 @@ async def test_stdio_client_universal_cleanup():
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
-async def test_stdio_client_sigint_only_process():  # pragma: no cover
+async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
     """Test cleanup with a process that ignores SIGTERM but responds to SIGINT."""
     # Create a Python script that ignores SIGTERM but handles SIGINT
     script_content = textwrap.dedent(
@@ -481,7 +481,7 @@ class TestChildProcessCleanup:
             await anyio.sleep(0.5)
 
             # Verify child is writing
-            if os.path.exists(marker_file):  # pragma: no cover
+            if os.path.exists(marker_file):  # pragma: no branch
                 size1 = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size2 = os.path.getsize(marker_file)

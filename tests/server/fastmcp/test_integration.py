@@ -17,7 +17,7 @@ from collections.abc import Generator
 import pytest
 import uvicorn
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from inline_snapshot import snapshot
 
 from examples.snippets.servers import (
     basic_prompt,
@@ -300,14 +300,14 @@ async def test_basic_resources(server_transport: str, server_url: str) -> None:
             assert result.capabilities.resources is not None
 
             # Test document resource
-            doc_content = await session.read_resource(AnyUrl("file://documents/readme"))
+            doc_content = await session.read_resource("file://documents/readme")
             assert isinstance(doc_content, ReadResourceResult)
             assert len(doc_content.contents) == 1
             assert isinstance(doc_content.contents[0], TextResourceContents)
             assert "Content of readme" in doc_content.contents[0].text
 
             # Test settings resource
-            settings_content = await session.read_resource(AnyUrl("config://settings"))
+            settings_content = await session.read_resource("config://settings")
             assert isinstance(settings_content, ReadResourceResult)
             assert len(settings_content.contents) == 1
             assert isinstance(settings_content.contents[0], TextResourceContents)
@@ -412,10 +412,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
                 {"task_name": "Test Task", "steps": steps},
                 progress_callback=progress_callback,
             )
-
-            assert len(tool_result.content) == 1
-            assert isinstance(tool_result.content[0], TextContent)
-            assert "Task 'Test Task' completed" in tool_result.content[0].text
+            assert tool_result.content == snapshot([TextContent(text="Task 'Test Task' completed")])
 
             # Verify progress updates
             assert len(progress_updates) == steps
@@ -641,7 +638,7 @@ async def test_fastmcp_quickstart(server_transport: str, server_url: str) -> Non
             assert tool_result.content[0].text == "30"
 
             # Test greeting resource directly
-            resource_result = await session.read_resource(AnyUrl("greeting://Alice"))
+            resource_result = await session.read_resource("greeting://Alice")
             assert len(resource_result.contents) == 1
             assert isinstance(resource_result.contents[0], TextResourceContents)
             assert resource_result.contents[0].text == "Hello, Alice!"

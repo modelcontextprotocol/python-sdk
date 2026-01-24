@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 
 import anyio
@@ -9,8 +8,6 @@ from starlette.websockets import WebSocket
 
 import mcp.types as types
 from mcp.shared.message import SessionMessage
-
-logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager  # pragma: no cover

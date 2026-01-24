@@ -40,7 +40,7 @@ class StreamSpyCollection:
         self.client.sent_messages.clear()
         self.server.sent_messages.clear()
 
-    def get_client_requests(self, method: str | None = None) -> list[JSONRPCRequest]:  # pragma: no cover
+    def get_client_requests(self, method: str | None = None) -> list[JSONRPCRequest]:
         """Get client-sent requests, optionally filtered by method."""
         return [
             req.message

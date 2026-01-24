@@ -33,10 +33,10 @@ async def test_resource_templates():
     assert len(templates) == 2
 
     # Verify template details
-    greeting_template = next(t for t in templates if t.name == "get_greeting")  # pragma: no cover
+    greeting_template = next(t for t in templates if t.name == "get_greeting")
     assert greeting_template.uri_template == "greeting://{name}"
     assert greeting_template.description == "Get a personalized greeting"
 
-    profile_template = next(t for t in templates if t.name == "get_user_profile")  # pragma: no cover
+    profile_template = next(t for t in templates if t.name == "get_user_profile")
     assert profile_template.uri_template == "users://{user_id}/profile"
     assert profile_template.description == "Dynamic user data"

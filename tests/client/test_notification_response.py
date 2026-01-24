@@ -94,7 +94,7 @@ def non_sdk_server(non_sdk_server_port: int) -> Generator[None, None, None]:
     proc.start()
 
     # Wait for server to be ready
-    try:  # pragma: no cover
+    try:
         wait_for_server(non_sdk_server_port, timeout=10.0)
     except TimeoutError:  # pragma: no cover
         proc.kill()
