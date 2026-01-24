@@ -136,8 +136,12 @@ class ServerSession(
         # Check roots capability
         if capability.roots and not client_caps.roots:  # pragma: lax no cover
             return False
-        if (capability.roots and capability.roots.list_changed and 
-            client_caps.roots and not client_caps.roots.list_changed):  # pragma: lax no cover
+        if (
+            capability.roots
+            and capability.roots.list_changed
+            and client_caps.roots
+            and not client_caps.roots.list_changed
+        ):  # pragma: lax no cover
             return False
 
         # Check sampling capability
@@ -158,7 +162,9 @@ class ServerSession(
             if not client_caps.experimental:  # pragma: lax no cover
                 return False
             for exp_key, exp_value in capability.experimental.items():  # pragma: lax no cover
-                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:  # pragma: lax no cover
+                if (
+                    exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value
+                ):  # pragma: lax no cover
                     return False
 
         # Check tasks capability
