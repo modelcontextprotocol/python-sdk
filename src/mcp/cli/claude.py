@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp.utilities.logging import get_logger
+from mcp.server.mcpserver.utilities.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -49,7 +49,7 @@ def update_claude_config(
     with_packages: list[str] | None = None,
     env_vars: dict[str, str] | None = None,
 ) -> bool:
-    """Add or update a FastMCP server in Claude's configuration.
+    """Add or update a MCP server in Claude's configuration.
 
     Args:
         file_spec: Path to the server file, optionally with :object suffix
@@ -121,7 +121,7 @@ def update_claude_config(
         else:  # pragma: no cover
             file_spec = str(Path(file_spec).resolve())
 
-        # Add fastmcp run command
+        # Add mcp run command
         args.extend(["mcp", "run", file_spec])
 
         server_config: dict[str, Any] = {"command": uv_path, "args": args}

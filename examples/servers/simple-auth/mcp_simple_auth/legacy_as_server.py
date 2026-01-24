@@ -19,7 +19,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
-from mcp.server.fastmcp.server import FastMCP
+from mcp.server.mcpserver.server import MCPServer
 
 from .simple_auth_provider import SimpleAuthSettings, SimpleOAuthProvider
 
@@ -43,8 +43,8 @@ class LegacySimpleOAuthProvider(SimpleOAuthProvider):
         super().__init__(auth_settings, auth_callback_path, server_url)
 
 
-def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: SimpleAuthSettings) -> FastMCP:
-    """Create a simple FastMCP server with simple authentication."""
+def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: SimpleAuthSettings) -> MCPServer:
+    """Create a simple MCPServer server with simple authentication."""
     oauth_provider = LegacySimpleOAuthProvider(
         auth_settings, server_settings.auth_callback_path, str(server_settings.server_url)
     )
@@ -61,7 +61,7 @@ def create_simple_mcp_server(server_settings: ServerSettings, auth_settings: Sim
         resource_server_url=None,
     )
 
-    app = FastMCP(
+    app = MCPServer(
         name="Simple Auth MCP Server",
         instructions="A simple MCP server with simple credential authentication",
         auth_server_provider=oauth_provider,

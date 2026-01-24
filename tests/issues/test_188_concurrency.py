@@ -2,12 +2,12 @@ import anyio
 import pytest
 
 from mcp import Client
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 @pytest.mark.anyio
 async def test_messages_are_executed_concurrently_tools():
-    server = FastMCP("test")
+    server = MCPServer("test")
     event = anyio.Event()
     tool_started = anyio.Event()
     call_order: list[str] = []
@@ -48,7 +48,7 @@ async def test_messages_are_executed_concurrently_tools():
 
 @pytest.mark.anyio
 async def test_messages_are_executed_concurrently_tools_and_resources():
-    server = FastMCP("test")
+    server = MCPServer("test")
     event = anyio.Event()
     tool_started = anyio.Event()
     call_order: list[str] = []

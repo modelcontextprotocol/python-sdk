@@ -1,13 +1,13 @@
 import pytest
 
 from mcp import types
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 @pytest.mark.anyio
 async def test_resource_templates():
     # Create an MCP server
-    mcp = FastMCP("Demo")
+    mcp = MCPServer("Demo")
 
     # Add a dynamic greeting resource
     @mcp.resource("greeting://{name}")
@@ -23,7 +23,7 @@ async def test_resource_templates():
     # Get the list of resource templates using the underlying server
     # Note: list_resource_templates() returns a decorator that wraps the handler
     # The handler returns a ServerResult with a ListResourceTemplatesResult inside
-    result = await mcp._mcp_server.request_handlers[types.ListResourceTemplatesRequest](
+    result = await mcp._lowlevel_server.request_handlers[types.ListResourceTemplatesRequest](
         types.ListResourceTemplatesRequest(params=None)
     )
     assert isinstance(result, types.ListResourceTemplatesResult)

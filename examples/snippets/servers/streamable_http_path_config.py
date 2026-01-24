@@ -1,4 +1,4 @@
-"""Example showing path configuration when mounting FastMCP.
+"""Example showing path configuration when mounting MCPServer.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
@@ -7,10 +7,10 @@ Run from the repository root:
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-# Create a simple FastMCP server
-mcp_at_root = FastMCP("My Server")
+# Create a simple MCPServer server
+mcp_at_root = MCPServer("My Server")
 
 
 @mcp_at_root.tool()

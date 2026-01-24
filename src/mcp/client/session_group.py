@@ -15,7 +15,7 @@ from typing import Any, TypeAlias
 
 import anyio
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing_extensions import Self
 
 import mcp
@@ -103,9 +103,9 @@ class ClientSessionGroup:
     class _ComponentNames(BaseModel):
         """Used for reverse index to find components."""
 
-        prompts: set[str] = set()
-        resources: set[str] = set()
-        tools: set[str] = set()
+        prompts: set[str] = Field(default_factory=set)
+        resources: set[str] = Field(default_factory=set)
+        tools: set[str] = Field(default_factory=set)
 
     # Standard MCP components.
     _prompts: dict[str, types.Prompt]

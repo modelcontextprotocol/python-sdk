@@ -116,15 +116,15 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
-### `mount_path` parameter removed from FastMCP
+### `mount_path` parameter removed from MCPServer
 
-The `mount_path` parameter has been removed from `FastMCP.__init__()`, `FastMCP.run()`, `FastMCP.run_sse_async()`, and `FastMCP.sse_app()`. It was also removed from the `Settings` class.
+The `mount_path` parameter has been removed from `MCPServer.__init__()`, `MCPServer.run()`, `MCPServer.run_sse_async()`, and `MCPServer.sse_app()`. It was also removed from the `Settings` class.
 
 This parameter was redundant because the SSE transport already handles sub-path mounting via ASGI's standard `root_path` mechanism. When using Starlette's `Mount("/path", app=mcp.sse_app())`, Starlette automatically sets `root_path` in the ASGI scope, and the `SseServerTransport` uses this to construct the correct message endpoint path.
 
-### Transport-specific parameters moved from FastMCP constructor to run()/app methods
+### Transport-specific parameters moved from MCPServer constructor to run()/app methods
 
-Transport-specific parameters have been moved from the `FastMCP` constructor to the `run()`, `sse_app()`, and `streamable_http_app()` methods. This provides better separation of concerns - the constructor now only handles server identity and authentication, while transport configuration is passed when starting the server.
+Transport-specific parameters have been moved from the `MCPServer` constructor to the `run()`, `sse_app()`, and `streamable_http_app()` methods. This provides better separation of concerns - the constructor now only handles server identity and authentication, while transport configuration is passed when starting the server.
 
 **Parameters moved:**
 
@@ -138,42 +138,42 @@ Transport-specific parameters have been moved from the `FastMCP` constructor to 
 **Before (v1):**
 
 ```python
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Transport params in constructor
-mcp = FastMCP("Demo", json_response=True, stateless_http=True)
+mcp = MCPServer("Demo", json_response=True, stateless_http=True)
 mcp.run(transport="streamable-http")
 
 # Or for SSE
-mcp = FastMCP("Server", host="0.0.0.0", port=9000, sse_path="/events")
+mcp = MCPServer("Server", host="0.0.0.0", port=9000, sse_path="/events")
 mcp.run(transport="sse")
 ```
 
 **After (v2):**
 
 ```python
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Transport params passed to run()
-mcp = FastMCP("Demo")
+mcp = MCPServer("Demo")
 mcp.run(transport="streamable-http", json_response=True, stateless_http=True)
 
 # Or for SSE
-mcp = FastMCP("Server")
+mcp = MCPServer("Server")
 mcp.run(transport="sse", host="0.0.0.0", port=9000, sse_path="/events")
 ```
 
 **For mounted apps:**
 
-When mounting FastMCP in a Starlette app, pass transport params to the app methods:
+When mounting MCPServer in a Starlette app, pass transport params to the app methods:
 
 ```python
 # Before (v1)
-mcp = FastMCP("App", json_response=True)
+mcp = MCPServer("App", json_response=True)
 app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())])
 
 # After (v2)
-mcp = FastMCP("App")
+mcp = MCPServer("App")
 app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=True))])
 ```
 
@@ -349,7 +349,7 @@ params = CallToolRequestParams(
 
 ### `streamable_http_app()` available on lowlevel Server
 
-The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `FastMCP`. This allows using the streamable HTTP transport without the FastMCP wrapper.
+The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `MCPServer`. This allows using the streamable HTTP transport without the MCPServer wrapper.
 
 ```python
 from mcp.server.lowlevel.server import Server
