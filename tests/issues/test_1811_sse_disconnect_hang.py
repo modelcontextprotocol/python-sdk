@@ -156,7 +156,7 @@ async def test_client_receives_error_on_sse_disconnect(slow_server_url: str):
 
             # Call the slow tool - the read timeout should fire
             # and the client should receive an error instead of hanging
-            with pytest.raises(McpError, match="SSE stream disconnected"):
+            with pytest.raises(McpError, match="SSE stream disconnected"):  # pragma: no branch
                 await session.call_tool("slow_tool", {})
 
 
