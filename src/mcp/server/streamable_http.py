@@ -388,7 +388,7 @@ class StreamableHTTPServerTransport:
                 await self._handle_delete_request(request, send)
             else:  # pragma: no cover
                 await self._handle_unsupported_request(request, send)
-        except ClientDisconnect:
+        except ClientDisconnect:  # pragma: no cover
             logger.debug(f"Client disconnected during {request.method} request")
 
     def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
