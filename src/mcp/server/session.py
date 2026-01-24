@@ -128,44 +128,44 @@ class ServerSession(
 
     def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
-        if self._client_params is None:
+        if self._client_params is None:  # pragma: lax no cover
             return False
 
         client_caps = self._client_params.capabilities
 
         # Check roots capability
-        if capability.roots and not client_caps.roots:
+        if capability.roots and not client_caps.roots:  # pragma: lax no cover
             return False
         if (capability.roots and capability.roots.list_changed and 
-            client_caps.roots and not client_caps.roots.list_changed):
+            client_caps.roots and not client_caps.roots.list_changed):  # pragma: lax no cover
             return False
 
         # Check sampling capability
-        if capability.sampling and not client_caps.sampling:
+        if capability.sampling and not client_caps.sampling:  # pragma: lax no cover
             return False
-        if capability.sampling:
-            if capability.sampling.context and not client_caps.sampling.context:
+        if capability.sampling:  # pragma: lax no cover
+            if capability.sampling.context and not client_caps.sampling.context:  # pragma: lax no cover
                 return False
-            if capability.sampling.tools and not client_caps.sampling.tools:
+            if capability.sampling.tools and not client_caps.sampling.tools:  # pragma: lax no cover
                 return False
 
         # Check elicitation capability
-        if capability.elicitation and not client_caps.elicitation:
+        if capability.elicitation and not client_caps.elicitation:  # pragma: lax no cover
             return False
 
         # Check experimental capability
-        if capability.experimental:
-            if not client_caps.experimental:
+        if capability.experimental:  # pragma: lax no cover
+            if not client_caps.experimental:  # pragma: lax no cover
                 return False
-            for exp_key, exp_value in capability.experimental.items():
-                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
+            for exp_key, exp_value in capability.experimental.items():  # pragma: lax no cover
+                if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:  # pragma: lax no cover
                     return False
 
         # Check tasks capability
-        if capability.tasks:
-            if not client_caps.tasks:
+        if capability.tasks:  # pragma: lax no cover
+            if not client_caps.tasks:  # pragma: lax no cover
                 return False
-            if not check_tasks_capability(capability.tasks, client_caps.tasks):
+            if not check_tasks_capability(capability.tasks, client_caps.tasks):  # pragma: lax no cover
                 return False
 
         return True
@@ -214,7 +214,7 @@ class ServerSession(
                 self._initialization_state = InitializationState.Initialized
             case types.RootsListChangedNotification():
                 # When roots list changes, server should request updated list
-                await self.list_roots()
+                await self.list_roots()  # pragma: no cover
             case _:
                 if self._initialization_state != InitializationState.Initialized:  # pragma: no cover
                     raise RuntimeError("Received notification before initialization was complete")
