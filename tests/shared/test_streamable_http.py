@@ -566,10 +566,10 @@ def json_server_url(json_server_port: int) -> str:
 # Basic request validation tests
 def test_accept_header_validation(basic_server: None, basic_server_url: str):
     """Test that Accept header is properly validated."""
-    # Test without Accept header
+    # Test with non-matching Accept header (text/html doesn't match json or sse)
     response = requests.post(
         f"{basic_server_url}/mcp",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "Accept": "text/html"},
         json={"jsonrpc": "2.0", "method": "initialize", "id": 1},
     )
     assert response.status_code == 406
@@ -818,12 +818,13 @@ def test_json_response_accept_json_only(json_response_server: None, json_server_
 
 
 def test_json_response_missing_accept_header(json_response_server: None, json_server_url: str):
-    """Test that json_response servers reject requests without Accept header."""
+    """Test that json_response servers reject requests with non-matching Accept header."""
     mcp_url = f"{json_server_url}/mcp"
     response = requests.post(
         mcp_url,
         headers={
             "Content-Type": "application/json",
+            "Accept": "text/html",
         },
         json=INIT_REQUEST,
     )
@@ -935,12 +936,13 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     assert init_data is not None
     negotiated_version = init_data["result"]["protocolVersion"]
 
-    # Test without Accept header
+    # Test with non-matching Accept header
     response = requests.get(
         mcp_url,
         headers={
             MCP_SESSION_ID_HEADER: session_id,
             MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+            "Accept": "text/html",
         },
         stream=True,
     )

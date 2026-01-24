@@ -82,7 +82,7 @@ class ServerThread(threading.Thread):
 
         try:
             anyio.run(run_lifespan)
-        except BaseException:
+        except BaseException:  # pragma: no cover
             # Suppress cleanup exceptions (e.g., ResourceWarning from
             # unclosed streams in stateless transport mode)
             pass
