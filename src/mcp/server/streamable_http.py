@@ -405,8 +405,7 @@ class StreamableHTTPServerTransport:
             for media_type in accept_types
         )
         has_sse = any(
-            media_type.startswith(CONTENT_TYPE_SSE) or media_type in {"*/*", "text/*"}
-            for media_type in accept_types
+            media_type.startswith(CONTENT_TYPE_SSE) or media_type in {"*/*", "text/*"} for media_type in accept_types
         )
 
         return has_json, has_sse
