@@ -20,7 +20,7 @@ from starlette.routing import Mount
 
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import Tool
+from mcp.types import TextContent, Tool
 
 SERVER_NAME = "test_client_disconnect_server"
 
@@ -42,10 +42,10 @@ class SlowServer(Server):
             ]
 
         @self.call_tool()
-        async def handle_call_tool(name: str, arguments: dict) -> list:
+        async def handle_call_tool(name: str, arguments: dict[str, object]) -> list[TextContent]:
             if name == "slow_tool":
                 await anyio.sleep(10)
-                return [{"type": "text", "text": "done"}]
+                return [TextContent(type="text", text="done")]
             raise ValueError(f"Unknown tool: {name}")
 
 
