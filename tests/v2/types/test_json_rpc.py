@@ -1,5 +1,4 @@
-"""
-Tests for JSON-RPC TypeAdapter message discrimination.
+"""Tests for JSON-RPC TypeAdapter message discrimination.
 
 The core question: Given a raw JSON dict, does the TypeAdapter correctly
 identify whether it's a Request, Notification, ResultResponse, or ErrorResponse?

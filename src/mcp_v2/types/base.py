@@ -13,7 +13,7 @@ ProgressToken = str | int
 class MCPModel(BaseModel):
     """Base class for all MCP domain types. Allows extra fields for forward compatibility."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
 class RequestMeta(MCPModel):
