@@ -7,6 +7,9 @@ on:
 
 jobs:
   claude-review:
+    # Fork PRs don't have access to secrets or OIDC tokens, so the action
+    # cannot authenticate. See https://github.com/anthropics/claude-code-action/issues/339
+    if: github.event.pull_request.head.repo.fork == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
