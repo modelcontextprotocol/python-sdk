@@ -748,9 +748,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 request_data = None
                 close_sse_stream_cb = None
                 close_standalone_sse_stream_cb = None
-                if message.message_metadata is not None and isinstance(
-                    message.message_metadata, ServerMessageMetadata
-                ):  # pragma: no cover
+                if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):
                     request_data = message.message_metadata.request_context
                     close_sse_stream_cb = message.message_metadata.close_sse_stream
                     close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
