@@ -60,17 +60,22 @@ The following deprecated type aliases and classes have been removed from `mcp.ty
 |---------|-------------|
 | `Content` | `ContentBlock` |
 | `ResourceReference` | `ResourceTemplateReference` |
+| `Cursor` | Use `str` directly |
+| `MethodT` | Internal TypeVar, not intended for public use |
+| `RequestParamsT` | Internal TypeVar, not intended for public use |
+| `NotificationParamsT` | Internal TypeVar, not intended for public use |
 
 **Before (v1):**
 
 ```python
-from mcp.types import Content, ResourceReference
+from mcp.types import Content, ResourceReference, Cursor
 ```
 
 **After (v2):**
 
 ```python
 from mcp.types import ContentBlock, ResourceTemplateReference
+# Use `str` instead of `Cursor` for pagination cursors
 ```
 
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
