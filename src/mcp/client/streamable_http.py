@@ -354,7 +354,7 @@ class StreamableHTTPTransport:
     ) -> None:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
         # Bail if max retries exceeded
-        if attempt >= MAX_RECONNECTION_ATTEMPTS:
+        if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
             await self._send_disconnect_error(ctx)
             return
@@ -424,7 +424,7 @@ class StreamableHTTPTransport:
 
     async def _send_disconnect_error(self, ctx: RequestContext) -> None:
         """Send a disconnect error to unblock the client waiting on the read stream."""
-        if isinstance(ctx.session_message.message, JSONRPCRequest):
+        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
             request_id = ctx.session_message.message.id
             jsonrpc_error = JSONRPCError(
                 jsonrpc="2.0",

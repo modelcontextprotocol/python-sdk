@@ -34,7 +34,7 @@ def get_free_port() -> int:
         return s.getsockname()[1]
 
 
-def create_slow_server_app() -> Starlette:
+def create_slow_server_app() -> Starlette:  # pragma: no cover
     """Create a server with a tool that takes a long time to respond."""
     server = Server(SERVER_NAME)
 
@@ -67,7 +67,7 @@ def create_slow_server_app() -> Starlette:
     )
 
 
-def create_fast_server_app() -> Starlette:
+def create_fast_server_app() -> Starlette:  # pragma: no cover
     """Create a server with a fast tool for sanity testing."""
     server = Server(SERVER_NAME)
 
@@ -98,7 +98,7 @@ def create_fast_server_app() -> Starlette:
     )
 
 
-def run_server(port: int, slow: bool = True) -> None:
+def run_server(port: int, slow: bool = True) -> None:  # pragma: no cover
     """Run the server in a separate process."""
     import uvicorn
 
