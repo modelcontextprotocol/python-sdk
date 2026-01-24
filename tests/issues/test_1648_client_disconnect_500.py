@@ -46,7 +46,7 @@ class SlowServer(Server):
             if name == "slow_tool":
                 await anyio.sleep(10)
                 return [TextContent(type="text", text="done")]
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
 
 
 def create_app() -> Starlette:
@@ -125,7 +125,7 @@ async def test_client_disconnect_does_not_produce_500(caplog: pytest.LogCaptureF
                             "Content-Type": "application/json",
                         },
                     )
-                except (httpx.ReadTimeout, httpx.ReadError):
+                except (httpx.ReadTimeout, httpx.ReadError):  # pragma: no cover
                     pass  # Expected - client timed out
 
         # Wait briefly for any async error logging to complete
@@ -171,7 +171,7 @@ async def test_server_healthy_after_client_disconnect():
                         "Content-Type": "application/json",
                     },
                 )
-            except (httpx.ReadTimeout, httpx.ReadError):
+            except (httpx.ReadTimeout, httpx.ReadError):  # pragma: no cover
                 pass  # Expected - client timed out
 
         # Create a new client for the second request
