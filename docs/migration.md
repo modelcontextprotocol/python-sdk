@@ -116,6 +116,26 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
+### `FastMCP` renamed to `MCPServer`
+
+The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. This is a simple rename with no functional changes to the class itself.
+
+**Before (v1):**
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Demo")
+```
+
+**After (v2):**
+
+```python
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo")
+```
+
 ### `mount_path` parameter removed from MCPServer
 
 The `mount_path` parameter has been removed from `MCPServer.__init__()`, `MCPServer.run()`, `MCPServer.run_sse_async()`, and `MCPServer.sse_app()`. It was also removed from the `Settings` class.
@@ -138,14 +158,14 @@ Transport-specific parameters have been moved from the `MCPServer` constructor t
 **Before (v1):**
 
 ```python
-from mcp.server.mcpserver import MCPServer
+from mcp.server.fastmcp import FastMCP
 
 # Transport params in constructor
-mcp = MCPServer("Demo", json_response=True, stateless_http=True)
+mcp = FastMCP("Demo", json_response=True, stateless_http=True)
 mcp.run(transport="streamable-http")
 
 # Or for SSE
-mcp = MCPServer("Server", host="0.0.0.0", port=9000, sse_path="/events")
+mcp = FastMCP("Server", host="0.0.0.0", port=9000, sse_path="/events")
 mcp.run(transport="sse")
 ```
 
@@ -165,14 +185,18 @@ mcp.run(transport="sse", host="0.0.0.0", port=9000, sse_path="/events")
 
 **For mounted apps:**
 
-When mounting MCPServer in a Starlette app, pass transport params to the app methods:
+When mounting in a Starlette app, pass transport params to the app methods:
 
 ```python
 # Before (v1)
-mcp = MCPServer("App", json_response=True)
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("App", json_response=True)
 app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())])
 
 # After (v2)
+from mcp.server.mcpserver import MCPServer
+
 mcp = MCPServer("App")
 app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=True))])
 ```
