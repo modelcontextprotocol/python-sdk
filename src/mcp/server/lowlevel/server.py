@@ -101,7 +101,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import McpError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -596,10 +596,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                         structured_content=maybe_structured_content,
                         is_error=False,
                     )
-                except UrlElicitationRequiredError:
+                except McpError as e:
                     # Re-raise UrlElicitationRequiredError so it can be properly handled
                     # by _handle_request, which converts it to an error response with code -32042
-                    raise
+                    if e.propagate_through_tool_handlers:
+                        raise
+                    return self._make_error_result(e.error.message)
                 except Exception as e:
                     return self._make_error_result(str(e))
 

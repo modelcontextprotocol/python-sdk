@@ -9,6 +9,12 @@ class McpError(Exception):
     """Exception type raised when an error arrives over an MCP connection."""
 
     error: ErrorData
+    propagate_through_tool_handlers: bool = False
+    """
+    If True, this exception should propagate through tool handler exception handling
+    without being wrapped as a tool error. This is used for protocol-level flow-control
+    exceptions that need to be converted to JSON-RPC error responses.
+    """
 
     def __init__(self, error: ErrorData):
         """Initialize McpError."""
@@ -48,6 +54,12 @@ class UrlElicitationRequiredError(McpError):
                 elicitation_id="auth-001"
             )
         ])
+    """
+
+    propagate_through_tool_handlers: bool = True
+    """
+    This exception propagates through tool handlers to be handled as a protocol-level
+    flow-control mechanism, converted to a JSON-RPC error response with code -32042.
     """
 
     def __init__(
