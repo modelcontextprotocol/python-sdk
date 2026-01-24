@@ -20,7 +20,7 @@ import pydantic_core
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
@@ -379,14 +379,17 @@ class StreamableHTTPServerTransport:
             await response(scope, receive, send)
             return
 
-        if request.method == "POST":
-            await self._handle_post_request(scope, request, receive, send)
-        elif request.method == "GET":  # pragma: no cover
-            await self._handle_get_request(request, send)
-        elif request.method == "DELETE":  # pragma: no cover
-            await self._handle_delete_request(request, send)
-        else:  # pragma: no cover
-            await self._handle_unsupported_request(request, send)
+        try:
+            if request.method == "POST":
+                await self._handle_post_request(scope, request, receive, send)
+            elif request.method == "GET":  # pragma: no cover
+                await self._handle_get_request(request, send)
+            elif request.method == "DELETE":  # pragma: no cover
+                await self._handle_delete_request(request, send)
+            else:  # pragma: no cover
+                await self._handle_unsupported_request(request, send)
+        except ClientDisconnect:
+            logger.debug(f"Client disconnected during {request.method} request")
 
     def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
         """Check if the request accepts the required media types."""
@@ -704,6 +707,8 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
+            except ClientDisconnect:
+                logger.debug("Client disconnected from standalone SSE stream")
             except Exception:
                 logger.exception("Error in standalone SSE writer")
             finally:
@@ -720,6 +725,11 @@ class StreamableHTTPServerTransport:
         try:
             # This will send headers immediately and establish the SSE connection
             await response(request.scope, request.receive, send)
+        except ClientDisconnect:
+            logger.debug("Client disconnected from GET SSE stream")
+            await sse_stream_writer.aclose()
+            await sse_stream_reader.aclose()
+            await self._clean_up_memory_streams(GET_STREAM_KEY)
         except Exception:
             logger.exception("Error in standalone SSE response")
             await sse_stream_writer.aclose()
@@ -910,6 +920,8 @@ class StreamableHTTPServerTransport:
                 except anyio.ClosedResourceError:
                     # Expected when close_sse_stream() is called
                     logger.debug("Replay SSE stream closed by close_sse_stream()")
+                except ClientDisconnect:
+                    logger.debug("Client disconnected during event replay")
                 except Exception:
                     logger.exception("Error in replay sender")
 
@@ -922,12 +934,16 @@ class StreamableHTTPServerTransport:
 
             try:
                 await response(request.scope, request.receive, send)
+            except ClientDisconnect:
+                logger.debug("Client disconnected during replay response")
             except Exception:
                 logger.exception("Error in replay response")
             finally:
                 await sse_stream_writer.aclose()
                 await sse_stream_reader.aclose()
 
+        except ClientDisconnect:
+            logger.debug("Client disconnected during event replay request")
         except Exception:
             logger.exception("Error replaying events")
             response = self._create_error_response(
