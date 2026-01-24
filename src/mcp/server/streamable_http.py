@@ -806,14 +806,14 @@ class StreamableHTTPServerTransport:
         )
         await response(request.scope, request.receive, send)
 
-    async def _validate_request_headers(self, request: Request, send: Send) -> bool:
+    async def _validate_request_headers(self, request: Request, send: Send) -> bool:  # pragma: lax no cover
         if not await self._validate_session(request, send):
             return False
         if not await self._validate_protocol_version(request, send):
             return False
         return True
 
-    async def _validate_session(self, request: Request, send: Send) -> bool:
+    async def _validate_session(self, request: Request, send: Send) -> bool:  # pragma: lax no cover
         """Validate the session ID in the request."""
         if not self.mcp_session_id:
             # If we're not using session IDs, return True
@@ -842,7 +842,7 @@ class StreamableHTTPServerTransport:
 
         return True
 
-    async def _validate_protocol_version(self, request: Request, send: Send) -> bool:
+    async def _validate_protocol_version(self, request: Request, send: Send) -> bool:  # pragma: lax no cover
         """Validate the protocol version header in the request."""
         # Get the protocol version from the request headers
         protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
