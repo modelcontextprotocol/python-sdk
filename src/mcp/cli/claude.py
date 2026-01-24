@@ -49,7 +49,7 @@ def update_claude_config(
     with_packages: list[str] | None = None,
     env_vars: dict[str, str] | None = None,
 ) -> bool:
-    """Add or update a MCP server in Claude's configuration.
+    """Add or update an MCP server in Claude's configuration.
 
     Args:
         file_spec: Path to the server file, optionally with :object suffix

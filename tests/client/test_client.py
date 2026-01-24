@@ -69,7 +69,7 @@ def simple_server() -> Server:
 
 @pytest.fixture
 def app() -> MCPServer:
-    """Create a MCPServer server for testing."""
+    """Create an MCPServer server for testing."""
     server = MCPServer("test")
 
     @server.tool()

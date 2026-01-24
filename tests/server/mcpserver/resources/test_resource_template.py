@@ -220,7 +220,7 @@ class TestResourceTemplateAnnotations:
 
     @pytest.mark.anyio
     async def test_template_annotations_in_mcpserver(self):
-        """Test template annotations via MCPServer decorator."""
+        """Test template annotations via an MCPServer decorator."""
 
         mcp = MCPServer()
 

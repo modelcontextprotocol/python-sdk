@@ -31,7 +31,7 @@ def simple_server() -> Server:
 
 @pytest.fixture
 def mcpserver_server() -> MCPServer:
-    """Create a MCPServer server for testing."""
+    """Create an MCPServer server for testing."""
     server = MCPServer("test")
 
     @server.tool()
@@ -59,7 +59,7 @@ async def test_with_server(simple_server: Server):
 
 
 async def test_with_mcpserver(mcpserver_server: MCPServer):
-    """Test creating transport with a MCPServer instance."""
+    """Test creating transport with an MCPServer instance."""
     transport = InMemoryTransport(mcpserver_server)
     async with transport.connect() as (read_stream, write_stream):
         assert read_stream is not None
