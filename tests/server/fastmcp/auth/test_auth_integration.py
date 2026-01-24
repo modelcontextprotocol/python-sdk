@@ -311,7 +311,7 @@ class TestAuthEndpoints:
         assert response.status_code == 200
 
         metadata = response.json()
-        assert metadata["issuer"] == "https://auth.example.com/"
+        assert metadata["issuer"] == "https://auth.example.com"
         assert metadata["authorization_endpoint"] == "https://auth.example.com/authorize"
         assert metadata["token_endpoint"] == "https://auth.example.com/token"
         assert metadata["registration_endpoint"] == "https://auth.example.com/register"

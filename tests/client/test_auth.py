@@ -1283,6 +1283,7 @@ class TestAuthFlow:
 @pytest.mark.parametrize(
     (
         "issuer_url",
+        "expected_issuer",
         "service_documentation_url",
         "authorization_endpoint",
         "token_endpoint",
@@ -1290,9 +1291,8 @@ class TestAuthFlow:
         "revocation_endpoint",
     ),
     (
-        # Pydantic's AnyUrl incorrectly adds trailing slash to base URLs
-        # This is being fixed in https://github.com/pydantic/pydantic-core/pull/1719 (Pydantic 2.12+)
         pytest.param(
+            "https://auth.example.com",
             "https://auth.example.com",
             "https://auth.example.com/docs",
             "https://auth.example.com/authorize",
@@ -1300,12 +1300,10 @@ class TestAuthFlow:
             "https://auth.example.com/register",
             "https://auth.example.com/revoke",
             id="simple-url",
-            marks=pytest.mark.xfail(
-                reason="Pydantic AnyUrl adds trailing slash to base URLs - fixed in Pydantic 2.12+"
-            ),
         ),
         pytest.param(
             "https://auth.example.com/",
+            "https://auth.example.com",
             "https://auth.example.com/docs",
             "https://auth.example.com/authorize",
             "https://auth.example.com/token",
@@ -1314,6 +1312,7 @@ class TestAuthFlow:
             id="with-trailing-slash",
         ),
         pytest.param(
+            "https://auth.example.com/v1/mcp",
             "https://auth.example.com/v1/mcp",
             "https://auth.example.com/v1/mcp/docs",
             "https://auth.example.com/v1/mcp/authorize",
@@ -1326,6 +1325,7 @@ class TestAuthFlow:
 )
 def test_build_metadata(
     issuer_url: str,
+    expected_issuer: str,
     service_documentation_url: str,
     authorization_endpoint: str,
     token_endpoint: str,
@@ -1341,7 +1341,7 @@ def test_build_metadata(
 
     assert metadata.model_dump(exclude_defaults=True, mode="json") == snapshot(
         {
-            "issuer": Is(issuer_url),
+            "issuer": Is(expected_issuer),
             "authorization_endpoint": Is(authorization_endpoint),
             "token_endpoint": Is(token_endpoint),
             "registration_endpoint": Is(registration_endpoint),
