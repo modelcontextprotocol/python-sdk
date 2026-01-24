@@ -213,11 +213,11 @@ class FastMCP(Generic[LifespanResultT]):
             RuntimeError: If called before streamable_http_app() has been called.
         """
         return self._mcp_server.session_manager  # pragma: no cover
-    
+
     @property
     def mcp_server(self):
         """Get the underlying MCP server instance.
-        
+
         This is exposed to enable advanced use cases like in-memory testing.
         """
         return self._mcp_server

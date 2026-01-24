@@ -147,7 +147,7 @@ class ServerSession(
         # Check sampling capability
         if capability.sampling and not client_caps.sampling:  # pragma: lax no cover
             return False
-        if capability.sampling:  # pragma: lax no cover
+        if capability.sampling and client_caps.sampling:  # pragma: lax no cover
             if capability.sampling.context and not client_caps.sampling.context:  # pragma: lax no cover
                 return False
             if capability.sampling.tools and not client_caps.sampling.tools:  # pragma: lax no cover
