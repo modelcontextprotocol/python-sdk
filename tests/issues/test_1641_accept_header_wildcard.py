@@ -165,29 +165,29 @@ async def test_accept_application_wildcard():
 
 @pytest.mark.anyio
 async def test_accept_text_wildcard_with_json():
-    """Accept: application/json, text/* should satisfy both requirements in SSE mode."""
-    app = create_app(json_response=False)
-    server_thread = ServerThread(app)
-    server_thread.start()
+    """Accept: application/json, text/* should satisfy both requirements in SSE mode.
 
-    try:
-        await anyio.sleep(0.2)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client:
-            response = await client.post(
-                "/",
-                json=INIT_REQUEST,
-                headers={
-                    "Accept": "application/json, text/*",
-                    "Content-Type": "application/json",
-                },
-            )
-            assert response.status_code == 200
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
+    Tests the Accept header parsing directly to verify text/* matches
+    text/event-stream. A full HTTP round-trip in SSE mode is not used because
+    EventSourceResponse behavior varies across sse-starlette versions.
+    """
+    from starlette.requests import Request
+
+    from mcp.server.streamable_http import StreamableHTTPServerTransport
+
+    transport = StreamableHTTPServerTransport(
+        mcp_session_id=None,
+        is_json_response_enabled=False,
+    )
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "headers": [(b"accept", b"application/json, text/*")],
+    }
+    request = Request(scope)
+    has_json, has_sse = transport._check_accept_headers(request)
+    assert has_json, "application/json should match JSON content type"
+    assert has_sse, "text/* should match text/event-stream"
 
 
 @pytest.mark.anyio
