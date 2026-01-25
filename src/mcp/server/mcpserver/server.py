@@ -348,15 +348,14 @@ class MCPServer(Generic[LifespanResultT]):
 
         context = self.get_context()
         resource = await self._resource_manager.get_resource(uri, context=context)
-        if not resource:  # pragma: no cover
+        if not resource:
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
-        except Exception as e:  # pragma: no cover
-            logger.exception(f"Error reading resource {uri}")
-            raise ResourceError(str(e))
+        except Exception as exc:
+            raise ResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
         self,

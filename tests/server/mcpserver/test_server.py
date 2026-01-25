@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from inline_snapshot import snapshot
 from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
@@ -22,15 +23,24 @@ from mcp.types import (
     BlobResourceContents,
     ContentBlock,
     EmbeddedResource,
+    GetPromptResult,
     Icon,
     ImageContent,
+    ListPromptsResult,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
+    ReadResourceResult,
+    Resource,
+    ResourceTemplate,
     TextContent,
     TextResourceContents,
 )
 
+pytestmark = pytest.mark.anyio
+
 
 class TestServer:
-    @pytest.mark.anyio
     async def test_create_server(self):
         mcp = MCPServer(
             title="MCPServer Server",
@@ -50,7 +60,6 @@ class TestServer:
         assert len(mcp.icons) == 1
         assert mcp.icons[0].src == "https://example.com/icon.png"
 
-    @pytest.mark.anyio
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
@@ -68,7 +77,6 @@ class TestServer:
         assert sse_routes[0].path == "/sse"
         assert mount_routes[0].path == "/messages"
 
-    @pytest.mark.anyio
     async def test_non_ascii_description(self):
         """Test that MCPServer handles non-ASCII characters in descriptions correctly"""
         mcp = MCPServer()
@@ -92,7 +100,6 @@ class TestServer:
             assert isinstance(content, TextContent)
             assert "¡Hola, 世界! 👋" == content.text
 
-    @pytest.mark.anyio
     async def test_add_tool_decorator(self):
         mcp = MCPServer()
 
@@ -102,7 +109,6 @@ class TestServer:
 
         assert len(mcp._tool_manager.list_tools()) == 1
 
-    @pytest.mark.anyio
     async def test_add_tool_decorator_incorrect_usage(self):
         mcp = MCPServer()
 
@@ -112,7 +118,6 @@ class TestServer:
             def sum(x: int, y: int) -> int:  # pragma: no cover
                 return x + y
 
-    @pytest.mark.anyio
     async def test_add_resource_decorator(self):
         mcp = MCPServer()
 
@@ -122,7 +127,6 @@ class TestServer:
 
         assert len(mcp._resource_manager._templates) == 1
 
-    @pytest.mark.anyio
     async def test_add_resource_decorator_incorrect_usage(self):
         mcp = MCPServer()
 
@@ -219,14 +223,12 @@ def mixed_content_tool_fn() -> list[ContentBlock]:
 
 
 class TestServerTools:
-    @pytest.mark.anyio
     async def test_add_tool(self):
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
         mcp.add_tool(tool_fn)
         assert len(mcp._tool_manager.list_tools()) == 1
 
-    @pytest.mark.anyio
     async def test_list_tools(self):
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
@@ -234,7 +236,6 @@ class TestServerTools:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
 
-    @pytest.mark.anyio
     async def test_call_tool(self):
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
@@ -243,7 +244,6 @@ class TestServerTools:
             assert not hasattr(result, "error")
             assert len(result.content) > 0
 
-    @pytest.mark.anyio
     async def test_tool_exception_handling(self):
         mcp = MCPServer()
         mcp.add_tool(error_tool_fn)
@@ -255,7 +255,6 @@ class TestServerTools:
             assert "Test error" in content.text
             assert result.is_error is True
 
-    @pytest.mark.anyio
     async def test_tool_error_handling(self):
         mcp = MCPServer()
         mcp.add_tool(error_tool_fn)
@@ -267,7 +266,6 @@ class TestServerTools:
             assert "Test error" in content.text
             assert result.is_error is True
 
-    @pytest.mark.anyio
     async def test_tool_error_details(self):
         """Test that exception details are properly formatted in the response"""
         mcp = MCPServer()
@@ -280,7 +278,6 @@ class TestServerTools:
             assert "Test error" in content.text
             assert result.is_error is True
 
-    @pytest.mark.anyio
     async def test_tool_return_value_conversion(self):
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
@@ -294,7 +291,6 @@ class TestServerTools:
             assert result.structured_content is not None
             assert result.structured_content == {"result": 3}
 
-    @pytest.mark.anyio
     async def test_tool_image_helper(self, tmp_path: Path):
         # Create a test image
         image_path = tmp_path / "test.png"
@@ -315,7 +311,6 @@ class TestServerTools:
             # Check structured content - Image return type should NOT have structured output
             assert result.structured_content is None
 
-    @pytest.mark.anyio
     async def test_tool_audio_helper(self, tmp_path: Path):
         # Create a test audio
         audio_path = tmp_path / "test.wav"
@@ -348,7 +343,6 @@ class TestServerTools:
             ("test.unknown", "application/octet-stream"),  # Unknown extension fallback
         ],
     )
-    @pytest.mark.anyio
     async def test_tool_audio_suffix_detection(self, tmp_path: Path, filename: str, expected_mime_type: str):
         """Test that Audio helper correctly detects MIME types from file suffixes"""
         mcp = MCPServer()
@@ -369,7 +363,6 @@ class TestServerTools:
             decoded = base64.b64decode(content.data)
             assert decoded == b"fake audio data"
 
-    @pytest.mark.anyio
     async def test_tool_mixed_content(self):
         mcp = MCPServer()
         mcp.add_tool(mixed_content_tool_fn)
@@ -400,7 +393,6 @@ class TestServerTools:
                 for key, value in expected.items():
                     assert structured_result[i][key] == value
 
-    @pytest.mark.anyio
     async def test_tool_mixed_list_with_audio_and_image(self, tmp_path: Path):
         """Test that lists containing Image objects and other types are handled
         correctly"""
@@ -453,7 +445,6 @@ class TestServerTools:
             # Check structured content - untyped list with Image objects should NOT have structured output
             assert result.structured_content is None
 
-    @pytest.mark.anyio
     async def test_tool_structured_output_basemodel(self):
         """Test tool with structured output returning BaseModel"""
 
@@ -488,7 +479,6 @@ class TestServerTools:
             assert isinstance(result.content[0], TextContent)
             assert '"name": "John Doe"' in result.content[0].text
 
-    @pytest.mark.anyio
     async def test_tool_structured_output_primitive(self):
         """Test tool with structured output returning primitive type"""
 
@@ -515,7 +505,6 @@ class TestServerTools:
             assert result.structured_content is not None
             assert result.structured_content == {"result": 12}
 
-    @pytest.mark.anyio
     async def test_tool_structured_output_list(self):
         """Test tool with structured output returning list"""
 
@@ -532,7 +521,6 @@ class TestServerTools:
             assert result.structured_content is not None
             assert result.structured_content == {"result": [1, 2, 3, 4, 5]}
 
-    @pytest.mark.anyio
     async def test_tool_structured_output_server_side_validation_error(self):
         """Test that server-side validation errors are handled properly"""
 
@@ -549,7 +537,6 @@ class TestServerTools:
             assert len(result.content) == 1
             assert isinstance(result.content[0], TextContent)
 
-    @pytest.mark.anyio
     async def test_tool_structured_output_dict_str_any(self):
         """Test tool with dict[str, Any] structured output"""
 
@@ -591,7 +578,6 @@ class TestServerTools:
             }
             assert result.structured_content == expected
 
-    @pytest.mark.anyio
     async def test_tool_structured_output_dict_str_typed(self):
         """Test tool with dict[str, T] structured output for specific T"""
 
@@ -615,7 +601,6 @@ class TestServerTools:
             assert result.is_error is False
             assert result.structured_content == {"theme": "dark", "language": "en", "timezone": "UTC"}
 
-    @pytest.mark.anyio
     async def test_remove_tool(self):
         """Test removing a tool from the server."""
         mcp = MCPServer()
@@ -630,7 +615,6 @@ class TestServerTools:
         # Verify tool is removed
         assert len(mcp._tool_manager.list_tools()) == 0
 
-    @pytest.mark.anyio
     async def test_remove_nonexistent_tool(self):
         """Test that removing a non-existent tool raises ToolError."""
         mcp = MCPServer()
@@ -638,7 +622,6 @@ class TestServerTools:
         with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
             mcp.remove_tool("nonexistent")
 
-    @pytest.mark.anyio
     async def test_remove_tool_and_list(self):
         """Test that a removed tool doesn't appear in list_tools."""
         mcp = MCPServer()
@@ -662,7 +645,6 @@ class TestServerTools:
             assert len(tools.tools) == 1
             assert tools.tools[0].name == "error_tool_fn"
 
-    @pytest.mark.anyio
     async def test_remove_tool_and_call(self):
         """Test that calling a removed tool fails appropriately."""
         mcp = MCPServer()
@@ -689,7 +671,6 @@ class TestServerTools:
 
 
 class TestServerResources:
-    @pytest.mark.anyio
     async def test_text_resource(self):
         mcp = MCPServer()
 
@@ -702,13 +683,29 @@ class TestServerResources:
         async with Client(mcp) as client:
             result = await client.read_resource("resource://test")
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://test")
-
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello, world!"
 
-    @pytest.mark.anyio
+    async def test_read_unknown_resource(self):
+        """Test that reading an unknown resource raises MCPError."""
+        mcp = MCPServer()
+
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError, match="Unknown resource: unknown://missing"):
+                await client.read_resource("unknown://missing")
+
+    async def test_read_resource_error(self):
+        """Test that resource read errors are properly wrapped in MCPError."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://failing")
+        def failing_resource():
+            raise ValueError("Resource read failed")
+
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError, match="Error reading resource resource://failing"):
+                await client.read_resource("resource://failing")
+
     async def test_binary_resource(self):
         mcp = MCPServer()
 
@@ -726,13 +723,9 @@ class TestServerResources:
         async with Client(mcp) as client:
             result = await client.read_resource("resource://binary")
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://binary")
-
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary data").decode()
 
-    @pytest.mark.anyio
     async def test_file_resource_text(self, tmp_path: Path):
         mcp = MCPServer()
 
@@ -746,13 +739,9 @@ class TestServerResources:
         async with Client(mcp) as client:
             result = await client.read_resource("file://test.txt")
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("file://test.txt")
-
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Hello from file!"
 
-    @pytest.mark.anyio
     async def test_file_resource_binary(self, tmp_path: Path):
         mcp = MCPServer()
 
@@ -771,13 +760,9 @@ class TestServerResources:
         async with Client(mcp) as client:
             result = await client.read_resource("file://test.bin")
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("file://test.bin")
-
             assert isinstance(result.contents[0], BlobResourceContents)
             assert result.contents[0].blob == base64.b64encode(b"Binary file data").decode()
 
-    @pytest.mark.anyio
     async def test_function_resource(self):
         mcp = MCPServer()
 
@@ -797,7 +782,6 @@ class TestServerResources:
 
 
 class TestServerResourceTemplates:
-    @pytest.mark.anyio
     async def test_resource_with_params(self):
         """Test that a resource with function parameters raises an error if the URI
         parameters don't match"""
@@ -809,7 +793,6 @@ class TestServerResourceTemplates:
             def get_data_fn(param: str) -> str:  # pragma: no cover
                 return f"Data: {param}"
 
-    @pytest.mark.anyio
     async def test_resource_with_uri_params(self):
         """Test that a resource with URI parameters is automatically a template"""
         mcp = MCPServer()
@@ -820,7 +803,6 @@ class TestServerResourceTemplates:
             def get_data() -> str:  # pragma: no cover
                 return "Data"
 
-    @pytest.mark.anyio
     async def test_resource_with_untyped_params(self):
         """Test that a resource with untyped parameters raises an error"""
         mcp = MCPServer()
@@ -829,7 +811,6 @@ class TestServerResourceTemplates:
         def get_data(param) -> str:  # type: ignore  # pragma: no cover
             return "Data"
 
-    @pytest.mark.anyio
     async def test_resource_matching_params(self):
         """Test that a resource with matching URI and function parameters works"""
         mcp = MCPServer()
@@ -841,13 +822,9 @@ class TestServerResourceTemplates:
         async with Client(mcp) as client:
             result = await client.read_resource("resource://test/data")
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://test/data")
-
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for test"
 
-    @pytest.mark.anyio
     async def test_resource_mismatched_params(self):
         """Test that mismatched parameters raise an error"""
         mcp = MCPServer()
@@ -858,7 +835,6 @@ class TestServerResourceTemplates:
             def get_data(user: str) -> str:  # pragma: no cover
                 return f"Data for {user}"
 
-    @pytest.mark.anyio
     async def test_resource_multiple_params(self):
         """Test that multiple parameters work correctly"""
         mcp = MCPServer()
@@ -870,13 +846,9 @@ class TestServerResourceTemplates:
         async with Client(mcp) as client:
             result = await client.read_resource("resource://cursor/myrepo/data")
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://cursor/myrepo/data")
-
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Data for cursor/myrepo"
 
-    @pytest.mark.anyio
     async def test_resource_multiple_mismatched_params(self):
         """Test that mismatched parameters raise an error"""
         mcp = MCPServer()
@@ -897,13 +869,9 @@ class TestServerResourceTemplates:
         async with Client(mcp) as client:
             result = await client.read_resource("resource://static")
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://static")
-
             assert isinstance(result.contents[0], TextResourceContents)
             assert result.contents[0].text == "Static data"
 
-    @pytest.mark.anyio
     async def test_template_to_resource_conversion(self):
         """Test that templates are properly converted to resources when accessed"""
         mcp = MCPServer()
@@ -922,7 +890,6 @@ class TestServerResourceTemplates:
         result = await resource.read()
         assert result == "Data for test"
 
-    @pytest.mark.anyio
     async def test_resource_template_includes_mime_type(self):
         """Test that list resource templates includes the correct mimeType."""
         mcp = MCPServer()
@@ -932,20 +899,21 @@ class TestServerResourceTemplates:
             return f"csv for {user}"
 
         templates = await mcp.list_resource_templates()
-        assert len(templates) == 1
-        template = templates[0]
-
-        assert hasattr(template, "mime_type")
-        assert template.mime_type == "text/csv"
+        assert templates == snapshot(
+            [
+                ResourceTemplate(
+                    name="get_csv", uri_template="resource://{user}/csv", description="", mime_type="text/csv"
+                )
+            ]
+        )
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://bob/csv")
-
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://bob/csv")
-
-            assert isinstance(result.contents[0], TextResourceContents)
-            assert result.contents[0].text == "csv for bob"
+            assert result == snapshot(
+                ReadResourceResult(
+                    contents=[TextResourceContents(uri="resource://bob/csv", mime_type="text/csv", text="csv for bob")]
+                )
+            )
 
 
 class TestServerResourceMetadata:
@@ -955,74 +923,76 @@ class TestServerResourceMetadata:
     Note: read_resource does NOT pass meta to protocol response (lowlevel/server.py only extracts content/mime_type).
     """
 
-    @pytest.mark.anyio
     async def test_resource_decorator_with_metadata(self):
         """Test that @resource decorator accepts and passes meta parameter."""
         # Tests static resource flow: decorator -> FunctionResource -> list_resources (server.py:544,635,361)
         mcp = MCPServer()
 
-        metadata = {"ui": {"component": "file-viewer"}, "priority": "high"}
-
-        @mcp.resource("resource://config", meta=metadata)
-        def get_config() -> str:  # pragma: no cover
-            return '{"debug": false}'
+        @mcp.resource("resource://config", meta={"ui": {"component": "file-viewer"}, "priority": "high"})
+        def get_config() -> str: ...
 
         resources = await mcp.list_resources()
-        assert len(resources) == 1
-        assert resources[0].meta is not None
-        assert resources[0].meta == metadata
-        assert resources[0].meta["ui"]["component"] == "file-viewer"
-        assert resources[0].meta["priority"] == "high"
+        assert resources == snapshot(
+            [
+                Resource(
+                    name="get_config",
+                    uri="resource://config",
+                    description="",
+                    mime_type="text/plain",
+                    meta={"ui": {"component": "file-viewer"}, "priority": "high"},  # type: ignore[reportCallIssue]
+                )
+            ]
+        )
 
-    @pytest.mark.anyio
     async def test_resource_template_decorator_with_metadata(self):
         """Test that @resource decorator passes meta to templates."""
         # Tests template resource flow: decorator -> add_template() -> list_resource_templates (server.py:544,622,377)
         mcp = MCPServer()
 
-        metadata = {"api_version": "v2", "deprecated": False}
-
-        @mcp.resource("resource://{city}/weather", meta=metadata)
-        def get_weather(city: str) -> str:  # pragma: no cover
-            return f"Weather for {city}"
+        @mcp.resource("resource://{city}/weather", meta={"api_version": "v2", "deprecated": False})
+        def get_weather(city: str) -> str: ...
 
         templates = await mcp.list_resource_templates()
-        assert len(templates) == 1
-        assert templates[0].meta is not None
-        assert templates[0].meta == metadata
-        assert templates[0].meta["api_version"] == "v2"
+        assert templates == snapshot(
+            [
+                ResourceTemplate(
+                    name="get_weather",
+                    uri_template="resource://{city}/weather",
+                    description="",
+                    mime_type="text/plain",
+                    meta={"api_version": "v2", "deprecated": False},  # type: ignore[reportCallIssue]
+                )
+            ]
+        )
 
-    @pytest.mark.anyio
     async def test_read_resource_returns_meta(self):
         """Test that read_resource includes meta in response."""
         # Tests end-to-end: Resource.meta -> ReadResourceContents.meta -> protocol _meta (lowlevel/server.py:341,371)
         mcp = MCPServer()
 
-        metadata = {"version": "1.0", "category": "config"}
-
-        @mcp.resource("resource://data", meta=metadata)
+        @mcp.resource("resource://data", meta={"version": "1.0", "category": "config"})
         def get_data() -> str:
             return "test data"
 
         async with Client(mcp) as client:
             result = await client.read_resource("resource://data")
-
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://data")
-
-            # Verify content and metadata in protocol response
-            assert isinstance(result.contents[0], TextResourceContents)
-            assert result.contents[0].text == "test data"
-            assert result.contents[0].meta is not None
-            assert result.contents[0].meta == metadata
-            assert result.contents[0].meta["version"] == "1.0"
-            assert result.contents[0].meta["category"] == "config"
+            assert result == snapshot(
+                ReadResourceResult(
+                    contents=[
+                        TextResourceContents(
+                            uri="resource://data",
+                            mime_type="text/plain",
+                            meta={"version": "1.0", "category": "config"},  # type: ignore[reportUnknownMemberType]
+                            text="test data",
+                        )
+                    ]
+                )
+            )
 
 
 class TestContextInjection:
     """Test context injection in tools, resources, and prompts."""
 
-    @pytest.mark.anyio
     async def test_context_detection(self):
         """Test that context parameters are properly detected."""
         mcp = MCPServer()
@@ -1033,7 +1003,6 @@ class TestContextInjection:
         tool = mcp._tool_manager.add_tool(tool_with_context)
         assert tool.context_kwarg == "ctx"
 
-    @pytest.mark.anyio
     async def test_context_injection(self):
         """Test that context is properly injected into tool calls."""
         mcp = MCPServer()
@@ -1051,7 +1020,6 @@ class TestContextInjection:
             assert "Request" in content.text
             assert "42" in content.text
 
-    @pytest.mark.anyio
     async def test_async_context(self):
         """Test that context works in async functions."""
         mcp = MCPServer()
@@ -1069,7 +1037,6 @@ class TestContextInjection:
             assert "Async request" in content.text
             assert "42" in content.text
 
-    @pytest.mark.anyio
     async def test_context_logging(self):
         """Test that context logging methods work."""
         mcp = MCPServer()
@@ -1092,32 +1059,11 @@ class TestContextInjection:
                 assert "Logged messages for test" in content.text
 
                 assert mock_log.call_count == 4
-                mock_log.assert_any_call(
-                    level="debug",
-                    data="Debug message",
-                    logger=None,
-                    related_request_id="1",
-                )
-                mock_log.assert_any_call(
-                    level="info",
-                    data="Info message",
-                    logger=None,
-                    related_request_id="1",
-                )
-                mock_log.assert_any_call(
-                    level="warning",
-                    data="Warning message",
-                    logger=None,
-                    related_request_id="1",
-                )
-                mock_log.assert_any_call(
-                    level="error",
-                    data="Error message",
-                    logger=None,
-                    related_request_id="1",
-                )
+                mock_log.assert_any_call(level="debug", data="Debug message", logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="info", data="Info message", logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
 
-    @pytest.mark.anyio
     async def test_optional_context(self):
         """Test that context is optional."""
         mcp = MCPServer()
@@ -1133,7 +1079,6 @@ class TestContextInjection:
             assert isinstance(content, TextContent)
             assert content.text == "42"
 
-    @pytest.mark.anyio
     async def test_context_resource_access(self):
         """Test that context can access resources."""
         mcp = MCPServer()
@@ -1157,7 +1102,6 @@ class TestContextInjection:
             assert isinstance(content, TextContent)
             assert "Read resource: resource data" in content.text
 
-    @pytest.mark.anyio
     async def test_resource_with_context(self):
         """Test that resources can receive context parameter."""
         mcp = MCPServer()
@@ -1175,11 +1119,6 @@ class TestContextInjection:
         assert hasattr(template, "context_kwarg")
         assert template.context_kwarg == "ctx"
 
-        # Test via client
-
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://context/test")
-
         async with Client(mcp) as client:
             result = await client.read_resource("resource://context/test")
 
@@ -1189,7 +1128,6 @@ class TestContextInjection:
             # Should have either request_id or indication that context was injected
             assert "Resource test - context injected" == content.text
 
-    @pytest.mark.anyio
     async def test_resource_without_context(self):
         """Test that resources without context work normally."""
         mcp = MCPServer()
@@ -1205,20 +1143,18 @@ class TestContextInjection:
         template = templates[0]
         assert template.context_kwarg is None
 
-        # Test via client
-
         async with Client(mcp) as client:
             result = await client.read_resource("resource://nocontext/test")
+            assert result == snapshot(
+                ReadResourceResult(
+                    contents=[
+                        TextResourceContents(
+                            uri="resource://nocontext/test", mime_type="text/plain", text="Resource test works"
+                        )
+                    ]
+                )
+            )
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://nocontext/test")
-
-            assert len(result.contents) == 1
-            content = result.contents[0]
-            assert isinstance(content, TextResourceContents)
-            assert content.text == "Resource test works"
-
-    @pytest.mark.anyio
     async def test_resource_context_custom_name(self):
         """Test resource context with custom parameter name."""
         mcp = MCPServer()
@@ -1235,20 +1171,18 @@ class TestContextInjection:
         template = templates[0]
         assert template.context_kwarg == "my_ctx"
 
-        # Test via client
-
         async with Client(mcp) as client:
             result = await client.read_resource("resource://custom/123")
+            assert result == snapshot(
+                ReadResourceResult(
+                    contents=[
+                        TextResourceContents(
+                            uri="resource://custom/123", mime_type="text/plain", text="Resource 123 with context"
+                        )
+                    ]
+                )
+            )
 
-        async with Client(mcp) as client:
-            result = await client.read_resource("resource://custom/123")
-
-            assert len(result.contents) == 1
-            content = result.contents[0]
-            assert isinstance(content, TextResourceContents)
-            assert "Resource 123 with context" in content.text
-
-    @pytest.mark.anyio
     async def test_prompt_with_context(self):
         """Test that prompts can receive context parameter."""
         mcp = MCPServer()
@@ -1258,10 +1192,6 @@ class TestContextInjection:
             """Prompt that expects context."""
             assert ctx is not None
             return f"Prompt '{text}' - context injected"
-
-        # Check if prompt has context parameter detection
-        prompts = mcp._prompt_manager.list_prompts()
-        assert len(prompts) == 1
 
         # Test via client
         async with Client(mcp) as client:
@@ -1273,7 +1203,6 @@ class TestContextInjection:
             assert isinstance(content, TextContent)
             assert "Prompt 'test' - context injected" in content.text
 
-    @pytest.mark.anyio
     async def test_prompt_without_context(self):
         """Test that prompts without context work normally."""
         mcp = MCPServer()
@@ -1296,7 +1225,6 @@ class TestContextInjection:
 class TestServerPrompts:
     """Test prompt functionality in MCPServer server."""
 
-    @pytest.mark.anyio
     async def test_prompt_decorator(self):
         """Test that the prompt decorator registers prompts correctly."""
         mcp = MCPServer()
@@ -1313,7 +1241,6 @@ class TestServerPrompts:
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
-    @pytest.mark.anyio
     async def test_prompt_decorator_with_name(self):
         """Test prompt decorator with custom name."""
         mcp = MCPServer()
@@ -1329,7 +1256,6 @@ class TestServerPrompts:
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
-    @pytest.mark.anyio
     async def test_prompt_decorator_with_description(self):
         """Test prompt decorator with custom description."""
         mcp = MCPServer()
@@ -1351,32 +1277,33 @@ class TestServerPrompts:
         with pytest.raises(TypeError, match="decorator was used incorrectly"):
 
             @mcp.prompt  # type: ignore
-            def fn() -> str:  # pragma: no cover
+            def fn() -> str:
                 return "Hello, world!"
 
-    @pytest.mark.anyio
     async def test_list_prompts(self):
         """Test listing prompts through MCP protocol."""
         mcp = MCPServer()
 
         @mcp.prompt()
-        def fn(name: str, optional: str = "default") -> str:  # pragma: no cover
-            return f"Hello, {name}!"
+        def fn(name: str, optional: str = "default") -> str: ...
 
         async with Client(mcp) as client:
             result = await client.list_prompts()
-            assert result.prompts is not None
-            assert len(result.prompts) == 1
-            prompt = result.prompts[0]
-            assert prompt.name == "fn"
-            assert prompt.arguments is not None
-            assert len(prompt.arguments) == 2
-            assert prompt.arguments[0].name == "name"
-            assert prompt.arguments[0].required is True
-            assert prompt.arguments[1].name == "optional"
-            assert prompt.arguments[1].required is False
+            assert result == snapshot(
+                ListPromptsResult(
+                    prompts=[
+                        Prompt(
+                            name="fn",
+                            description="",
+                            arguments=[
+                                PromptArgument(name="name", required=True),
+                                PromptArgument(name="optional", required=False),
+                            ],
+                        )
+                    ]
+                )
+            )
 
-    @pytest.mark.anyio
     async def test_get_prompt(self):
         """Test getting a prompt through MCP protocol."""
         mcp = MCPServer()
@@ -1387,14 +1314,13 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
-            assert len(result.messages) == 1
-            message = result.messages[0]
-            assert message.role == "user"
-            content = message.content
-            assert isinstance(content, TextContent)
-            assert content.text == "Hello, World!"
+            assert result == snapshot(
+                GetPromptResult(
+                    description="",
+                    messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
+                )
+            )
 
-    @pytest.mark.anyio
     async def test_get_prompt_with_description(self):
         """Test getting a prompt through MCP protocol."""
         mcp = MCPServer()
@@ -1407,20 +1333,6 @@ class TestServerPrompts:
             result = await client.get_prompt("fn", {"name": "World"})
             assert result.description == "Test prompt description"
 
-    @pytest.mark.anyio
-    async def test_get_prompt_without_description(self):
-        """Test getting a prompt without description returns empty string."""
-        mcp = MCPServer()
-
-        @mcp.prompt()
-        def fn(name: str) -> str:
-            return f"Hello, {name}!"
-
-        async with Client(mcp) as client:
-            result = await client.get_prompt("fn", {"name": "World"})
-            assert result.description == ""
-
-    @pytest.mark.anyio
     async def test_get_prompt_with_docstring_description(self):
         """Test prompt uses docstring as description when not explicitly provided."""
         mcp = MCPServer()
@@ -1432,9 +1344,13 @@ class TestServerPrompts:
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn", {"name": "World"})
-            assert result.description == "This is the function docstring."
+            assert result == snapshot(
+                GetPromptResult(
+                    description="This is the function docstring.",
+                    messages=[PromptMessage(role="user", content=TextContent(text="Hello, World!"))],
+                )
+            )
 
-    @pytest.mark.anyio
     async def test_get_prompt_with_resource(self):
         """Test getting a prompt that returns resource content."""
         mcp = MCPServer()
@@ -1444,42 +1360,42 @@ class TestServerPrompts:
             return UserMessage(
                 content=EmbeddedResource(
                     type="resource",
-                    resource=TextResourceContents(
-                        uri="file://file.txt",
-                        text="File contents",
-                        mime_type="text/plain",
-                    ),
+                    resource=TextResourceContents(uri="file://file.txt", text="File contents", mime_type="text/plain"),
                 )
             )
 
         async with Client(mcp) as client:
             result = await client.get_prompt("fn")
-            assert len(result.messages) == 1
-            message = result.messages[0]
-            assert message.role == "user"
-            content = message.content
-            assert isinstance(content, EmbeddedResource)
-            resource = content.resource
-            assert isinstance(resource, TextResourceContents)
-            assert resource.text == "File contents"
-            assert resource.mime_type == "text/plain"
+            assert result == snapshot(
+                GetPromptResult(
+                    description="",
+                    messages=[
+                        PromptMessage(
+                            role="user",
+                            content=EmbeddedResource(
+                                resource=TextResourceContents(
+                                    uri="file://file.txt", mime_type="text/plain", text="File contents"
+                                )
+                            ),
+                        )
+                    ],
+                )
+            )
 
-    @pytest.mark.anyio
     async def test_get_unknown_prompt(self):
         """Test error when getting unknown prompt."""
         mcp = MCPServer()
+
         async with Client(mcp) as client:
             with pytest.raises(MCPError, match="Unknown prompt"):
                 await client.get_prompt("unknown")
 
-    @pytest.mark.anyio
     async def test_get_prompt_missing_args(self):
         """Test error when required arguments are missing."""
         mcp = MCPServer()
 
         @mcp.prompt()
-        def prompt_fn(name: str) -> str:  # pragma: no cover
-            return f"Hello, {name}!"
+        def prompt_fn(name: str) -> str: ...
 
         async with Client(mcp) as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
