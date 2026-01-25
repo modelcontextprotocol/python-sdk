@@ -8,7 +8,7 @@ from typing import Any
 from mcp.client._memory import InMemoryTransport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     CallToolResult,
@@ -34,14 +34,14 @@ class Client:
     """A high-level MCP client for connecting to MCP servers.
 
     Currently supports in-memory transport for testing. Pass a Server or
-    FastMCP instance directly to the constructor.
+    MCPServer instance directly to the constructor.
 
     Example:
         ```python
         from mcp.client import Client
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
-        server = FastMCP("test")
+        server = MCPServer("test")
 
         @server.tool()
         def add(a: int, b: int) -> int:
@@ -55,7 +55,7 @@ class Client:
         ```
     """
 
-    # TODO(felixweinberger): Expand to support all transport types (like FastMCP 2):
+    # TODO(felixweinberger): Expand to support all transport types:
     # - Add ClientTransport base class with connect_session() method
     # - Add StreamableHttpTransport, SSETransport, StdioTransport
     # - Add infer_transport() to auto-detect transport from input type
@@ -64,7 +64,7 @@ class Client:
 
     def __init__(
         self,
-        server: Server[Any] | FastMCP,
+        server: Server[Any] | MCPServer,
         *,
         # TODO(Marcelo): When do `raise_exceptions=True` actually raises?
         raise_exceptions: bool = False,
@@ -79,7 +79,7 @@ class Client:
         """Initialize the client with a server.
 
         Args:
-            server: The MCP server to connect to (Server or FastMCP instance)
+            server: The MCP server to connect to (Server or MCPServer instance)
             raise_exceptions: Whether to raise exceptions from the server
             read_timeout_seconds: Timeout for read operations
             sampling_callback: Callback for handling sampling requests

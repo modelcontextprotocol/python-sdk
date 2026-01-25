@@ -1,7 +1,7 @@
 import pytest
 
 from mcp import Client
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import (
     ListResourceTemplatesResult,
     TextResourceContents,
@@ -11,7 +11,7 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_resource_template_edge_cases():
     """Test server-side resource template validation"""
-    mcp = FastMCP("Demo")
+    mcp = MCPServer("Demo")
 
     # Test case 1: Template with multiple parameters
     @mcp.resource("resource://users/{user_id}/posts/{post_id}")
@@ -64,7 +64,7 @@ async def test_resource_template_edge_cases():
 @pytest.mark.anyio
 async def test_resource_template_client_interaction():
     """Test client-side resource template interaction"""
-    mcp = FastMCP("Demo")
+    mcp = MCPServer("Demo")
 
     # Register some templated resources
     @mcp.resource("resource://users/{user_id}/posts/{post_id}")

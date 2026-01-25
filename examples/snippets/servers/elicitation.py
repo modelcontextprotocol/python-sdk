@@ -9,12 +9,12 @@ import uuid
 
 from pydantic import BaseModel, Field
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.types import ElicitRequestURLParams
 
-mcp = FastMCP(name="Elicitation Example")
+mcp = MCPServer(name="Elicitation Example")
 
 
 class BookingPreferences(BaseModel):

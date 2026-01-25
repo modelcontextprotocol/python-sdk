@@ -3,16 +3,16 @@ import base64
 import pytest
 
 from mcp import Client, types
-from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.mcpserver import MCPServer
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_fastmcp_resource_mime_type():
+async def test_mcpserver_resource_mime_type():
     """Test that mime_type parameter is respected for resources."""
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
 
     # Create a small test image as bytes
     image_bytes = b"fake_image_data"

@@ -43,13 +43,13 @@ async def test_lifespan_cleanup_executed():
     Path(startup_marker).unlink()
     Path(cleanup_marker).unlink()
 
-    # Create a minimal MCP server using FastMCP that tracks lifecycle
+    # Create a minimal MCP server using MCPServer that tracks lifecycle
     server_code = textwrap.dedent(f"""
         import asyncio
         import sys
         from pathlib import Path
         from contextlib import asynccontextmanager
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
         STARTUP_MARKER = {escape_path_for_python(startup_marker)}
         CLEANUP_MARKER = {escape_path_for_python(cleanup_marker)}
@@ -64,7 +64,7 @@ async def test_lifespan_cleanup_executed():
                 # This cleanup code now runs properly during shutdown
                 Path(CLEANUP_MARKER).write_text("cleaned up")
 
-        mcp = FastMCP("test-server", lifespan=lifespan)
+        mcp = MCPServer("test-server", lifespan=lifespan)
 
         @mcp.tool()
         def echo(text: str) -> str:
@@ -156,7 +156,7 @@ async def test_stdin_close_triggers_cleanup():
         import sys
         from pathlib import Path
         from contextlib import asynccontextmanager
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
         STARTUP_MARKER = {escape_path_for_python(startup_marker)}
         CLEANUP_MARKER = {escape_path_for_python(cleanup_marker)}
@@ -171,7 +171,7 @@ async def test_stdin_close_triggers_cleanup():
                 # This cleanup code runs when stdin closes, enabling graceful shutdown
                 Path(CLEANUP_MARKER).write_text("cleaned up")
 
-        mcp = FastMCP("test-server", lifespan=lifespan)
+        mcp = MCPServer("test-server", lifespan=lifespan)
 
         @mcp.tool()
         def echo(text: str) -> str:

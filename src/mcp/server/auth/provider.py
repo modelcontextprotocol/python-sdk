@@ -96,7 +96,7 @@ class TokenVerifier(Protocol):
         """Verify a bearer token and return access info if valid."""
 
 
-# NOTE: FastMCP doesn't render any of these types in the user response, so it's
+# NOTE: MCPServer doesn't render any of these types in the user response, so it's
 # OK to add fields to subclasses which should not be exposed externally.
 AuthorizationCodeT = TypeVar("AuthorizationCodeT", bound=AuthorizationCode)
 RefreshTokenT = TypeVar("RefreshTokenT", bound=RefreshToken)

@@ -12,7 +12,7 @@ from mcp.shared.context import RequestContext
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(
     command="uv",  # Using uv to run the server
-    args=["run", "server", "fastmcp_quickstart", "stdio"],  # We're already in snippets dir
+    args=["run", "server", "mcpserver_quickstart", "stdio"],  # We're already in snippets dir
     env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
 
@@ -43,7 +43,7 @@ async def run():
             prompts = await session.list_prompts()
             print(f"Available prompts: {[p.name for p in prompts.prompts]}")
 
-            # Get a prompt (greet_user prompt from fastmcp_quickstart)
+            # Get a prompt (greet_user prompt from mcpserver_quickstart)
             if prompts.prompts:
                 prompt = await session.get_prompt("greet_user", arguments={"name": "Alice", "style": "friendly"})
                 print(f"Prompt result: {prompt.messages[0].content}")
@@ -56,13 +56,13 @@ async def run():
             tools = await session.list_tools()
             print(f"Available tools: {[t.name for t in tools.tools]}")
 
-            # Read a resource (greeting resource from fastmcp_quickstart)
+            # Read a resource (greeting resource from mcpserver_quickstart)
             resource_content = await session.read_resource("greeting://World")
             content_block = resource_content.contents[0]
             if isinstance(content_block, types.TextContent):
                 print(f"Resource content: {content_block.text}")
 
-            # Call a tool (add tool from fastmcp_quickstart)
+            # Call a tool (add tool from mcpserver_quickstart)
             result = await session.call_tool("add", arguments={"a": 5, "b": 3})
             result_unstructured = result.content[0]
             if isinstance(result_unstructured, types.TextContent):
