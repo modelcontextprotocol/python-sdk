@@ -355,6 +355,8 @@ class MCPServer(Generic[LifespanResultT]):
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as exc:
+            logger.exception(f"Error getting resource {uri}")
+            # If an exception happens when reading the resource, we should not leak the exception to the client.
             raise ResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
