@@ -11,7 +11,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
@@ -237,7 +237,7 @@ class BaseSession(
     ) -> ReceiveResultT:
         """Sends a request and wait for a response.
 
-        Raises an McpError if the response contains an error. If a request read timeout is provided, it will take
+        Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
         precedence over the session read timeout.
 
         Do not use this method to emit notifications! Use send_notification() instead.
@@ -271,18 +271,12 @@ class BaseSession(
                 with anyio.fail_after(timeout):
                     response_or_error = await response_stream_reader.receive()
             except TimeoutError:
-                raise McpError(
-                    ErrorData(
-                        code=REQUEST_TIMEOUT,
-                        message=(
-                            f"Timed out while waiting for response to {request.__class__.__name__}. "
-                            f"Waited {timeout} seconds."
-                        ),
-                    )
-                )
+                class_name = request.__class__.__name__
+                message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
+                raise MCPError(code=REQUEST_TIMEOUT, message=message)
 
             if isinstance(response_or_error, JSONRPCError):
-                raise McpError(response_or_error.error)
+                raise MCPError.from_jsonrpc_error(response_or_error)
             else:
                 return result_type.model_validate(response_or_error.result, by_name=False)
 

@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import MODEL_IMMEDIATE_RESPONSE_KEY, is_terminal
 from mcp.types import (
     METHOD_NOT_FOUND,
@@ -72,13 +72,13 @@ class Experimental:
         Args:
             tool_task_mode: The tool's execution.taskSupport value
                 ("forbidden", "optional", "required", or None)
-            raise_error: If True, raises McpError on validation failure. If False, returns ErrorData.
+            raise_error: If True, raises MCPError on validation failure. If False, returns ErrorData.
 
         Returns:
             None if valid, ErrorData if invalid and raise_error=False
 
         Raises:
-            McpError: If invalid and raise_error=True
+            MCPError: If invalid and raise_error=True
         """
 
         mode = tool_task_mode or TASK_FORBIDDEN
@@ -86,18 +86,12 @@ class Experimental:
         error: ErrorData | None = None
 
         if mode == TASK_REQUIRED and not self.is_task:
-            error = ErrorData(
-                code=METHOD_NOT_FOUND,
-                message="This tool requires task-augmented invocation",
-            )
+            error = ErrorData(code=METHOD_NOT_FOUND, message="This tool requires task-augmented invocation")
         elif mode == TASK_FORBIDDEN and self.is_task:
-            error = ErrorData(
-                code=METHOD_NOT_FOUND,
-                message="This tool does not support task-augmented invocation",
-            )
+            error = ErrorData(code=METHOD_NOT_FOUND, message="This tool does not support task-augmented invocation")
 
         if error is not None and raise_error:
-            raise McpError(error)
+            raise MCPError(code=METHOD_NOT_FOUND, message=error.message)
 
         return error
 
@@ -113,7 +107,7 @@ class Experimental:
 
         Args:
             tool: The Tool definition
-            raise_error: If True, raises McpError on validation failure.
+            raise_error: If True, raises MCPError on validation failure.
 
         Returns:
             None if valid, ErrorData if invalid and raise_error=False

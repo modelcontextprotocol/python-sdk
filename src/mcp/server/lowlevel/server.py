@@ -101,7 +101,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -407,9 +407,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     case _:  # pragma: no cover
                         raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
 
-                return types.ReadResourceResult(  # pragma: no cover
-                    contents=[content],
-                )
+                return types.ReadResourceResult(contents=[content])  # pragma: no cover
 
             self.request_handlers[types.ReadResourceRequest] = handler
             return func
@@ -781,13 +779,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                 )
                 response = await handler(req)
-            except McpError as err:
+            except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
-                logger.info(
-                    "Request %s cancelled - duplicate response suppressed",
-                    message.request_id,
-                )
+                logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
                 return
             except Exception as err:
                 if raise_exceptions:  # pragma: no cover

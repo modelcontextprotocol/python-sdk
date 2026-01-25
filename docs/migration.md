@@ -121,6 +121,38 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
+### `McpError` renamed to `MCPError`
+
+The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.
+
+**Before (v1):**
+
+```python
+from mcp.shared.exceptions import McpError
+
+try:
+    result = await session.call_tool("my_tool")
+except McpError as e:
+    print(f"Error: {e.message}")
+```
+
+**After (v2):**
+
+```python
+from mcp.shared.exceptions import MCPError
+
+try:
+    result = await session.call_tool("my_tool")
+except MCPError as e:
+    print(f"Error: {e.message}")
+```
+
+`MCPError` is also exported from the top-level `mcp` package:
+
+```python
+from mcp import MCPError
+```
+
 ### `FastMCP` renamed to `MCPServer`
 
 The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. This is a simple rename with no functional changes to the class itself.

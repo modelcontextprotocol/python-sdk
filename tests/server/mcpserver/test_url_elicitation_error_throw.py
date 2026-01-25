@@ -1,16 +1,17 @@
 """Test that UrlElicitationRequiredError is properly propagated as MCP error."""
 
 import pytest
+from inline_snapshot import snapshot
 
-from mcp import Client, types
+from mcp import Client, ErrorData, types
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
 
 @pytest.mark.anyio
 async def test_url_elicitation_error_thrown_from_tool():
-    """Test that UrlElicitationRequiredError raised from a tool is received as McpError by client."""
+    """Test that UrlElicitationRequiredError raised from a tool is received as MCPError by client."""
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
     @mcp.tool(description="A tool that raises UrlElicitationRequiredError")
@@ -28,28 +29,30 @@ async def test_url_elicitation_error_thrown_from_tool():
         )
 
     async with Client(mcp) as client:
-        # Call the tool - it should raise McpError with URL_ELICITATION_REQUIRED code
-        with pytest.raises(McpError) as exc_info:
+        with pytest.raises(MCPError) as exc_info:
             await client.call_tool("connect_service", {"service_name": "github"})
 
-        # Verify the error details
-        error = exc_info.value.error
-        assert error.code == types.URL_ELICITATION_REQUIRED
-        assert error.message == "URL elicitation required"
-
-        # Verify the error data contains elicitations
-        assert error.data is not None
-        assert "elicitations" in error.data
-        elicitations = error.data["elicitations"]
-        assert len(elicitations) == 1
-        assert elicitations[0]["mode"] == "url"
-        assert elicitations[0]["url"] == "https://github.example.com/oauth/authorize"
-        assert elicitations[0]["elicitationId"] == "github-auth-001"
+        assert exc_info.value.error == snapshot(
+            ErrorData(
+                code=types.URL_ELICITATION_REQUIRED,
+                message="URL elicitation required",
+                data={
+                    "elicitations": [
+                        {
+                            "mode": "url",
+                            "message": "Authorization required to connect to github",
+                            "url": "https://github.example.com/oauth/authorize",
+                            "elicitationId": "github-auth-001",
+                        }
+                    ]
+                },
+            )
+        )
 
 
 @pytest.mark.anyio
 async def test_url_elicitation_error_from_error():
-    """Test that client can reconstruct UrlElicitationRequiredError from McpError."""
+    """Test that client can reconstruct UrlElicitationRequiredError from MCPError."""
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
     @mcp.tool(description="A tool that raises UrlElicitationRequiredError with multiple elicitations")
@@ -73,12 +76,12 @@ async def test_url_elicitation_error_from_error():
 
     async with Client(mcp) as client:
         # Call the tool and catch the error
-        with pytest.raises(McpError) as exc_info:
+        with pytest.raises(MCPError) as exc_info:
             await client.call_tool("multi_auth", {})
 
         # Reconstruct the typed error
         mcp_error = exc_info.value
-        assert mcp_error.error.code == types.URL_ELICITATION_REQUIRED
+        assert mcp_error.code == types.URL_ELICITATION_REQUIRED
 
         url_error = UrlElicitationRequiredError.from_error(mcp_error.error)
 
@@ -98,7 +101,7 @@ async def test_normal_exceptions_still_return_error_result():
         raise ValueError("Something went wrong")
 
     async with Client(mcp) as client:
-        # Normal exceptions should be returned as error results, not McpError
+        # Normal exceptions should be returned as error results, not MCPError
         result = await client.call_tool("failing_tool", {})
         assert result.is_error is True
         assert len(result.content) == 1

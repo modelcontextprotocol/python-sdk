@@ -16,7 +16,7 @@ from mcp.client.stdio import (
     _terminate_process_tree,
     stdio_client,
 )
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
@@ -78,7 +78,7 @@ async def test_stdio_client_bad_path():
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # The session should raise an error when the connection closes
-            with pytest.raises(McpError) as exc_info:
+            with pytest.raises(MCPError) as exc_info:
                 await session.initialize()
 
             # Check that we got a connection closed error

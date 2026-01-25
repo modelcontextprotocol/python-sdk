@@ -314,7 +314,7 @@ class ServerSession(
             The sampling result from the client.
 
         Raises:
-            McpError: If tools are provided but client doesn't support them.
+            MCPError: If tools are provided but client doesn't support them.
             ValueError: If tool_use or tool_result message structure is invalid.
             StatelessModeNotSupported: If called in stateless HTTP mode.
         """

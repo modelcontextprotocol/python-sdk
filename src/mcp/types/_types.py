@@ -1654,8 +1654,8 @@ class ElicitRequestURLParams(RequestParams):
     """The URL that the user should navigate to."""
 
     elicitation_id: str
-    """
-    The ID of the elicitation, which must be unique within the context of the server.
+    """The ID of the elicitation, which must be unique within the context of the server.
+
     The client MUST treat this ID as an opaque value.
     """
 

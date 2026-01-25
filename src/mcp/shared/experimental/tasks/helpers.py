@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
@@ -19,7 +19,6 @@ from mcp.types import (
     TASK_STATUS_FAILED,
     TASK_STATUS_WORKING,
     CancelTaskResult,
-    ErrorData,
     Task,
     TaskMetadata,
     TaskStatus,
@@ -68,7 +67,7 @@ async def cancel_task(
         CancelTaskResult with the cancelled task state
 
     Raises:
-        McpError: With INVALID_PARAMS (-32602) if:
+        MCPError: With INVALID_PARAMS (-32602) if:
             - Task does not exist
             - Task is already in a terminal state (completed, failed, cancelled)
 
@@ -79,20 +78,10 @@ async def cancel_task(
     """
     task = await store.get_task(task_id)
     if task is None:
-        raise McpError(
-            ErrorData(
-                code=INVALID_PARAMS,
-                message=f"Task not found: {task_id}",
-            )
-        )
+        raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
     if is_terminal(task.status):
-        raise McpError(
-            ErrorData(
-                code=INVALID_PARAMS,
-                message=f"Cannot cancel task in terminal state '{task.status}'",
-            )
-        )
+        raise MCPError(code=INVALID_PARAMS, message=f"Cannot cancel task in terminal state '{task.status}'")
 
     # Update task to cancelled status
     cancelled_task = await store.update_task(task_id, status=TASK_STATUS_CANCELLED)

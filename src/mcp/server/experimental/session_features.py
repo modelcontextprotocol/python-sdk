@@ -114,7 +114,7 @@ class ExperimentalServerSessionFeatures:
             The client's elicitation response
 
         Raises:
-            McpError: If client doesn't support task-augmented elicitation
+            MCPError: If client doesn't support task-augmented elicitation
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
         require_task_augmented_elicitation(client_caps)
@@ -174,7 +174,7 @@ class ExperimentalServerSessionFeatures:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support task-augmented sampling or tools
+            MCPError: If client doesn't support task-augmented sampling or tools
             ValueError: If tool_use or tool_result message structure is invalid
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None

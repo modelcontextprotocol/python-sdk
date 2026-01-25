@@ -16,7 +16,7 @@ from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
@@ -1469,7 +1469,7 @@ class TestServerPrompts:
         """Test error when getting unknown prompt."""
         mcp = MCPServer()
         async with Client(mcp) as client:
-            with pytest.raises(McpError, match="Unknown prompt"):
+            with pytest.raises(MCPError, match="Unknown prompt"):
                 await client.get_prompt("unknown")
 
     @pytest.mark.anyio
@@ -1482,7 +1482,7 @@ class TestServerPrompts:
             return f"Hello, {name}!"
 
         async with Client(mcp) as client:
-            with pytest.raises(McpError, match="Missing required arguments"):
+            with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
 
 

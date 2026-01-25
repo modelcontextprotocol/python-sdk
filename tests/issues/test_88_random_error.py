@@ -12,7 +12,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.types import ContentBlock, TextContent
 
@@ -93,7 +93,7 @@ async def test_notification_validation_error(tmp_path: Path):
 
             # Second call should timeout (slow operation with minimal timeout)
             # Use very small timeout to trigger quickly without waiting
-            with pytest.raises(McpError) as exc_info:
+            with pytest.raises(MCPError) as exc_info:
                 await session.call_tool("slow", read_timeout_seconds=0.000001)  # artificial timeout that always fails
             assert "Timed out while waiting" in str(exc_info.value)
 

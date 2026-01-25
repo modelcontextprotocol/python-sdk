@@ -7,7 +7,7 @@ import mcp.types as types
 from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import (
@@ -77,7 +77,7 @@ async def test_request_cancellation():
                 types.CallToolResult,
             )
             pytest.fail("Request should have been cancelled")  # pragma: no cover
-        except McpError as e:
+        except MCPError as e:
             # Expected - request was cancelled
             assert "Request cancelled" in str(e)
             ev_cancelled.set()
@@ -164,7 +164,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
     but the client sent "id": 0 (integer).
     """
     ev_error_received = anyio.Event()
-    error_holder: list[McpError] = []
+    error_holder: list[MCPError | Exception] = []
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
@@ -191,8 +191,8 @@ async def test_error_response_id_type_mismatch_string_to_int():
             nonlocal error_holder
             try:
                 await client_session.send_ping()
-                pytest.fail("Expected McpError to be raised")  # pragma: no cover
-            except McpError as e:
+                pytest.fail("Expected MCPError to be raised")  # pragma: no cover
+            except MCPError as e:
                 error_holder.append(e)
                 ev_error_received.set()
 
@@ -246,7 +246,7 @@ async def test_response_id_non_numeric_string_no_match():
                     request_read_timeout_seconds=0.5,
                 )
                 pytest.fail("Expected timeout")  # pragma: no cover
-            except McpError as e:
+            except MCPError as e:
                 assert "Timed out" in str(e)
                 ev_timeout.set()
 
@@ -279,7 +279,7 @@ async def test_connection_closed():
                 # any request will do
                 await client_session.initialize()
                 pytest.fail("Request should have errored")  # pragma: no cover
-            except McpError as e:
+            except MCPError as e:
                 # Expected - request errored
                 assert "Connection closed" in str(e)
                 ev_response.set()

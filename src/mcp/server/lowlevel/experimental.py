@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import cancel_task
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, TaskMessageQueue
@@ -20,7 +20,6 @@ from mcp.types import (
     INVALID_PARAMS,
     CancelTaskRequest,
     CancelTaskResult,
-    ErrorData,
     GetTaskPayloadRequest,
     GetTaskPayloadResult,
     GetTaskRequest,
@@ -135,12 +134,7 @@ class ExperimentalHandlers:
             async def _default_get_task(req: GetTaskRequest) -> ServerResult:
                 task = await support.store.get_task(req.params.task_id)
                 if task is None:
-                    raise McpError(
-                        ErrorData(
-                            code=INVALID_PARAMS,
-                            message=f"Task not found: {req.params.task_id}",
-                        )
-                    )
+                    raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {req.params.task_id}")
                 return GetTaskResult(
                     task_id=task.task_id,
                     status=task.status,

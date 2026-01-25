@@ -11,7 +11,7 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import RequestResponder
@@ -506,7 +506,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             assert get_result.status == "working"
 
             # Test get_task (default handler - not found path)
-            with pytest.raises(McpError, match="not found"):
+            with pytest.raises(MCPError, match="not found"):
                 await client_session.send_request(
                     GetTaskRequest(params=GetTaskRequestParams(task_id="nonexistent-task")),
                     GetTaskResult,

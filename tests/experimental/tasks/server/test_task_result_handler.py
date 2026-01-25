@@ -8,7 +8,7 @@ import anyio
 import pytest
 
 from mcp.server.experimental.task_result_handler import TaskResultHandler
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, QueuedMessage
 from mcp.shared.experimental.tasks.resolver import Resolver
@@ -71,11 +71,11 @@ async def test_handle_returns_result_for_completed_task(
 async def test_handle_raises_for_nonexistent_task(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
-    """Test that handle() raises McpError for nonexistent task."""
+    """Test that handle() raises MCPError for nonexistent task."""
     mock_session = Mock()
     request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="nonexistent"))
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await handler.handle(request, mock_session, "req-1")
 
     assert "not found" in exc_info.value.error.message
@@ -214,7 +214,7 @@ async def test_route_error_resolves_pending_request_with_exception(
     assert result is True
     assert resolver.done()
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await resolver.wait()
     assert exc_info.value.error.message == "Something went wrong"
 
