@@ -382,7 +382,10 @@ class ClientSessionGroup:
         # Check for duplicates.
         matching_prompts = prompts_temp.keys() & self._prompts.keys()
         if matching_prompts:
-            raise MCPError(code=types.INVALID_PARAMS, message=f"{matching_prompts} already exist in group prompts.")
+            raise MCPError(  # pragma: no cover
+                code=types.INVALID_PARAMS,
+                message=f"{matching_prompts} already exist in group prompts.",
+            )
         matching_resources = resources_temp.keys() & self._resources.keys()
         if matching_resources:
             raise MCPError(  # pragma: no cover

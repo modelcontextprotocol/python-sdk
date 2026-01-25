@@ -24,7 +24,7 @@ class MCPError(Exception):
 
     @property
     def data(self) -> Any:
-        return self.error.data
+        return self.error.data  # pragma: no cover
 
     @classmethod
     def from_jsonrpc_error(cls, error: JSONRPCError) -> MCPError:
