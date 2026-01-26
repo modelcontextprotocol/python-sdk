@@ -8,7 +8,6 @@ ClientDisconnect is a client-side event, not a server failure.
 """
 
 import logging
-import threading
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -67,26 +66,17 @@ def create_app() -> Starlette:
     return Starlette(routes=routes, lifespan=lifespan)
 
 
-class ServerThread(threading.Thread):
-    """Thread that runs the ASGI application lifespan."""
+@asynccontextmanager
+async def run_app_lifespan(app: Starlette) -> AsyncGenerator[None, None]:
+    """Run the Starlette app's lifespan context.
 
-    def __init__(self, app: Starlette):
-        super().__init__(daemon=True)
-        self.app = app
-        self._stop_event = threading.Event()
-
-    def run(self) -> None:
-        async def run_lifespan():
-            lifespan_context = getattr(self.app.router, "lifespan_context", None)
-            assert lifespan_context is not None
-            async with lifespan_context(self.app):
-                while not self._stop_event.is_set():
-                    await anyio.sleep(0.1)
-
-        anyio.run(run_lifespan)
-
-    def stop(self) -> None:
-        self._stop_event.set()
+    This manages the lifespan without using a separate thread, avoiding
+    event loop conflicts that occur in Python 3.10 with older dependencies.
+    """
+    lifespan_context = getattr(app.router, "lifespan_context", None)
+    assert lifespan_context is not None
+    async with lifespan_context(app):
+        yield
 
 
 @pytest.mark.anyio
@@ -98,12 +88,8 @@ async def test_client_disconnect_does_not_produce_500(caplog: pytest.LogCaptureF
     logging it as ERROR, and returning HTTP 500.
     """
     app = create_app()
-    server_thread = ServerThread(app)
-    server_thread.start()
 
-    try:
-        await anyio.sleep(0.2)
-
+    async with run_app_lifespan(app):
         with caplog.at_level(logging.DEBUG):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app),
@@ -125,7 +111,7 @@ async def test_client_disconnect_does_not_produce_500(caplog: pytest.LogCaptureF
                             "Content-Type": "application/json",
                         },
                     )
-                except (httpx.ReadTimeout, httpx.ReadError):  # pragma: no cover
+                except (httpx.ReadTimeout, httpx.ReadError):  # pragma: lax no cover
                     pass  # Expected - client timed out
 
         # Wait briefly for any async error logging to complete
@@ -136,21 +122,14 @@ async def test_client_disconnect_does_not_produce_500(caplog: pytest.LogCaptureF
         assert not error_records, (
             f"Server logged ERROR for client disconnect: {[r.getMessage() for r in error_records]}"
         )
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
 
 
 @pytest.mark.anyio
 async def test_server_healthy_after_client_disconnect():
     """Server should remain healthy and accept new requests after a client disconnects."""
     app = create_app()
-    server_thread = ServerThread(app)
-    server_thread.start()
 
-    try:
-        await anyio.sleep(0.2)
-
+    async with run_app_lifespan(app):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://testserver",
@@ -171,7 +150,7 @@ async def test_server_healthy_after_client_disconnect():
                         "Content-Type": "application/json",
                     },
                 )
-            except (httpx.ReadTimeout, httpx.ReadError):  # pragma: no cover
+            except (httpx.ReadTimeout, httpx.ReadError):  # pragma: lax no cover
                 pass  # Expected - client timed out
 
         # Create a new client for the second request
@@ -199,6 +178,3 @@ async def test_server_healthy_after_client_disconnect():
                 },
             )
             assert response.status_code == 200
-    finally:
-        server_thread.stop()
-        server_thread.join(timeout=2)
