@@ -1003,7 +1003,6 @@ source = { editable = "examples/clients/simple-chatbot" }
 dependencies = [
     { name = "mcp" },
     { name = "python-dotenv" },
-    { name = "requests" },
     { name = "uvicorn" },
 ]
 
@@ -1018,7 +1017,6 @@ dev = [
 requires-dist = [
     { name = "mcp", editable = "." },
     { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "requests", specifier = ">=2.31.0" },
     { name = "uvicorn", specifier = ">=0.32.1" },
 ]
 
