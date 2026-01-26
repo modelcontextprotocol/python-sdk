@@ -133,7 +133,7 @@ from mcp.shared.exceptions import McpError
 try:
     result = await session.call_tool("my_tool")
 except McpError as e:
-    print(f"Error: {e.message}")
+    print(f"Error: {e.error.message}")
 ```
 
 **After (v2):**
