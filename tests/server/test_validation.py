@@ -7,7 +7,7 @@ from mcp.server.validation import (
     validate_sampling_tools,
     validate_tool_use_result_messages,
 )
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     ClientCapabilities,
     SamplingCapability,
@@ -55,16 +55,16 @@ def test_validate_sampling_tools_no_error_when_tools_none() -> None:
 
 
 def test_validate_sampling_tools_raises_when_tools_provided_but_no_capability() -> None:
-    """Raises McpError when tools provided but client doesn't support."""
+    """Raises MCPError when tools provided but client doesn't support."""
     tool = Tool(name="test", input_schema={"type": "object"})
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         validate_sampling_tools(None, [tool], None)
     assert "sampling tools capability" in str(exc_info.value)
 
 
 def test_validate_sampling_tools_raises_when_tool_choice_provided_but_no_capability() -> None:
-    """Raises McpError when tool_choice provided but client doesn't support."""
-    with pytest.raises(McpError) as exc_info:
+    """Raises MCPError when tool_choice provided but client doesn't support."""
+    with pytest.raises(MCPError) as exc_info:
         validate_sampling_tools(None, None, ToolChoice(mode="auto"))
     assert "sampling tools capability" in str(exc_info.value)
 

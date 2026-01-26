@@ -13,7 +13,7 @@ from mcp.client.session_group import (
     StreamableHttpParameters,
 )
 from mcp.client.stdio import StdioServerParameters
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 
 @pytest.fixture
@@ -225,7 +225,7 @@ async def test_client_session_group_disconnect_from_server():
 async def test_client_session_group_connect_to_server_duplicate_tool_raises_error(
     mock_exit_stack: contextlib.AsyncExitStack,
 ):
-    """Test McpError raised when connecting a server with a dup name."""
+    """Test MCPError raised when connecting a server with a dup name."""
     # --- Setup Pre-existing State ---
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
     existing_tool_name = "shared_tool"
@@ -251,7 +251,7 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
     mock_session_new.list_prompts.return_value = mock.AsyncMock(prompts=[])
 
     # --- Test Execution and Assertion ---
-    with pytest.raises(McpError) as excinfo:
+    with pytest.raises(MCPError) as excinfo:
         with mock.patch.object(
             group,
             "_establish_session",
@@ -274,7 +274,7 @@ async def test_client_session_group_disconnect_non_existent_server():
     """Test disconnecting a server that isn't connected."""
     session = mock.Mock(spec=mcp.ClientSession)
     group = ClientSessionGroup()
-    with pytest.raises(McpError):
+    with pytest.raises(MCPError):
         await group.disconnect_from_server(session)
 
 

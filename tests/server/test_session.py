@@ -9,7 +9,7 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
@@ -397,7 +397,7 @@ async def test_create_message_tool_result_validation():
 
 @pytest.mark.anyio
 async def test_create_message_without_tools_capability():
-    """Test that create_message raises McpError when tools are provided without capability."""
+    """Test that create_message raises MCPError when tools are provided without capability."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
@@ -426,8 +426,8 @@ async def test_create_message_without_tools_capability():
             tool = types.Tool(name="test_tool", input_schema={"type": "object"})
             text = types.TextContent(type="text", text="hello")
 
-            # Should raise McpError when tools are provided but client lacks capability
-            with pytest.raises(McpError) as exc_info:
+            # Should raise MCPError when tools are provided but client lacks capability
+            with pytest.raises(MCPError) as exc_info:
                 await session.create_message(
                     messages=[types.SamplingMessage(role="user", content=text)],
                     max_tokens=100,
@@ -435,8 +435,8 @@ async def test_create_message_without_tools_capability():
                 )
             assert "does not support sampling tools capability" in exc_info.value.error.message
 
-            # Should also raise McpError when tool_choice is provided
-            with pytest.raises(McpError) as exc_info:
+            # Should also raise MCPError when tool_choice is provided
+            with pytest.raises(MCPError) as exc_info:
                 await session.create_message(
                     messages=[types.SamplingMessage(role="user", content=text)],
                     max_tokens=100,

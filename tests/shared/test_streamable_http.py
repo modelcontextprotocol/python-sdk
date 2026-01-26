@@ -26,6 +26,7 @@ from starlette.requests import Request
 from starlette.routing import Mount
 
 import mcp.types as types
+from mcp import MCPError
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server
@@ -44,16 +45,9 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import (
-    InitializeResult,
-    JSONRPCRequest,
-    TextContent,
-    TextResourceContents,
-    Tool,
-)
+from mcp.types import InitializeResult, JSONRPCRequest, TextContent, TextResourceContents, Tool
 from tests.test_helpers import wait_for_server
 
 # Test constants
@@ -987,11 +981,7 @@ async def initialized_client_session(basic_server: None, basic_server_url: str):
 @pytest.mark.anyio
 async def test_streamable_http_client_basic_connection(basic_server: None, basic_server_url: str):
     """Test basic client connection with initialization."""
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
         async with ClientSession(
             read_stream,
             write_stream,
@@ -1030,7 +1020,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 @pytest.mark.anyio
 async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await initialized_client_session.read_resource(uri="unknown://test-error")
     assert exc_info.value.error.code == 0
     assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
@@ -1067,15 +1057,8 @@ async def test_streamable_http_client_session_persistence(basic_server: None, ba
 @pytest.mark.anyio
 async def test_streamable_http_client_json_response(json_response_server: None, json_server_url: str):
     """Test client with JSON response mode."""
-    async with streamable_http_client(f"{json_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(
-            read_stream,
-            write_stream,
-        ) as session:
+    async with streamable_http_client(f"{json_server_url}/mcp") as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -1104,11 +1087,7 @@ async def test_streamable_http_client_get_stream(basic_server: None, basic_serve
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             notifications_received.append(message)
 
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
             # Initialize the session - this triggers the GET stream setup
             result = await session.initialize()
@@ -1137,11 +1116,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
     captured_session_id = None
 
     # Create the streamable_http_client with a custom httpx client to capture headers
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        get_session_id,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
@@ -1165,7 +1140,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(McpError, match="Session terminated"):  # pragma: no branch
+                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
                     await session.list_tools()
 
 
@@ -1201,11 +1176,7 @@ async def test_streamable_http_client_session_termination_204(
     captured_session_id = None
 
     # Create the streamable_http_client with a custom httpx client to capture headers
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        get_session_id,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
@@ -1229,10 +1200,7 @@ async def test_streamable_http_client_session_termination_204(
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(  # pragma: no branch
-                    McpError,
-                    match="Session terminated",
-                ):
+                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
                     await session.list_tools()
 
 
