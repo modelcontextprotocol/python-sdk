@@ -91,7 +91,7 @@ class Experimental:
             error = ErrorData(code=METHOD_NOT_FOUND, message="This tool does not support task-augmented invocation")
 
         if error is not None and raise_error:
-            raise MCPError(code=METHOD_NOT_FOUND, message=error.message)
+            raise MCPError(code=error.code, message=error.message)
 
         return error
 
