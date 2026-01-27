@@ -207,7 +207,7 @@ async def test_elicit_complete_notification():
 
         return "Elicitation completed"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         return ElicitResult(action="accept")  # pragma: no cover
 
     async with Client(mcp, elicitation_callback=elicitation_callback) as client:
@@ -264,7 +264,7 @@ async def test_elicit_url_typed_results():
         return "Not cancelled"  # pragma: no cover
 
     # Test declined result
-    async def decline_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def decline_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         return ElicitResult(action="decline")
 
     async with Client(mcp, elicitation_callback=decline_callback) as client:
@@ -274,7 +274,7 @@ async def test_elicit_url_typed_results():
         assert result.content[0].text == "Declined"
 
     # Test cancelled result
-    async def cancel_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def cancel_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         return ElicitResult(action="cancel")
 
     async with Client(mcp, elicitation_callback=cancel_callback) as client:
@@ -304,7 +304,7 @@ async def test_deprecated_elicit_method():
             return f"Email: {result.content.get('email', 'none')}"
         return "No email provided"  # pragma: no cover
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         # Verify this is form mode
         assert params.mode == "form"
         assert params.requested_schema is not None
@@ -332,7 +332,7 @@ async def test_ctx_elicit_url_convenience_method():
         )
         return f"Result: {result.action}"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.elicitation_id == "ctx-test-001"
         return ElicitResult(action="accept")
