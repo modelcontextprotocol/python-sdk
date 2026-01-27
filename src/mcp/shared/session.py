@@ -155,14 +155,16 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
-class Session(ABC,
+class Session(
+    ABC,
     Generic[
         SendRequestT,
         SendNotificationT,
         SendResultT,
         ReceiveRequestT,
         ReceiveNotificationT,
-    ]):
+    ],
+):
     """
     Base class for a session that could be inherited by
     BaseSessions for JSON-RPC (read-write stream dependent)
@@ -202,7 +204,7 @@ class Session(ABC,
         """Emits a notification, which is a one-way message that does not expect a response."""
 
 
-class BaseSession(Session):
+class BaseSession(Session[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]):
     """Implements an MCP "session" on top of read/write streams, including features
     like request/response linking, notifications, and progress.
 

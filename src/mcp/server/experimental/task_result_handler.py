@@ -10,11 +10,11 @@ This is the core of the task message queue pattern.
 """
 
 import logging
-from typing import Any
+from typing import cast, Any
 
 import anyio
 
-from mcp.server.session import ServerTransportSession
+from mcp.server.session import ServerSession, ServerTransportSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY, is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
@@ -76,6 +76,7 @@ class TaskResultHandler:
 
         This is a helper for delivering queued task messages.
         """
+        session = cast(ServerSession, session)
         await session.send_message(message)
 
     async def handle(
