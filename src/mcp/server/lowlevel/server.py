@@ -795,12 +795,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             await message.respond(response)
         else:  # pragma: no cover
-            await message.respond(
-                types.ErrorData(
-                    code=types.METHOD_NOT_FOUND,
-                    message="Method not found",
-                )
-            )
+            await message.respond(types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found"))
 
         logger.debug("Response sent")
 

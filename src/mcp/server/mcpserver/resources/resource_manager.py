@@ -82,10 +82,8 @@ class ResourceManager:
         return template
 
     async def get_resource(
-        self,
-        uri: AnyUrl | str,
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
-    ) -> Resource | None:
+        self, uri: AnyUrl | str, context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None
+    ) -> Resource:
         """Get resource by URI, checking concrete resources first, then templates."""
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
