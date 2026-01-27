@@ -5,7 +5,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from mcp import Client, types
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -29,7 +29,7 @@ async def test_url_elicitation_accept():
         return f"User {result.action}"
 
     # Create elicitation callback that accepts URL mode
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
         assert params.url == "https://example.com/api_key_setup"
         assert params.elicitation_id == "test-elicitation-001"
@@ -58,7 +58,7 @@ async def test_url_elicitation_decline():
         # Test only checks decline path
         return f"User {result.action} authorization"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
         return ElicitResult(action="decline")
 
@@ -84,7 +84,7 @@ async def test_url_elicitation_cancel():
         # Test only checks cancel path
         return f"User {result.action} payment"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         assert params.mode == "url"
         return ElicitResult(action="cancel")
 
@@ -111,7 +111,7 @@ async def test_url_elicitation_helper_function():
         # Test only checks accept path - return the type name
         return type(result).__name__
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         return ElicitResult(action="accept")
 
     async with Client(mcp, elicitation_callback=elicitation_callback) as client:
@@ -138,7 +138,7 @@ async def test_url_no_content_in_response():
         assert result.content is None
         return f"Action: {result.action}, Content: {result.content}"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         # Verify that this is URL mode
         assert params.mode == "url"
         assert isinstance(params, types.ElicitRequestURLParams)
@@ -171,7 +171,7 @@ async def test_form_mode_still_works():
         assert result.data is not None
         return f"Hello, {result.data.name}!"
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientTransportSession, None], params: ElicitRequestParams):
         # Verify form mode parameters
         assert params.mode == "form"
         assert isinstance(params, types.ElicitRequestFormParams)

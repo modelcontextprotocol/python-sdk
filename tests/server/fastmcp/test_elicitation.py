@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from mcp import Client, types
-from mcp.client.session import ClientSession, ElicitationFnT
+from mcp.client.session import ElicitationFnT
 from mcp.client.transport_session import ClientTransportSession
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -224,7 +224,7 @@ async def test_elicitation_with_optional_fields():
             return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
         return f"User {result.action}"  # pragma: no cover
 
-    async def multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+    async def multiselect_callback(context: RequestContext[ClientTransportSession, Any], params: ElicitRequestParams):
         if "Please provide tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
         return ElicitResult(action="decline")  # pragma: no cover
@@ -244,7 +244,7 @@ async def test_elicitation_with_optional_fields():
             return f"Name: {result.data.name}, Tags: {tags_str}"
         return f"User {result.action}"  # pragma: no cover
 
-    async def optional_multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+    async def optional_multiselect_callback(context: RequestContext[ClientTransportSession, Any], params: ElicitRequestParams):
         if "Please provide optional tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
         return ElicitResult(action="decline")  # pragma: no cover
@@ -378,7 +378,7 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"  # pragma: no cover
 
-    async def enum_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+    async def enum_callback(context: RequestContext[ClientTransportSession, Any], params: ElicitRequestParams):
         if "colors" in params.message and "legacy" not in params.message:
             return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
         elif "color" in params.message:

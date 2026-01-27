@@ -475,7 +475,7 @@ async def test_client_capabilities_with_sampling_tools():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientTransportSession, None],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(

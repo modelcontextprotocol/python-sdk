@@ -16,7 +16,7 @@ import pytest
 from anyio import Event
 
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
-from mcp.client.session import ClientSession
+from mcp.client.session import ClientSession, ClientTransportSession
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.lowlevel import NotificationOptions
@@ -212,7 +212,7 @@ async def test_scenario1_normal_tool_normal_elicitation() -> None:
 
     # Elicitation callback for client
     async def elicitation_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientTransportSession, Any],
         params: ElicitRequestParams,
     ) -> ElicitResult:
         elicit_received.set()
@@ -383,7 +383,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
 
     # Elicitation callback for client
     async def elicitation_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientTransportSession, Any],
         params: ElicitRequestParams,
     ) -> ElicitResult:
         elicit_received.set()
