@@ -273,8 +273,16 @@ def dev(
 
         # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
+        cmd_args = [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd
+
+        if shell:
+            # On Windows with shell=True, I need to quote arguments to prevent injection
+            # and join them into a single string, as passing a list with shell=True is unsafe/undefined behavior
+            # Using list2cmdline as it's the correct way to escape for cmd.exe
+            cmd_args = subprocess.list2cmdline(cmd_args)
+
         process = subprocess.run(
-            [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
+            cmd_args,
             check=True,
             shell=shell,
             env=dict(os.environ.items()),  # Convert to list of tuples for env update
