@@ -929,7 +929,7 @@ class TestServerResourceMetadata:
         mcp = MCPServer()
 
         @mcp.resource("resource://config", meta={"ui": {"component": "file-viewer"}, "priority": "high"})
-        def get_config() -> str: ...
+        def get_config() -> str: ...  # pragma: no branch
 
         resources = await mcp.list_resources()
         assert resources == snapshot(
@@ -950,7 +950,7 @@ class TestServerResourceMetadata:
         mcp = MCPServer()
 
         @mcp.resource("resource://{city}/weather", meta={"api_version": "v2", "deprecated": False})
-        def get_weather(city: str) -> str: ...
+        def get_weather(city: str) -> str: ...  # pragma: no branch
 
         templates = await mcp.list_resource_templates()
         assert templates == snapshot(
@@ -1277,15 +1277,14 @@ class TestServerPrompts:
         with pytest.raises(TypeError, match="decorator was used incorrectly"):
 
             @mcp.prompt  # type: ignore
-            def fn() -> str:
-                return "Hello, world!"
+            def fn() -> str: ...  # pragma: no branch
 
     async def test_list_prompts(self):
         """Test listing prompts through MCP protocol."""
         mcp = MCPServer()
 
         @mcp.prompt()
-        def fn(name: str, optional: str = "default") -> str: ...
+        def fn(name: str, optional: str = "default") -> str: ...  # pragma: no branch
 
         async with Client(mcp) as client:
             result = await client.list_prompts()
@@ -1395,7 +1394,7 @@ class TestServerPrompts:
         mcp = MCPServer()
 
         @mcp.prompt()
-        def prompt_fn(name: str) -> str: ...
+        def prompt_fn(name: str) -> str: ...  # pragma: no branch
 
         async with Client(mcp) as client:
             with pytest.raises(MCPError, match="Missing required arguments"):

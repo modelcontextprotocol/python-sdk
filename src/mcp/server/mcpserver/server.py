@@ -347,8 +347,9 @@ class MCPServer(Generic[LifespanResultT]):
         """Read a resource by URI."""
 
         context = self.get_context()
-        resource = await self._resource_manager.get_resource(uri, context=context)
-        if not resource:
+        try:
+            resource = await self._resource_manager.get_resource(uri, context=context)
+        except ValueError:
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
