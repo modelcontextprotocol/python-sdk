@@ -28,10 +28,5 @@ async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageS
     client_streams = (server_to_client_receive, client_to_server_send)
     server_streams = (client_to_server_receive, server_to_client_send)
 
-    async with (
-        server_to_client_receive,
-        client_to_server_send,
-        client_to_server_receive,
-        server_to_client_send,
-    ):
+    async with server_to_client_receive, client_to_server_send, client_to_server_receive, server_to_client_send:
         yield client_streams, server_streams
