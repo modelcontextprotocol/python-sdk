@@ -196,6 +196,7 @@ class Session(
         """Send a request"""
         raise NotImplementedError
 
+    @abstractmethod
     async def send_notification(
         self,
         notification: SendNotificationT,
@@ -206,12 +207,10 @@ class Session(
 
 class BaseSession(Session[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]):
     """Implements an MCP "session" on top of read/write streams, including features
-    like request/response linking, notifications, and progress.
+    like request/response linking, notifications, and progress for JSON-RPC based transports.
 
     This class is an async context manager that automatically starts processing
     messages when entered.
-
-    This is need for JSON-RPC based transports.
     """
 
     _response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]]
