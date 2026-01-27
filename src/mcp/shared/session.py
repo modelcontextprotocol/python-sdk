@@ -210,6 +210,8 @@ class BaseSession(Session[SendRequestT, SendNotificationT, SendResultT, ReceiveR
 
     This class is an async context manager that automatically starts processing
     messages when entered.
+
+    This is need for JSON-RPC based transports.
     """
 
     _response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]]
