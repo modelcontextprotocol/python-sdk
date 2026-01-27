@@ -22,7 +22,6 @@ import mcp.client.sse
 import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
-from mcp.client.transport_session import ClientTransportSession
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
@@ -244,7 +243,7 @@ async def test_sse_client_on_session_created_not_called_when_no_session_id(
 
 
 @pytest.fixture
-async def initialized_sse_client_session(server: None, server_url: str) -> AsyncGenerator[ClientTransportSession, None]:
+async def initialized_sse_client_session(server: None, server_url: str) -> AsyncGenerator[ClientSession, None]:
     async with sse_client(server_url + "/sse", sse_read_timeout=0.5) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
