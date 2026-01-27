@@ -59,6 +59,9 @@ class RequireAuthMiddleware:
         app: Any,
         required_scopes: list[str],
         resource_metadata_url: AnyHttpUrl | None = None,
+        auth_protocols: list[str] | None = None,
+        default_protocol: str | None = None,
+        protocol_preferences: dict[str, int] | None = None,
     ):
         """Initialize the middleware.
 
@@ -66,10 +69,16 @@ class RequireAuthMiddleware:
             app: ASGI application
             required_scopes: List of scopes that the token must have
             resource_metadata_url: Optional protected resource metadata URL for WWW-Authenticate header
+            auth_protocols: List of supported authentication protocol IDs (MCP extension)
+            default_protocol: Default authentication protocol ID (MCP extension)
+            protocol_preferences: Dictionary mapping protocol IDs to priority values (MCP extension)
         """
         self.app = app
         self.required_scopes = required_scopes
         self.resource_metadata_url = resource_metadata_url
+        self.auth_protocols = auth_protocols
+        self.default_protocol = default_protocol
+        self.protocol_preferences = protocol_preferences
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         auth_user = scope.get("user")
@@ -98,6 +107,17 @@ class RequireAuthMiddleware:
         if self.resource_metadata_url:  # pragma: no cover
             www_auth_parts.append(f'resource_metadata="{self.resource_metadata_url}"')
 
+        # Add protocol-related fields (MCP extension)
+        if self.auth_protocols:
+            protocols_str = " ".join(self.auth_protocols)
+            www_auth_parts.append(f'auth_protocols="{protocols_str}"')
+        if self.default_protocol:
+            www_auth_parts.append(f'default_protocol="{self.default_protocol}"')
+        if self.protocol_preferences:
+            prefs_str = ",".join(f"{proto}:{priority}" for proto, priority in self.protocol_preferences.items())
+            www_auth_parts.append(f'protocol_preferences="{prefs_str}"')
+
+        # Keep scheme as Bearer for backwards compatibility.
         www_authenticate = f"Bearer {', '.join(www_auth_parts)}"
 
         # Send response

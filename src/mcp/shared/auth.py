@@ -130,6 +130,24 @@ class OAuthMetadata(BaseModel):
     client_id_metadata_document_supported: bool | None = None
 
 
+class AuthProtocolMetadata(BaseModel):
+    """单个授权协议的元数据（MCP扩展）"""
+
+    protocol_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    protocol_version: str
+    metadata_url: AnyHttpUrl | None = None
+    endpoints: dict[str, AnyHttpUrl] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
+    # OAuth特定字段（可选）
+    client_auth_methods: list[str] | None = None
+    grant_types: list[str] | None = None
+    scopes_supported: list[str] | None = None
+    # DPoP支持（协议无关）
+    dpop_signing_alg_values_supported: list[str] | None = None
+    dpop_bound_credentials_required: bool | None = None
+    additional_params: dict[str, Any] = Field(default_factory=dict)
+
+
 class ProtectedResourceMetadata(BaseModel):
     """RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
@@ -151,3 +169,7 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_signing_alg_values_supported: list[str] | None = None
     # dpop_bound_access_tokens_required default is False, but ommited here for clarity
     dpop_bound_access_tokens_required: bool | None = None
+    # MCP扩展字段（多协议支持）
+    mcp_auth_protocols: list["AuthProtocolMetadata"] | None = None
+    mcp_default_auth_protocol: str | None = None
+    mcp_auth_protocol_preferences: dict[str, int] | None = None

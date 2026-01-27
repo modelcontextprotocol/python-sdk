@@ -16,8 +16,16 @@ from mcp.shared.auth import (
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 
-def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
+def extract_field_from_www_auth(response: Response, field_name: str, auth_scheme: str | None = None) -> str | None:
     """Extract field from WWW-Authenticate header.
+
+    Supports multiple authentication schemes (Bearer, ApiKey, MutualTLS, etc.).
+    If auth_scheme is provided, only searches within that scheme's parameters.
+
+    Args:
+        response: HTTP response containing WWW-Authenticate header
+        field_name: Name of the field to extract
+        auth_scheme: Optional authentication scheme to search within (e.g., "Bearer", "ApiKey")
 
     Returns:
         Field value if found in WWW-Authenticate header, None otherwise
@@ -26,9 +34,22 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
+    # If auth_scheme is specified, extract only from that scheme's parameters
+    if auth_scheme:
+        # Pattern to match the specified auth scheme and its parameters
+        scheme_pattern = rf'{re.escape(auth_scheme)}\s+([^,]+(?:,\s*[^,]+)*)'
+        scheme_match = re.search(scheme_pattern, www_auth_header, re.IGNORECASE)
+        if not scheme_match:
+            return None
+        # Search within the matched scheme's parameters
+        search_text = scheme_match.group(1)
+    else:
+        # Search in the entire header (backward compatible)
+        search_text = www_auth_header
+
     # Pattern matches: field_name="value" or field_name=value (unquoted)
     pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
+    match = re.search(pattern, search_text)
 
     if match:
         # Return quoted value if present, otherwise unquoted value
@@ -56,6 +77,55 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
         return None  # pragma: no cover
 
     return extract_field_from_www_auth(response, "resource_metadata")
+
+
+def extract_auth_protocols_from_www_auth(response: Response) -> list[str] | None:
+    """
+    Extract auth_protocols field from WWW-Authenticate header (MCP extension).
+
+    Returns:
+        List of protocol IDs if found in WWW-Authenticate header, None otherwise
+    """
+    protocols_str = extract_field_from_www_auth(response, "auth_protocols")
+    if not protocols_str:
+        return None
+    return protocols_str.split()
+
+
+def extract_default_protocol_from_www_auth(response: Response) -> str | None:
+    """
+    Extract default_protocol field from WWW-Authenticate header (MCP extension).
+
+    Returns:
+        Default protocol ID if found in WWW-Authenticate header, None otherwise
+    """
+    return extract_field_from_www_auth(response, "default_protocol")
+
+
+def extract_protocol_preferences_from_www_auth(response: Response) -> dict[str, int] | None:
+    """
+    Extract protocol_preferences field from WWW-Authenticate header (MCP extension).
+
+    Format: "protocol1:priority1,protocol2:priority2"
+
+    Returns:
+        Dictionary mapping protocol IDs to priorities if found, None otherwise
+    """
+    prefs_str = extract_field_from_www_auth(response, "protocol_preferences")
+    if not prefs_str:
+        return None
+    preferences: dict[str, int] = {}
+    for item in prefs_str.split(","):
+        parts = item.split(":")
+        if len(parts) == 2:
+            proto = parts[0].strip()
+            try:
+                priority = int(parts[1].strip())
+                preferences[proto] = priority
+            except ValueError:
+                # Skip invalid entries
+                continue
+    return preferences if preferences else None
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
