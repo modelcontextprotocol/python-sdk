@@ -5,6 +5,7 @@ from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
+from abc import ABC, abstractmethod
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -154,9 +155,23 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
-class Session:
-    """Base class for a session that can send progress notifications."""
+class Session(ABC,
+    Generic[
+        SendRequestT,
+        SendNotificationT,
+        SendResultT,
+        ReceiveRequestT,
+        ReceiveNotificationT,
+    ]):
+    """
+    Base class for a session that could be inherited by
+    BaseSessions for JSON-RPC (read-write stream dependent)
+    and other non JSON-RPC transports.
+    """
 
+    _progress_callbacks: dict[RequestId, ProgressFnT]
+
+    @abstractmethod
     async def send_progress_notification(
         self,
         progress_token: ProgressToken,
@@ -165,18 +180,29 @@ class Session:
         message: str | None = None,
     ) -> None:
         """Sends a progress notification for a request that is currently being processed."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def send_request(
+        self,
+        request: SendRequestT,
+        result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ReceiveResultT:
+        """Send a request"""
+        raise NotImplementedError
+
+    async def send_notification(
+        self,
+        notification: SendNotificationT,
+        related_request_id: RequestId | None = None,
+    ) -> None:
+        """Emits a notification, which is a one-way message that does not expect a response."""
 
 
-class BaseSession(
-    Session,
-    Generic[
-        SendRequestT,
-        SendNotificationT,
-        SendResultT,
-        ReceiveRequestT,
-        ReceiveNotificationT,
-    ],
-):
+class BaseSession(Session):
     """Implements an MCP "session" on top of read/write streams, including features
     like request/response linking, notifications, and progress.
 
@@ -187,7 +213,6 @@ class BaseSession(
     _response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]]
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
-    _progress_callbacks: dict[RequestId, ProgressFnT]
     _response_routers: list[ResponseRouter]
 
     def __init__(
