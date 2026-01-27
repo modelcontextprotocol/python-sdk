@@ -825,7 +825,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
         token_verifier: TokenVerifier | None = None,
-        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         custom_starlette_routes: list[Route] | None = None,
         debug: bool = False,
     ) -> Starlette:
