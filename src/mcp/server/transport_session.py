@@ -78,3 +78,13 @@ class ServerTransportSession(ABC):
     async def send_resource_list_changed(self) -> None:
         """Send a resource list changed notification."""
         raise NotImplementedError
+
+    @abstractmethod
+    async def send_tool_list_changed(self) -> None:
+        """Send a tool list changed notification."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def send_prompt_list_changed(self) -> None:
+        """Send a prompt list changed notification."""
+        raise NotImplementedError
