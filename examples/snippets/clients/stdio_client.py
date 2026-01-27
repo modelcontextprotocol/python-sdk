@@ -5,7 +5,7 @@ uv run client
 import asyncio
 import os
 
-from mcp import ClientSession, ClientTransportSession, StdioServerParameters, types
+from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from mcp.shared.context import RequestContext
 
@@ -19,7 +19,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientTransportSession, None], params: types.CreateMessageRequestParams
+    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(
