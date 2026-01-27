@@ -7,7 +7,10 @@ from mcp.types import RequestParamsMeta
 
 
 class ClientTransportSession(ABC):
-    """Abstract base class for communication transports."""
+    """Abstract base class for communication transports.
+
+    Every communication transport including both JSON-RPC or non-JSON-RPC must implement this class.
+    """
 
     @abstractmethod
     async def initialize(self) -> types.InitializeResult:

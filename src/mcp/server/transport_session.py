@@ -7,7 +7,10 @@ import mcp.types as types
 
 
 class ServerTransportSession(ABC):
-    """Abstract base class for transport sessions."""
+    """Abstract base class for transport sessions.
+
+    Every transport session including both JSON-RPC or non-JSON-RPC must implement this class.
+    """
 
     @abstractmethod
     async def send_log_message(
