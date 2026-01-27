@@ -5,7 +5,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from mcp import Client, types
-from mcp.client.session import ClientSession, ClientTransportSession
+from mcp.client.session import ClientTransportSession
 from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
