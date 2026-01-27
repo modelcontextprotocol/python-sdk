@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
-from abc import ABC, abstractmethod
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -165,8 +165,7 @@ class Session(
         ReceiveNotificationT,
     ],
 ):
-    """
-    Base class for a session that could be inherited by
+    """Base class for a session that could be inherited by
     BaseSessions for JSON-RPC (read-write stream dependent)
     and other non JSON-RPC transports.
     """

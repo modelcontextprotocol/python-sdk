@@ -10,7 +10,7 @@ This is the core of the task message queue pattern.
 """
 
 import logging
-from typing import cast, Any
+from typing import Any, cast
 
 import anyio
 

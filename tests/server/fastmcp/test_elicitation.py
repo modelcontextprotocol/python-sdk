@@ -244,7 +244,9 @@ async def test_elicitation_with_optional_fields():
             return f"Name: {result.data.name}, Tags: {tags_str}"
         return f"User {result.action}"  # pragma: no cover
 
-    async def optional_multiselect_callback(context: RequestContext[ClientTransportSession, Any], params: ElicitRequestParams):
+    async def optional_multiselect_callback(
+        context: RequestContext[ClientTransportSession, Any], params: ElicitRequestParams
+    ):
         if "Please provide optional tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
         return ElicitResult(action="decline")  # pragma: no cover
