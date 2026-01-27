@@ -11,6 +11,11 @@ class ServerTransportSession(ABC):
     """Abstract base class for transport sessions."""
 
     @abstractmethod
+    async def send_message(self, message: SessionMessage) -> None:
+        """Send a raw session message."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def send_log_message(
         self,
         level: types.LoggingLevel,
@@ -60,6 +65,11 @@ class ServerTransportSession(ABC):
         related_request_id: types.RequestId | None = None,
     ) -> types.ElicitResult:
         """Send a URL mode elicitation/create request."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def send_ping(self) -> types.EmptyResult:
+        """Send a ping request."""
         raise NotImplementedError
 
     @abstractmethod
