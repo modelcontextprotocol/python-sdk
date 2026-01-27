@@ -11,11 +11,6 @@ class ServerTransportSession(ABC):
     """Abstract base class for transport sessions."""
 
     @abstractmethod
-    async def send_message(self, message: SessionMessage) -> None:
-        """Send a raw session message."""
-        raise NotImplementedError
-
-    @abstractmethod
     async def send_log_message(
         self,
         level: types.LoggingLevel,
@@ -68,11 +63,6 @@ class ServerTransportSession(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def send_ping(self) -> types.EmptyResult:
-        """Send a ping request."""
-        raise NotImplementedError
-
-    @abstractmethod
     async def send_progress_notification(
         self,
         progress_token: str | int,
@@ -87,14 +77,4 @@ class ServerTransportSession(ABC):
     @abstractmethod
     async def send_resource_list_changed(self) -> None:
         """Send a resource list changed notification."""
-        raise NotImplementedError
-
-    @abstractmethod
-    async def send_tool_list_changed(self) -> None:
-        """Send a tool list changed notification."""
-        raise NotImplementedError
-
-    @abstractmethod
-    async def send_prompt_list_changed(self) -> None:
-        """Send a prompt list changed notification."""
         raise NotImplementedError
