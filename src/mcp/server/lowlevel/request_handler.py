@@ -6,7 +6,7 @@ from typing import Any, Generic, Literal, overload
 from typing_extensions import TypeVar
 
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -31,7 +31,7 @@ from mcp.types import (
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
 
-RequestCtx = RequestHandlerContext[ServerSession, LifespanResultT, RequestT]
+RequestCtx = RequestContext[ServerSession, LifespanResultT, RequestT]
 
 
 class RequestHandler(Generic[LifespanResultT, RequestT]):

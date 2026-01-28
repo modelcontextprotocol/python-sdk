@@ -68,7 +68,7 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.context import NotificationHandlerContext, RequestHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -155,7 +155,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 else:
                     raise TypeError(f"Unknown handler type: {type(handler)}")
 
-    def add_handler(self, handler: RequestHandler[Any, Any] | NotificationHandler[Any, Any]) -> None:
+    def _add_handler(self, handler: RequestHandler[Any, Any] | NotificationHandler[Any, Any]) -> None:
         """Add a handler, silently replacing any existing handler for the same method."""
         if isinstance(handler, RequestHandler):
             self._request_handlers[handler.method] = handler
@@ -164,7 +164,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         else:
             raise TypeError(f"Unknown handler type: {type(handler)}")
 
-    def has_handler(self, method: str) -> bool:
+    def _has_handler(self, method: str) -> bool:
         """Check if a handler is registered for the given method."""
         return method in self._request_handlers or method in self._notification_handlers
 
@@ -253,8 +253,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         # We create this inline so we only add these capabilities _if_ they're actually used
         if self._experimental_handlers is None:
             self._experimental_handlers = ExperimentalHandlers(
-                add_handler=self.add_handler,
-                has_handler=self.has_handler,
+                add_handler=self._add_handler,
+                has_handler=self._has_handler,
             )
         return self._experimental_handlers
 
@@ -377,7 +377,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 task_metadata = None
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
-                ctx = RequestHandlerContext(
+                ctx = RequestContext(
                     session,
                     lifespan_context,
                     experimental=Experimental(
@@ -421,7 +421,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             try:
                 client_capabilities = session.client_params.capabilities if session.client_params else None
                 task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                ctx = NotificationHandlerContext(
+                ctx = RequestContext(
                     session,
                     lifespan_context,
                     experimental=Experimental(

@@ -1,4 +1,4 @@
-"""Handler contexts for MCP handlers."""
+"""Request context for MCP handlers."""
 
 from dataclasses import dataclass, field
 from typing import Any, Generic
@@ -15,8 +15,12 @@ RequestT = TypeVar("RequestT", default=Any)
 
 
 @dataclass
-class HandlerContext(Generic[SessionT, LifespanContextT]):
-    """Base context shared by all handlers."""
+class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
+    """Context passed to request and notification handlers.
+
+    For request handlers, all fields are populated.
+    For notification handlers, request-specific fields (request_id, meta, etc.) are None.
+    """
 
     session: SessionT
     lifespan_context: LifespanContextT
@@ -25,19 +29,8 @@ class HandlerContext(Generic[SessionT, LifespanContextT]):
     # triggers mcp.server.__init__ -> mcpserver -> tools -> back to this module.
     # The Server sets this to an Experimental instance at runtime.
     experimental: Any = field(default=None, kw_only=True)
-
-
-@dataclass
-class RequestHandlerContext(HandlerContext[SessionT, LifespanContextT], Generic[SessionT, LifespanContextT, RequestT]):
-    """Context for request handlers."""
-
-    request_id: RequestId = field(kw_only=True)
-    meta: RequestParamsMeta | None = field(kw_only=True)
+    request_id: RequestId | None = field(default=None, kw_only=True)
+    meta: RequestParamsMeta | None = field(default=None, kw_only=True)
     request: RequestT | None = field(default=None, kw_only=True)
     close_sse_stream: CloseSSEStreamCallback | None = field(default=None, kw_only=True)
     close_standalone_sse_stream: CloseSSEStreamCallback | None = field(default=None, kw_only=True)
-
-
-@dataclass
-class NotificationHandlerContext(HandlerContext[SessionT, LifespanContextT]):
-    """Context for notification handlers."""
