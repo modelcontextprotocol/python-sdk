@@ -1,4 +1,5 @@
 import logging
+from types import TracebackType
 from typing import Any, Protocol
 
 import anyio.lowlevel
@@ -108,6 +109,8 @@ class ClientSession(
         types.ServerNotification,
     ]
 ):
+    _entered: bool
+
     def __init__(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -134,9 +137,28 @@ class ClientSession(
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
+        self._entered = False
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
+
+    async def __aenter__(self) -> "ClientSession":
+        self._entered = True
+        await super().__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self._entered = False
+        await super().__aexit__(exc_type, exc_value, traceback)
+
+    def _check_is_active(self) -> None:
+        if not self._entered:
+            raise RuntimeError("ClientSession must be used within an 'async with' block.")
 
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
@@ -147,6 +169,7 @@ class ClientSession(
         return types.server_notification_adapter
 
     async def initialize(self) -> types.InitializeResult:
+        self._check_is_active()
         sampling = (
             (self._sampling_capabilities or types.SamplingCapability())
             if self._sampling_callback is not _default_sampling_callback
