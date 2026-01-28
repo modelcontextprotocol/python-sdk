@@ -10,8 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from mcp.server.experimental.task_support import TaskSupport
-from mcp.server.lowlevel.notification_handler import NotificationHandler
-from mcp.server.lowlevel.request_handler import RequestHandler
+from mcp.server.lowlevel.handler import Handler, RequestHandler
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import cancel_task
@@ -49,7 +48,7 @@ class ExperimentalHandlers:
 
     def __init__(
         self,
-        add_handler: Callable[[RequestHandler[Any, Any] | NotificationHandler[Any, Any]], None],
+        add_handler: Callable[[Handler], None],
         has_handler: Callable[[str], bool],
     ) -> None:
         self._add_handler = add_handler
