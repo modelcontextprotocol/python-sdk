@@ -134,7 +134,7 @@ class RequestHandler(Generic[LifespanResultT, RequestT]):
 
     def __init__(self, method: str, handler: Callable[[RequestCtx, Any], Awaitable[Any]]) -> None:
         self.method = method
-        self.endpoint = handler
+        self.handler = handler
 
     async def handle(self, ctx: RequestCtx, params: Any) -> Any:
-        return await self.endpoint(ctx, params)
+        return await self.handler(ctx, params)

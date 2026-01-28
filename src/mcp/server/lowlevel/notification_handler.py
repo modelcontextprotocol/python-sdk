@@ -63,7 +63,7 @@ class NotificationHandler(Generic[LifespanResultT, RequestT]):
 
     def __init__(self, method: str, handler: Callable[[NotificationCtx, Any], Awaitable[None]]) -> None:
         self.method = method
-        self.endpoint = handler
+        self.handler = handler
 
     async def handle(self, ctx: NotificationCtx, params: Any) -> None:
-        await self.endpoint(ctx, params)
+        await self.handler(ctx, params)
