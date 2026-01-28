@@ -538,9 +538,9 @@ server = Server(
 )
 ```
 
-### Lowlevel `Server`: `request_context` property and `request_ctx` contextvar removed
+### Lowlevel `Server`: `request_context` property removed
 
-The `server.request_context` property and the `request_ctx` module-level contextvar have been removed. Request context is now passed directly to handlers as the first argument (`ctx`).
+The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar still exists but should not be needed — use `ctx` directly instead.
 
 **Before (v1):**
 
