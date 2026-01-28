@@ -31,6 +31,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.lowlevel.notification_handler import NotificationHandler
 from mcp.server.lowlevel.request_handler import RequestHandler
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
@@ -46,7 +47,7 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.context import LifespanContextT, RequestHandlerContext, RequestT
+from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
     Annotations,
@@ -76,7 +77,7 @@ logger = get_logger(__name__)
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
-_mcp_server_ctx: contextvars.ContextVar[RequestHandlerContext[ServerSession, Any, Any]] = contextvars.ContextVar(
+_mcp_server_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar(
     "_mcp_server_ctx"
 )
 
@@ -159,6 +160,9 @@ class MCPServer(Generic[LifespanResultT]):
             auth=auth,
         )
 
+        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
+        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
+        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -167,13 +171,11 @@ class MCPServer(Generic[LifespanResultT]):
             website_url=website_url,
             icons=icons,
             version=version,
+            handlers=self._create_handlers(),
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
-        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
-        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -190,9 +192,6 @@ class MCPServer(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
-
-        # Set up MCP protocol handlers
-        self._setup_handlers()
 
         # Configure logging
         configure_logging(self.settings.log_level)
@@ -290,8 +289,8 @@ class MCPServer(Generic[LifespanResultT]):
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
-    def _setup_handlers(self) -> None:
-        """Set up core MCP protocol handlers."""
+    def _create_handlers(self) -> list[RequestHandler[Any, Any] | NotificationHandler[Any, Any]]:
+        """Create core MCP protocol handlers."""
 
         async def handle_list_tools(ctx: Any, params: Any) -> ListToolsResult:
             token = _mcp_server_ctx.set(ctx)
@@ -382,15 +381,15 @@ class MCPServer(Generic[LifespanResultT]):
             finally:
                 _mcp_server_ctx.reset(token)
 
-        self._lowlevel_server.add_handler(RequestHandler("tools/list", handler=handle_list_tools))
-        self._lowlevel_server.add_handler(RequestHandler("tools/call", handler=handle_call_tool))
-        self._lowlevel_server.add_handler(RequestHandler("resources/list", handler=handle_list_resources))
-        self._lowlevel_server.add_handler(RequestHandler("resources/read", handler=handle_read_resource))
-        self._lowlevel_server.add_handler(
-            RequestHandler("resources/templates/list", handler=handle_list_resource_templates)
-        )
-        self._lowlevel_server.add_handler(RequestHandler("prompts/list", handler=handle_list_prompts))
-        self._lowlevel_server.add_handler(RequestHandler("prompts/get", handler=handle_get_prompt))
+        return [
+            RequestHandler("tools/list", handler=handle_list_tools),
+            RequestHandler("tools/call", handler=handle_call_tool),
+            RequestHandler("resources/list", handler=handle_list_resources),
+            RequestHandler("resources/read", handler=handle_read_resource),
+            RequestHandler("resources/templates/list", handler=handle_list_resource_templates),
+            RequestHandler("prompts/list", handler=handle_list_prompts),
+            RequestHandler("prompts/get", handler=handle_get_prompt),
+        ]
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
@@ -614,7 +613,11 @@ class MCPServer(Generic[LifespanResultT]):
                 finally:
                     _mcp_server_ctx.reset(token)
 
-            self._lowlevel_server.add_handler(RequestHandler("completion/complete", handler=handler))
+            # TODO(maxisbey): remove private access — completion needs post-construction
+            #   handler registration, find a better pattern for this
+            self._lowlevel_server._add_handler(  # pyright: ignore[reportPrivateUsage]
+                RequestHandler("completion/complete", handler=handler)
+            )
             return func
 
         return decorator
@@ -1136,13 +1139,13 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestHandlerContext[ServerSessionT, LifespanContextT, RequestT] | None
+    _request_context: RequestContext[ServerSessionT, LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
 
     def __init__(
         self,
         *,
-        request_context: (RequestHandlerContext[ServerSessionT, LifespanContextT, RequestT] | None) = None,
+        request_context: (RequestContext[ServerSessionT, LifespanContextT, RequestT] | None) = None,
         mcp_server: MCPServer | None = None,
         **kwargs: Any,
     ):
@@ -1160,7 +1163,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     @property
     def request_context(
         self,
-    ) -> RequestHandlerContext[ServerSessionT, LifespanContextT, RequestT]:
+    ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
         """Access to the underlying request context."""
         if self._request_context is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")

@@ -456,7 +456,7 @@ params = CallToolRequestParams(
 
 ### Lowlevel `Server`: decorator-based handlers replaced with `RequestHandler`/`NotificationHandler`
 
-The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are `RequestHandler` and `NotificationHandler` objects passed to the constructor or added via `add_handler()`.
+The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are `RequestHandler` and `NotificationHandler` objects passed to the constructor.
 
 **Before (v1):**
 
@@ -478,7 +478,7 @@ async def handle_call_tool(name: str, arguments: dict):
 
 ```python
 from mcp.server.lowlevel import Server, RequestHandler
-from mcp.shared.context import RequestHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -489,14 +489,14 @@ from mcp.types import (
 )
 
 async def handle_list_tools(
-    ctx: RequestHandlerContext, params: PaginatedRequestParams | None
+    ctx: RequestContext, params: PaginatedRequestParams | None
 ) -> ListToolsResult:
     return ListToolsResult(tools=[
         Tool(name="my_tool", description="A tool", inputSchema={})
     ])
 
 async def handle_call_tool(
-    ctx: RequestHandlerContext, params: CallToolRequestParams
+    ctx: RequestContext, params: CallToolRequestParams
 ) -> CallToolResult:
     return CallToolResult(
         content=[TextContent(type="text", text=f"Called {params.name}")],
@@ -514,21 +514,19 @@ server = Server(
 
 **Key differences:**
 
-- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `RequestHandlerContext` (for requests) or `NotificationHandlerContext` (for notifications) with `session`, `lifespan_context`, and `experimental` fields. `params` is the typed request params object.
+- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `RequestContext` with `session`, `lifespan_context`, and `experimental` fields (plus `request_id`, `meta`, etc. for request handlers). `params` is the typed request params object.
 - Handlers return the full result type (e.g. `ListToolsResult`) rather than unwrapped values (e.g. `list[Tool]`).
 - Registration uses method strings (`"tools/call"`) instead of request types (`CallToolRequest`).
-- Handlers can be added after construction with `server.add_handler()` (silently replaces existing handlers for the same method).
-- `server.has_handler(method)` checks if a handler is registered for a given method string.
 
 **Notification handlers:**
 
 ```python
 from mcp.server.lowlevel import NotificationHandler
-from mcp.shared.context import NotificationHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.types import ProgressNotificationParams
 
 async def handle_progress(
-    ctx: NotificationHandlerContext, params: ProgressNotificationParams
+    ctx: RequestContext, params: ProgressNotificationParams
 ) -> None:
     print(f"Progress: {params.progress}/{params.total}")
 
@@ -559,11 +557,11 @@ async def handle_call_tool(name: str, arguments: dict):
 **After (v2):**
 
 ```python
-from mcp.shared.context import RequestHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 async def handle_call_tool(
-    ctx: RequestHandlerContext, params: CallToolRequestParams
+    ctx: RequestContext, params: CallToolRequestParams
 ) -> CallToolResult:
     await ctx.session.send_log_message(level="info", data="Processing...")
     return CallToolResult(
@@ -572,24 +570,15 @@ async def handle_call_tool(
     )
 ```
 
-### `RequestContext` split into `HandlerContext`, `RequestHandlerContext`, `NotificationHandlerContext`
+### `RequestContext`: request-specific fields are now optional
 
-The `RequestContext` class in `mcp.shared.context` has been replaced with a three-class hierarchy:
-
-- `HandlerContext` — base class with `session`, `lifespan_context`, `experimental`
-- `RequestHandlerContext(HandlerContext)` — adds `request_id`, `meta`, `request`, `close_sse_stream`, `close_standalone_sse_stream`
-- `NotificationHandlerContext(HandlerContext)` — empty subclass for notifications
-
-**Before (v1):**
+The `RequestContext` class now uses optional fields for request-specific data (`request_id`, `meta`, etc.) so it can be used for both request and notification handlers. In notification handlers, these fields are `None`.
 
 ```python
 from mcp.shared.context import RequestContext
-```
 
-**After (v2):**
-
-```python
-from mcp.shared.context import HandlerContext, RequestHandlerContext, NotificationHandlerContext
+# request_id, meta, etc. are available in request handlers
+# but None in notification handlers
 ```
 
 ## New Features
@@ -600,11 +589,11 @@ The `streamable_http_app()` method is now available directly on the lowlevel `Se
 
 ```python
 from mcp.server.lowlevel import Server, RequestHandler
-from mcp.shared.context import RequestHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.types import ListToolsResult, PaginatedRequestParams
 
 async def handle_list_tools(
-    ctx: RequestHandlerContext, params: PaginatedRequestParams | None
+    ctx: RequestContext, params: PaginatedRequestParams | None
 ) -> ListToolsResult:
     return ListToolsResult(tools=[...])
 

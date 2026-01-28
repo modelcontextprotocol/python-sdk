@@ -12,7 +12,7 @@ from typing import Any
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.lowlevel.notification_handler import NotificationHandler
 from mcp.server.lowlevel.request_handler import RequestHandler
-from mcp.shared.context import RequestHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import cancel_task
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
@@ -125,7 +125,7 @@ class ExperimentalHandlers:
         if not self._has_handler("tasks/get"):
 
             async def _default_get_task(
-                ctx: RequestHandlerContext[Any, Any, Any], params: GetTaskRequestParams
+                ctx: RequestContext[Any, Any, Any], params: GetTaskRequestParams
             ) -> GetTaskResult:
                 task = await support.store.get_task(params.task_id)
                 if task is None:
@@ -145,8 +145,9 @@ class ExperimentalHandlers:
         if not self._has_handler("tasks/result"):
 
             async def _default_get_task_result(
-                ctx: RequestHandlerContext[Any, Any, Any], params: GetTaskPayloadRequestParams
+                ctx: RequestContext[Any, Any, Any], params: GetTaskPayloadRequestParams
             ) -> GetTaskPayloadResult:
+                assert ctx.request_id is not None
                 req = GetTaskPayloadRequest(params=params)
                 result = await support.handler.handle(req, ctx.session, ctx.request_id)
                 return result
@@ -156,7 +157,7 @@ class ExperimentalHandlers:
         if not self._has_handler("tasks/list"):
 
             async def _default_list_tasks(
-                ctx: RequestHandlerContext[Any, Any, Any], params: PaginatedRequestParams | None
+                ctx: RequestContext[Any, Any, Any], params: PaginatedRequestParams | None
             ) -> ListTasksResult:
                 cursor = params.cursor if params else None
                 tasks, next_cursor = await support.store.list_tasks(cursor)
@@ -167,7 +168,7 @@ class ExperimentalHandlers:
         if not self._has_handler("tasks/cancel"):
 
             async def _default_cancel_task(
-                ctx: RequestHandlerContext[Any, Any, Any], params: CancelTaskRequestParams
+                ctx: RequestContext[Any, Any, Any], params: CancelTaskRequestParams
             ) -> CancelTaskResult:
                 result = await cancel_task(support.store, params.task_id)
                 return result

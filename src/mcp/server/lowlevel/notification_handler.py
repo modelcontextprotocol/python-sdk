@@ -6,7 +6,7 @@ from typing import Any, Generic, Literal, overload
 from typing_extensions import TypeVar
 
 from mcp.server.session import ServerSession
-from mcp.shared.context import NotificationHandlerContext
+from mcp.shared.context import RequestContext
 from mcp.types import (
     CancelledNotificationParams,
     NotificationParams,
@@ -16,7 +16,7 @@ from mcp.types import (
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
 
-NotificationCtx = NotificationHandlerContext[ServerSession, LifespanResultT]
+NotificationCtx = RequestContext[ServerSession, LifespanResultT, Any]
 
 
 class NotificationHandler(Generic[LifespanResultT, RequestT]):
