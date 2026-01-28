@@ -454,6 +454,144 @@ params = CallToolRequestParams(
 )
 ```
 
+### Lowlevel `Server`: decorator-based handlers replaced with `RequestHandler`/`NotificationHandler`
+
+The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are `RequestHandler` and `NotificationHandler` objects passed to the constructor or added via `add_handler()`.
+
+**Before (v1):**
+
+```python
+from mcp.server.lowlevel.server import Server
+
+server = Server("my-server")
+
+@server.list_tools()
+async def handle_list_tools():
+    return [types.Tool(name="my_tool", description="A tool", inputSchema={})]
+
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict):
+    return [types.TextContent(type="text", text=f"Called {name}")]
+```
+
+**After (v2):**
+
+```python
+from mcp.server.lowlevel import Server, RequestHandler
+from mcp.shared.context import RequestHandlerContext
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
+
+async def handle_list_tools(
+    ctx: RequestHandlerContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(tools=[
+        Tool(name="my_tool", description="A tool", inputSchema={})
+    ])
+
+async def handle_call_tool(
+    ctx: RequestHandlerContext, params: CallToolRequestParams
+) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=f"Called {params.name}")],
+        is_error=False,
+    )
+
+server = Server(
+    "my-server",
+    handlers=[
+        RequestHandler("tools/list", handler=handle_list_tools),
+        RequestHandler("tools/call", handler=handle_call_tool),
+    ],
+)
+```
+
+**Key differences:**
+
+- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `RequestHandlerContext` (for requests) or `NotificationHandlerContext` (for notifications) with `session`, `lifespan_context`, and `experimental` fields. `params` is the typed request params object.
+- Handlers return the full result type (e.g. `ListToolsResult`) rather than unwrapped values (e.g. `list[Tool]`).
+- Registration uses method strings (`"tools/call"`) instead of request types (`CallToolRequest`).
+- Handlers can be added after construction with `server.add_handler()` (silently replaces existing handlers for the same method).
+- `server.has_handler(method)` checks if a handler is registered for a given method string.
+
+**Notification handlers:**
+
+```python
+from mcp.server.lowlevel import NotificationHandler
+from mcp.shared.context import NotificationHandlerContext
+from mcp.types import ProgressNotificationParams
+
+async def handle_progress(
+    ctx: NotificationHandlerContext, params: ProgressNotificationParams
+) -> None:
+    print(f"Progress: {params.progress}/{params.total}")
+
+server = Server(
+    "my-server",
+    handlers=[
+        NotificationHandler("notifications/progress", handler=handle_progress),
+    ],
+)
+```
+
+### Lowlevel `Server`: `request_context` property and `request_ctx` contextvar removed
+
+The `server.request_context` property and the `request_ctx` module-level contextvar have been removed. Request context is now passed directly to handlers as the first argument (`ctx`).
+
+**Before (v1):**
+
+```python
+from mcp.server.lowlevel.server import request_ctx
+
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict):
+    ctx = server.request_context  # or request_ctx.get()
+    await ctx.session.send_log_message(level="info", data="Processing...")
+    return [types.TextContent(type="text", text="Done")]
+```
+
+**After (v2):**
+
+```python
+from mcp.shared.context import RequestHandlerContext
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+
+async def handle_call_tool(
+    ctx: RequestHandlerContext, params: CallToolRequestParams
+) -> CallToolResult:
+    await ctx.session.send_log_message(level="info", data="Processing...")
+    return CallToolResult(
+        content=[TextContent(type="text", text="Done")],
+        is_error=False,
+    )
+```
+
+### `RequestContext` split into `HandlerContext`, `RequestHandlerContext`, `NotificationHandlerContext`
+
+The `RequestContext` class in `mcp.shared.context` has been replaced with a three-class hierarchy:
+
+- `HandlerContext` — base class with `session`, `lifespan_context`, `experimental`
+- `RequestHandlerContext(HandlerContext)` — adds `request_id`, `meta`, `request`, `close_sse_stream`, `close_standalone_sse_stream`
+- `NotificationHandlerContext(HandlerContext)` — empty subclass for notifications
+
+**Before (v1):**
+
+```python
+from mcp.shared.context import RequestContext
+```
+
+**After (v2):**
+
+```python
+from mcp.shared.context import HandlerContext, RequestHandlerContext, NotificationHandlerContext
+```
+
 ## New Features
 
 ### `streamable_http_app()` available on lowlevel Server
@@ -461,16 +599,22 @@ params = CallToolRequestParams(
 The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `MCPServer`. This allows using the streamable HTTP transport without the MCPServer wrapper.
 
 ```python
-from mcp.server.lowlevel.server import Server
+from mcp.server.lowlevel import Server, RequestHandler
+from mcp.shared.context import RequestHandlerContext
+from mcp.types import ListToolsResult, PaginatedRequestParams
 
-server = Server("my-server")
+async def handle_list_tools(
+    ctx: RequestHandlerContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(tools=[...])
 
-# Register handlers...
-@server.list_tools()
-async def list_tools():
-    return [...]
+server = Server(
+    "my-server",
+    handlers=[
+        RequestHandler("tools/list", handler=handle_list_tools),
+    ],
+)
 
-# Create a Starlette app for streamable HTTP
 app = server.streamable_http_app(
     streamable_http_path="/mcp",
     json_response=False,
