@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import contextvars
 import inspect
 import json
 import re
@@ -32,7 +31,7 @@ from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlEli
 from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.handler import Handler, RequestHandler
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import LifespanResultT, Server
+from mcp.server.lowlevel.server import LifespanResultT, Server, request_ctx
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
@@ -75,10 +74,6 @@ from mcp.types import Tool as MCPTool
 logger = get_logger(__name__)
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
-
-_mcp_server_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar(
-    "_mcp_server_ctx"
-)
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -292,93 +287,65 @@ class MCPServer(Generic[LifespanResultT]):
         """Create core MCP protocol handlers."""
 
         async def handle_list_tools(ctx: Any, params: Any) -> ListToolsResult:
-            token = _mcp_server_ctx.set(ctx)
-            try:
-                return ListToolsResult(tools=await self.list_tools())
-            finally:
-                _mcp_server_ctx.reset(token)
+            return ListToolsResult(tools=await self.list_tools())
 
         async def handle_call_tool(ctx: Any, params: Any) -> CallToolResult:
-            token = _mcp_server_ctx.set(ctx)
             try:
-                try:
-                    result = await self.call_tool(params.name, params.arguments or {})
-                except MCPError:
-                    raise
-                except Exception as e:
-                    return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-                if isinstance(result, CallToolResult):
-                    return result
-                if isinstance(result, tuple) and len(result) == 2:
-                    unstructured_content, structured_content = result
-                    return CallToolResult(
-                        content=list(unstructured_content),  # type: ignore[arg-type]
-                        structured_content=structured_content,  # type: ignore[arg-type]
-                    )
-                if isinstance(result, dict):
-                    return CallToolResult(
-                        content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                        structured_content=result,
-                    )
-                return CallToolResult(content=list(result))
-            finally:
-                _mcp_server_ctx.reset(token)
+                result = await self.call_tool(params.name, params.arguments or {})
+            except MCPError:
+                raise
+            except Exception as e:
+                return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+            if isinstance(result, CallToolResult):
+                return result
+            if isinstance(result, tuple) and len(result) == 2:
+                unstructured_content, structured_content = result
+                return CallToolResult(
+                    content=list(unstructured_content),  # type: ignore[arg-type]
+                    structured_content=structured_content,  # type: ignore[arg-type]
+                )
+            if isinstance(result, dict):
+                return CallToolResult(
+                    content=[TextContent(type="text", text=json.dumps(result, indent=2))],
+                    structured_content=result,
+                )
+            return CallToolResult(content=list(result))
 
         async def handle_list_resources(ctx: Any, params: Any) -> ListResourcesResult:
-            token = _mcp_server_ctx.set(ctx)
-            try:
-                return ListResourcesResult(resources=await self.list_resources())
-            finally:
-                _mcp_server_ctx.reset(token)
+            return ListResourcesResult(resources=await self.list_resources())
 
         async def handle_read_resource(ctx: Any, params: Any) -> ReadResourceResult:
-            token = _mcp_server_ctx.set(ctx)
-            try:
-                results = await self.read_resource(params.uri)
-                contents: list[TextResourceContents | BlobResourceContents] = []
-                for item in results:
-                    if isinstance(item.content, bytes):
-                        contents.append(
-                            BlobResourceContents(
-                                uri=params.uri,
-                                blob=base64.b64encode(item.content).decode(),
-                                mime_type=item.mime_type or "application/octet-stream",
-                                _meta=item.meta,
-                            )
+            results = await self.read_resource(params.uri)
+            contents: list[TextResourceContents | BlobResourceContents] = []
+            for item in results:
+                if isinstance(item.content, bytes):
+                    contents.append(
+                        BlobResourceContents(
+                            uri=params.uri,
+                            blob=base64.b64encode(item.content).decode(),
+                            mime_type=item.mime_type or "application/octet-stream",
+                            _meta=item.meta,
                         )
-                    else:
-                        contents.append(
-                            TextResourceContents(
-                                uri=params.uri,
-                                text=item.content,
-                                mime_type=item.mime_type or "text/plain",
-                                _meta=item.meta,
-                            )
+                    )
+                else:
+                    contents.append(
+                        TextResourceContents(
+                            uri=params.uri,
+                            text=item.content,
+                            mime_type=item.mime_type or "text/plain",
+                            _meta=item.meta,
                         )
-                return ReadResourceResult(contents=contents)
-            finally:
-                _mcp_server_ctx.reset(token)
+                    )
+            return ReadResourceResult(contents=contents)
 
         async def handle_list_resource_templates(ctx: Any, params: Any) -> ListResourceTemplatesResult:
-            token = _mcp_server_ctx.set(ctx)
-            try:
-                return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
-            finally:
-                _mcp_server_ctx.reset(token)
+            return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
 
         async def handle_list_prompts(ctx: Any, params: Any) -> ListPromptsResult:
-            token = _mcp_server_ctx.set(ctx)
-            try:
-                return ListPromptsResult(prompts=await self.list_prompts())
-            finally:
-                _mcp_server_ctx.reset(token)
+            return ListPromptsResult(prompts=await self.list_prompts())
 
         async def handle_get_prompt(ctx: Any, params: Any) -> GetPromptResult:
-            token = _mcp_server_ctx.set(ctx)
-            try:
-                return await self.get_prompt(params.name, params.arguments)
-            finally:
-                _mcp_server_ctx.reset(token)
+            return await self.get_prompt(params.name, params.arguments)
 
         return [
             RequestHandler("tools/list", handler=handle_list_tools),
@@ -412,7 +379,7 @@ class MCPServer(Generic[LifespanResultT]):
         during a request; outside a request, most methods will error.
         """
         try:
-            request_context = _mcp_server_ctx.get()
+            request_context = request_ctx.get()
         except LookupError:
             request_context = None
         return Context(request_context=request_context, mcp_server=self)
@@ -603,14 +570,10 @@ class MCPServer(Generic[LifespanResultT]):
 
         def decorator(func: _CallableT) -> _CallableT:
             async def handler(ctx: Any, params: Any) -> CompleteResult:
-                token = _mcp_server_ctx.set(ctx)
-                try:
-                    result = await func(params.ref, params.argument, params.context)
-                    return CompleteResult(
-                        completion=result if result is not None else Completion(values=[], total=None, has_more=None),
-                    )
-                finally:
-                    _mcp_server_ctx.reset(token)
+                result = await func(params.ref, params.argument, params.context)
+                return CompleteResult(
+                    completion=result if result is not None else Completion(values=[], total=None, has_more=None),
+                )
 
             # TODO(maxisbey): remove private access — completion needs post-construction
             #   handler registration, find a better pattern for this
