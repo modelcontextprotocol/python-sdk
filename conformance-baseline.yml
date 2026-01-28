@@ -1,0 +1,9 @@
+# MCP Conformance Test Baseline
+# Lists scenarios expected to fail. CI will fail if:
+#   - A scenario not listed here fails (regression)
+#   - A scenario listed here passes (stale entry, remove it)
+#
+# server:
+#   - scenario-name
+# client:
+#   - scenario-name
