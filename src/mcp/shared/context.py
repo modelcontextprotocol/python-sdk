@@ -16,15 +16,21 @@ RequestT = TypeVar("RequestT", default=Any)
 
 @dataclass
 class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
-    request_id: RequestId
-    meta: RequestParamsMeta | None
+    """Context passed to request and notification handlers.
+
+    For request handlers, all fields are populated.
+    For notification handlers, request-specific fields (request_id, meta, etc.) are None.
+    """
+
     session: SessionT
     lifespan_context: LifespanContextT
     # NOTE: This is typed as Any to avoid circular imports. The actual type is
     # mcp.server.experimental.request_context.Experimental, but importing it here
     # triggers mcp.server.__init__ -> mcpserver -> tools -> back to this module.
     # The Server sets this to an Experimental instance at runtime.
-    experimental: Any = field(default=None)
-    request: RequestT | None = None
-    close_sse_stream: CloseSSEStreamCallback | None = None
-    close_standalone_sse_stream: CloseSSEStreamCallback | None = None
+    experimental: Any = field(default=None, kw_only=True)
+    request_id: RequestId | None = field(default=None, kw_only=True)
+    meta: RequestParamsMeta | None = field(default=None, kw_only=True)
+    request: RequestT | None = field(default=None, kw_only=True)
+    close_sse_stream: CloseSSEStreamCallback | None = field(default=None, kw_only=True)
+    close_standalone_sse_stream: CloseSSEStreamCallback | None = field(default=None, kw_only=True)
