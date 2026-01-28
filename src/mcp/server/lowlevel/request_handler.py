@@ -6,7 +6,7 @@ from typing import Any, Generic, Literal, overload
 from typing_extensions import TypeVar
 
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestContext
+from mcp.shared.context import RequestHandlerContext
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -31,7 +31,7 @@ from mcp.types import (
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
 
-Ctx = RequestContext[ServerSession, LifespanResultT, RequestT]
+RequestCtx = RequestHandlerContext[ServerSession, LifespanResultT, RequestT]
 
 
 class RequestHandler(Generic[LifespanResultT, RequestT]):
@@ -45,96 +45,96 @@ class RequestHandler(Generic[LifespanResultT, RequestT]):
     def __init__(
         self,
         method: Literal["ping"],
-        handler: Callable[[Ctx, RequestParams | None], Awaitable[EmptyResult]],
+        handler: Callable[[RequestCtx, RequestParams | None], Awaitable[EmptyResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["prompts/list"],
-        handler: Callable[[Ctx, PaginatedRequestParams | None], Awaitable[ListPromptsResult]],
+        handler: Callable[[RequestCtx, PaginatedRequestParams | None], Awaitable[ListPromptsResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["prompts/get"],
-        handler: Callable[[Ctx, GetPromptRequestParams], Awaitable[GetPromptResult]],
+        handler: Callable[[RequestCtx, GetPromptRequestParams], Awaitable[GetPromptResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["resources/list"],
-        handler: Callable[[Ctx, PaginatedRequestParams | None], Awaitable[ListResourcesResult]],
+        handler: Callable[[RequestCtx, PaginatedRequestParams | None], Awaitable[ListResourcesResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["resources/templates/list"],
-        handler: Callable[[Ctx, PaginatedRequestParams | None], Awaitable[ListResourceTemplatesResult]],
+        handler: Callable[[RequestCtx, PaginatedRequestParams | None], Awaitable[ListResourceTemplatesResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["resources/read"],
-        handler: Callable[[Ctx, ReadResourceRequestParams], Awaitable[ReadResourceResult]],
+        handler: Callable[[RequestCtx, ReadResourceRequestParams], Awaitable[ReadResourceResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["resources/subscribe"],
-        handler: Callable[[Ctx, SubscribeRequestParams], Awaitable[EmptyResult]],
+        handler: Callable[[RequestCtx, SubscribeRequestParams], Awaitable[EmptyResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["resources/unsubscribe"],
-        handler: Callable[[Ctx, UnsubscribeRequestParams], Awaitable[EmptyResult]],
+        handler: Callable[[RequestCtx, UnsubscribeRequestParams], Awaitable[EmptyResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["logging/setLevel"],
-        handler: Callable[[Ctx, SetLevelRequestParams], Awaitable[EmptyResult]],
+        handler: Callable[[RequestCtx, SetLevelRequestParams], Awaitable[EmptyResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["tools/list"],
-        handler: Callable[[Ctx, PaginatedRequestParams | None], Awaitable[ListToolsResult]],
+        handler: Callable[[RequestCtx, PaginatedRequestParams | None], Awaitable[ListToolsResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["tools/call"],
-        handler: Callable[[Ctx, CallToolRequestParams], Awaitable[CallToolResult]],
+        handler: Callable[[RequestCtx, CallToolRequestParams], Awaitable[CallToolResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["completion/complete"],
-        handler: Callable[[Ctx, CompleteRequestParams], Awaitable[CompleteResult]],
+        handler: Callable[[RequestCtx, CompleteRequestParams], Awaitable[CompleteResult]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: str,
-        handler: Callable[..., Awaitable[Any]],
+        handler: Callable[[RequestCtx, Any], Awaitable[Any]],
     ) -> None: ...
 
-    def __init__(self, method: str, handler: Callable[..., Awaitable[Any]]) -> None:
+    def __init__(self, method: str, handler: Callable[[RequestCtx, Any], Awaitable[Any]]) -> None:
         self.method = method
         self.endpoint = handler
 
-    async def handle(self, ctx: Ctx, params: Any) -> Any:
+    async def handle(self, ctx: RequestCtx, params: Any) -> Any:
         return await self.endpoint(ctx, params)
