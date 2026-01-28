@@ -164,6 +164,10 @@ class Server(Generic[LifespanResultT, RequestT]):
         else:
             raise TypeError(f"Unknown handler type: {type(handler)}")
 
+    def has_handler(self, method: str) -> bool:
+        """Check if a handler is registered for the given method."""
+        return method in self._request_handlers or method in self._notification_handlers
+
     def create_initialization_options(
         self,
         notification_options: NotificationOptions | None = None,
@@ -249,9 +253,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         # We create this inline so we only add these capabilities _if_ they're actually used
         if self._experimental_handlers is None:
             self._experimental_handlers = ExperimentalHandlers(
-                self,
-                self._request_handlers,
-                self._notification_handlers,
+                add_handler=self.add_handler,
+                has_handler=self.has_handler,
             )
         return self._experimental_handlers
 
