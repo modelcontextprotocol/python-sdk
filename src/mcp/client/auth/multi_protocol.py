@@ -12,6 +12,13 @@ import anyio
 import httpx
 
 from mcp.client.auth.protocol import AuthProtocol
+from mcp.client.auth.utils import (
+    extract_auth_protocols_from_www_auth,
+    extract_default_protocol_from_www_auth,
+    extract_field_from_www_auth,
+    extract_protocol_preferences_from_www_auth,
+    extract_resource_metadata_from_www_auth,
+)
 from mcp.shared.auth import AuthCredentials, OAuthCredentials, OAuthToken
 
 logger = logging.getLogger(__name__)
@@ -114,17 +121,54 @@ class MultiProtocolAuthProvider(httpx.Auth):
         if protocol is not None:
             protocol.prepare_request(request, credentials)
 
+    async def _discover_and_authenticate(
+        self, request: httpx.Request, response: httpx.Response
+    ) -> None:
+        """
+        根据 401 响应进行协议发现与认证，并将新凭证写入 storage。
+
+        具体实现见 TODO 10（协议发现 + 注册表选择 + 协议 authenticate）。
+        本骨架仅解析 WWW-Authenticate 并记录，不执行实际发现与认证。
+        """
+        resource_metadata_url = extract_resource_metadata_from_www_auth(response)
+        auth_protocols = extract_auth_protocols_from_www_auth(response)
+        default_protocol = extract_default_protocol_from_www_auth(response)
+        protocol_preferences = extract_protocol_preferences_from_www_auth(response)
+        if resource_metadata_url or auth_protocols or default_protocol or protocol_preferences:
+            logger.debug(
+                "401 WWW-Authenticate: resource_metadata=%s auth_protocols=%s default=%s preferences=%s",
+                resource_metadata_url,
+                auth_protocols,
+                default_protocol,
+                protocol_preferences,
+            )
+
+    async def _handle_401_response(
+        self, response: httpx.Response, request: httpx.Request
+    ) -> None:
+        """处理 401：解析 WWW-Authenticate，触发发现与认证（骨架），便于后续重试。"""
+        await self._discover_and_authenticate(request, response)
+
+    async def _handle_403_response(
+        self, response: httpx.Response, request: httpx.Request
+    ) -> None:
+        """处理 403：解析 error/scope 并记录，骨架不做重试。"""
+        error = extract_field_from_www_auth(response, "error")
+        scope = extract_field_from_www_auth(response, "scope")
+        if error or scope:
+            logger.debug("403 WWW-Authenticate: error=%s scope=%s", error, scope)
+
     async def async_auth_flow(
         self, request: httpx.Request
     ) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        """HTTPX 认证流程入口（骨架：取凭证、校验、准备请求、发送、处理 401/403）。"""
+        """HTTPX 认证流程入口：取凭证、校验、准备请求、发送、处理 401/403 并可选重试。"""
         async with self._lock:
             if not self._initialized:
                 self._initialize()
 
             credentials = await self._get_credentials()
             if not credentials or not self._is_credentials_valid(credentials):
-                # TODO (TODO 9/10): _discover_and_authenticate(request)
+                # 无有效凭证时直接发送请求，依赖 401 响应后再做发现与认证（见下方 401 处理）
                 pass
             else:
                 self._prepare_request(request, credentials)
@@ -132,8 +176,11 @@ class MultiProtocolAuthProvider(httpx.Auth):
         response = yield request
 
         if response.status_code == 401:
-            # TODO (TODO 9): _handle_401_response(response, request)
-            pass
+            async with self._lock:
+                await self._handle_401_response(response, request)
+                credentials = await self._get_credentials()
+                if credentials and self._is_credentials_valid(credentials):
+                    self._prepare_request(request, credentials)
+                    response = yield request
         elif response.status_code == 403:
-            # TODO (TODO 9): _handle_403_response(response, request)
-            pass
+            await self._handle_403_response(response, request)
