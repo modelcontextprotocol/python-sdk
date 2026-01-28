@@ -1,12 +1,16 @@
+import json
+import logging
 import re
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
-from httpx import Request, Response
+from httpx import AsyncClient, Request, Response
 from pydantic import AnyUrl, ValidationError
 
 from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
+    AuthProtocolMetadata,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
@@ -14,6 +18,8 @@ from mcp.shared.auth import (
     ProtectedResourceMetadata,
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
+
+logger = logging.getLogger(__name__)
 
 
 def extract_field_from_www_auth(response: Response, field_name: str, auth_scheme: str | None = None) -> str | None:
@@ -126,6 +132,50 @@ def extract_protocol_preferences_from_www_auth(response: Response) -> dict[str, 
                 # Skip invalid entries
                 continue
     return preferences if preferences else None
+
+
+async def discover_authorization_servers(
+    resource_url: str,
+    http_client: AsyncClient,
+    prm: ProtectedResourceMetadata | None = None,
+) -> list[AuthProtocolMetadata]:
+    """
+    Discover supported auth protocols (unified discovery with PRM fallback).
+
+    1. Tries the unified capability discovery endpoint
+       `/.well-known/authorization_servers` (path relative to resource_url).
+    2. If that fails or returns no protocols, falls back to protocol list from
+       PRM when provided (e.g. from a prior 401 with resource_metadata).
+
+    Args:
+        resource_url: Base URL of the resource (e.g. MCP server URL).
+        http_client: HTTP client for the request.
+        prm: Optional PRM; used as fallback when unified discovery fails.
+
+    Returns:
+        List of protocol metadata; empty if discovery fails and no PRM fallback.
+    """
+    # 1. Unified discovery endpoint (path-relative to resource_url)
+    discovery_url = urljoin(resource_url.rstrip("/") + "/", ".well-known/authorization_servers")
+    try:
+        response = await http_client.get(discovery_url)
+        if response.status_code == 200:
+            content = await response.aread()
+            data = json.loads(content)
+            raw = data.get("protocols")
+            protocols_data: list[dict[str, Any]] = cast(list[dict[str, Any]], raw) if isinstance(raw, list) else []
+            if protocols_data:
+                return [AuthProtocolMetadata.model_validate(p) for p in protocols_data]
+    except (ValidationError, ValueError, KeyError, TypeError) as e:
+        logger.debug("Unified authorization_servers discovery failed: %s", e)
+    except Exception as e:
+        logger.debug("Unified authorization_servers request failed: %s", e)
+
+    # 2. Fallback: use protocol list from PRM
+    if prm is not None and prm.mcp_auth_protocols:
+        return list(prm.mcp_auth_protocols)
+
+    return []
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
