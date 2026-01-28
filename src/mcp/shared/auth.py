@@ -1,4 +1,5 @@
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
@@ -79,11 +80,51 @@ class OAuthClientMetadata(BaseModel):
         return requested_scopes  # pragma: no cover
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
+        """Validate redirect_uri against client's registered URIs.
+        
+        Implements RFC 8252 Section 7.3 for loopback addresses:
+        "The authorization server MUST allow any port to be specified at the time
+        of the request for loopback IP redirect URIs, to accommodate clients that
+        obtain an available ephemeral port from the operating system at the time
+        of the request."
+        
+        For loopback addresses (localhost, 127.0.0.1, ::1), the port is ignored
+        during validation. For all other URIs, exact matching is required.
+        
+        Args:
+            redirect_uri: The redirect_uri from the authorization request
+            
+        Returns:
+            The validated redirect_uri
+            
+        Raises:
+            InvalidRedirectUriError: If redirect_uri is invalid or not registered
+        """
         if redirect_uri is not None:
-            # Validate redirect_uri against client's registered redirect URIs
-            if self.redirect_uris is None or redirect_uri not in self.redirect_uris:
-                raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
-            return redirect_uri
+            if self.redirect_uris is None:
+                raise InvalidRedirectUriError("No redirect URIs registered for client")
+            
+            # Try exact match first (fast path)
+            if redirect_uri in self.redirect_uris:
+                return redirect_uri
+            
+            # RFC 8252 loopback matching: ignore port for localhost/127.0.0.1/::1
+            requested_str = str(redirect_uri)
+            parsed_requested = urlparse(requested_str)
+            is_loopback = parsed_requested.hostname in ("localhost", "127.0.0.1", "::1", "[::1]")
+            
+            if is_loopback:
+                for registered in self.redirect_uris:
+                    parsed_registered = urlparse(str(registered))
+                    if parsed_registered.hostname not in ("localhost", "127.0.0.1", "::1", "[::1]"):
+                        continue
+                    # Match scheme, hostname, and path - port can differ per RFC 8252
+                    if (parsed_requested.scheme == parsed_registered.scheme and
+                        parsed_requested.hostname == parsed_registered.hostname and
+                        (parsed_requested.path or "/") == (parsed_registered.path or "/")):
+                        return redirect_uri
+            
+            raise InvalidRedirectUriError(f"Redirect URI '{redirect_uri}' not registered for client")
         elif self.redirect_uris is not None and len(self.redirect_uris) == 1:
             return self.redirect_uris[0]
         else:
