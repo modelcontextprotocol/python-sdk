@@ -30,9 +30,8 @@ from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderT
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
+from mcp.server.lowlevel.handler import Handler, RequestHandler
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.notification_handler import NotificationHandler
-from mcp.server.lowlevel.request_handler import RequestHandler
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.exceptions import ResourceError
@@ -289,7 +288,7 @@ class MCPServer(Generic[LifespanResultT]):
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
-    def _create_handlers(self) -> list[RequestHandler[Any, Any] | NotificationHandler[Any, Any]]:
+    def _create_handlers(self) -> list[Handler]:
         """Create core MCP protocol handlers."""
 
         async def handle_list_tools(ctx: Any, params: Any) -> ListToolsResult:

@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
 from typing import Any, Generic
@@ -61,8 +61,7 @@ from mcp.server.auth.routes import build_resource_metadata_url, create_auth_rout
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
-from mcp.server.lowlevel.notification_handler import NotificationHandler
-from mcp.server.lowlevel.request_handler import RequestHandler
+from mcp.server.lowlevel.handler import Handler, NotificationHandler, RequestHandler
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
@@ -108,7 +107,7 @@ class Server(Generic[LifespanResultT, RequestT]):
     def __init__(
         self,
         name: str,
-        handlers: list[RequestHandler[Any, Any] | NotificationHandler[Any, Any]] | None = None,
+        handlers: Sequence[Handler] = (),
         version: str | None = None,
         title: str | None = None,
         description: str | None = None,
@@ -128,8 +127,8 @@ class Server(Generic[LifespanResultT, RequestT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
-        self._request_handlers: dict[str, RequestHandler[Any, Any]] = {}
-        self._notification_handlers: dict[str, NotificationHandler[Any, Any]] = {}
+        self._request_handlers: dict[str, RequestHandler] = {}
+        self._notification_handlers: dict[str, NotificationHandler] = {}
         self._experimental_handlers: ExperimentalHandlers | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
@@ -151,7 +150,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 else:
                     raise TypeError(f"Unknown handler type: {type(handler)}")
 
-    def _add_handler(self, handler: RequestHandler[Any, Any] | NotificationHandler[Any, Any]) -> None:
+    def _add_handler(self, handler: Handler) -> None:
         """Add a handler, silently replacing any existing handler for the same method."""
         if isinstance(handler, RequestHandler):
             self._request_handlers[handler.method] = handler

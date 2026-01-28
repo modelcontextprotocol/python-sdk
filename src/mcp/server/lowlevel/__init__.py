@@ -1,5 +1,4 @@
-from .notification_handler import NotificationHandler
-from .request_handler import RequestHandler
+from .handler import Handler, NotificationHandler, RequestHandler
 from .server import NotificationOptions, Server
 
-__all__ = ["NotificationHandler", "NotificationOptions", "RequestHandler", "Server"]
+__all__ = ["Handler", "NotificationHandler", "NotificationOptions", "RequestHandler", "Server"]
