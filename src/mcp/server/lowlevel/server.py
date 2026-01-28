@@ -104,10 +104,6 @@ async def lifespan(_: Server[LifespanResultT, RequestT]) -> AsyncIterator[dict[s
     yield {}
 
 
-async def _ping_handler(ctx: Any, params: Any) -> types.EmptyResult:
-    return types.EmptyResult()
-
-
 class Server(Generic[LifespanResultT, RequestT]):
     def __init__(
         self,
@@ -546,3 +542,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             middleware=middleware,
             lifespan=lambda app: session_manager.run(),
         )
+
+
+async def _ping_handler(ctx: Any, params: Any) -> types.EmptyResult:
+    return types.EmptyResult()
