@@ -38,6 +38,7 @@ RequestHandler and NotificationHandler objects by method string.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import warnings
 from collections.abc import AsyncIterator, Callable, Sequence
@@ -76,6 +77,8 @@ logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
+
+request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
 
 
 class NotificationOptions:
@@ -387,7 +390,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                     close_sse_stream=close_sse_stream_cb,
                     close_standalone_sse_stream=close_standalone_sse_stream_cb,
                 )
-                response = await handler.handle(ctx, req.params)
+                token = request_ctx.set(ctx)
+                try:
+                    response = await handler.handle(ctx, req.params)
+                finally:
+                    request_ctx.reset(token)
             except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
@@ -426,7 +433,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                         _task_support=task_support,
                     ),
                 )
-                await handler.handle(ctx, getattr(notify, "params", None))
+                token = request_ctx.set(ctx)
+                try:
+                    await handler.handle(ctx, getattr(notify, "params", None))
+                finally:
+                    request_ctx.reset(token)
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
