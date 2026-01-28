@@ -68,7 +68,7 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.context import RequestContext
+from mcp.shared.context import NotificationHandlerContext, RequestHandlerContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -374,17 +374,17 @@ class Server(Generic[LifespanResultT, RequestT]):
                 task_metadata = None
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
-                ctx = RequestContext(
-                    message.request_id,
-                    message.request_meta,
+                ctx = RequestHandlerContext(
                     session,
                     lifespan_context,
-                    Experimental(
+                    experimental=Experimental(
                         task_metadata=task_metadata,
                         _client_capabilities=client_capabilities,
                         _session=session,
                         _task_support=task_support,
                     ),
+                    request_id=message.request_id,
+                    meta=message.request_meta,
                     request=request_data,
                     close_sse_stream=close_sse_stream_cb,
                     close_standalone_sse_stream=close_standalone_sse_stream_cb,
@@ -418,11 +418,9 @@ class Server(Generic[LifespanResultT, RequestT]):
             try:
                 client_capabilities = session.client_params.capabilities if session.client_params else None
                 task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                ctx: RequestContext[ServerSession, Any, Any] = RequestContext(
-                    request_id="__notification__",
-                    meta=None,
-                    session=session,
-                    lifespan_context=lifespan_context,
+                ctx = NotificationHandlerContext(
+                    session,
+                    lifespan_context,
                     experimental=Experimental(
                         task_metadata=None,
                         _client_capabilities=client_capabilities,

@@ -6,7 +6,7 @@ from typing import Any, Generic, Literal, overload
 from typing_extensions import TypeVar
 
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestContext
+from mcp.shared.context import NotificationHandlerContext
 from mcp.types import (
     CancelledNotificationParams,
     NotificationParams,
@@ -16,7 +16,7 @@ from mcp.types import (
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
 
-Ctx = RequestContext[ServerSession, LifespanResultT, RequestT]
+NotificationCtx = NotificationHandlerContext[ServerSession, LifespanResultT]
 
 
 class NotificationHandler(Generic[LifespanResultT, RequestT]):
@@ -30,40 +30,40 @@ class NotificationHandler(Generic[LifespanResultT, RequestT]):
     def __init__(
         self,
         method: Literal["notifications/initialized"],
-        handler: Callable[[Ctx, NotificationParams | None], Awaitable[None]],
+        handler: Callable[[NotificationCtx, NotificationParams | None], Awaitable[None]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["notifications/cancelled"],
-        handler: Callable[[Ctx, CancelledNotificationParams], Awaitable[None]],
+        handler: Callable[[NotificationCtx, CancelledNotificationParams], Awaitable[None]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["notifications/progress"],
-        handler: Callable[[Ctx, ProgressNotificationParams], Awaitable[None]],
+        handler: Callable[[NotificationCtx, ProgressNotificationParams], Awaitable[None]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: Literal["notifications/roots/list_changed"],
-        handler: Callable[[Ctx, NotificationParams | None], Awaitable[None]],
+        handler: Callable[[NotificationCtx, NotificationParams | None], Awaitable[None]],
     ) -> None: ...
 
     @overload
     def __init__(
         self,
         method: str,
-        handler: Callable[..., Awaitable[None]],
+        handler: Callable[[NotificationCtx, Any], Awaitable[None]],
     ) -> None: ...
 
-    def __init__(self, method: str, handler: Callable[..., Awaitable[None]]) -> None:
+    def __init__(self, method: str, handler: Callable[[NotificationCtx, Any], Awaitable[None]]) -> None:
         self.method = method
         self.endpoint = handler
 
-    async def handle(self, ctx: Ctx, params: Any) -> None:
+    async def handle(self, ctx: NotificationCtx, params: Any) -> None:
         await self.endpoint(ctx, params)
