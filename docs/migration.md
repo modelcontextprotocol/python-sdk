@@ -351,7 +351,6 @@ The nested `RequestParams.Meta` Pydantic model class has been replaced with a to
 - `RequestParams.Meta` (Pydantic model) → `RequestParamsMeta` (TypedDict)
 - Attribute access (`meta.progress_token`) → Dictionary access (`meta.get("progress_token")`)
 - `progress_token` field changed from `ProgressToken | None = None` to `NotRequired[ProgressToken]`
-`
 
 **In request context handlers:**
 
@@ -364,11 +363,12 @@ async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
         await ctx.session.send_progress_notification(ctx.meta.progress_token, 0.5, 100)
 
 # After (v2)
-@server.call_tool()
-async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
-    ctx = server.request_context
+async def handle_call_tool(
+    ctx: RequestContext, params: CallToolRequestParams
+) -> CallToolResult:
     if ctx.meta and "progress_token" in ctx.meta:
         await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
+    ...
 ```
 
 ### Resource URI type changed from `AnyUrl` to `str`
