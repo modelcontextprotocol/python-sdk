@@ -5,21 +5,32 @@
 """
 
 import logging
+import time
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol
 
 import anyio
 import httpx
 
-from mcp.client.auth.protocol import AuthProtocol
+from mcp.client.auth.protocol import AuthContext, AuthProtocol
+from mcp.client.auth.registry import AuthProtocolRegistry
 from mcp.client.auth.utils import (
+    build_protected_resource_metadata_discovery_urls,
+    discover_authorization_servers,
     extract_auth_protocols_from_www_auth,
     extract_default_protocol_from_www_auth,
     extract_field_from_www_auth,
     extract_protocol_preferences_from_www_auth,
     extract_resource_metadata_from_www_auth,
+    handle_protected_resource_response,
 )
-from mcp.shared.auth import AuthCredentials, OAuthCredentials, OAuthToken
+from mcp.shared.auth import (
+    AuthCredentials,
+    AuthProtocolMetadata,
+    OAuthCredentials,
+    OAuthToken,
+    ProtectedResourceMetadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +65,26 @@ def _oauth_token_to_credentials(token: OAuthToken) -> OAuthCredentials:
     )
 
 
+def _credentials_to_storage(credentials: AuthCredentials) -> AuthCredentials | OAuthToken:
+    """
+    将 AuthCredentials 转为存储可接受格式，便于兼容仅支持 OAuthToken 的旧存储。
+    OAuthCredentials 转为 OAuthToken；其他凭证原样返回。
+    """
+    if isinstance(credentials, OAuthCredentials):
+        expires_in: int | None = None
+        if credentials.expires_at is not None:
+            delta = credentials.expires_at - int(time.time())
+            expires_in = max(0, delta)
+        return OAuthToken(
+            access_token=credentials.access_token,
+            token_type=credentials.token_type,
+            expires_in=expires_in,
+            scope=credentials.scope,
+            refresh_token=credentials.refresh_token,
+        )
+    return credentials
+
+
 class MultiProtocolAuthProvider(httpx.Auth):
     """
     多协议认证提供者。
@@ -68,6 +99,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
         server_url: str,
         storage: TokenStorage,
         protocols: list[AuthProtocol] | None = None,
+        http_client: httpx.AsyncClient | None = None,
         dpop_storage: Any = None,
         dpop_enabled: bool = False,
         timeout: float = 300.0,
@@ -75,6 +107,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
         self.server_url = server_url
         self.storage = storage
         self.protocols = protocols or []
+        self._http_client = http_client
         self.dpop_storage = dpop_storage
         self.dpop_enabled = dpop_enabled
         self.timeout = timeout
@@ -121,27 +154,89 @@ class MultiProtocolAuthProvider(httpx.Auth):
         if protocol is not None:
             protocol.prepare_request(request, credentials)
 
+    async def _fetch_prm(
+        self, resource_metadata_url: str | None, server_url: str
+    ) -> ProtectedResourceMetadata | None:
+        """按 SEP-985 顺序请求 PRM：先 resource_metadata，再 well-known 回退。"""
+        if not self._http_client:
+            return None
+        urls = build_protected_resource_metadata_discovery_urls(
+            resource_metadata_url, server_url
+        )
+        for url in urls:
+            try:
+                resp = await self._http_client.get(url)
+                prm = await handle_protected_resource_response(resp)
+                if prm is not None:
+                    return prm
+            except Exception as e:
+                logger.debug("PRM discovery failed for %s: %s", url, e)
+        return None
+
     async def _discover_and_authenticate(
         self, request: httpx.Request, response: httpx.Response
     ) -> None:
         """
         根据 401 响应进行协议发现与认证，并将新凭证写入 storage。
 
-        具体实现见 TODO 10（协议发现 + 注册表选择 + 协议 authenticate）。
-        本骨架仅解析 WWW-Authenticate 并记录，不执行实际发现与认证。
+        流程：解析 WWW-Authenticate → 可选获取 PRM → 发现协议列表 →
+        注册表选择协议 → 协议 authenticate → 写回 storage（含 OAuth 凭证转 OAuthToken 适配）。
         """
         resource_metadata_url = extract_resource_metadata_from_www_auth(response)
-        auth_protocols = extract_auth_protocols_from_www_auth(response)
+        auth_protocols_header = extract_auth_protocols_from_www_auth(response)
         default_protocol = extract_default_protocol_from_www_auth(response)
         protocol_preferences = extract_protocol_preferences_from_www_auth(response)
-        if resource_metadata_url or auth_protocols or default_protocol or protocol_preferences:
-            logger.debug(
-                "401 WWW-Authenticate: resource_metadata=%s auth_protocols=%s default=%s preferences=%s",
-                resource_metadata_url,
-                auth_protocols,
-                default_protocol,
-                protocol_preferences,
+
+        server_url = str(request.url)
+        prm: ProtectedResourceMetadata | None = None
+        protocols_metadata: list[AuthProtocolMetadata] = []
+
+        if self._http_client:
+            prm = await self._fetch_prm(resource_metadata_url, server_url)
+            protocols_metadata = await discover_authorization_servers(
+                server_url, self._http_client, prm
             )
+
+        available = (
+            [m.protocol_id for m in protocols_metadata]
+            if protocols_metadata
+            else (auth_protocols_header or [])
+        )
+        if not available:
+            logger.debug("No available protocols from discovery or WWW-Authenticate")
+            return
+
+        selected_id = AuthProtocolRegistry.select_protocol(
+            available, default_protocol, protocol_preferences
+        )
+        if not selected_id:
+            logger.debug("No supported protocol selected for %s", available)
+            return
+
+        protocol = self._get_protocol(selected_id)
+        if not protocol:
+            logger.debug("Protocol %s not in provider", selected_id)
+            return
+
+        protocol_metadata: AuthProtocolMetadata | None = None
+        if protocols_metadata:
+            for m in protocols_metadata:
+                if m.protocol_id == selected_id:
+                    protocol_metadata = m
+                    break
+
+        context = AuthContext(
+            server_url=server_url,
+            storage=self.storage,
+            protocol_id=selected_id,
+            protocol_metadata=protocol_metadata,
+            current_credentials=None,
+            dpop_storage=self.dpop_storage,
+            dpop_enabled=self.dpop_enabled,
+        )
+        credentials = await protocol.authenticate(context)
+        to_store = _credentials_to_storage(credentials)
+        await self.storage.set_tokens(to_store)
 
     async def _handle_401_response(
         self, response: httpx.Response, request: httpx.Request
