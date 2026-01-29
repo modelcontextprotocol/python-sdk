@@ -102,13 +102,7 @@ packages = ["src/mcp"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
-include = [
-    "src/mcp",
-    "tests",
-    "examples/servers",
-    "examples/snippets",
-    "examples/clients",
-]
+include = ["src/mcp", "tests", "examples/servers", "examples/clients", "examples/snippets"]
 venvPath = "."
 venv = ".venv"
 # The FastAPI style of using decorators in tests gives a `reportUnusedFunction` error.
@@ -121,6 +115,7 @@ executionEnvironments = [
         ".",
     ], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
+    { root = "examples/clients", extraPaths = ["examples/clients/simple-auth-multiprotocol-client", "examples/clients/simple-auth-client", "examples/clients/conformance-auth-client", "examples/clients/simple-chatbot", "examples/clients/simple-task-client", "examples/clients/simple-task-interactive-client", "examples/clients/sse-polling-client"] },
 ]
 
 [tool.ruff]

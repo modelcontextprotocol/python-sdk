@@ -13,6 +13,7 @@ members = [
     "mcp-simple-auth",
     "mcp-simple-auth-client",
     "mcp-simple-auth-multiprotocol",
+    "mcp-simple-auth-multiprotocol-client",
     "mcp-simple-chatbot",
     "mcp-simple-pagination",
     "mcp-simple-prompt",
@@ -968,6 +969,17 @@ dev = [
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "ruff", specifier = ">=0.8.5" },
 ]
+
+[[package]]
+name = "mcp-simple-auth-multiprotocol-client"
+version = "0.1.0"
+source = { editable = "examples/clients/simple-auth-multiprotocol-client" }
+dependencies = [
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mcp", editable = "." }]
 
 [[package]]
 name = "mcp-simple-chatbot"
