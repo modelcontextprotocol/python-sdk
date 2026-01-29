@@ -136,9 +136,6 @@ class Server(Generic[LifespanResultT, RequestT]):
         self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
 
-        # Register default ping handler
-        self._request_handlers["ping"] = RequestHandler("ping", handler=_ping_handler)
-
         # Process user-provided handlers with duplicate detection
         for handler in handlers:
             if isinstance(handler, RequestHandler):
@@ -151,6 +148,10 @@ class Server(Generic[LifespanResultT, RequestT]):
                 self._notification_handlers[handler.method] = handler
             else:
                 raise TypeError(f"Unknown handler type: {type(handler)}")
+
+        # Register default ping handler (after user handlers, so users can override)
+        if "ping" not in self._request_handlers:
+            self._request_handlers["ping"] = RequestHandler("ping", handler=_ping_handler)
 
     def _add_handler(self, handler: Handler) -> None:
         """Add a handler, silently replacing any existing handler for the same method."""
