@@ -460,6 +460,95 @@ class OAuthClientProvider(httpx.Auth):
             self.context.clear_tokens()
             return False
 
+    async def run_authentication(
+        self,
+        http_client: httpx.AsyncClient,
+        *,
+        resource_metadata_url: str | None = None,
+        scope_from_www_auth: str | None = None,
+        protocol_version: str | None = None,
+        protected_resource_metadata: ProtectedResourceMetadata | None = None,
+    ) -> None:
+        """
+        使用给定 http_client 执行完整 OAuth 流程（PRM/ASM 发现、scope、注册或 CIMD、授权码+令牌交换），
+        与现有 401 分支行为一致。供多协议路径下 OAuth2Protocol 调用。
+        """
+        self.context.protocol_version = protocol_version
+        if protected_resource_metadata is not None:
+            self.context.protected_resource_metadata = protected_resource_metadata
+            if protected_resource_metadata.authorization_servers:
+                self.context.auth_server_url = str(protected_resource_metadata.authorization_servers[0])
+
+        if not self.context.protected_resource_metadata or not self.context.auth_server_url:
+            prm_discovery_urls = build_protected_resource_metadata_discovery_urls(
+                resource_metadata_url, self.context.server_url
+            )
+            for url in prm_discovery_urls:
+                try:
+                    discovery_request = create_oauth_metadata_request(url)
+                    discovery_response = await http_client.send(discovery_request)
+                    prm = await handle_protected_resource_response(discovery_response)
+                    if prm:
+                        self.context.protected_resource_metadata = prm
+                        if prm.authorization_servers:
+                            self.context.auth_server_url = str(prm.authorization_servers[0])
+                        break
+                except Exception as e:
+                    logger.debug("PRM discovery failed for %s: %s", url, e)
+
+        if not self.context.auth_server_url:
+            raise OAuthFlowError("Could not discover authorization server")
+
+        if not self.context.oauth_metadata:
+            asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+                self.context.auth_server_url, self.context.server_url
+            )
+            for url in asm_discovery_urls:
+                try:
+                    oauth_metadata_request = create_oauth_metadata_request(url)
+                    oauth_metadata_response = await http_client.send(oauth_metadata_request)
+                    ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
+                    if ok and asm:
+                        self.context.oauth_metadata = asm
+                        break
+                except Exception as e:
+                    logger.debug("OAuth metadata discovery failed for %s: %s", url, e)
+
+        if not self.context.oauth_metadata:
+            raise OAuthFlowError("Could not discover OAuth metadata")
+
+        self.context.client_metadata.scope = get_client_metadata_scopes(
+            scope_from_www_auth,
+            self.context.protected_resource_metadata,
+            self.context.oauth_metadata,
+        )
+
+        if not self.context.client_info:
+            if should_use_client_metadata_url(
+                self.context.oauth_metadata, self.context.client_metadata_url
+            ):
+                client_information = create_client_info_from_metadata_url(
+                    self.context.client_metadata_url,  # type: ignore[arg-type]
+                    redirect_uris=self.context.client_metadata.redirect_uris,
+                )
+                self.context.client_info = client_information
+                await self.context.storage.set_client_info(client_information)
+            else:
+                registration_request = create_client_registration_request(
+                    self.context.oauth_metadata,
+                    self.context.client_metadata,
+                    self.context.get_authorization_base_url(self.context.server_url),
+                )
+                registration_response = await http_client.send(registration_request)
+                client_information = await handle_registration_response(registration_response)
+                self.context.client_info = client_information
+                await self.context.storage.set_client_info(client_information)
+
+        auth_code, code_verifier = await self._perform_authorization_code_grant()
+        token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
+        token_response = await http_client.send(token_request)
+        await self._handle_token_response(token_response)
+
     async def _initialize(self) -> None:  # pragma: no cover
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()

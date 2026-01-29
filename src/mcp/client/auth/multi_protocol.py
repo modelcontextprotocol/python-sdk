@@ -22,6 +22,7 @@ from mcp.client.auth.utils import (
     extract_field_from_www_auth,
     extract_protocol_preferences_from_www_auth,
     extract_resource_metadata_from_www_auth,
+    extract_scope_from_www_auth,
     handle_protected_resource_response,
 )
 from mcp.shared.auth import (
@@ -233,6 +234,10 @@ class MultiProtocolAuthProvider(httpx.Auth):
             current_credentials=None,
             dpop_storage=self.dpop_storage,
             dpop_enabled=self.dpop_enabled,
+            http_client=self._http_client,
+            resource_metadata_url=resource_metadata_url,
+            protected_resource_metadata=prm,
+            scope_from_www_auth=extract_scope_from_www_auth(response),
         )
         credentials = await protocol.authenticate(context)
         to_store = _credentials_to_storage(credentials)

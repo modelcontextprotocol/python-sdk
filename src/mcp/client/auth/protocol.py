@@ -45,6 +45,11 @@ class AuthContext:
     current_credentials: AuthCredentials | None = None
     dpop_storage: DPoPStorage | None = None
     dpop_enabled: bool = False
+    # 供 OAuth2Protocol.run_authentication 使用（多协议路径，与 401 分支一致）
+    http_client: httpx.AsyncClient | None = None
+    resource_metadata_url: str | None = None
+    protected_resource_metadata: ProtectedResourceMetadata | None = None
+    scope_from_www_auth: str | None = None
 
 
 class AuthProtocol(Protocol):
