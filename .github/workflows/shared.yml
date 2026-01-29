@@ -58,9 +58,13 @@ jobs:
       - name: Run pytest with coverage
         shell: bash
         run: |
-          uv run --frozen --no-sync coverage run -m pytest
+          uv run --frozen --no-sync coverage run -m pytest -n auto
           uv run --frozen --no-sync coverage combine
           uv run --frozen --no-sync coverage report
+
+      - name: Check for unnecessary no cover pragmas
+        if: runner.os != 'Windows'
+        run: uv run --frozen --no-sync strict-no-cover
 
   readme-snippets:
     runs-on: ubuntu-latest

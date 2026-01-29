@@ -39,10 +39,10 @@ async def test_read_resource_text(temp_file: Path):
 
     # Call the handler
     result = await handler(request)
-    assert isinstance(result.root, types.ReadResourceResult)
-    assert len(result.root.contents) == 1
+    assert isinstance(result, types.ReadResourceResult)
+    assert len(result.contents) == 1
 
-    content = result.root.contents[0]
+    content = result.contents[0]
     assert isinstance(content, types.TextResourceContents)
     assert content.text == "Hello World"
     assert content.mime_type == "text/plain"
@@ -66,10 +66,10 @@ async def test_read_resource_binary(temp_file: Path):
 
     # Call the handler
     result = await handler(request)
-    assert isinstance(result.root, types.ReadResourceResult)
-    assert len(result.root.contents) == 1
+    assert isinstance(result, types.ReadResourceResult)
+    assert len(result.contents) == 1
 
-    content = result.root.contents[0]
+    content = result.contents[0]
     assert isinstance(content, types.BlobResourceContents)
     assert content.mime_type == "application/octet-stream"
 
@@ -97,10 +97,10 @@ async def test_read_resource_default_mime(temp_file: Path):
 
     # Call the handler
     result = await handler(request)
-    assert isinstance(result.root, types.ReadResourceResult)
-    assert len(result.root.contents) == 1
+    assert isinstance(result, types.ReadResourceResult)
+    assert len(result.contents) == 1
 
-    content = result.root.contents[0]
+    content = result.contents[0]
     assert isinstance(content, types.TextResourceContents)
     assert content.text == "Hello World"
     assert content.mime_type == "text/plain"

@@ -7,10 +7,10 @@ import contextlib
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Create the Echo server
-echo_mcp = FastMCP(name="EchoServer")
+echo_mcp = MCPServer(name="EchoServer")
 
 
 @echo_mcp.tool()
@@ -20,7 +20,7 @@ def echo(message: str) -> str:
 
 
 # Create the Math server
-math_mcp = FastMCP(name="MathServer")
+math_mcp = MCPServer(name="MathServer")
 
 
 @math_mcp.tool()

@@ -60,17 +60,22 @@ The following deprecated type aliases and classes have been removed from `mcp.ty
 |---------|-------------|
 | `Content` | `ContentBlock` |
 | `ResourceReference` | `ResourceTemplateReference` |
+| `Cursor` | Use `str` directly |
+| `MethodT` | Internal TypeVar, not intended for public use |
+| `RequestParamsT` | Internal TypeVar, not intended for public use |
+| `NotificationParamsT` | Internal TypeVar, not intended for public use |
 
 **Before (v1):**
 
 ```python
-from mcp.types import Content, ResourceReference
+from mcp.types import Content, ResourceReference, Cursor
 ```
 
 **After (v2):**
 
 ```python
 from mcp.types import ContentBlock, ResourceTemplateReference
+# Use `str` instead of `Cursor` for pagination cursors
 ```
 
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
@@ -116,15 +121,67 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
-### `mount_path` parameter removed from FastMCP
+### `McpError` renamed to `MCPError`
 
-The `mount_path` parameter has been removed from `FastMCP.__init__()`, `FastMCP.run()`, `FastMCP.run_sse_async()`, and `FastMCP.sse_app()`. It was also removed from the `Settings` class.
+The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.
+
+**Before (v1):**
+
+```python
+from mcp.shared.exceptions import McpError
+
+try:
+    result = await session.call_tool("my_tool")
+except McpError as e:
+    print(f"Error: {e.error.message}")
+```
+
+**After (v2):**
+
+```python
+from mcp.shared.exceptions import MCPError
+
+try:
+    result = await session.call_tool("my_tool")
+except MCPError as e:
+    print(f"Error: {e.message}")
+```
+
+`MCPError` is also exported from the top-level `mcp` package:
+
+```python
+from mcp import MCPError
+```
+
+### `FastMCP` renamed to `MCPServer`
+
+The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. This is a simple rename with no functional changes to the class itself.
+
+**Before (v1):**
+
+```python
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Demo")
+```
+
+**After (v2):**
+
+```python
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo")
+```
+
+### `mount_path` parameter removed from MCPServer
+
+The `mount_path` parameter has been removed from `MCPServer.__init__()`, `MCPServer.run()`, `MCPServer.run_sse_async()`, and `MCPServer.sse_app()`. It was also removed from the `Settings` class.
 
 This parameter was redundant because the SSE transport already handles sub-path mounting via ASGI's standard `root_path` mechanism. When using Starlette's `Mount("/path", app=mcp.sse_app())`, Starlette automatically sets `root_path` in the ASGI scope, and the `SseServerTransport` uses this to construct the correct message endpoint path.
 
-### Transport-specific parameters moved from FastMCP constructor to run()/app methods
+### Transport-specific parameters moved from MCPServer constructor to run()/app methods
 
-Transport-specific parameters have been moved from the `FastMCP` constructor to the `run()`, `sse_app()`, and `streamable_http_app()` methods. This provides better separation of concerns - the constructor now only handles server identity and authentication, while transport configuration is passed when starting the server.
+Transport-specific parameters have been moved from the `MCPServer` constructor to the `run()`, `sse_app()`, and `streamable_http_app()` methods. This provides better separation of concerns - the constructor now only handles server identity and authentication, while transport configuration is passed when starting the server.
 
 **Parameters moved:**
 
@@ -152,32 +209,119 @@ mcp.run(transport="sse")
 **After (v2):**
 
 ```python
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Transport params passed to run()
-mcp = FastMCP("Demo")
+mcp = MCPServer("Demo")
 mcp.run(transport="streamable-http", json_response=True, stateless_http=True)
 
 # Or for SSE
-mcp = FastMCP("Server")
+mcp = MCPServer("Server")
 mcp.run(transport="sse", host="0.0.0.0", port=9000, sse_path="/events")
 ```
 
 **For mounted apps:**
 
-When mounting FastMCP in a Starlette app, pass transport params to the app methods:
+When mounting in a Starlette app, pass transport params to the app methods:
 
 ```python
 # Before (v1)
+from mcp.server.fastmcp import FastMCP
+
 mcp = FastMCP("App", json_response=True)
 app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app())])
 
 # After (v2)
-mcp = FastMCP("App")
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("App")
 app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=True))])
 ```
 
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
+
+### Replace `RootModel` by union types with `TypeAdapter` validation
+
+The following union types are no longer `RootModel` subclasses:
+
+- `ClientRequest`
+- `ServerRequest`
+- `ClientNotification`
+- `ServerNotification`
+- `ClientResult`
+- `ServerResult`
+- `JSONRPCMessage`
+
+This means you can no longer access `.root` on these types or use `model_validate()` directly on them. Instead, use the provided `TypeAdapter` instances for validation.
+
+**Before (v1):**
+
+```python
+from mcp.types import ClientRequest, ServerNotification
+
+# Using RootModel.model_validate()
+request = ClientRequest.model_validate(data)
+actual_request = request.root  # Accessing the wrapped value
+
+notification = ServerNotification.model_validate(data)
+actual_notification = notification.root
+```
+
+**After (v2):**
+
+```python
+from mcp.types import client_request_adapter, server_notification_adapter
+
+# Using TypeAdapter.validate_python()
+request = client_request_adapter.validate_python(data)
+# No .root access needed - request is the actual type
+
+notification = server_notification_adapter.validate_python(data)
+# No .root access needed - notification is the actual type
+```
+
+**Available adapters:**
+
+| Union Type | Adapter |
+|------------|---------|
+| `ClientRequest` | `client_request_adapter` |
+| `ServerRequest` | `server_request_adapter` |
+| `ClientNotification` | `client_notification_adapter` |
+| `ServerNotification` | `server_notification_adapter` |
+| `ClientResult` | `client_result_adapter` |
+| `ServerResult` | `server_result_adapter` |
+| `JSONRPCMessage` | `jsonrpc_message_adapter` |
+
+All adapters are exported from `mcp.types`.
+
+### `RequestParams.Meta` replaced with `RequestParamsMeta` TypedDict
+
+The nested `RequestParams.Meta` Pydantic model class has been replaced with a top-level `RequestParamsMeta` TypedDict. This affects the `ctx.meta` field in request handlers and any code that imports or references this type.
+
+**Key changes:**
+
+- `RequestParams.Meta` (Pydantic model) → `RequestParamsMeta` (TypedDict)
+- Attribute access (`meta.progress_token`) → Dictionary access (`meta.get("progress_token")`)
+- `progress_token` field changed from `ProgressToken | None = None` to `NotRequired[ProgressToken]`
+`
+
+**In request context handlers:**
+
+```python
+# Before (v1)
+@server.call_tool()
+async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
+    ctx = server.request_context
+    if ctx.meta and ctx.meta.progress_token:
+        await ctx.session.send_progress_notification(ctx.meta.progress_token, 0.5, 100)
+
+# After (v2)
+@server.call_tool()
+async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
+    ctx = server.request_context
+    if ctx.meta and "progress_token" in ctx.meta:
+        await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
+```
 
 ### Resource URI type changed from `AnyUrl` to `str`
 
@@ -220,15 +364,73 @@ Affected types:
 - `UnsubscribeRequestParams.uri`
 - `ResourceUpdatedNotificationParams.uri`
 
-The `ClientSession.read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` methods now accept both `str` and `AnyUrl` for backwards compatibility.
+The `Client` and `ClientSession` methods `read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` now only accept `str` for the `uri` parameter. If you were passing `AnyUrl` objects, convert them to strings:
+
+```python
+# Before (v1)
+from pydantic import AnyUrl
+
+await client.read_resource(AnyUrl("test://resource"))
+
+# After (v2)
+await client.read_resource("test://resource")
+# Or if you have an AnyUrl from elsewhere:
+await client.read_resource(str(my_any_url))
+```
 
 ## Deprecations
 
 <!-- Add deprecations below -->
 
+## Bug Fixes
+
+### Extra fields no longer allowed on top-level MCP types
+
+MCP protocol types no longer accept arbitrary extra fields at the top level. This matches the MCP specification which only allows extra fields within `_meta` objects, not on the types themselves.
+
+```python
+# This will now raise a validation error
+from mcp.types import CallToolRequestParams
+
+params = CallToolRequestParams(
+    name="my_tool",
+    arguments={},
+    unknown_field="value",  # ValidationError: extra fields not permitted
+)
+
+# Extra fields are still allowed in _meta
+params = CallToolRequestParams(
+    name="my_tool",
+    arguments={},
+    _meta={"progressToken": "tok", "customField": "value"},  # OK
+)
+```
+
 ## New Features
 
-<!-- Add new features below -->
+### `streamable_http_app()` available on lowlevel Server
+
+The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `MCPServer`. This allows using the streamable HTTP transport without the MCPServer wrapper.
+
+```python
+from mcp.server.lowlevel.server import Server
+
+server = Server("my-server")
+
+# Register handlers...
+@server.list_tools()
+async def list_tools():
+    return [...]
+
+# Create a Starlette app for streamable HTTP
+app = server.streamable_http_app(
+    streamable_http_path="/mcp",
+    json_response=False,
+    stateless_http=False,
+)
+```
+
+The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
 
 ## Need Help?
 

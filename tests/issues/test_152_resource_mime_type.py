@@ -1,19 +1,18 @@
 import base64
 
 import pytest
-from pydantic import AnyUrl
 
 from mcp import Client, types
-from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel import Server
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.mcpserver import MCPServer
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_fastmcp_resource_mime_type():
+async def test_mcpserver_resource_mime_type():
     """Test that mime_type parameter is respected for resources."""
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
 
     # Create a small test image as bytes
     image_bytes = b"fake_image_data"
@@ -46,12 +45,12 @@ async def test_fastmcp_resource_mime_type():
         assert bytes_resource.mime_type == "image/png", "Bytes resource mime type not respected"
 
         # Also verify the content can be read correctly
-        string_result = await client.read_resource(AnyUrl("test://image"))
+        string_result = await client.read_resource("test://image")
         assert len(string_result.contents) == 1
         assert getattr(string_result.contents[0], "text") == base64_string, "Base64 string mismatch"
         assert string_result.contents[0].mime_type == "image/png", "String content mime type not preserved"
 
-        bytes_result = await client.read_resource(AnyUrl("test://image_bytes"))
+        bytes_result = await client.read_resource("test://image_bytes")
         assert len(bytes_result.contents) == 1
         assert base64.b64decode(getattr(bytes_result.contents[0], "blob")) == image_bytes, "Bytes mismatch"
         assert bytes_result.contents[0].mime_type == "image/png", "Bytes content mime type not preserved"
@@ -104,12 +103,12 @@ async def test_lowlevel_resource_mime_type():
         assert bytes_resource.mime_type == "image/png", "Bytes resource mime type not respected"
 
         # Also verify the content can be read correctly
-        string_result = await client.read_resource(AnyUrl("test://image"))
+        string_result = await client.read_resource("test://image")
         assert len(string_result.contents) == 1
         assert getattr(string_result.contents[0], "text") == base64_string, "Base64 string mismatch"
         assert string_result.contents[0].mime_type == "image/png", "String content mime type not preserved"
 
-        bytes_result = await client.read_resource(AnyUrl("test://image_bytes"))
+        bytes_result = await client.read_resource("test://image_bytes")
         assert len(bytes_result.contents) == 1
         assert base64.b64decode(getattr(bytes_result.contents[0], "blob")) == image_bytes, "Bytes mismatch"
         assert bytes_result.contents[0].mime_type == "image/png", "Bytes content mime type not preserved"

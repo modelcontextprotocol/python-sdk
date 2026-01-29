@@ -15,7 +15,7 @@ from typing import Any, TypeAlias
 
 import anyio
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing_extensions import Self
 
 import mcp
@@ -25,12 +25,12 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
-    """Parameters for intializing a sse_client."""
+    """Parameters for initializing a sse_client."""
 
     # The endpoint URL.
     url: str
@@ -46,7 +46,7 @@ class SseServerParameters(BaseModel):
 
 
 class StreamableHttpParameters(BaseModel):
-    """Parameters for intializing a streamable_http_client."""
+    """Parameters for initializing a streamable_http_client."""
 
     # The endpoint URL.
     url: str
@@ -103,9 +103,9 @@ class ClientSessionGroup:
     class _ComponentNames(BaseModel):
         """Used for reverse index to find components."""
 
-        prompts: set[str] = set()
-        resources: set[str] = set()
-        tools: set[str] = set()
+        prompts: set[str] = Field(default_factory=set)
+        resources: set[str] = Field(default_factory=set)
+        tools: set[str] = Field(default_factory=set)
 
     # Standard MCP components.
     _prompts: dict[str, types.Prompt]
@@ -196,7 +196,7 @@ class ClientSessionGroup:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
+        meta: types.RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
@@ -216,29 +216,27 @@ class ClientSessionGroup:
         session_known_for_stack = session in self._session_exit_stacks
 
         if not session_known_for_components and not session_known_for_stack:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message="Provided session is not managed or already disconnected.",
-                )
+            raise MCPError(
+                code=types.INVALID_PARAMS,
+                message="Provided session is not managed or already disconnected.",
             )
 
-        if session_known_for_components:  # pragma: no cover
+        if session_known_for_components:  # pragma: no branch
             component_names = self._sessions.pop(session)  # Pop from _sessions tracking
 
             # Remove prompts associated with the session.
             for name in component_names.prompts:
-                if name in self._prompts:
+                if name in self._prompts:  # pragma: no branch
                     del self._prompts[name]
             # Remove resources associated with the session.
             for name in component_names.resources:
-                if name in self._resources:
+                if name in self._resources:  # pragma: no branch
                     del self._resources[name]
             # Remove tools associated with the session.
             for name in component_names.tools:
-                if name in self._tools:
+                if name in self._tools:  # pragma: no branch
                     del self._tools[name]
-                if name in self._tool_to_session:
+                if name in self._tool_to_session:  # pragma: no branch
                     del self._tool_to_session[name]
 
         # Clean up the session's resources via its dedicated exit stack
@@ -352,7 +350,7 @@ class ClientSessionGroup:
                 name = self._component_name(prompt.name, server_info)
                 prompts_temp[name] = prompt
                 component_names.prompts.add(name)
-        except McpError as err:  # pragma: no cover
+        except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch prompts: {err}")
 
         # Query the server for its resources and aggregate to list.
@@ -362,7 +360,7 @@ class ClientSessionGroup:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
                 component_names.resources.add(name)
-        except McpError as err:  # pragma: no cover
+        except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch resources: {err}")
 
         # Query the server for its tools and aggregate to list.
@@ -373,7 +371,7 @@ class ClientSessionGroup:
                 tools_temp[name] = tool
                 tool_to_session_temp[name] = session
                 component_names.tools.add(name)
-        except McpError as err:  # pragma: no cover
+        except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch tools: {err}")
 
         # Clean up exit stack for session if we couldn't retrieve anything
@@ -384,28 +382,19 @@ class ClientSessionGroup:
         # Check for duplicates.
         matching_prompts = prompts_temp.keys() & self._prompts.keys()
         if matching_prompts:
-            raise McpError(  # pragma: no cover
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"{matching_prompts} already exist in group prompts.",
-                )
+            raise MCPError(  # pragma: no cover
+                code=types.INVALID_PARAMS,
+                message=f"{matching_prompts} already exist in group prompts.",
             )
         matching_resources = resources_temp.keys() & self._resources.keys()
         if matching_resources:
-            raise McpError(  # pragma: no cover
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"{matching_resources} already exist in group resources.",
-                )
+            raise MCPError(  # pragma: no cover
+                code=types.INVALID_PARAMS,
+                message=f"{matching_resources} already exist in group resources.",
             )
         matching_tools = tools_temp.keys() & self._tools.keys()
         if matching_tools:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"{matching_tools} already exist in group tools.",
-                )
-            )
+            raise MCPError(code=types.INVALID_PARAMS, message=f"{matching_tools} already exist in group tools.")
 
         # Aggregate components.
         self._sessions[session] = component_names

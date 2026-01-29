@@ -10,8 +10,8 @@ import json
 import logging
 
 import click
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.prompts.base import UserMessage
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.types import (
@@ -80,7 +80,7 @@ watched_resource_content = "Watched resource content"
 # Create event store for SSE resumability (SEP-1699)
 event_store = InMemoryEventStore()
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="mcp-conformance-test-server",
 )
 
@@ -161,7 +161,9 @@ async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
     await ctx.report_progress(progress=100, total=100, message="Completed step 100 of 100")
 
     # Return progress token as string
-    progress_token = ctx.request_context.meta.progress_token if ctx.request_context and ctx.request_context.meta else 0
+    progress_token = (
+        ctx.request_context.meta.get("progress_token") if ctx.request_context and ctx.request_context.meta else 0
+    )
     return str(progress_token)
 
 
@@ -389,9 +391,9 @@ def test_prompt_with_image() -> list[UserMessage]:
 
 
 # Custom request handlers
-# TODO(felix): Add public APIs to FastMCP for subscribe_resource, unsubscribe_resource,
-# and set_logging_level to avoid accessing protected _mcp_server attribute.
-@mcp._mcp_server.set_logging_level()  # pyright: ignore[reportPrivateUsage]
+# TODO(felix): Add public APIs to MCPServer for subscribe_resource, unsubscribe_resource,
+# and set_logging_level to avoid accessing protected _lowlevel_server attribute.
+@mcp._lowlevel_server.set_logging_level()  # pyright: ignore[reportPrivateUsage]
 async def handle_set_logging_level(level: str) -> None:
     """Handle logging level changes"""
     logger.info(f"Log level set to: {level}")
@@ -411,8 +413,8 @@ async def handle_unsubscribe(uri: str) -> None:
     logger.info(f"Unsubscribed from resource: {uri}")
 
 
-mcp._mcp_server.subscribe_resource()(handle_subscribe)  # pyright: ignore[reportPrivateUsage]
-mcp._mcp_server.unsubscribe_resource()(handle_unsubscribe)  # pyright: ignore[reportPrivateUsage]
+mcp._lowlevel_server.subscribe_resource()(handle_subscribe)  # pyright: ignore[reportPrivateUsage]
+mcp._lowlevel_server.unsubscribe_resource()(handle_unsubscribe)  # pyright: ignore[reportPrivateUsage]
 
 
 @mcp.completion()

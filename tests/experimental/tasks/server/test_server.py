@@ -11,7 +11,7 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import RequestResponder
@@ -26,7 +26,6 @@ from mcp.types import (
     CancelTaskRequest,
     CancelTaskRequestParams,
     CancelTaskResult,
-    ClientRequest,
     ClientResult,
     ErrorData,
     GetTaskPayloadRequest,
@@ -36,7 +35,6 @@ from mcp.types import (
     GetTaskRequestParams,
     GetTaskResult,
     JSONRPCError,
-    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCResponse,
     ListTasksRequest,
@@ -90,10 +88,10 @@ async def test_list_tasks_handler() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListTasksResult)
-    assert len(result.root.tasks) == 2
-    assert result.root.tasks[0].task_id == "task-1"
-    assert result.root.tasks[1].task_id == "task-2"
+    assert isinstance(result, ListTasksResult)
+    assert len(result.tasks) == 2
+    assert result.tasks[0].task_id == "task-1"
+    assert result.tasks[1].task_id == "task-2"
 
 
 @pytest.mark.anyio
@@ -121,9 +119,9 @@ async def test_get_task_handler() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, GetTaskResult)
-    assert result.root.task_id == "test-task-123"
-    assert result.root.status == "working"
+    assert isinstance(result, GetTaskResult)
+    assert result.task_id == "test-task-123"
+    assert result.status == "working"
 
 
 @pytest.mark.anyio
@@ -143,7 +141,7 @@ async def test_get_task_result_handler() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, GetTaskPayloadResult)
+    assert isinstance(result, GetTaskPayloadResult)
 
 
 @pytest.mark.anyio
@@ -170,9 +168,9 @@ async def test_cancel_task_handler() -> None:
     result = await handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, CancelTaskResult)
-    assert result.root.task_id == "test-task-123"
-    assert result.root.status == "cancelled"
+    assert isinstance(result, CancelTaskResult)
+    assert result.task_id == "test-task-123"
+    assert result.status == "cancelled"
 
 
 @pytest.mark.anyio
@@ -254,8 +252,8 @@ async def test_tool_with_task_execution_metadata() -> None:
     result = await tools_handler(request)
 
     assert isinstance(result, ServerResult)
-    assert isinstance(result.root, ListToolsResult)
-    tools = result.root.tools
+    assert isinstance(result, ListToolsResult)
+    tools = result.tools
 
     assert tools[0].execution is not None
     assert tools[0].execution.task_support == TASK_FORBIDDEN
@@ -312,8 +310,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
             async with anyio.create_task_group() as tg:
 
                 async def handle_messages():
-                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-                    async for message in server_session.incoming_messages:  # pragma: no cover
+                    async for message in server_session.incoming_messages:  # pragma: no branch
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
@@ -331,14 +328,12 @@ async def test_task_metadata_in_call_tool_request() -> None:
 
             # Call tool with task metadata
             await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="long_task",
-                            arguments={},
-                            task=TaskMetadata(ttl=60000),
-                        ),
-                    )
+                CallToolRequest(
+                    params=CallToolRequestParams(
+                        name="long_task",
+                        arguments={},
+                        task=TaskMetadata(ttl=60000),
+                    ),
                 ),
                 CallToolResult,
             )
@@ -392,9 +387,9 @@ async def test_task_metadata_is_task_property() -> None:
             ),
         ) as server_session:
             async with anyio.create_task_group() as tg:
-                # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-                async def handle_messages():  # pragma: no cover
-                    async for message in server_session.incoming_messages:
+
+                async def handle_messages():
+                    async for message in server_session.incoming_messages:  # pragma: no branch
                         await server._handle_message(message, server_session, {}, False)
 
                 tg.start_soon(handle_messages)
@@ -412,24 +407,14 @@ async def test_task_metadata_is_task_property() -> None:
 
             # Call without task metadata
             await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(name="test_tool", arguments={}),
-                    )
-                ),
+                CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
                 CallToolResult,
             )
 
             # Call with task metadata
             await client_session.send_request(
-                ClientRequest(
-                    CallToolRequest(
-                        params=CallToolRequestParams(
-                            name="test_tool",
-                            arguments={},
-                            task=TaskMetadata(ttl=60000),
-                        ),
-                    )
+                CallToolRequest(
+                    params=CallToolRequestParams(name="test_tool", arguments={}, task=TaskMetadata(ttl=60000)),
                 ),
                 CallToolResult,
             )
@@ -508,25 +493,22 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             task = await store.create_task(TaskMetadata(ttl=60000))
 
             # Test list_tasks (default handler)
-            list_result = await client_session.send_request(
-                ClientRequest(ListTasksRequest()),
-                ListTasksResult,
-            )
+            list_result = await client_session.send_request(ListTasksRequest(), ListTasksResult)
             assert len(list_result.tasks) == 1
             assert list_result.tasks[0].task_id == task.task_id
 
             # Test get_task (default handler - found)
             get_result = await client_session.send_request(
-                ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id=task.task_id))),
+                GetTaskRequest(params=GetTaskRequestParams(task_id=task.task_id)),
                 GetTaskResult,
             )
             assert get_result.task_id == task.task_id
             assert get_result.status == "working"
 
             # Test get_task (default handler - not found path)
-            with pytest.raises(McpError, match="not found"):
+            with pytest.raises(MCPError, match="not found"):
                 await client_session.send_request(
-                    ClientRequest(GetTaskRequest(params=GetTaskRequestParams(task_id="nonexistent-task"))),
+                    GetTaskRequest(params=GetTaskRequestParams(task_id="nonexistent-task")),
                     GetTaskResult,
                 )
 
@@ -539,9 +521,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 
             # Test get_task_result (default handler)
             payload_result = await client_session.send_request(
-                ClientRequest(
-                    GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=completed_task.task_id))
-                ),
+                GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=completed_task.task_id)),
                 GetTaskPayloadResult,
             )
             # The result should have the related-task metadata
@@ -550,8 +530,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 
             # Test cancel_task (default handler)
             cancel_result = await client_session.send_request(
-                ClientRequest(CancelTaskRequest(params=CancelTaskRequestParams(task_id=task.task_id))),
-                CancelTaskResult,
+                CancelTaskRequest(params=CancelTaskRequestParams(task_id=task.task_id)), CancelTaskResult
             )
             assert cancel_result.task_id == task.task_id
             assert cancel_result.status == "cancelled"
@@ -569,11 +548,7 @@ async def test_build_elicit_form_request() -> None:
         async with ServerSession(
             client_to_server_receive,
             server_to_client_send,
-            InitializationOptions(
-                server_name="test-server",
-                server_version="1.0.0",
-                capabilities=ServerCapabilities(),
-            ),
+            InitializationOptions(server_name="test-server", server_version="1.0.0", capabilities=ServerCapabilities()),
         ) as server_session:
             # Test without task_id
             request = server_session._build_elicit_form_request(
@@ -597,7 +572,7 @@ async def test_build_elicit_form_request() -> None:
             assert (
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-123"
             )
-    finally:  # pragma: no cover
+    finally:
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -614,11 +589,7 @@ async def test_build_elicit_url_request() -> None:
         async with ServerSession(
             client_to_server_receive,
             server_to_client_send,
-            InitializationOptions(
-                server_name="test-server",
-                server_version="1.0.0",
-                capabilities=ServerCapabilities(),
-            ),
+            InitializationOptions(server_name="test-server", server_version="1.0.0", capabilities=ServerCapabilities()),
         ) as server_session:
             # Test without related_task_id
             request = server_session._build_elicit_url_request(
@@ -647,7 +618,7 @@ async def test_build_elicit_url_request() -> None:
             assert (
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-789"
             )
-    finally:  # pragma: no cover
+    finally:
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -698,7 +669,7 @@ async def test_build_create_message_request() -> None:
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"]
                 == "sampling-task-456"
             )
-    finally:  # pragma: no cover
+    finally:
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -724,7 +695,7 @@ async def test_send_message() -> None:
             # Create a test message
             notification = JSONRPCNotification(jsonrpc="2.0", method="test/notification")
             message = SessionMessage(
-                message=JSONRPCMessage(notification),
+                message=notification,
                 metadata=ServerMessageMetadata(related_request_id="test-req-1"),
             )
 
@@ -733,9 +704,9 @@ async def test_send_message() -> None:
 
             # Verify it was sent to the stream
             received = await server_to_client_receive.receive()
-            assert isinstance(received.message.root, JSONRPCNotification)
-            assert received.message.root.method == "test/notification"
-    finally:  # pragma: no cover
+            assert isinstance(received.message, JSONRPCNotification)
+            assert received.message.method == "test/notification"
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -776,7 +747,7 @@ async def test_response_routing_success() -> None:
 
             # Simulate receiving a response from client
             response = JSONRPCResponse(jsonrpc="2.0", id="test-req-1", result={"status": "ok"})
-            message = SessionMessage(message=JSONRPCMessage(response))
+            message = SessionMessage(message=response)
 
             # Send from "client" side
             await client_to_server_send.send(message)
@@ -789,7 +760,7 @@ async def test_response_routing_success() -> None:
             assert len(routed_responses) == 1
             assert routed_responses[0]["id"] == "test-req-1"
             assert routed_responses[0]["response"]["status"] == "ok"
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -831,7 +802,7 @@ async def test_response_routing_error() -> None:
             # Simulate receiving an error response from client
             error_data = ErrorData(code=INVALID_REQUEST, message="Test error")
             error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
-            message = SessionMessage(message=JSONRPCMessage(error_response))
+            message = SessionMessage(message=error_response)
 
             # Send from "client" side
             await client_to_server_send.send(message)
@@ -844,7 +815,7 @@ async def test_response_routing_error() -> None:
             assert len(routed_errors) == 1
             assert routed_errors[0]["id"] == "test-req-2"
             assert routed_errors[0]["error"].message == "Test error"
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -894,7 +865,7 @@ async def test_response_routing_skips_non_matching_routers() -> None:
 
             # Send a response - should skip first router and be handled by second
             response = JSONRPCResponse(jsonrpc="2.0", id="test-req-1", result={"status": "ok"})
-            message = SessionMessage(message=JSONRPCMessage(response))
+            message = SessionMessage(message=response)
             await client_to_server_send.send(message)
 
             with anyio.fail_after(5):
@@ -902,7 +873,7 @@ async def test_response_routing_skips_non_matching_routers() -> None:
 
             # Verify both routers were called (first returned False, second returned True)
             assert router_calls == ["non_matching_response", "matching_response"]
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -953,7 +924,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
             # Send an error - should skip first router and be handled by second
             error_data = ErrorData(code=INVALID_REQUEST, message="Test error")
             error_response = JSONRPCError(jsonrpc="2.0", id="test-req-2", error=error_data)
-            message = SessionMessage(message=JSONRPCMessage(error_response))
+            message = SessionMessage(message=error_response)
             await client_to_server_send.send(message)
 
             with anyio.fail_after(5):
@@ -961,7 +932,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
 
             # Verify both routers were called (first returned False, second returned True)
             assert router_calls == ["non_matching_error", "matching_error"]
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()

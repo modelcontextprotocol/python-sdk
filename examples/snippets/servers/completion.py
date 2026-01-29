@@ -1,4 +1,4 @@
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import (
     Completion,
     CompletionArgument,
@@ -7,7 +7,7 @@ from mcp.types import (
     ResourceTemplateReference,
 )
 
-mcp = FastMCP(name="Example")
+mcp = MCPServer(name="Example")
 
 
 @mcp.resource("github://repos/{owner}/{repo}")

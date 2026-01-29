@@ -3,7 +3,7 @@ from typing import Any, Protocol
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl, TypeAdapter
+from pydantic import TypeAdapter
 
 import mcp.types as types
 from mcp.client.experimental import ExperimentalClientFeatures
@@ -12,6 +12,7 @@ from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.types._types import RequestParamsMeta
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
@@ -122,13 +123,7 @@ class ClientSession(
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
-        super().__init__(
-            read_stream,
-            write_stream,
-            types.ServerRequest,
-            types.ServerNotification,
-            read_timeout_seconds=read_timeout_seconds,
-        )
+        super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
@@ -142,6 +137,14 @@ class ClientSession(
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
+
+    @property
+    def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
+        return types.server_request_adapter
+
+    @property
+    def _receive_notification_adapter(self) -> TypeAdapter[types.ServerNotification]:
+        return types.server_notification_adapter
 
     async def initialize(self) -> types.InitializeResult:
         sampling = (
@@ -167,20 +170,18 @@ class ClientSession(
         )
 
         result = await self.send_request(
-            types.ClientRequest(
-                types.InitializeRequest(
-                    params=types.InitializeRequestParams(
-                        protocol_version=types.LATEST_PROTOCOL_VERSION,
-                        capabilities=types.ClientCapabilities(
-                            sampling=sampling,
-                            elicitation=elicitation,
-                            experimental=None,
-                            roots=roots,
-                            tasks=self._task_handlers.build_capability(),
-                        ),
-                        client_info=self._client_info,
+            types.InitializeRequest(
+                params=types.InitializeRequestParams(
+                    protocol_version=types.LATEST_PROTOCOL_VERSION,
+                    capabilities=types.ClientCapabilities(
+                        sampling=sampling,
+                        elicitation=elicitation,
+                        experimental=None,
+                        roots=roots,
+                        tasks=self._task_handlers.build_capability(),
                     ),
-                )
+                    client_info=self._client_info,
+                ),
             ),
             types.InitializeResult,
         )
@@ -190,7 +191,7 @@ class ClientSession(
 
         self._server_capabilities = result.capabilities
 
-        await self.send_notification(types.ClientNotification(types.InitializedNotification()))
+        await self.send_notification(types.InitializedNotification())
 
         return result
 
@@ -216,12 +217,9 @@ class ClientSession(
             self._experimental_features = ExperimentalClientFeatures(self)
         return self._experimental_features
 
-    async def send_ping(self) -> types.EmptyResult:
+    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
-        return await self.send_request(
-            types.ClientRequest(types.PingRequest()),
-            types.EmptyResult,
-        )
+        return await self.send_request(types.PingRequest(params=types.RequestParams(_meta=meta)), types.EmptyResult)
 
     async def send_progress_notification(
         self,
@@ -229,29 +227,31 @@ class ClientSession(
         progress: float,
         total: float | None = None,
         message: str | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
-            types.ClientNotification(
-                types.ProgressNotification(
-                    params=types.ProgressNotificationParams(
-                        progress_token=progress_token,
-                        progress=progress,
-                        total=total,
-                        message=message,
-                    ),
+            types.ProgressNotification(
+                params=types.ProgressNotificationParams(
+                    progress_token=progress_token,
+                    progress=progress,
+                    total=total,
+                    message=message,
+                    _meta=meta,
                 ),
             )
         )
 
-    async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
+    async def set_logging_level(
+        self,
+        level: types.LoggingLevel,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.EmptyResult:
         """Send a logging/setLevel request."""
-        return await self.send_request(  # pragma: no cover
-            types.ClientRequest(
-                types.SetLevelRequest(
-                    params=types.SetLevelRequestParams(level=level),
-                )
-            ),
+        return await self.send_request(
+            types.SetLevelRequest(params=types.SetLevelRequestParams(level=level, _meta=meta)),
             types.EmptyResult,
         )
 
@@ -261,10 +261,7 @@ class ClientSession(
         Args:
             params: Full pagination parameters including cursor and any future fields
         """
-        return await self.send_request(
-            types.ClientRequest(types.ListResourcesRequest(params=params)),
-            types.ListResourcesResult,
-        )
+        return await self.send_request(types.ListResourcesRequest(params=params), types.ListResourcesResult)
 
     async def list_resource_templates(
         self, *, params: types.PaginatedRequestParams | None = None
@@ -275,28 +272,28 @@ class ClientSession(
             params: Full pagination parameters including cursor and any future fields
         """
         return await self.send_request(
-            types.ClientRequest(types.ListResourceTemplatesRequest(params=params)),
+            types.ListResourceTemplatesRequest(params=params),
             types.ListResourceTemplatesResult,
         )
 
-    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.ReadResourceResult:
         """Send a resources/read request."""
         return await self.send_request(
-            types.ClientRequest(types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=str(uri)))),
+            types.ReadResourceRequest(params=types.ReadResourceRequestParams(uri=uri, _meta=meta)),
             types.ReadResourceResult,
         )
 
-    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/subscribe request."""
-        return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.SubscribeRequest(params=types.SubscribeRequestParams(uri=str(uri)))),
+        return await self.send_request(
+            types.SubscribeRequest(params=types.SubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
 
-    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a resources/unsubscribe request."""
-        return await self.send_request(  # pragma: no cover
-            types.ClientRequest(types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=str(uri)))),
+        return await self.send_request(
+            types.UnsubscribeRequest(params=types.UnsubscribeRequestParams(uri=uri, _meta=meta)),
             types.EmptyResult,
         )
 
@@ -307,19 +304,13 @@ class ClientSession(
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
         """Send a tools/call request with optional progress callback support."""
 
-        _meta: types.RequestParams.Meta | None = None
-        if meta is not None:
-            _meta = types.RequestParams.Meta(**meta)
-
         result = await self.send_request(
-            types.ClientRequest(
-                types.CallToolRequest(
-                    params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=_meta),
-                )
+            types.CallToolRequest(
+                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=meta),
             ),
             types.CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
@@ -353,7 +344,7 @@ class ClientSession(
             try:
                 validate(result.structured_content, output_schema)
             except ValidationError as e:
-                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")  # pragma: no cover
+                raise RuntimeError(f"Invalid structured content returned by tool {name}: {e}")
             except SchemaError as e:  # pragma: no cover
                 raise RuntimeError(f"Invalid schema for tool {name}: {e}")  # pragma: no cover
 
@@ -363,19 +354,18 @@ class ClientSession(
         Args:
             params: Full pagination parameters including cursor and any future fields
         """
-        return await self.send_request(
-            types.ClientRequest(types.ListPromptsRequest(params=params)),
-            types.ListPromptsResult,
-        )
+        return await self.send_request(types.ListPromptsRequest(params=params), types.ListPromptsResult)
 
-    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.GetPromptResult:
         """Send a prompts/get request."""
         return await self.send_request(
-            types.ClientRequest(
-                types.GetPromptRequest(
-                    params=types.GetPromptRequestParams(name=name, arguments=arguments),
-                )
-            ),
+            types.GetPromptRequest(params=types.GetPromptRequestParams(name=name, arguments=arguments, _meta=meta)),
             types.GetPromptResult,
         )
 
@@ -391,14 +381,12 @@ class ClientSession(
             context = types.CompletionContext(arguments=context_arguments)
 
         return await self.send_request(
-            types.ClientRequest(
-                types.CompleteRequest(
-                    params=types.CompleteRequestParams(
-                        ref=ref,
-                        argument=types.CompletionArgument(**argument),
-                        context=context,
-                    ),
-                )
+            types.CompleteRequest(
+                params=types.CompleteRequestParams(
+                    ref=ref,
+                    argument=types.CompletionArgument(**argument),
+                    context=context,
+                ),
             ),
             types.CompleteResult,
         )
@@ -410,7 +398,7 @@ class ClientSession(
             params: Full pagination parameters including cursor and any future fields
         """
         result = await self.send_request(
-            types.ClientRequest(types.ListToolsRequest(params=params)),
+            types.ListToolsRequest(params=params),
             types.ListToolsResult,
         )
 
@@ -423,7 +411,7 @@ class ClientSession(
 
     async def send_roots_list_changed(self) -> None:  # pragma: no cover
         """Send a roots/list_changed notification."""
-        await self.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
+        await self.send_notification(types.RootsListChangedNotification())
 
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
         ctx = RequestContext[ClientSession, Any](
@@ -440,7 +428,7 @@ class ClientSession(
             return None
 
         # Core request handling
-        match responder.request.root:
+        match responder.request:
             case types.CreateMessageRequest(params=params):
                 with responder:
                     # Check if this is a task-augmented request
@@ -469,7 +457,7 @@ class ClientSession(
 
             case types.PingRequest():  # pragma: no cover
                 with responder:
-                    return await responder.respond(types.ClientResult(root=types.EmptyResult()))
+                    return await responder.respond(types.EmptyResult())
 
             case _:  # pragma: no cover
                 pass  # Task requests handled above by _task_handlers
@@ -486,7 +474,7 @@ class ClientSession(
     async def _received_notification(self, notification: types.ServerNotification) -> None:
         """Handle notifications from the server."""
         # Process specific notification types
-        match notification.root:
+        match notification:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
             case types.ElicitCompleteNotification(params=params):

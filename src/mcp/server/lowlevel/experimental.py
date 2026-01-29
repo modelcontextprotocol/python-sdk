@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import cancel_task
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, TaskMessageQueue
@@ -20,7 +20,6 @@ from mcp.types import (
     INVALID_PARAMS,
     CancelTaskRequest,
     CancelTaskResult,
-    ErrorData,
     GetTaskPayloadRequest,
     GetTaskPayloadResult,
     GetTaskRequest,
@@ -135,22 +134,15 @@ class ExperimentalHandlers:
             async def _default_get_task(req: GetTaskRequest) -> ServerResult:
                 task = await support.store.get_task(req.params.task_id)
                 if task is None:
-                    raise McpError(
-                        ErrorData(
-                            code=INVALID_PARAMS,
-                            message=f"Task not found: {req.params.task_id}",
-                        )
-                    )
-                return ServerResult(
-                    GetTaskResult(
-                        task_id=task.task_id,
-                        status=task.status,
-                        status_message=task.status_message,
-                        created_at=task.created_at,
-                        last_updated_at=task.last_updated_at,
-                        ttl=task.ttl,
-                        poll_interval=task.poll_interval,
-                    )
+                    raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {req.params.task_id}")
+                return GetTaskResult(
+                    task_id=task.task_id,
+                    status=task.status,
+                    status_message=task.status_message,
+                    created_at=task.created_at,
+                    last_updated_at=task.last_updated_at,
+                    ttl=task.ttl,
+                    poll_interval=task.poll_interval,
                 )
 
             self._request_handlers[GetTaskRequest] = _default_get_task
@@ -158,29 +150,29 @@ class ExperimentalHandlers:
         # Register get_task_result handler if not already registered
         if GetTaskPayloadRequest not in self._request_handlers:
 
-            async def _default_get_task_result(req: GetTaskPayloadRequest) -> ServerResult:
+            async def _default_get_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
                 ctx = self._server.request_context
                 result = await support.handler.handle(req, ctx.session, ctx.request_id)
-                return ServerResult(result)
+                return result
 
             self._request_handlers[GetTaskPayloadRequest] = _default_get_task_result
 
         # Register list_tasks handler if not already registered
         if ListTasksRequest not in self._request_handlers:
 
-            async def _default_list_tasks(req: ListTasksRequest) -> ServerResult:
+            async def _default_list_tasks(req: ListTasksRequest) -> ListTasksResult:
                 cursor = req.params.cursor if req.params else None
                 tasks, next_cursor = await support.store.list_tasks(cursor)
-                return ServerResult(ListTasksResult(tasks=tasks, next_cursor=next_cursor))
+                return ListTasksResult(tasks=tasks, next_cursor=next_cursor)
 
             self._request_handlers[ListTasksRequest] = _default_list_tasks
 
         # Register cancel_task handler if not already registered
         if CancelTaskRequest not in self._request_handlers:
 
-            async def _default_cancel_task(req: CancelTaskRequest) -> ServerResult:
+            async def _default_cancel_task(req: CancelTaskRequest) -> CancelTaskResult:
                 result = await cancel_task(support.store, req.params.task_id)
-                return ServerResult(result)
+                return result
 
             self._request_handlers[CancelTaskRequest] = _default_cancel_task
 
@@ -201,9 +193,9 @@ class ExperimentalHandlers:
             logger.debug("Registering handler for ListTasksRequest")
             wrapper = create_call_wrapper(func, ListTasksRequest)
 
-            async def handler(req: ListTasksRequest) -> ServerResult:
+            async def handler(req: ListTasksRequest) -> ListTasksResult:
                 result = await wrapper(req)
-                return ServerResult(result)
+                return result
 
             self._request_handlers[ListTasksRequest] = handler
             return func
@@ -226,9 +218,9 @@ class ExperimentalHandlers:
             logger.debug("Registering handler for GetTaskRequest")
             wrapper = create_call_wrapper(func, GetTaskRequest)
 
-            async def handler(req: GetTaskRequest) -> ServerResult:
+            async def handler(req: GetTaskRequest) -> GetTaskResult:
                 result = await wrapper(req)
-                return ServerResult(result)
+                return result
 
             self._request_handlers[GetTaskRequest] = handler
             return func
@@ -252,9 +244,9 @@ class ExperimentalHandlers:
             logger.debug("Registering handler for GetTaskPayloadRequest")
             wrapper = create_call_wrapper(func, GetTaskPayloadRequest)
 
-            async def handler(req: GetTaskPayloadRequest) -> ServerResult:
+            async def handler(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
                 result = await wrapper(req)
-                return ServerResult(result)
+                return result
 
             self._request_handlers[GetTaskPayloadRequest] = handler
             return func
@@ -278,9 +270,9 @@ class ExperimentalHandlers:
             logger.debug("Registering handler for CancelTaskRequest")
             wrapper = create_call_wrapper(func, CancelTaskRequest)
 
-            async def handler(req: CancelTaskRequest) -> ServerResult:
+            async def handler(req: CancelTaskRequest) -> CancelTaskResult:
                 result = await wrapper(req)
-                return ServerResult(result)
+                return result
 
             self._request_handlers[CancelTaskRequest] = handler
             return func

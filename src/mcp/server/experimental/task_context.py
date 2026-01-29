@@ -13,7 +13,7 @@ import anyio
 from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.session import ServerSession
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.capabilities import (
     require_task_augmented_elicitation,
     require_task_augmented_sampling,
@@ -32,14 +32,12 @@ from mcp.types import (
     ElicitationCapability,
     ElicitRequestedSchema,
     ElicitResult,
-    ErrorData,
     IncludeContext,
     ModelPreferences,
     RequestId,
     Result,
     SamplingCapability,
     SamplingMessage,
-    ServerNotification,
     Task,
     TaskMetadata,
     TaskStatusNotification,
@@ -156,17 +154,15 @@ class ServerTaskContext:
         """Send a task status notification to the client."""
         task = self._ctx.task
         await self._session.send_notification(
-            ServerNotification(
-                TaskStatusNotification(
-                    params=TaskStatusNotificationParams(
-                        task_id=task.task_id,
-                        status=task.status,
-                        status_message=task.status_message,
-                        created_at=task.created_at,
-                        last_updated_at=task.last_updated_at,
-                        ttl=task.ttl,
-                        poll_interval=task.poll_interval,
-                    )
+            TaskStatusNotification(
+                params=TaskStatusNotificationParams(
+                    task_id=task.task_id,
+                    status=task.status,
+                    status_message=task.status_message,
+                    created_at=task.created_at,
+                    last_updated_at=task.last_updated_at,
+                    ttl=task.ttl,
+                    poll_interval=task.poll_interval,
                 )
             )
         )
@@ -176,22 +172,12 @@ class ServerTaskContext:
     def _check_elicitation_capability(self) -> None:
         """Check if the client supports elicitation."""
         if not self._session.check_client_capability(ClientCapabilities(elicitation=ElicitationCapability())):
-            raise McpError(
-                ErrorData(
-                    code=INVALID_REQUEST,
-                    message="Client does not support elicitation capability",
-                )
-            )
+            raise MCPError(code=INVALID_REQUEST, message="Client does not support elicitation capability")
 
     def _check_sampling_capability(self) -> None:
         """Check if the client supports sampling."""
         if not self._session.check_client_capability(ClientCapabilities(sampling=SamplingCapability())):
-            raise McpError(
-                ErrorData(
-                    code=INVALID_REQUEST,
-                    message="Client does not support sampling capability",
-                )
-            )
+            raise MCPError(code=INVALID_REQUEST, message="Client does not support sampling capability")
 
     async def elicit(
         self,
@@ -216,7 +202,7 @@ class ServerTaskContext:
             The client's response
 
         Raises:
-            McpError: If client doesn't support elicitation capability
+            MCPError: If client doesn't support elicitation capability
         """
         self._check_elicitation_capability()
 
@@ -250,8 +236,7 @@ class ServerTaskContext:
             response_data = await resolver.wait()
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return ElicitResult.model_validate(response_data)
-        except anyio.get_cancelled_exc_class():  # pragma: no cover
-            # Coverage can't track async exception handlers reliably.
+        except anyio.get_cancelled_exc_class():
             # This path is tested in test_elicit_restores_status_on_cancellation
             # which verifies status is restored to "working" after cancellation.
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
@@ -285,7 +270,7 @@ class ServerTaskContext:
             The client's response indicating acceptance, decline, or cancellation
 
         Raises:
-            McpError: If client doesn't support elicitation capability
+            MCPError: If client doesn't support elicitation capability
             RuntimeError: If handler is not configured
         """
         self._check_elicitation_capability()
@@ -365,7 +350,7 @@ class ServerTaskContext:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support sampling capability or tools
+            MCPError: If client doesn't support sampling capability or tools
             ValueError: If tool_use or tool_result message structure is invalid
         """
         self._check_sampling_capability()
@@ -411,8 +396,7 @@ class ServerTaskContext:
             response_data = await resolver.wait()
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
             return CreateMessageResult.model_validate(response_data)
-        except anyio.get_cancelled_exc_class():  # pragma: no cover
-            # Coverage can't track async exception handlers reliably.
+        except anyio.get_cancelled_exc_class():
             # This path is tested in test_create_message_restores_status_on_cancellation
             # which verifies status is restored to "working" after cancellation.
             await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
@@ -441,7 +425,7 @@ class ServerTaskContext:
             The client's elicitation response
 
         Raises:
-            McpError: If client doesn't support task-augmented elicitation
+            MCPError: If client doesn't support task-augmented elicitation
             RuntimeError: If handler is not configured
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
@@ -534,7 +518,7 @@ class ServerTaskContext:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support task-augmented sampling or tools
+            MCPError: If client doesn't support task-augmented sampling or tools
             ValueError: If tool_use or tool_result message structure is invalid
             RuntimeError: If handler is not configured
         """

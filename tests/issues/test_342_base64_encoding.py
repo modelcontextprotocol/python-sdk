@@ -60,7 +60,7 @@ async def test_server_base64_encoding_issue():
     result: ServerResult = await handler(request)
 
     # After (fixed code):
-    read_result: ReadResourceResult = cast(ReadResourceResult, result.root)
+    read_result: ReadResourceResult = cast(ReadResourceResult, result)
     blob_content = read_result.contents[0]
 
     # First verify our test data actually produces different encodings

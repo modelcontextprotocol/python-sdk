@@ -1,4 +1,3 @@
-import logging
 import re
 from urllib.parse import urljoin, urlparse
 
@@ -15,8 +14,6 @@ from mcp.shared.auth import (
     ProtectedResourceMetadata,
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
-
-logger = logging.getLogger(__name__)
 
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:

@@ -7,29 +7,29 @@ from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
-import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    REQUEST_TIMEOUT,
     CancelledNotification,
     ClientNotification,
     ClientRequest,
     ClientResult,
     ErrorData,
     JSONRPCError,
-    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     ProgressNotification,
-    RequestParams,
+    ProgressToken,
+    RequestParamsMeta,
     ServerNotification,
     ServerRequest,
     ServerResult,
@@ -72,7 +72,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     def __init__(
         self,
         request_id: RequestId,
-        request_meta: RequestParams.Meta | None,
+        request_meta: RequestParamsMeta | None,
         request: ReceiveRequestT,
         session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
@@ -150,7 +150,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return not self._completed and not self.cancelled
 
     @property
-    def cancelled(self) -> bool:  # pragma: no cover
+    def cancelled(self) -> bool:
         return self._cancel_scope.cancel_called
 
 
@@ -180,8 +180,6 @@ class BaseSession(
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
-        receive_request_type: type[ReceiveRequestT],
-        receive_notification_type: type[ReceiveNotificationT],
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
     ) -> None:
@@ -189,8 +187,6 @@ class BaseSession(
         self._write_stream = write_stream
         self._response_streams = {}
         self._request_id = 0
-        self._receive_request_type = receive_request_type
-        self._receive_notification_type = receive_notification_type
         self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
@@ -239,12 +235,12 @@ class BaseSession(
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
-        """Sends a request and wait for a response. Raises an McpError if the
-        response contains an error. If a request read timeout is provided, it
-        will take precedence over the session read timeout.
+        """Sends a request and wait for a response.
 
-        Do not use this method to emit notifications! Use send_notification()
-        instead.
+        Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
+        precedence over the session read timeout.
+
+        Do not use this method to emit notifications! Use send_notification() instead.
         """
         request_id = self._request_id
         self._request_id = request_id + 1
@@ -254,49 +250,33 @@ class BaseSession(
 
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        if progress_callback is not None:  # pragma: no cover
+        if progress_callback is not None:
             # Use request_id as progress token
-            if "params" not in request_data:
+            if "params" not in request_data:  # pragma: lax no cover
                 request_data["params"] = {}
-            if "_meta" not in request_data["params"]:  # pragma: no branch
+            if "_meta" not in request_data["params"]:  # pragma: lax no cover
                 request_data["params"]["_meta"] = {}
             request_data["params"]["_meta"]["progressToken"] = request_id
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
         try:
-            jsonrpc_request = JSONRPCRequest(
-                jsonrpc="2.0",
-                id=request_id,
-                **request_data,
-            )
-
-            await self._write_stream.send(SessionMessage(message=JSONRPCMessage(jsonrpc_request), metadata=metadata))
+            jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
+            await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
             # request read timeout takes precedence over session read timeout
-            timeout = None
-            if request_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = request_read_timeout_seconds
-            elif self._session_read_timeout_seconds is not None:  # pragma: no cover
-                timeout = self._session_read_timeout_seconds
+            timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
 
             try:
                 with anyio.fail_after(timeout):
                     response_or_error = await response_stream_reader.receive()
             except TimeoutError:
-                raise McpError(
-                    ErrorData(
-                        code=httpx.codes.REQUEST_TIMEOUT,
-                        message=(
-                            f"Timed out while waiting for response to "
-                            f"{request.__class__.__name__}. Waited "
-                            f"{timeout} seconds."
-                        ),
-                    )
-                )
+                class_name = request.__class__.__name__
+                message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
+                raise MCPError(code=REQUEST_TIMEOUT, message=message)
 
             if isinstance(response_or_error, JSONRPCError):
-                raise McpError(response_or_error.error)
+                raise MCPError.from_jsonrpc_error(response_or_error)
             else:
                 return result_type.model_validate(response_or_error.result, by_name=False)
 
@@ -311,17 +291,15 @@ class BaseSession(
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
-        """Emits a notification, which is a one-way message that does not expect
-        a response.
-        """
+        """Emits a notification, which is a one-way message that does not expect a response."""
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
-        session_message = SessionMessage(  # pragma: no cover
-            message=JSONRPCMessage(jsonrpc_notification),
+        session_message = SessionMessage(
+            message=jsonrpc_notification,
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
         await self._write_stream.send(session_message)
@@ -329,7 +307,7 @@ class BaseSession(
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
             jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=response)
-            session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
+            session_message = SessionMessage(message=jsonrpc_error)
             await self._write_stream.send(session_message)
         else:
             jsonrpc_response = JSONRPCResponse(
@@ -337,29 +315,33 @@ class BaseSession(
                 id=request_id,
                 result=response.model_dump(by_alias=True, mode="json", exclude_none=True),
             )
-            session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_response))
+            session_message = SessionMessage(message=jsonrpc_response)
             await self._write_stream.send(session_message)
 
+    @property
+    def _receive_request_adapter(self) -> TypeAdapter[ReceiveRequestT]:
+        """Each subclass must provide its own request adapter."""
+        raise NotImplementedError
+
+    @property
+    def _receive_notification_adapter(self) -> TypeAdapter[ReceiveNotificationT]:
+        raise NotImplementedError
+
     async def _receive_loop(self) -> None:
-        async with (
-            self._read_stream,
-            self._write_stream,
-        ):
+        async with self._read_stream, self._write_stream:
             try:
                 async for message in self._read_stream:
                     if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
-                    elif isinstance(message.message.root, JSONRPCRequest):
+                    elif isinstance(message.message, JSONRPCRequest):
                         try:
-                            validated_request = self._receive_request_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                            validated_request = self._receive_request_adapter.validate_python(
+                                message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
                             responder = RequestResponder(
-                                request_id=message.message.root.id,
-                                request_meta=validated_request.root.params.meta
-                                if validated_request.root.params
-                                else None,
+                                request_id=message.message.id,
+                                request_meta=validated_request.params.meta if validated_request.params else None,
                                 request=validated_request,
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
@@ -370,59 +352,53 @@ class BaseSession(
 
                             if not responder._completed:  # type: ignore[reportPrivateUsage]
                                 await self._handle_incoming(responder)
-                        except Exception as e:
+                        except Exception:
                             # For request validation errors, send a proper JSON-RPC error
                             # response instead of crashing the server
-                            logging.warning(f"Failed to validate request: {e}")
-                            logging.debug(f"Message that failed validation: {message.message.root}")
+                            logging.warning("Failed to validate request", exc_info=True)
+                            logging.debug(f"Message that failed validation: {message.message}")
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
-                                id=message.message.root.id,
-                                error=ErrorData(
-                                    code=INVALID_PARAMS,
-                                    message="Invalid request parameters",
-                                    data="",
-                                ),
+                                id=message.message.id,
+                                error=ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
                             )
-                            session_message = SessionMessage(message=JSONRPCMessage(error_response))
+                            session_message = SessionMessage(message=error_response)
                             await self._write_stream.send(session_message)
 
-                    elif isinstance(message.message.root, JSONRPCNotification):
+                    elif isinstance(message.message, JSONRPCNotification):
                         try:
-                            notification = self._receive_notification_type.model_validate(
-                                message.message.root.model_dump(by_alias=True, mode="json", exclude_none=True),
+                            notification = self._receive_notification_adapter.validate_python(
+                                message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
                             # Handle cancellation notifications
-                            if isinstance(notification.root, CancelledNotification):
-                                cancelled_id = notification.root.params.request_id
+                            if isinstance(notification, CancelledNotification):
+                                cancelled_id = notification.params.request_id
                                 if cancelled_id in self._in_flight:  # pragma: no branch
                                     await self._in_flight[cancelled_id].cancel()
                             else:
                                 # Handle progress notifications callback
-                                if isinstance(notification.root, ProgressNotification):  # pragma: no cover
-                                    progress_token = notification.root.params.progress_token
+                                if isinstance(notification, ProgressNotification):
+                                    progress_token = notification.params.progress_token
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
                                     if progress_token in self._progress_callbacks:
                                         callback = self._progress_callbacks[progress_token]
                                         try:
                                             await callback(
-                                                notification.root.params.progress,
-                                                notification.root.params.total,
-                                                notification.root.params.message,
+                                                notification.params.progress,
+                                                notification.params.total,
+                                                notification.params.message,
                                             )
-                                        except Exception as e:
-                                            logging.error(
-                                                "Progress callback raised an exception: %s",
-                                                e,
-                                            )
+                                        except Exception:
+                                            logging.exception("Progress callback raised an exception")
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
-                        except Exception as e:  # pragma: no cover
+                        except Exception:
                             # For other validation errors, log and continue
-                            logging.warning(
-                                f"Failed to validate notification: {e}. Message was: {message.message.root}"
+                            logging.warning(  # pragma: no cover
+                                f"Failed to validate notification:. Message was: {message.message}",
+                                exc_info=True,
                             )
                     else:  # Response or error
                         await self._handle_response(message)
@@ -431,11 +407,11 @@ class BaseSession(
                 # This is expected when the client disconnects abruptly.
                 # Without this handler, the exception would propagate up and
                 # crash the server's task group.
-                logging.debug("Read stream closed by client")  # pragma: no cover
-            except Exception as e:  # pragma: no cover
+                logging.debug("Read stream closed by client")
+            except Exception as e:
                 # Other exceptions are not expected and should be logged. We purposefully
                 # catch all exceptions here to avoid crashing the server.
-                logging.exception(f"Unhandled exception in receive loop: {e}")
+                logging.exception(f"Unhandled exception in receive loop: {e}")  # pragma: no cover
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
@@ -475,36 +451,34 @@ class BaseSession(
         Checks response routers first (e.g., for task-related responses),
         then falls back to the normal response stream mechanism.
         """
-        root = message.message.root
-
         # This check is always true at runtime: the caller (_receive_loop) only invokes
         # this method in the else branch after checking for JSONRPCRequest and
         # JSONRPCNotification. However, the type checker can't infer this from the
         # method signature, so we need this guard for type narrowing.
-        if not isinstance(root, JSONRPCResponse | JSONRPCError):
+        if not isinstance(message.message, JSONRPCResponse | JSONRPCError):
             return  # pragma: no cover
 
         # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
-        response_id = self._normalize_request_id(root.id)
+        response_id = self._normalize_request_id(message.message.id)
 
         # First, check response routers (e.g., TaskResultHandler)
-        if isinstance(root, JSONRPCError):
+        if isinstance(message.message, JSONRPCError):
             # Route error to routers
             for router in self._response_routers:
-                if router.route_error(response_id, root.error):
+                if router.route_error(response_id, message.message.error):
                     return  # Handled
         else:
             # Route success response to routers
-            response_data: dict[str, Any] = root.result or {}
+            response_data: dict[str, Any] = message.message.result or {}
             for router in self._response_routers:
                 if router.route_response(response_id, response_data):
                     return  # Handled
 
         # Fall back to normal response streams
         stream = self._response_streams.pop(response_id, None)
-        if stream:  # pragma: no cover
-            await stream.send(root)
-        else:  # pragma: no cover
+        if stream:
+            await stream.send(message.message)
+        else:
             await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
@@ -522,18 +496,14 @@ class BaseSession(
 
     async def send_progress_notification(
         self,
-        progress_token: str | int,
+        progress_token: ProgressToken,
         progress: float,
         total: float | None = None,
         message: str | None = None,
     ) -> None:
-        """Sends a progress notification for a request that is currently being
-        processed.
-        """
+        """Sends a progress notification for a request that is currently being processed."""
 
     async def _handle_incoming(
-        self,
-        req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception,
+        self, req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception
     ) -> None:
         """A generic handler for incoming messages. Overwritten by subclasses."""
-        pass  # pragma: no cover

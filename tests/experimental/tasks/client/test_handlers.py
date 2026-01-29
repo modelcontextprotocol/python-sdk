@@ -151,15 +151,11 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
             await client_ready.wait()
 
             typed_request = GetTaskRequest(params=GetTaskRequestParams(task_id="test-task-123"))
-            request = types.JSONRPCRequest(
-                jsonrpc="2.0",
-                id="req-1",
-                **typed_request.model_dump(by_alias=True),
-            )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            request = types.JSONRPCRequest(jsonrpc="2.0", id="req-1", **typed_request.model_dump(by_alias=True))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
             assert response.id == "req-1"
 
@@ -219,10 +215,10 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
                 id="req-2",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             assert isinstance(response.result, dict)
@@ -277,10 +273,10 @@ async def test_client_handles_list_tasks_request(client_streams: ClientTestStrea
                 id="req-3",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             result = ListTasksResult.model_validate(response.result)
@@ -340,10 +336,10 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
                 id="req-4",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             result = CancelTaskResult.model_validate(response.result)
@@ -448,11 +444,11 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
                 id="req-sampling",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             # Step 2: Client responds with CreateTaskResult
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             task_result = CreateTaskResult.model_validate(response.result)
@@ -469,10 +465,10 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
                 id="req-poll",
                 **typed_poll.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(poll_request)))
+            await client_streams.server_send.send(SessionMessage(poll_request))
 
             poll_response_msg = await client_streams.server_receive.receive()
-            poll_response = poll_response_msg.message.root
+            poll_response = poll_response_msg.message
             assert isinstance(poll_response, types.JSONRPCResponse)
 
             status = GetTaskResult.model_validate(poll_response.result)
@@ -485,10 +481,10 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
                 id="req-result",
                 **typed_result_req.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(result_request)))
+            await client_streams.server_send.send(SessionMessage(result_request))
 
             result_response_msg = await client_streams.server_receive.receive()
-            result_response = result_response_msg.message.root
+            result_response = result_response_msg.message
             assert isinstance(result_response, types.JSONRPCResponse)
 
             assert isinstance(result_response.result, dict)
@@ -588,11 +584,11 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
                 id="req-elicit",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             # Step 2: Client responds with CreateTaskResult
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             task_result = CreateTaskResult.model_validate(response.result)
@@ -609,10 +605,10 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
                 id="req-poll",
                 **typed_poll.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(poll_request)))
+            await client_streams.server_send.send(SessionMessage(poll_request))
 
             poll_response_msg = await client_streams.server_receive.receive()
-            poll_response = poll_response_msg.message.root
+            poll_response = poll_response_msg.message
             assert isinstance(poll_response, types.JSONRPCResponse)
 
             status = GetTaskResult.model_validate(poll_response.result)
@@ -625,10 +621,10 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
                 id="req-result",
                 **typed_result_req.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(result_request)))
+            await client_streams.server_send.send(SessionMessage(result_request))
 
             result_response_msg = await client_streams.server_receive.receive()
-            result_response = result_response_msg.message.root
+            result_response = result_response_msg.message
             assert isinstance(result_response, types.JSONRPCResponse)
 
             # Verify the elicitation result
@@ -667,10 +663,10 @@ async def test_client_returns_error_for_unhandled_task_request(client_streams: C
                 id="req-unhandled",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert (
                 "not supported" in response.error.message.lower()
@@ -706,10 +702,10 @@ async def test_client_returns_error_for_unhandled_task_result_request(client_str
                 id="req-result",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -742,10 +738,10 @@ async def test_client_returns_error_for_unhandled_list_tasks_request(client_stre
                 id="req-list",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -778,10 +774,10 @@ async def test_client_returns_error_for_unhandled_cancel_task_request(client_str
                 id="req-cancel",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -822,10 +818,10 @@ async def test_client_returns_error_for_unhandled_task_augmented_sampling(client
                 id="req-sampling",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -868,10 +864,10 @@ async def test_client_returns_error_for_unhandled_task_augmented_elicitation(
                 id="req-elicit",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 

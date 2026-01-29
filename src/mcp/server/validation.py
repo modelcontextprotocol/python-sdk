@@ -4,15 +4,8 @@ This module provides validation logic for sampling and elicitation requests
 that is shared across normal and task-augmented code paths.
 """
 
-from mcp.shared.exceptions import McpError
-from mcp.types import (
-    INVALID_PARAMS,
-    ClientCapabilities,
-    ErrorData,
-    SamplingMessage,
-    Tool,
-    ToolChoice,
-)
+from mcp.shared.exceptions import MCPError
+from mcp.types import INVALID_PARAMS, ClientCapabilities, SamplingMessage, Tool, ToolChoice
 
 
 def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> bool:
@@ -46,16 +39,11 @@ def validate_sampling_tools(
         tool_choice: The tool choice setting, if provided
 
     Raises:
-        McpError: If tools/tool_choice are provided but client doesn't support them
+        MCPError: If tools/tool_choice are provided but client doesn't support them
     """
     if tools is not None or tool_choice is not None:
         if not check_sampling_tools_capability(client_caps):
-            raise McpError(
-                ErrorData(
-                    code=INVALID_PARAMS,
-                    message="Client does not support sampling tools capability",
-                )
-            )
+            raise MCPError(code=INVALID_PARAMS, message="Client does not support sampling tools capability")
 
 
 def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:

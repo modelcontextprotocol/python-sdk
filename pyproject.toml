@@ -26,8 +26,7 @@ dependencies = [
     "anyio>=4.5",
     "httpx>=0.27.1",
     "httpx-sse>=0.4",
-    "pydantic>=2.12.0; python_version >= '3.14'",
-    "pydantic>=2.11.0; python_version < '3.14'",
+    "pydantic>=2.12.0",
     "starlette>=0.48.0; python_version >= '3.14'",
     "starlette>=0.27; python_version < '3.14'",
     "python-multipart>=0.0.9",
@@ -37,7 +36,7 @@ dependencies = [
     "jsonschema>=4.20.0",
     "pywin32>=311; sys_platform == 'win32'",
     "pyjwt[crypto]>=2.10.1",
-    "typing-extensions>=4.9.0",
+    "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
 ]
 
@@ -55,6 +54,8 @@ required-version = ">=0.9.5"
 
 [dependency-groups]
 dev = [
+    # We add mcp[cli,ws] so `uv sync` considers the extras.
+    "mcp[cli,ws]",
     "pyright>=1.1.400",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
@@ -65,8 +66,9 @@ dev = [
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
-    "coverage[toml]>=7.13.1",
+    "coverage[toml]>=7.10.7,<=7.13",
     "pillow>=12.0",
+    "strict-no-cover",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -125,24 +127,29 @@ extend-exclude = ["README.md"]
 
 [tool.ruff.lint]
 select = [
-    "C4",   # flake8-comprehensions
-    "C90",  # mccabe
-    "D212", # pydocstyle: multi-line docstring summary should start at the first line
-    "E",    # pycodestyle
-    "F",    # pyflakes
-    "I",    # isort
-    "PERF", # Perflint
-    "PL",   # Pylint
-    "UP",   # pyupgrade
+    "C4",     # flake8-comprehensions
+    "C90",    # mccabe
+    "D212",   # pydocstyle: multi-line docstring summary should start at the first line
+    "E",      # pycodestyle
+    "F",      # pyflakes
+    "I",      # isort
+    "PERF",   # Perflint
+    "PL",     # Pylint
+    "UP",     # pyupgrade
+    "TID251", # https://docs.astral.sh/ruff/rules/banned-api/
 ]
 ignore = ["PERF203", "PLC0415", "PLR0402"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"pydantic.RootModel".msg = "Use `pydantic.TypeAdapter` instead."
+
 
 [tool.ruff.lint.mccabe]
 max-complexity = 24 # Default is 10
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"tests/server/fastmcp/test_func_metadata.py" = ["E501"]
+"tests/server/mcpserver/test_func_metadata.py" = ["E501"]
 "tests/shared/test_progress_notifications.py" = ["PLW0603"]
 
 [tool.ruff.lint.pylint]
@@ -157,6 +164,7 @@ members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 
 [tool.pytest.ini_options]
 log_cli = true
@@ -164,7 +172,6 @@ xfail_strict = true
 addopts = """
     --color=yes
     --capture=fd
-    --numprocesses auto
 """
 filterwarnings = [
     "error",
@@ -193,7 +200,6 @@ branch = true
 patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
 source = ["src", "tests"]
-relative_files = true
 omit = [
     "src/mcp/client/__main__.py",
     "src/mcp/server/__main__.py",
@@ -210,6 +216,7 @@ ignore_errors = true
 precision = 2
 exclude_lines = [
     "pragma: no cover",
+    "pragma: lax no cover",
     "if TYPE_CHECKING:",
     "@overload",
     "raise NotImplementedError",
@@ -223,3 +230,7 @@ source = [
     "/home/runner/work/python-sdk/python-sdk/src/",
     'D:\a\python-sdk\python-sdk\src',
 ]
+
+[tool.inline-snapshot]
+default-flags = ["disable"]
+format-command = "ruff format --stdin-filename {filename}"

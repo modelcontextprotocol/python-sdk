@@ -8,15 +8,13 @@ import pytest
 import mcp.types as types
 from mcp import Client
 from mcp.server.lowlevel.server import Server
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     CancelledNotification,
     CancelledNotificationParams,
-    ClientNotification,
-    ClientRequest,
     Tool,
 )
 
@@ -59,15 +57,11 @@ async def test_server_remains_functional_after_cancel():
         async def first_request():
             try:
                 await client.session.send_request(
-                    ClientRequest(
-                        CallToolRequest(
-                            params=CallToolRequestParams(name="test_tool", arguments={}),
-                        )
-                    ),
+                    CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
                     CallToolResult,
                 )
                 pytest.fail("First request should have been cancelled")  # pragma: no cover
-            except McpError:
+            except MCPError:
                 pass  # Expected
 
         # Start first request
@@ -80,13 +74,8 @@ async def test_server_remains_functional_after_cancel():
             # Cancel it
             assert first_request_id is not None
             await client.session.send_notification(
-                ClientNotification(
-                    CancelledNotification(
-                        params=CancelledNotificationParams(
-                            request_id=first_request_id,
-                            reason="Testing server recovery",
-                        ),
-                    )
+                CancelledNotification(
+                    params=CancelledNotificationParams(request_id=first_request_id, reason="Testing server recovery"),
                 )
             )
 

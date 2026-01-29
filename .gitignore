@@ -172,3 +172,4 @@ cython_debug/
 
 # claude code
 .claude/
+results/

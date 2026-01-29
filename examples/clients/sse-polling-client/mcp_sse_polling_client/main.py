@@ -21,8 +21,6 @@ import click
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-logger = logging.getLogger(__name__)
-
 
 async def run_demo(url: str, items: int, checkpoint_every: int) -> None:
     """Run the SSE polling demo."""

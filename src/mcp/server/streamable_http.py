@@ -6,7 +6,6 @@ The transport handles bidirectional communication using HTTP requests and
 responses, with streaming support for long-running operations.
 """
 
-import json
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -17,6 +16,7 @@ from http import HTTPStatus
 from typing import Any
 
 import anyio
+import pydantic_core
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
@@ -24,10 +24,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-from mcp.server.transport_security import (
-    TransportSecurityMiddleware,
-    TransportSecuritySettings,
-)
+from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -42,6 +39,7 @@ from mcp.types import (
     JSONRPCRequest,
     JSONRPCResponse,
     RequestId,
+    jsonrpc_message_adapter,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,7 +222,7 @@ class StreamableHTTPServerTransport:
         """
         self.close_sse_stream(GET_STREAM_KEY)
 
-    def _create_session_message(  # pragma: no cover
+    def _create_session_message(
         self,
         message: JSONRPCMessage,
         request: Request,
@@ -240,10 +238,10 @@ class StreamableHTTPServerTransport:
         # Only provide close callbacks when client supports resumability
         if self._event_store and protocol_version >= "2025-11-25":
 
-            async def close_stream_callback() -> None:
+            async def close_stream_callback() -> None:  # pragma: no cover
                 self.close_sse_stream(request_id)
 
-            async def close_standalone_stream_callback() -> None:
+            async def close_standalone_stream_callback() -> None:  # pragma: no cover
                 self.close_standalone_sse_stream()
 
             metadata = ServerMessageMetadata(
@@ -301,10 +299,7 @@ class StreamableHTTPServerTransport:
         error_response = JSONRPCError(
             jsonrpc="2.0",
             id="server-error",  # We don't have a request ID for general errors
-            error=ErrorData(
-                code=error_code,
-                message=error_message,
-            ),
+            error=ErrorData(code=error_code, message=error_message),
         )
 
         return Response(
@@ -313,7 +308,7 @@ class StreamableHTTPServerTransport:
             headers=response_headers,
         )
 
-    def _create_json_response(  # pragma: no cover
+    def _create_json_response(
         self,
         response_message: JSONRPCMessage | None,
         status_code: HTTPStatus = HTTPStatus.OK,
@@ -321,10 +316,10 @@ class StreamableHTTPServerTransport:
     ) -> Response:
         """Create a JSON response from a JSONRPCMessage"""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
-        if headers:
+        if headers:  # pragma: lax no cover
             response_headers.update(headers)
 
-        if self.mcp_session_id:
+        if self.mcp_session_id:  # pragma: lax no cover
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         return Response(
@@ -350,14 +345,14 @@ class StreamableHTTPServerTransport:
 
         return event_data
 
-    async def _clean_up_memory_streams(self, request_id: RequestId) -> None:  # pragma: no cover
+    async def _clean_up_memory_streams(self, request_id: RequestId) -> None:
         """Clean up memory streams for a given request ID."""
-        if request_id in self._request_streams:
+        if request_id in self._request_streams:  # pragma: no branch
             try:
                 # Close the request stream
                 await self._request_streams[request_id][0].aclose()
                 await self._request_streams[request_id][1].aclose()
-            except Exception:
+            except Exception:  # pragma: no cover
                 # During cleanup, we catch all exceptions since streams might be in various states
                 logger.debug("Error closing memory streams - may already be closed")
             finally:
@@ -371,7 +366,7 @@ class StreamableHTTPServerTransport:
         # Validate request headers for DNS rebinding protection
         is_post = request.method == "POST"
         error_response = await self._security.validate_request(request, is_post=is_post)
-        if error_response:  # pragma: no cover
+        if error_response:
             await error_response(scope, receive, send)
             return
 
@@ -410,12 +405,12 @@ class StreamableHTTPServerTransport:
 
         return any(part == CONTENT_TYPE_JSON for part in content_type_parts)
 
-    async def _validate_accept_header(self, request: Request, scope: Scope, send: Send) -> bool:  # pragma: no cover
+    async def _validate_accept_header(self, request: Request, scope: Scope, send: Send) -> bool:
         """Validate Accept header based on response mode. Returns True if valid."""
         has_json, has_sse = self._check_accept_headers(request)
         if self.is_json_response_enabled:
             # For JSON-only responses, only require application/json
-            if not has_json:
+            if not has_json:  # pragma: lax no cover
                 response = self._create_error_response(
                     "Not Acceptable: Client must accept application/json",
                     HTTPStatus.NOT_ACCEPTABLE,
@@ -455,14 +450,14 @@ class StreamableHTTPServerTransport:
             body = await request.body()
 
             try:
-                raw_message = json.loads(body)
-            except json.JSONDecodeError as e:
+                raw_message = pydantic_core.from_json(body)
+            except ValueError as e:
                 response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
                 await response(scope, receive, send)
                 return
 
-            try:  # pragma: no cover
-                message = JSONRPCMessage.model_validate(raw_message, by_name=False)
+            try:
+                message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
             except ValidationError as e:  # pragma: no cover
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
@@ -473,9 +468,7 @@ class StreamableHTTPServerTransport:
                 return
 
             # Check if this is an initialization request
-            is_initialization_request = (
-                isinstance(message.root, JSONRPCRequest) and message.root.method == "initialize"
-            )  # pragma: no cover
+            is_initialization_request = isinstance(message, JSONRPCRequest) and message.method == "initialize"
 
             if is_initialization_request:  # pragma: no cover
                 # Check if the server already has an established session
@@ -495,7 +488,7 @@ class StreamableHTTPServerTransport:
                 return
 
             # For notifications and responses only, return 202 Accepted
-            if not isinstance(message.root, JSONRPCRequest):  # pragma: no cover
+            if not isinstance(message, JSONRPCRequest):  # pragma: no cover
                 # Create response object and send it
                 response = self._create_json_response(
                     None,
@@ -514,18 +507,18 @@ class StreamableHTTPServerTransport:
             # For initialize requests, get from request params.
             # For other requests, get from header (already validated).
             protocol_version = (
-                str(message.root.params.get("protocolVersion", DEFAULT_NEGOTIATED_VERSION))
-                if is_initialization_request and message.root.params
+                str(message.params.get("protocolVersion", DEFAULT_NEGOTIATED_VERSION))
+                if is_initialization_request and message.params
                 else request.headers.get(MCP_PROTOCOL_VERSION_HEADER, DEFAULT_NEGOTIATED_VERSION)
             )
 
             # Extract the request ID outside the try block for proper scope
-            request_id = str(message.root.id)  # pragma: no cover
+            request_id = str(message.id)
             # Register this stream for the request ID
-            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)  # pragma: no cover
-            request_stream_reader = self._request_streams[request_id][1]  # pragma: no cover
+            self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)
+            request_stream_reader = self._request_streams[request_id][1]
 
-            if self.is_json_response_enabled:  # pragma: no cover
+            if self.is_json_response_enabled:
                 # Process the message
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
@@ -536,21 +529,21 @@ class StreamableHTTPServerTransport:
                     response_message = None
 
                     # Use similar approach to SSE writer for consistency
-                    async for event_message in request_stream_reader:
+                    async for event_message in request_stream_reader:  # pragma: no branch
                         # If it's a response, this is what we're waiting for
-                        if isinstance(event_message.message.root, JSONRPCResponse | JSONRPCError):
+                        if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                             response_message = event_message.message
                             break
                         # For notifications and request, keep waiting
-                        else:
-                            logger.debug(f"received: {event_message.message.root.method}")
+                        else:  # pragma: no cover
+                            logger.debug(f"received: {event_message.message.method}")
 
                     # At this point we should have a response
                     if response_message:
                         # Create JSON response
                         response = self._create_json_response(response_message)
                         await response(scope, receive, send)
-                    else:
+                    else:  # pragma: no cover
                         # This shouldn't happen in normal operation
                         logger.error("No response message received before stream closed")
                         response = self._create_error_response(
@@ -558,7 +551,7 @@ class StreamableHTTPServerTransport:
                             HTTPStatus.INTERNAL_SERVER_ERROR,
                         )
                         await response(scope, receive, send)
-                except Exception:
+                except Exception:  # pragma: no cover
                     logger.exception("Error processing JSON response")
                     response = self._create_error_response(
                         "Error processing request",
@@ -589,10 +582,7 @@ class StreamableHTTPServerTransport:
                                 await sse_stream_writer.send(event_data)
 
                                 # If response, remove from pending streams and close
-                                if isinstance(
-                                    event_message.message.root,
-                                    JSONRPCResponse | JSONRPCError,
-                                ):
+                                if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                                     break
                     except anyio.ClosedResourceError:
                         # Expected when close_sse_stream() is called
@@ -772,7 +762,7 @@ class StreamableHTTPServerTransport:
         request_stream_keys = list(self._request_streams.keys())
 
         # Close all request streams asynchronously
-        for key in request_stream_keys:  # pragma: no cover
+        for key in request_stream_keys:  # pragma: lax no cover
             await self._clean_up_memory_streams(key)
 
         # Clear the request streams dictionary immediately
@@ -977,20 +967,20 @@ class StreamableHTTPServerTransport:
         # Start a task group for message routing
         async with anyio.create_task_group() as tg:
             # Create a message router that distributes messages to request streams
-            async def message_router():  # pragma: no cover
+            async def message_router():
                 try:
-                    async for session_message in write_stream_reader:
+                    async for session_message in write_stream_reader:  # pragma: no branch
                         # Determine which request stream(s) should receive this message
                         message = session_message.message
                         target_request_id = None
                         # Check if this is a response
-                        if isinstance(message.root, JSONRPCResponse | JSONRPCError):
-                            response_id = str(message.root.id)
+                        if isinstance(message, JSONRPCResponse | JSONRPCError):
+                            response_id = str(message.id)
                             # If this response is for an existing request stream,
                             # send it there
                             target_request_id = response_id
                         # Extract related_request_id from meta if it exists
-                        elif (
+                        elif (  # pragma: no cover
                             session_message.metadata is not None
                             and isinstance(
                                 session_message.metadata,
@@ -1006,7 +996,7 @@ class StreamableHTTPServerTransport:
                         # regardless of whether a client is connected
                         # messages will be replayed on the re-connect
                         event_id = None
-                        if self._event_store:
+                        if self._event_store:  # pragma: lax no cover
                             event_id = await self._event_store.store_event(request_stream_id, message)
                             logger.debug(f"Stored {event_id} from {request_stream_id}")
 
@@ -1014,15 +1004,15 @@ class StreamableHTTPServerTransport:
                             try:
                                 # Send both the message and the event ID
                                 await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
-                            except (
+                            except (  # pragma: no cover
                                 anyio.BrokenResourceError,
                                 anyio.ClosedResourceError,
                             ):
                                 # Stream might be closed, remove from registry
                                 self._request_streams.pop(request_stream_id, None)
-                        else:
+                        else:  # pragma: no cover
                             logger.debug(
-                                f"""Request stream {request_stream_id} not found 
+                                f"""Request stream {request_stream_id} not found
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )
@@ -1031,7 +1021,7 @@ class StreamableHTTPServerTransport:
                         logger.debug("Read stream closed by client")
                     else:
                         logger.exception("Unexpected closure of read stream in message router")
-                except Exception:
+                except Exception:  # pragma: lax no cover
                     logger.exception("Error in message router")
 
             # Start the message router
@@ -1041,7 +1031,7 @@ class StreamableHTTPServerTransport:
                 # Yield the streams for the caller to use
                 yield read_stream, write_stream
             finally:
-                for stream_id in list(self._request_streams.keys()):  # pragma: no cover
+                for stream_id in list(self._request_streams.keys()):  # pragma: lax no cover
                     await self._clean_up_memory_streams(stream_id)
                 self._request_streams.clear()
 

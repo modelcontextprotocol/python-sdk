@@ -242,7 +242,7 @@ class ExperimentalTaskHandlers:
     def handles_request(request: types.ServerRequest) -> bool:
         """Check if this handler handles the given request type."""
         return isinstance(
-            request.root,
+            request,
             types.GetTaskRequest | types.GetTaskPayloadRequest | types.ListTasksRequest | types.CancelTaskRequest,
         )
 
@@ -259,7 +259,7 @@ class ExperimentalTaskHandlers:
             types.ClientResult | types.ErrorData
         )
 
-        match responder.request.root:
+        match responder.request:
             case types.GetTaskRequest(params=params):
                 response = await self.get_task(ctx, params)
                 client_response = client_response_type.validate_python(response)
@@ -281,7 +281,7 @@ class ExperimentalTaskHandlers:
                 await responder.respond(client_response)
 
             case _:  # pragma: no cover
-                raise ValueError(f"Unhandled request type: {type(responder.request.root)}")
+                raise ValueError(f"Unhandled request type: {type(responder.request)}")
 
 
 # Backwards compatibility aliases

@@ -135,8 +135,8 @@ async def test_bidirectional_progress_notifications():
             raise message
 
         if isinstance(message, types.ServerNotification):  # pragma: no branch
-            if isinstance(message.root, types.ProgressNotification):  # pragma: no branch
-                params = message.root.params
+            if isinstance(message, types.ProgressNotification):  # pragma: no branch
+                params = message.params
                 client_progress_updates.append(
                     {
                         "token": params.progress_token,
@@ -275,11 +275,10 @@ async def test_progress_context_manager():
         progress_token = "client_token_456"
 
         # Create request context
-        meta = types.RequestParams.Meta(progress_token=progress_token)
         request_context = RequestContext(
             request_id="test-request",
             session=client_session,
-            meta=meta,
+            meta={"progress_token": progress_token},
             lifespan_context=None,
         )
 
@@ -332,13 +331,11 @@ async def test_progress_callback_exception_logging():
     # Track logged warnings
     logged_errors: list[str] = []
 
-    def mock_log_error(msg: str, *args: Any) -> None:
+    def mock_log_exception(msg: str, *args: Any, **kwargs: Any) -> None:
         logged_errors.append(msg % args if args else msg)
 
     # Create a progress callback that raises an exception
-    async def failing_progress_callback(
-        progress: float, total: float | None, message: str | None
-    ) -> None:  # pragma: no cover
+    async def failing_progress_callback(progress: float, total: float | None, message: str | None) -> None:
         raise ValueError("Progress callback failed!")
 
     # Create a server with a tool that sends progress notifications
@@ -368,7 +365,7 @@ async def test_progress_callback_exception_logging():
         ]
 
     # Test with mocked logging
-    with patch("mcp.shared.session.logging.error", side_effect=mock_log_error):
+    with patch("mcp.shared.session.logging.exception", side_effect=mock_log_exception):
         async with Client(server) as client:
             # Call tool with a failing progress callback
             result = await client.call_tool(

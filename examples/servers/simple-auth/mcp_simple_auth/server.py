@@ -16,7 +16,7 @@ from pydantic import AnyHttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp.server import FastMCP
+from mcp.server.mcpserver.server import MCPServer
 
 from .token_verifier import IntrospectionTokenVerifier
 
@@ -45,7 +45,7 @@ class ResourceServerSettings(BaseSettings):
     oauth_strict: bool = False
 
 
-def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
+def create_resource_server(settings: ResourceServerSettings) -> MCPServer:
     """Create MCP Resource Server with token introspection.
 
     This server:
@@ -60,8 +60,8 @@ def create_resource_server(settings: ResourceServerSettings) -> FastMCP:
         validate_resource=settings.oauth_strict,  # Only validate when --oauth-strict is set
     )
 
-    # Create FastMCP server as a Resource Server
-    app = FastMCP(
+    # Create MCPServer server as a Resource Server
+    app = MCPServer(
         name="MCP Resource Server",
         instructions="Resource Server that validates tokens via Authorization Server introspection",
         debug=True,

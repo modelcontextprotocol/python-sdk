@@ -16,7 +16,7 @@ from mcp.client.stdio import (
     _terminate_process_tree,
     stdio_client,
 )
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
@@ -47,8 +47,8 @@ async def test_stdio_client():
     async with stdio_client(server_parameters) as (read_stream, write_stream):
         # Test sending and receiving messages
         messages = [
-            JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")),
-            JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={})),
+            JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"),
+            JSONRPCResponse(jsonrpc="2.0", id=2, result={}),
         ]
 
         async with write_stream:
@@ -67,8 +67,8 @@ async def test_stdio_client():
                     break
 
         assert len(read_messages) == 2
-        assert read_messages[0] == JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
-        assert read_messages[1] == JSONRPCMessage(root=JSONRPCResponse(jsonrpc="2.0", id=2, result={}))
+        assert read_messages[0] == JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+        assert read_messages[1] == JSONRPCResponse(jsonrpc="2.0", id=2, result={})
 
 
 @pytest.mark.anyio
@@ -78,7 +78,7 @@ async def test_stdio_client_bad_path():
     async with stdio_client(server_params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # The session should raise an error when the connection closes
-            with pytest.raises(McpError) as exc_info:
+            with pytest.raises(MCPError) as exc_info:
                 await session.initialize()
 
             # Check that we got a connection closed error
@@ -157,7 +157,7 @@ async def test_stdio_client_universal_cleanup():
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
-async def test_stdio_client_sigint_only_process():  # pragma: no cover
+async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
     """Test cleanup with a process that ignores SIGTERM but responds to SIGINT."""
     # Create a Python script that ignores SIGTERM but handles SIGINT
     script_content = textwrap.dedent(
@@ -481,7 +481,7 @@ class TestChildProcessCleanup:
             await anyio.sleep(0.5)
 
             # Verify child is writing
-            if os.path.exists(marker_file):  # pragma: no cover
+            if os.path.exists(marker_file):  # pragma: no branch
                 size1 = os.path.getsize(marker_file)
                 await anyio.sleep(0.3)
                 size2 = os.path.getsize(marker_file)

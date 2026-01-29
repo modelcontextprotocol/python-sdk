@@ -73,9 +73,7 @@ async def sse_client(
                     event_source.response.raise_for_status()
                     logger.debug("SSE connection established")
 
-                    async def sse_reader(
-                        task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
-                    ):
+                    async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                         try:
                             async for sse in event_source.aiter_sse():  # pragma: no branch
                                 logger.debug(f"Received SSE event: {sse.event}")
@@ -108,7 +106,7 @@ async def sse_client(
                                         if not sse.data:
                                             continue
                                         try:
-                                            message = types.JSONRPCMessage.model_validate_json(  # noqa: E501
+                                            message = types.jsonrpc_message_adapter.validate_json(
                                                 sse.data, by_name=False
                                             )
                                             logger.debug(f"Received server message: {message}")
@@ -121,12 +119,12 @@ async def sse_client(
                                         await read_stream_writer.send(session_message)
                                     case _:  # pragma: no cover
                                         logger.warning(f"Unknown SSE event: {sse.event}")  # pragma: no cover
-                        except SSEError as sse_exc:  # pragma: no cover
-                            logger.exception("Encountered SSE exception")  # pragma: no cover
-                            raise sse_exc  # pragma: no cover
-                        except Exception as exc:  # pragma: no cover
-                            logger.exception("Error in sse_reader")  # pragma: no cover
-                            await read_stream_writer.send(exc)  # pragma: no cover
+                        except SSEError as sse_exc:  # pragma: lax no cover
+                            logger.exception("Encountered SSE exception")
+                            raise sse_exc
+                        except Exception as exc:  # pragma: lax no cover
+                            logger.exception("Error in sse_reader")
+                            await read_stream_writer.send(exc)
                         finally:
                             await read_stream_writer.aclose()
 
@@ -145,8 +143,8 @@ async def sse_client(
                                     )
                                     response.raise_for_status()
                                     logger.debug(f"Client message sent successfully: {response.status_code}")
-                        except Exception:  # pragma: no cover
-                            logger.exception("Error in post_writer")  # pragma: no cover
+                        except Exception:  # pragma: lax no cover
+                            logger.exception("Error in post_writer")
                         finally:
                             await write_stream.aclose()
 

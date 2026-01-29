@@ -15,7 +15,7 @@ from typing import Any
 import anyio
 
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY, is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
@@ -26,7 +26,6 @@ from mcp.types import (
     ErrorData,
     GetTaskPayloadRequest,
     GetTaskPayloadResult,
-    JSONRPCMessage,
     RelatedTaskMetadata,
     RequestId,
 )
@@ -107,12 +106,7 @@ class TaskResultHandler:
         while True:
             task = await self._store.get_task(task_id)
             if task is None:
-                raise McpError(
-                    ErrorData(
-                        code=INVALID_PARAMS,
-                        message=f"Task not found: {task_id}",
-                    )
-                )
+                raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
             await self._deliver_queued_messages(task_id, session, request_id)
 
@@ -161,7 +155,7 @@ class TaskResultHandler:
 
             # Send the message with relatedRequestId for routing
             session_message = SessionMessage(
-                message=JSONRPCMessage(message.message),
+                message=message.message,
                 metadata=ServerMessageMetadata(related_request_id=request_id),
             )
             await self.send_message(session, session_message)
@@ -222,6 +216,6 @@ class TaskResultHandler:
         """
         resolver = self._pending_requests.pop(request_id, None)
         if resolver is not None and not resolver.done():
-            resolver.set_exception(McpError(error))
+            resolver.set_exception(MCPError.from_error_data(error))
             return True
         return False

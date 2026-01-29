@@ -25,10 +25,9 @@ from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     EmptyResult,
-    ErrorData,
     Implementation,
     InitializeResult,
     JSONRPCResponse,
@@ -70,7 +69,7 @@ class ServerTest(Server):  # pragma: no cover
                 await anyio.sleep(2.0)
                 return f"Slow response from {parsed.netloc}"
 
-            raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
+            raise MCPError(code=404, message="OOPS! no resource with that URI was found")
 
         @self.list_tools()
         async def handle_list_tools() -> list[Tool]:
@@ -266,7 +265,7 @@ async def test_sse_client_exception_handling(
     initialized_sse_client_session: ClientSession,
 ) -> None:
     session = initialized_sse_client_session
-    with pytest.raises(McpError, match="OOPS! no resource with that URI was found"):
+    with pytest.raises(MCPError, match="OOPS! no resource with that URI was found"):
         await session.read_resource(uri="xxx://will-not-work")
 
 
@@ -282,7 +281,7 @@ async def test_sse_client_timeout(  # pragma: no cover
     assert isinstance(response, ReadResourceResult)
 
     with anyio.move_on_after(3):
-        with pytest.raises(McpError, match="Read timed out"):
+        with pytest.raises(MCPError, match="Read timed out"):
             response = await session.read_resource(uri="slow://2")
             # we should receive an error here
         return
@@ -503,12 +502,12 @@ def test_sse_message_id_coercion():
     See <https://www.jsonrpc.org/specification#response_object> for more details.
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123")))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123"))
 
     json_message = '{"jsonrpc": "2.0", "id": 123, "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123))
 
 
 @pytest.mark.parametrize(
@@ -601,5 +600,5 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             msg = await read_stream.receive()
             # If we get here without error, the empty message was skipped successfully
             assert not isinstance(msg, Exception)
-            assert isinstance(msg.message.root, types.JSONRPCResponse)
-            assert msg.message.root.id == 1
+            assert isinstance(msg.message, types.JSONRPCResponse)
+            assert msg.message.id == 1

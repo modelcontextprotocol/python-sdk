@@ -49,7 +49,7 @@ class ExperimentalServerSessionFeatures:
             GetTaskResult containing the task status
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id))),
+            types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id)),
             types.GetTaskResult,
         )
 
@@ -68,7 +68,7 @@ class ExperimentalServerSessionFeatures:
             The task result, validated against result_type
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(task_id=task_id))),
+            types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(task_id=task_id)),
             result_type,
         )
 
@@ -114,19 +114,17 @@ class ExperimentalServerSessionFeatures:
             The client's elicitation response
 
         Raises:
-            McpError: If client doesn't support task-augmented elicitation
+            MCPError: If client doesn't support task-augmented elicitation
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
         require_task_augmented_elicitation(client_caps)
 
         create_result = await self._session.send_request(
-            types.ServerRequest(
-                types.ElicitRequest(
-                    params=types.ElicitRequestFormParams(
-                        message=message,
-                        requested_schema=requested_schema,
-                        task=types.TaskMetadata(ttl=ttl),
-                    )
+            types.ElicitRequest(
+                params=types.ElicitRequestFormParams(
+                    message=message,
+                    requested_schema=requested_schema,
+                    task=types.TaskMetadata(ttl=ttl),
                 )
             ),
             types.CreateTaskResult,
@@ -176,7 +174,7 @@ class ExperimentalServerSessionFeatures:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support task-augmented sampling or tools
+            MCPError: If client doesn't support task-augmented sampling or tools
             ValueError: If tool_use or tool_result message structure is invalid
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
@@ -185,21 +183,19 @@ class ExperimentalServerSessionFeatures:
         validate_tool_use_result_messages(messages)
 
         create_result = await self._session.send_request(
-            types.ServerRequest(
-                types.CreateMessageRequest(
-                    params=types.CreateMessageRequestParams(
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        system_prompt=system_prompt,
-                        include_context=include_context,
-                        temperature=temperature,
-                        stop_sequences=stop_sequences,
-                        metadata=metadata,
-                        model_preferences=model_preferences,
-                        tools=tools,
-                        tool_choice=tool_choice,
-                        task=types.TaskMetadata(ttl=ttl),
-                    )
+            types.CreateMessageRequest(
+                params=types.CreateMessageRequestParams(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    system_prompt=system_prompt,
+                    include_context=include_context,
+                    temperature=temperature,
+                    stop_sequences=stop_sequences,
+                    metadata=metadata,
+                    model_preferences=model_preferences,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    task=types.TaskMetadata(ttl=ttl),
                 )
             ),
             types.CreateTaskResult,

@@ -10,7 +10,7 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 
@@ -23,7 +23,7 @@ class InMemoryTransport:
     stopped when the context manager exits.
 
     Example:
-        server = FastMCP("test")
+        server = MCPServer("test")
         transport = InMemoryTransport(server)
 
         async with transport.connect() as (read_stream, write_stream):
@@ -36,16 +36,11 @@ class InMemoryTransport:
             result = await client.call_tool("my_tool", {...})
     """
 
-    def __init__(
-        self,
-        server: Server[Any] | FastMCP,
-        *,
-        raise_exceptions: bool = False,
-    ) -> None:
+    def __init__(self, server: Server[Any] | MCPServer, *, raise_exceptions: bool = False) -> None:
         """Initialize the in-memory transport.
 
         Args:
-            server: The MCP server to connect to (Server or FastMCP instance)
+            server: The MCP server to connect to (Server or MCPServer instance)
             raise_exceptions: Whether to raise exceptions from the server
         """
         self._server = server
@@ -66,10 +61,10 @@ class InMemoryTransport:
         Yields:
             A tuple of (read_stream, write_stream) for bidirectional communication
         """
-        # Unwrap FastMCP to get underlying Server
+        # Unwrap MCPServer to get underlying Server
         actual_server: Server[Any]
-        if isinstance(self._server, FastMCP):
-            actual_server = self._server._mcp_server  # type: ignore[reportPrivateUsage]
+        if isinstance(self._server, MCPServer):
+            actual_server = self._server._lowlevel_server  # type: ignore[reportPrivateUsage]
         else:
             actual_server = self._server
 

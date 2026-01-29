@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import mcp.types as types
 from mcp.shared.experimental.tasks.polling import poll_until_terminal
+from mcp.types._types import RequestParamsMeta
 
 if TYPE_CHECKING:
     from mcp.client.session import ClientSession
@@ -53,7 +54,7 @@ class ExperimentalClientFeatures:
         arguments: dict[str, Any] | None = None,
         *,
         ttl: int = 60000,
-        meta: dict[str, Any] | None = None,
+        meta: RequestParamsMeta | None = None,
     ) -> types.CreateTaskResult:
         """Call a tool as a task, returning a CreateTaskResult for polling.
 
@@ -87,20 +88,14 @@ class ExperimentalClientFeatures:
             # Get result
             final = await session.experimental.get_task_result(task_id, CallToolResult)
         """
-        _meta: types.RequestParams.Meta | None = None
-        if meta is not None:
-            _meta = types.RequestParams.Meta(**meta)
-
         return await self._session.send_request(
-            types.ClientRequest(
-                types.CallToolRequest(
-                    params=types.CallToolRequestParams(
-                        name=name,
-                        arguments=arguments,
-                        task=types.TaskMetadata(ttl=ttl),
-                        _meta=_meta,
-                    ),
-                )
+            types.CallToolRequest(
+                params=types.CallToolRequestParams(
+                    name=name,
+                    arguments=arguments,
+                    task=types.TaskMetadata(ttl=ttl),
+                    _meta=meta,
+                ),
             ),
             types.CreateTaskResult,
         )
@@ -115,11 +110,7 @@ class ExperimentalClientFeatures:
             GetTaskResult containing the task status and metadata
         """
         return await self._session.send_request(
-            types.ClientRequest(
-                types.GetTaskRequest(
-                    params=types.GetTaskRequestParams(task_id=task_id),
-                )
-            ),
+            types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id)),
             types.GetTaskResult,
         )
 
@@ -142,10 +133,8 @@ class ExperimentalClientFeatures:
             The task result, validated against result_type
         """
         return await self._session.send_request(
-            types.ClientRequest(
-                types.GetTaskPayloadRequest(
-                    params=types.GetTaskPayloadRequestParams(task_id=task_id),
-                )
+            types.GetTaskPayloadRequest(
+                params=types.GetTaskPayloadRequestParams(task_id=task_id),
             ),
             result_type,
         )
@@ -164,9 +153,7 @@ class ExperimentalClientFeatures:
         """
         params = types.PaginatedRequestParams(cursor=cursor) if cursor else None
         return await self._session.send_request(
-            types.ClientRequest(
-                types.ListTasksRequest(params=params),
-            ),
+            types.ListTasksRequest(params=params),
             types.ListTasksResult,
         )
 
@@ -180,10 +167,8 @@ class ExperimentalClientFeatures:
             CancelTaskResult with the updated task state
         """
         return await self._session.send_request(
-            types.ClientRequest(
-                types.CancelTaskRequest(
-                    params=types.CancelTaskRequestParams(task_id=task_id),
-                )
+            types.CancelTaskRequest(
+                params=types.CancelTaskRequestParams(task_id=task_id),
             ),
             types.CancelTaskResult,
         )
