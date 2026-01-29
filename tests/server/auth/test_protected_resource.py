@@ -9,6 +9,7 @@ from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 
 from mcp.server.auth.routes import build_resource_metadata_url, create_protected_resource_routes
+from mcp.shared.auth import AuthProtocolMetadata
 
 
 @pytest.fixture
@@ -196,3 +197,54 @@ def test_route_consistency_consistent_paths_for_various_resources(resource_url: 
     assert url_path == expected_path
     assert route_path == expected_path
     assert url_path == route_path
+
+
+@pytest.fixture
+def multiprotocol_app() -> Starlette:
+    """Fixture for protected resource with mcp_* extension (auth_protocols, default_protocol, protocol_preferences)."""
+    routes = create_protected_resource_routes(
+        resource_url=AnyHttpUrl("https://example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=["read"],
+        auth_protocols=[
+            AuthProtocolMetadata(protocol_id="oauth2", protocol_version="2.0"),
+            AuthProtocolMetadata(protocol_id="api_key", protocol_version="1"),
+        ],
+        default_protocol="oauth2",
+        protocol_preferences={"oauth2": 1, "api_key": 2},
+    )
+    return Starlette(routes=routes)
+
+
+@pytest.fixture
+async def multiprotocol_client(multiprotocol_app: Starlette):
+    """HTTP client for multiprotocol protected resource app."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=multiprotocol_app), base_url="https://mcptest.com"
+    ) as client:
+        yield client
+
+
+@pytest.mark.anyio
+async def test_metadata_includes_mcp_auth_protocols(multiprotocol_client: httpx.AsyncClient) -> None:
+    """PRM endpoint returns mcp_auth_protocols, mcp_default_auth_protocol, mcp_auth_protocol_preferences when provided."""
+    response = await multiprotocol_client.get("/.well-known/oauth-protected-resource/mcp")
+    assert response.status_code == 200
+    data = response.json()
+    assert "mcp_auth_protocols" in data
+    assert len(data["mcp_auth_protocols"]) == 2
+    assert data["mcp_auth_protocols"][0]["protocol_id"] == "oauth2"
+    assert data["mcp_auth_protocols"][1]["protocol_id"] == "api_key"
+    assert data.get("mcp_default_auth_protocol") == "oauth2"
+    assert data.get("mcp_auth_protocol_preferences") == {"oauth2": 1, "api_key": 2}
+
+
+@pytest.mark.anyio
+async def test_metadata_without_mcp_params_has_no_mcp_fields(root_resource_client: httpx.AsyncClient) -> None:
+    """When multiprotocol params are not passed, PRM must not add mcp_* fields implicitly."""
+    response = await root_resource_client.get("/.well-known/oauth-protected-resource")
+    assert response.status_code == 200
+    data = response.json()
+    assert "mcp_auth_protocols" not in data
+    assert "mcp_default_auth_protocol" not in data
+    assert "mcp_auth_protocol_preferences" not in data

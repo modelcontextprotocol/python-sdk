@@ -18,7 +18,7 @@ from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.auth import AuthProtocolMetadata, OAuthMetadata, ProtectedResourceMetadata
 
 
 def validate_issuer_url(url: AnyHttpUrl):
@@ -210,6 +210,9 @@ def create_protected_resource_routes(
     scopes_supported: list[str] | None = None,
     resource_name: str | None = None,
     resource_documentation: AnyHttpUrl | None = None,
+    auth_protocols: list[AuthProtocolMetadata] | None = None,
+    default_protocol: str | None = None,
+    protocol_preferences: dict[str, int] | None = None,
 ) -> list[Route]:
     """Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
 
@@ -217,6 +220,11 @@ def create_protected_resource_routes(
         resource_url: The URL of this resource server
         authorization_servers: List of authorization servers that can issue tokens
         scopes_supported: Optional list of scopes supported by this resource
+        resource_name: Optional human-readable name for the resource
+        resource_documentation: Optional URL to resource documentation
+        auth_protocols: Optional MCP extension list of AuthProtocolMetadata
+        default_protocol: Optional MCP extension default protocol ID
+        protocol_preferences: Optional MCP extension protocol ID to priority
 
     Returns:
         List of Starlette routes for protected resource metadata
@@ -227,7 +235,9 @@ def create_protected_resource_routes(
         scopes_supported=scopes_supported,
         resource_name=resource_name,
         resource_documentation=resource_documentation,
-        # bearer_methods_supported defaults to ["header"] in the model
+        mcp_auth_protocols=auth_protocols,
+        mcp_default_auth_protocol=default_protocol,
+        mcp_auth_protocol_preferences=protocol_preferences,
     )
 
     handler = ProtectedResourceMetadataHandler(metadata)
