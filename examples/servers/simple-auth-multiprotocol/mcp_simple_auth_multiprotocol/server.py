@@ -92,7 +92,9 @@ def create_multiprotocol_resource_server(settings: ResourceServerSettings) -> St
         validate_resource=settings.oauth_strict,
     )
     api_key_keys = {k.strip() for k in settings.api_key_valid_keys.split(",") if k.strip()}
-    backend = build_multiprotocol_backend(oauth_verifier, api_key_keys)
+    backend = build_multiprotocol_backend(
+        oauth_verifier, api_key_keys, api_key_scopes=[settings.mcp_scope]
+    )
     adapter = MultiProtocolAuthBackendAdapter(backend)
 
     fastmcp = FastMCP(

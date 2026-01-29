@@ -35,10 +35,14 @@ class MutualTLSVerifier:
 def build_multiprotocol_backend(
     oauth_token_verifier: Any,
     api_key_valid_keys: set[str],
+    api_key_scopes: list[str] | None = None,
 ) -> MultiProtocolAuthBackend:
     """Build MultiProtocolAuthBackend with OAuth, API Key, and mTLS (placeholder) verifiers."""
     oauth_verifier = OAuthTokenVerifier(oauth_token_verifier)
-    api_key_verifier = APIKeyVerifier(valid_keys=api_key_valid_keys)
+    api_key_verifier = APIKeyVerifier(
+        valid_keys=api_key_valid_keys,
+        scopes=api_key_scopes or [],
+    )
     mtls_verifier: CredentialVerifier = MutualTLSVerifier()
     return MultiProtocolAuthBackend(
         verifiers=[oauth_verifier, api_key_verifier, mtls_verifier]

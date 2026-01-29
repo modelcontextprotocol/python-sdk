@@ -76,10 +76,12 @@ class APIKeyVerifier:
 
     优先从 X-API-Key header 读取；可选从 Authorization: Bearer <key> 读取并在 valid_keys 中查找。
     不解析非标准 ApiKey scheme；DPoP 占位，阶段4 再实现。
+    可选 scopes：校验通过时赋予的 scope 列表，用于满足 RequireAuthMiddleware 的 required_scopes。
     """
 
-    def __init__(self, valid_keys: set[str]) -> None:
+    def __init__(self, valid_keys: set[str], scopes: list[str] | None = None) -> None:
         self._valid_keys = valid_keys
+        self._scopes = scopes if scopes is not None else []
 
     async def verify(
         self,
@@ -98,7 +100,7 @@ class APIKeyVerifier:
         return AccessToken(
             token=api_key,
             client_id="api_key",
-            scopes=[],
+            scopes=list(self._scopes),
             expires_at=None,
         )
 
