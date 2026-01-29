@@ -12,8 +12,9 @@ TokenStorage 双契约与转换约定
 - **转换约定**：MultiProtocolAuthProvider 在调用方做转换，不扩展协议方法：
   - 取回时：_get_credentials() 调用 storage.get_tokens()，若得到 OAuthToken 则经
     _oauth_token_to_credentials 转为 OAuthCredentials。
-  - 写入时：401 流程得到 AuthCredentials 后经 _credentials_to_storage 转为
-    OAuthToken（仅 OAuthCredentials 转 OAuthToken，其他凭证原样），再调用 storage.set_tokens(to_store)。
+  - 写入时：_discover_and_authenticate 得到 AuthCredentials 后经 _credentials_to_storage
+    转为 OAuthToken（仅 OAuthCredentials 转 OAuthToken，其他凭证原样），再调用
+    storage.set_tokens(to_store)。
 - 因此仅实现 get_tokens/set_tokens(OAuthToken) 的旧存储可直接用于 MultiProtocolAuthProvider，
   无需改存储实现。可选使用 OAuthTokenStorageAdapter 将此类存储包装为满足 multi_protocol 契约。
 """
@@ -60,7 +61,14 @@ UNSPECIFIED_PROTOCOL_PREFERENCE: float = math.inf
 
 
 class TokenStorage(Protocol):
-    """凭证存储协议（兼容 OAuthToken 与 AuthCredentials）。"""
+    """
+    凭证存储协议（multi_protocol 契约）。
+
+    本协议接受 get_tokens() -> AuthCredentials | OAuthToken | None 与
+    set_tokens(AuthCredentials | OAuthToken)。仅支持 OAuthToken 的旧存储亦可使用：
+    MultiProtocolAuthProvider 在 _get_credentials/_discover_and_authenticate 内做
+    OAuthToken <-> OAuthCredentials 转换；或使用 OAuthTokenStorageAdapter 包装。
+    """
 
     async def get_tokens(self) -> AuthCredentials | OAuthToken | None:
         """获取已存储的凭证。"""
@@ -107,6 +115,44 @@ def _credentials_to_storage(credentials: AuthCredentials) -> AuthCredentials | O
             refresh_token=credentials.refresh_token,
         )
     return credentials
+
+
+class _OAuthTokenOnlyStorage(Protocol):
+    """仅支持 OAuthToken 的存储契约（供 OAuthTokenStorageAdapter 包装）。"""
+
+    async def get_tokens(self) -> OAuthToken | None:
+        ...
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        ...
+
+
+class OAuthTokenStorageAdapter:
+    """
+    将仅支持 OAuthToken 的 storage 包装为满足 multi_protocol TokenStorage。
+
+    取回时把 OAuthToken 转为 OAuthCredentials；写入时把 OAuthCredentials 转为 OAuthToken
+    再调用底层 set_tokens。仅 OAuth 凭证会写入底层存储，非 OAuth 凭证（如 APIKeyCredentials）
+    不写入。
+    """
+
+    def __init__(self, wrapped: _OAuthTokenOnlyStorage) -> None:
+        self._wrapped = wrapped
+
+    async def get_tokens(self) -> AuthCredentials | OAuthToken | None:
+        raw = await self._wrapped.get_tokens()
+        if raw is None:
+            return None
+        return _oauth_token_to_credentials(raw)
+
+    async def set_tokens(self, tokens: AuthCredentials | OAuthToken) -> None:
+        to_store = (
+            _credentials_to_storage(tokens)
+            if isinstance(tokens, AuthCredentials)
+            else tokens
+        )
+        if isinstance(to_store, OAuthToken):
+            await self._wrapped.set_tokens(to_store)
 
 
 class MultiProtocolAuthProvider(httpx.Auth):
