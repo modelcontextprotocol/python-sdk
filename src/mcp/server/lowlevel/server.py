@@ -140,18 +140,17 @@ class Server(Generic[LifespanResultT, RequestT]):
         self._request_handlers["ping"] = RequestHandler("ping", handler=_ping_handler)
 
         # Process user-provided handlers with duplicate detection
-        if handlers:
-            for handler in handlers:
-                if isinstance(handler, RequestHandler):
-                    if handler.method in self._request_handlers:
-                        raise ValueError(f"Duplicate request handler for '{handler.method}'")
-                    self._request_handlers[handler.method] = handler
-                elif isinstance(handler, NotificationHandler):  # pyright: ignore[reportUnnecessaryIsInstance]
-                    if handler.method in self._notification_handlers:
-                        raise ValueError(f"Duplicate notification handler for '{handler.method}'")
-                    self._notification_handlers[handler.method] = handler
-                else:
-                    raise TypeError(f"Unknown handler type: {type(handler)}")
+        for handler in handlers:
+            if isinstance(handler, RequestHandler):
+                if handler.method in self._request_handlers:
+                    raise ValueError(f"Duplicate request handler for '{handler.method}'")
+                self._request_handlers[handler.method] = handler
+            elif isinstance(handler, NotificationHandler):  # pyright: ignore[reportUnnecessaryIsInstance]
+                if handler.method in self._notification_handlers:
+                    raise ValueError(f"Duplicate notification handler for '{handler.method}'")
+                self._notification_handlers[handler.method] = handler
+            else:
+                raise TypeError(f"Unknown handler type: {type(handler)}")
 
     def _add_handler(self, handler: Handler) -> None:
         """Add a handler, silently replacing any existing handler for the same method."""
@@ -376,8 +375,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
                 ctx = RequestContext(
-                    session,
-                    lifespan_context,
+                    session=session,
+                    lifespan_context=lifespan_context,
                     experimental=Experimental(
                         task_metadata=task_metadata,
                         _client_capabilities=client_capabilities,
@@ -424,8 +423,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 client_capabilities = session.client_params.capabilities if session.client_params else None
                 task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
                 ctx = RequestContext(
-                    session,
-                    lifespan_context,
+                    session=session,
+                    lifespan_context=lifespan_context,
                     experimental=Experimental(
                         task_metadata=None,
                         _client_capabilities=client_capabilities,
