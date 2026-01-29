@@ -434,10 +434,9 @@ DPoP作为独立的通用组件，协议可以选择性使用：
                    await self._handle_403_response(response, request)
    ```
 
-2. **OAuthClientProvider适配**
-   - 将`OAuthClientProvider`改为`OAuth2Protocol`实现
-   - 保持现有API不变（向后兼容）
-   - 内部使用`MultiProtocolAuthProvider`
+2. **OAuthClientProvider 保持为 OAuth 逻辑唯一实现（最大程度复用）**
+   - **不**将 OAuth 逻辑迁出到 OAuth2Protocol；新增 `run_authentication(http_client, ...)` 供多协议路径调用
+   - 保持现有 API 不变（向后兼容）；OAuth2Protocol 为薄适配层，内部委托 `OAuthClientProvider.run_authentication`
 
 3. **协议上下文扩展**
    ```python
@@ -940,8 +939,8 @@ DPoP作为独立的通用组件，协议可以选择性使用：
 #### 3.5.3 OAuth协议实现
 
 **新建文件**: `src/mcp/client/auth/protocols/oauth2.py`
-- `OAuth2Protocol`类（实现`AuthProtocol`）
-- 将现有`OAuthClientProvider`逻辑迁移到这里
+- `OAuth2Protocol`类（实现`AuthProtocol`），**薄适配层**
+- **不**迁移 OAuth 逻辑到此文件；`authenticate(context)` 内构造 `OAuthClientProvider`、填充上下文后调用 `provider.run_authentication(context.http_client)` 复用现有实现
 - 可选：实现`DPoPEnabledProtocol`扩展接口（阶段4）
 
 #### 3.5.4 服务器端验证器
@@ -1126,9 +1125,9 @@ graph TD
 **目标**：完成OAuth协议适配和向后兼容优化
 
 **任务清单**：
-- [ ] 实现`OAuth2Protocol`类
-- [ ] 将现有`OAuthClientProvider`逻辑迁移
-- [ ] 实现`OAuthClientProvider`向后兼容包装
+- [ ] 实现`OAuth2Protocol`类（薄适配层，委托 `OAuthClientProvider.run_authentication`）
+- [ ] 在`OAuthClientProvider`中新增`run_authentication(http_client, ...)`，复用现有 401 分支逻辑
+- [ ] 保持`OAuthClientProvider`现有 API 与行为不变（向后兼容）
 - [ ] 实现PRM端点扩展
 - [ ] 实现凭证存储扩展
 - [ ] 编写集成测试
@@ -1139,7 +1138,7 @@ graph TD
 - 向后兼容性验证通过
 
 **本阶段测试方案**：
-- **单元**：`OAuth2Protocol`（`authenticate`、`prepare_request`、`validate_credentials`、`discover_metadata` 在 mock 上下文下的行为，与现有 `OAuthClientProvider` 逻辑等价性如 discovery URL 顺序、token 交换参数）；`OAuthClientProvider` 包装（对外 API 不变，内部委托 `MultiProtocolAuthProvider`+`OAuth2Protocol`，现有 `tests/client/test_auth.py` 中所有 OAuth 相关用例仍通过）；TokenStorage 扩展（`get_auth_credentials`/`set_auth_credentials` 与现有 `get_tokens`/`set_tokens` 的适配器行为）；PRM 端点扩展（`create_protected_resource_routes` 传入 `auth_protocols`/`default_protocol`/`protocol_preferences` 时 PRM JSON 与 401 头包含 MCP 扩展字段）。**集成**：再次运行 simple-auth + simple-auth-client 全流程（与阶段1相同步骤/脚本），确认 OAuth 仍为默认路径且行为一致；若有条件，同一 RS 同时支持 OAuth 与 API Key（或占位协议），客户端通过协议选择使用 OAuth，验证端到端多协议发现+OAuth 分支。**执行**：扩展现有 `tests/client/test_auth.py`，新增或扩展 `tests/server/auth/` 下 PRM/路由测试，集成继续使用 `scripts/run_phase1_oauth2_integration_test.sh` 及 `tests/PHASE1_OAUTH2_REGRESSION_TEST_PLAN.md` 检查清单。
+- **单元**：`OAuth2Protocol`（`authenticate` 委托 `OAuthClientProvider.run_authentication`、`prepare_request`、`validate_credentials`、`discover_metadata` 在 mock 上下文下的行为）；`OAuthClientProvider.run_authentication`（与现有 401 分支行为一致）；`OAuthClientProvider` 对外 API 不变，现有 `tests/client/test_auth.py` 中所有 OAuth 相关用例仍通过；TokenStorage 扩展；PRM 端点扩展。**集成**：再次运行 simple-auth + simple-auth-client 全流程，确认 OAuth 仍为默认路径且行为一致；若有条件，同一 RS 同时支持 OAuth 与 API Key，客户端通过协议选择使用 OAuth，验证端到端多协议发现+OAuth 分支。**执行**：扩展现有 `tests/client/test_auth.py`，新增或扩展 `tests/server/auth/` 下 PRM/路由测试，集成继续使用 `scripts/run_phase1_oauth2_integration_test.sh` 及 `tests/PHASE1_OAUTH2_REGRESSION_TEST_PLAN.md` 检查清单。
 
 ### 5.4 阶段4：可选安全增强（Week 8，可选）
 
@@ -1193,8 +1192,8 @@ graph TD
 
 ### 6.2 API兼容
 
-- **`OAuthClientProvider`保持现有API不变**
-- **内部使用`OAuth2Protocol`和`MultiProtocolAuthProvider`**
+- **`OAuthClientProvider`保持现有API不变**，并新增 `run_authentication(http_client, ...)` 供多协议路径调用
+- **OAuth2Protocol 为薄适配层**，内部委托 `OAuthClientProvider.run_authentication`，不重复实现 OAuth 流程
 - **现有代码无需修改即可工作**
 
 ### 6.3 行为兼容

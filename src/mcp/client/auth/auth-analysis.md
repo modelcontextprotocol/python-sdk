@@ -1393,14 +1393,17 @@ class AuthProtocol(Protocol):
            # 4. 准备请求认证信息
    ```
 
-2. **OAuthClientProvider 适配**
-   - 将 `OAuthClientProvider` 改为 `OAuth2Protocol` 实现
-   - 保持现有 API 不变（向后兼容）
-   - 内部使用 `MultiProtocolAuthProvider`
+2. **OAuthClientProvider 保持为 OAuth 逻辑的唯一实现（最大程度复用）**
+   - **不**将 OAuth 发现/注册/授权码/令牌交换逻辑迁出到 OAuth2Protocol
+   - 新增 `run_authentication(self, http_client, *, resource_metadata_url=None, scope_from_www_auth=None)`：使用 `http_client` 执行完整 OAuth 流程（PRM/ASM 发现、scope 选择、注册或 CIMD、授权码 + 令牌交换），与现有 401 分支行为一致
+   - 现有 `async_auth_flow` 的 401 分支保持不变；多协议路径下由 OAuth2Protocol 调用 `run_authentication(http_client)` 复用同一套逻辑
 
-3. **OAuthContext 扩展**
-   - 支持多协议上下文
-   - 协议特定的元数据存储
+3. **OAuth2Protocol 作为薄适配层**
+   - `OAuth2Protocol` 实现 `AuthProtocol`，**不**重复实现 OAuth 发现/注册/编排
+   - `authenticate(context)`：从 `AuthContext` 与自身配置组装 OAuth 所需上下文，构造 `OAuthClientProvider`，写入已发现的 PRM、protocol_version、scope_from_www_auth 等，调用 `provider.run_authentication(context.http_client, ...)`，从 provider 的 current_tokens 转为 `OAuthCredentials` 并返回
+
+4. **OAuthContext 扩展**
+   - 支持由多协议层传入已发现的 `protected_resource_metadata`、`protocol_version`、`scope_from_www_auth`（供 `run_authentication` 使用）
 
 #### 13.2.5 请求认证信息准备
 
@@ -1625,8 +1628,8 @@ class AuthProtocol(Protocol):
 #### 13.4.3 OAuth 协议实现
 
 **新建文件**: `src/mcp/client/auth/protocols/oauth2.py`
-- `OAuth2Protocol` 类（实现 `AuthProtocol`）
-- 将现有 `OAuthClientProvider` 逻辑迁移到这里
+- `OAuth2Protocol` 类（实现 `AuthProtocol`），**薄适配层**
+- **不**迁移 OAuth 逻辑到此文件；`authenticate(context)` 内构造 `OAuthClientProvider`、填充上下文后调用 `provider.run_authentication(context.http_client)`，复用现有 `oauth2.py` 实现
 
 #### 13.4.4 服务器端验证器
 
@@ -1691,8 +1694,8 @@ class AuthProtocol(Protocol):
 - 如果 `mcp_auth_protocols` 为空，自动从 `authorization_servers` 创建 OAuth 协议元数据
 
 #### API 兼容
-- `OAuthClientProvider` 保持现有 API 不变
-- 内部使用 `OAuth2Protocol` 和 `MultiProtocolAuthProvider`
+- `OAuthClientProvider` 保持现有 API 不变，并新增 `run_authentication(http_client, ...)` 供多协议路径调用
+- 多协议场景下 `OAuth2Protocol` 内部委托 `OAuthClientProvider.run_authentication`，不重复实现 OAuth 流程
 - 现有代码无需修改即可工作
 
 #### 行为兼容
