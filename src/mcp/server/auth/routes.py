@@ -11,6 +11,8 @@ from starlette.types import ASGIApp
 
 from mcp.server.auth.handlers.authorize import AuthorizationHandler
 from mcp.server.auth.handlers.metadata import MetadataHandler, ProtectedResourceMetadataHandler
+from mcp.server.auth.handlers.discovery import AuthorizationServersDiscoveryHandler
+from mcp.server.auth.handlers.metadata import MetadataHandler, ProtectedResourceMetadataHandler
 from mcp.server.auth.handlers.register import RegistrationHandler
 from mcp.server.auth.handlers.revoke import RevocationHandler
 from mcp.server.auth.handlers.token import TokenHandler
@@ -251,6 +253,39 @@ def create_protected_resource_routes(
     return [
         Route(
             well_known_path,
+            endpoint=cors_middleware(handler.handle, ["GET", "OPTIONS"]),
+            methods=["GET", "OPTIONS"],
+        )
+    ]
+
+
+AUTHORIZATION_SERVERS_DISCOVERY_PATH = "/.well-known/authorization_servers"
+
+
+def create_authorization_servers_discovery_routes(
+    protocols: list[AuthProtocolMetadata],
+    default_protocol: str | None = None,
+    protocol_preferences: dict[str, int] | None = None,
+) -> list[Route]:
+    """
+    Create routes for unified authorization servers discovery (/.well-known/authorization_servers).
+
+    Args:
+        protocols: List of supported auth protocol metadata.
+        default_protocol: Optional default protocol ID.
+        protocol_preferences: Optional protocol ID to priority mapping.
+
+    Returns:
+        List of Starlette routes for the discovery endpoint.
+    """
+    handler = AuthorizationServersDiscoveryHandler(
+        protocols=protocols,
+        default_protocol=default_protocol,
+        protocol_preferences=protocol_preferences,
+    )
+    return [
+        Route(
+            AUTHORIZATION_SERVERS_DISCOVERY_PATH,
             endpoint=cors_middleware(handler.handle, ["GET", "OPTIONS"]),
             methods=["GET", "OPTIONS"],
         )
