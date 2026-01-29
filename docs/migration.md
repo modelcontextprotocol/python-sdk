@@ -426,34 +426,6 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
-## Deprecations
-
-<!-- Add deprecations below -->
-
-## Bug Fixes
-
-### Extra fields no longer allowed on top-level MCP types
-
-MCP protocol types no longer accept arbitrary extra fields at the top level. This matches the MCP specification which only allows extra fields within `_meta` objects, not on the types themselves.
-
-```python
-# This will now raise a validation error
-from mcp.types import CallToolRequestParams
-
-params = CallToolRequestParams(
-    name="my_tool",
-    arguments={},
-    unknown_field="value",  # ValidationError: extra fields not permitted
-)
-
-# Extra fields are still allowed in _meta
-params = CallToolRequestParams(
-    name="my_tool",
-    arguments={},
-    _meta={"progressToken": "tok", "customField": "value"},  # OK
-)
-```
-
 ### Lowlevel `Server`: decorator-based handlers replaced with `RequestHandler`/`NotificationHandler`
 
 The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are `RequestHandler` and `NotificationHandler` objects passed to the constructor.
@@ -614,6 +586,34 @@ server = Server(
     ],
 )
 server.experimental.enable_tasks(task_store)
+```
+
+## Deprecations
+
+<!-- Add deprecations below -->
+
+## Bug Fixes
+
+### Extra fields no longer allowed on top-level MCP types
+
+MCP protocol types no longer accept arbitrary extra fields at the top level. This matches the MCP specification which only allows extra fields within `_meta` objects, not on the types themselves.
+
+```python
+# This will now raise a validation error
+from mcp.types import CallToolRequestParams
+
+params = CallToolRequestParams(
+    name="my_tool",
+    arguments={},
+    unknown_field="value",  # ValidationError: extra fields not permitted
+)
+
+# Extra fields are still allowed in _meta
+params = CallToolRequestParams(
+    name="my_tool",
+    arguments={},
+    _meta={"progressToken": "tok", "customField": "value"},  # OK
+)
 ```
 
 ## New Features
