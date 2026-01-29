@@ -96,7 +96,8 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
             assert "/fake/path/file2.txt" in content.text
 
 
-@pytest.mark.parametrize("example", find_examples("README.md"), ids=str)
+# TODO(v2): Change back to README.md when v2 is released
+@pytest.mark.parametrize("example", find_examples("README.v2.md"), ids=str)
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
     ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
 

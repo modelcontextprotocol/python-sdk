@@ -144,7 +144,8 @@ def main():
     parser.add_argument(
         "--check", action="store_true", help="Check mode - verify snippets are up to date without modifying"
     )
-    parser.add_argument("--readme", default="README.md", help="Path to README file (default: README.md)")
+    # TODO(v2): Change default back to README.md when v2 is released
+    parser.add_argument("--readme", default="README.v2.md", help="Path to README file (default: README.v2.md)")
 
     args = parser.parse_args()
 
