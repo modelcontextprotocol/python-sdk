@@ -97,3 +97,4 @@ async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
 
     reconnect_messages = [msg for msg in log_messages if "reconnecting" in msg.lower()]
     assert len(reconnect_messages) == 0, f"Should not retry on 405, but found: {reconnect_messages}"
+    
