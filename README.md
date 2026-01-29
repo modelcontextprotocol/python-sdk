@@ -18,6 +18,7 @@
 > [!NOTE]
 > **This README documents v1.x of the MCP Python SDK (the current stable release).**
 >
+> For v1.x code and documentation, see the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
 > For the upcoming v2 documentation (pre-alpha, in development on `main`), see [`README.v2.md`](README.v2.md).
 
 <!-- omit in toc -->
