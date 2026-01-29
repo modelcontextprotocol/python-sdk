@@ -11,14 +11,21 @@ from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     CancelledNotificationParams,
+    CancelTaskRequestParams,
+    CancelTaskResult,
     CompleteRequestParams,
     CompleteResult,
     EmptyResult,
     GetPromptRequestParams,
     GetPromptResult,
+    GetTaskPayloadRequestParams,
+    GetTaskPayloadResult,
+    GetTaskRequestParams,
+    GetTaskResult,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
+    ListTasksResult,
     ListToolsResult,
     NotificationParams,
     PaginatedRequestParams,
@@ -28,6 +35,7 @@ from mcp.types import (
     RequestParams,
     SetLevelRequestParams,
     SubscribeRequestParams,
+    TaskStatusNotificationParams,
     UnsubscribeRequestParams,
 )
 
@@ -140,6 +148,38 @@ class RequestHandler(Handler[LifespanResultT, RequestT]):
     @overload
     def __init__(
         self,
+        method: Literal["tasks/get"],
+        handler: Callable[[Ctx, GetTaskRequestParams], Awaitable[GetTaskResult]],
+    ) -> None:
+        """Experimental: Tasks may evolve in future protocol versions."""
+
+    @overload
+    def __init__(
+        self,
+        method: Literal["tasks/result"],
+        handler: Callable[[Ctx, GetTaskPayloadRequestParams], Awaitable[GetTaskPayloadResult]],
+    ) -> None:
+        """Experimental: Tasks may evolve in future protocol versions."""
+
+    @overload
+    def __init__(
+        self,
+        method: Literal["tasks/list"],
+        handler: Callable[[Ctx, PaginatedRequestParams | None], Awaitable[ListTasksResult]],
+    ) -> None:
+        """Experimental: Tasks may evolve in future protocol versions."""
+
+    @overload
+    def __init__(
+        self,
+        method: Literal["tasks/cancel"],
+        handler: Callable[[Ctx, CancelTaskRequestParams], Awaitable[CancelTaskResult]],
+    ) -> None:
+        """Experimental: Tasks may evolve in future protocol versions."""
+
+    @overload
+    def __init__(
+        self,
         method: str,
         handler: Callable[[Ctx, Any], Awaitable[Any]],
     ) -> None: ...
@@ -186,6 +226,14 @@ class NotificationHandler(Handler[LifespanResultT, RequestT]):
         method: Literal["notifications/roots/list_changed"],
         handler: Callable[[Ctx, NotificationParams | None], Awaitable[None]],
     ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        method: Literal["notifications/tasks/status"],
+        handler: Callable[[Ctx, TaskStatusNotificationParams], Awaitable[None]],
+    ) -> None:
+        """Experimental: Tasks may evolve in future protocol versions."""
 
     @overload
     def __init__(

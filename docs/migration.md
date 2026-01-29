@@ -581,6 +581,41 @@ from mcp.shared.context import RequestContext
 # but None in notification handlers
 ```
 
+### Experimental: task handler decorators removed
+
+The experimental decorator methods on `ExperimentalHandlers` (`@server.experimental.list_tasks()`, `@server.experimental.get_task()`, etc.) have been removed. Custom task handlers are now registered as `RequestHandler` objects passed to the `Server` constructor, consistent with the new handler pattern.
+
+Default task handlers are still registered automatically via `server.experimental.enable_tasks()`.
+
+**Before (v1):**
+
+```python
+server = Server("my-server")
+server.experimental.enable_tasks(task_store)
+
+@server.experimental.get_task()
+async def custom_get_task(request: GetTaskRequest) -> GetTaskResult:
+    ...
+```
+
+**After (v2):**
+
+```python
+from mcp.server.lowlevel import Server, RequestHandler
+from mcp.types import GetTaskRequestParams, GetTaskResult
+
+async def custom_get_task(ctx, params: GetTaskRequestParams) -> GetTaskResult:
+    ...
+
+server = Server(
+    "my-server",
+    handlers=[
+        RequestHandler("tasks/get", handler=custom_get_task),
+    ],
+)
+server.experimental.enable_tasks(task_store)
+```
+
 ## New Features
 
 ### `streamable_http_app()` available on lowlevel Server
