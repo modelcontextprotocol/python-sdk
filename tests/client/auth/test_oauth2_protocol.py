@@ -7,9 +7,11 @@ from mcp.client.auth.protocol import AuthContext
 from mcp.client.auth.protocols.oauth2 import OAuth2Protocol
 from mcp.shared.auth import (
     AuthCredentials,
+    AuthProtocolMetadata,
     OAuthClientMetadata,
     OAuthCredentials,
     OAuthToken,
+    ProtectedResourceMetadata,
 )
 
 
@@ -106,12 +108,44 @@ def test_validate_credentials_returns_false_when_no_token(
 
 
 @pytest.mark.anyio
-async def test_discover_metadata_returns_none(oauth2_protocol: OAuth2Protocol) -> None:
+async def test_discover_metadata_returns_none_without_http_client(
+    oauth2_protocol: OAuth2Protocol,
+) -> None:
+    """无 http_client 且无 prm 或 prm 无 oauth2 时，不发起网络请求，返回 None。"""
     result = await oauth2_protocol.discover_metadata(
         metadata_url="https://example.com/.well-known/oauth-authorization-server",
         prm=None,
     )
     assert result is None
+
+
+@pytest.mark.anyio
+async def test_discover_metadata_from_prm_returns_oauth2_entry(
+    oauth2_protocol: OAuth2Protocol,
+) -> None:
+    """当 prm.mcp_auth_protocols 含 oauth2 时，直接返回该条目，无需 http_client。"""
+    from pydantic import AnyHttpUrl
+
+    oauth2_meta = AuthProtocolMetadata(
+        protocol_id="oauth2",
+        protocol_version="2.0",
+        metadata_url=AnyHttpUrl("https://as.example/"),
+        endpoints={"authorization_endpoint": AnyHttpUrl("https://as.example/authorize")},
+    )
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://rs.example/"),
+        authorization_servers=[AnyHttpUrl("https://as.example/")],
+        mcp_auth_protocols=[oauth2_meta],
+    )
+    result = await oauth2_protocol.discover_metadata(
+        metadata_url=None,
+        prm=prm,
+    )
+    assert result is not None
+    assert result.protocol_id == "oauth2"
+    assert result.protocol_version == "2.0"
+    assert result.metadata_url is not None
+    assert str(result.metadata_url) == "https://as.example/"
 
 
 @pytest.mark.anyio

@@ -22,6 +22,32 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
+class AuthCredentials(BaseModel):
+    """Generic authentication credentials for multi-protocol auth."""
+
+    protocol_id: str
+    expires_at: int | None = None
+
+
+class OAuthCredentials(AuthCredentials):
+    """OAuth credentials (multi-protocol wrapper)."""
+
+    protocol_id: str = "oauth2"
+    access_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    refresh_token: str | None = None
+    scope: str | None = None
+    cnf: dict[str, Any] | None = None  # DPoP confirmation / binding
+
+
+class APIKeyCredentials(AuthCredentials):
+    """API key credentials (multi-protocol wrapper)."""
+
+    protocol_id: str = "api_key"
+    api_key: str
+    key_id: str | None = None
+
+
 class InvalidScopeError(Exception):
     def __init__(self, message: str):
         self.message = message

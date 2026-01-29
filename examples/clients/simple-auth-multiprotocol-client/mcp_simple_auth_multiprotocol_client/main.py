@@ -53,7 +53,10 @@ class ApiKeyProtocol:
         return isinstance(credentials, APIKeyCredentials) and bool(credentials.api_key.strip())
 
     async def discover_metadata(
-        self, metadata_url: str | None, prm: ProtectedResourceMetadata | None = None
+        self,
+        metadata_url: str | None,
+        prm: ProtectedResourceMetadata | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> AuthProtocolMetadata | None:
         return None
 
@@ -74,7 +77,10 @@ class MutualTlsPlaceholderProtocol:
         return False
 
     async def discover_metadata(
-        self, metadata_url: str | None, prm: ProtectedResourceMetadata | None = None
+        self,
+        metadata_url: str | None,
+        prm: ProtectedResourceMetadata | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> AuthProtocolMetadata | None:
         return None
 

@@ -4,8 +4,10 @@ OAuth 2.0 协议薄适配层。
 不迁移 OAuth 发现/注册/授权码/令牌交换逻辑到此文件；
 authenticate(context) 构造 OAuthClientProvider、填充上下文后调用
 provider.run_authentication(context.http_client, ...)，返回 OAuthCredentials。
+discover_metadata 在提供 http_client 时执行 RFC 8414 授权服务器元数据发现。
 """
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 
@@ -13,14 +15,49 @@ import httpx
 
 from mcp.client.auth.oauth2 import OAuthClientProvider
 from mcp.client.auth.protocol import AuthContext
+from mcp.client.auth.utils import (
+    build_oauth_authorization_server_metadata_discovery_urls,
+    create_oauth_metadata_request,
+    handle_auth_metadata_response,
+)
+from pydantic import AnyHttpUrl
+
 from mcp.shared.auth import (
     AuthCredentials,
     AuthProtocolMetadata,
     OAuthClientMetadata,
     OAuthCredentials,
+    OAuthMetadata,
     OAuthToken,
     ProtectedResourceMetadata,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _oauth_metadata_to_protocol_metadata(asm: OAuthMetadata) -> AuthProtocolMetadata:
+    """将 RFC 8414 OAuth 授权服务器元数据转换为 AuthProtocolMetadata。"""
+    endpoints: dict[str, AnyHttpUrl] = {
+        "authorization_endpoint": asm.authorization_endpoint,
+        "token_endpoint": asm.token_endpoint,
+    }
+
+    if asm.registration_endpoint is not None:
+        endpoints["registration_endpoint"] = asm.registration_endpoint
+    if asm.revocation_endpoint is not None:
+        endpoints["revocation_endpoint"] = asm.revocation_endpoint
+    if asm.introspection_endpoint is not None:
+        endpoints["introspection_endpoint"] = asm.introspection_endpoint
+        
+    return AuthProtocolMetadata(
+        protocol_id="oauth2",
+        protocol_version="2.0",
+        metadata_url=asm.issuer,
+        endpoints=endpoints,
+        scopes_supported=asm.scopes_supported,
+        grant_types=asm.grant_types_supported,
+        client_auth_methods=asm.token_endpoint_auth_methods_supported,
+    )
 
 
 def _token_to_oauth_credentials(token: OAuthToken) -> OAuthCredentials:
@@ -117,6 +154,44 @@ class OAuth2Protocol:
         self,
         metadata_url: str | None = None,
         prm: ProtectedResourceMetadata | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> AuthProtocolMetadata | None:
-        """发现协议元数据（RFC 8414）。TODO 23 中完善。"""
+        """
+        发现 OAuth 2.0 协议元数据（RFC 8414）。
+
+        若 prm 中已有 oauth2 的 mcp_auth_protocols 条目则直接返回；
+        若提供 http_client 且存在 metadata_url 或 prm.authorization_servers，
+        则按 RFC 8414 请求授权服务器元数据并转换为 AuthProtocolMetadata。
+        """
+        if prm is not None and prm.mcp_auth_protocols:
+            for m in prm.mcp_auth_protocols:
+                if m.protocol_id == "oauth2":
+                    return m
+
+        auth_server_url: str | None = metadata_url
+        server_url_for_discovery: str = ""
+        if prm is not None:
+            if not auth_server_url and prm.authorization_servers:
+                auth_server_url = str(prm.authorization_servers[0])
+            server_url_for_discovery = str(prm.resource)
+        if auth_server_url and not server_url_for_discovery:
+            server_url_for_discovery = auth_server_url
+
+        if not http_client or not auth_server_url:
+            return None
+
+        discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+            auth_server_url, server_url_for_discovery
+        )
+        for url in discovery_urls:
+            try:
+                req = create_oauth_metadata_request(url)
+                resp = await http_client.send(req)
+                ok, asm = await handle_auth_metadata_response(resp)
+                if not ok:
+                    break
+                if asm is not None:
+                    return _oauth_metadata_to_protocol_metadata(asm)
+            except Exception as e:
+                logger.debug("OAuth AS metadata discovery failed for %s: %s", url, e)
         return None

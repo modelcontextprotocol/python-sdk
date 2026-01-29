@@ -93,7 +93,10 @@ class AuthProtocol(Protocol):
         ...
 
     async def discover_metadata(
-        self, metadata_url: str | None, prm: ProtectedResourceMetadata | None = None
+        self,
+        metadata_url: str | None,
+        prm: ProtectedResourceMetadata | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> AuthProtocolMetadata | None:
         """
         发现协议元数据。
@@ -101,6 +104,7 @@ class AuthProtocol(Protocol):
         Args:
             metadata_url: 元数据URL（可选）
             prm: 受保护资源元数据（可选）
+            http_client: 可选 HTTP 客户端，用于执行 RFC 8414 等网络发现
 
         Returns:
             协议元数据，如果发现失败则返回None
