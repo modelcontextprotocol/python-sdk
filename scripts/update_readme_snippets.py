@@ -144,7 +144,7 @@ def main():
     parser.add_argument(
         "--check", action="store_true", help="Check mode - verify snippets are up to date without modifying"
     )
-    # TODO(v2): Change default back to README.md when v2 is released
+    # TODO(v2): Drop the `--readme` argument when v2 is released, and set to `README.md`. 
     parser.add_argument("--readme", default="README.v2.md", help="Path to README file (default: README.v2.md)")
 
     args = parser.parse_args()
