@@ -10,7 +10,7 @@ import pytest
 from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
-from mcp.client.auth import OAuthClientProvider, PKCEParameters
+from mcp.client.auth import OAuthClientProvider, OAuthFlowError, PKCEParameters
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -2133,3 +2133,85 @@ class TestCIMD:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass
+
+
+class TestRunAuthentication:
+    """Unit tests for OAuthClientProvider.run_authentication (mock HTTP)."""
+
+    @pytest.mark.anyio
+    async def test_run_authentication_with_prefilled_context_sets_tokens(
+        self,
+        oauth_provider: OAuthClientProvider,
+        mock_storage: MockTokenStorage,
+    ):
+        """run_authentication with pre-filled PRM/ASM/client_info only does token exchange; mock HTTP returns token."""
+        oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        )
+        oauth_provider.context.auth_server_url = "https://auth.example.com"
+        oauth_provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://auth.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+        )
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_post",
+        )
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
+
+        token_response = httpx.Response(
+            200,
+            content=b'{"access_token": "at", "token_type": "Bearer", "expires_in": 3600, "scope": "read"}',
+        )
+        mock_send = mock.AsyncMock(return_value=token_response)
+        client = mock.MagicMock(spec=httpx.AsyncClient)
+        client.send = mock_send
+
+        await oauth_provider.run_authentication(client)
+
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.current_tokens.access_token == "at"
+        assert mock_send.await_count == 1
+        # Storage was updated by _handle_token_response
+        stored = await mock_storage.get_tokens()
+        assert stored is not None and stored.access_token == "at"
+
+    @pytest.mark.anyio
+    async def test_run_authentication_raises_when_prm_discovery_fails(
+        self,
+        oauth_provider: OAuthClientProvider,
+    ):
+        """run_authentication raises OAuthFlowError when PRM discovery returns no valid metadata."""
+        oauth_provider.context.protected_resource_metadata = None
+        oauth_provider.context.auth_server_url = None
+        not_found = httpx.Response(404, content=b"")
+        client = mock.MagicMock(spec=httpx.AsyncClient)
+        client.send = mock.AsyncMock(return_value=not_found)
+
+        with pytest.raises(OAuthFlowError, match="Could not discover authorization server"):
+            await oauth_provider.run_authentication(client)
+
+    @pytest.mark.anyio
+    async def test_run_authentication_raises_when_asm_discovery_fails(
+        self,
+        oauth_provider: OAuthClientProvider,
+    ):
+        """run_authentication raises OAuthFlowError when ASM discovery returns no valid metadata."""
+        oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        )
+        oauth_provider.context.auth_server_url = "https://auth.example.com"
+        oauth_provider.context.oauth_metadata = None
+        not_found = httpx.Response(404, content=b"")
+        client = mock.MagicMock(spec=httpx.AsyncClient)
+        client.send = mock.AsyncMock(return_value=not_found)
+
+        with pytest.raises(OAuthFlowError, match="Could not discover OAuth metadata"):
+            await oauth_provider.run_authentication(client)
