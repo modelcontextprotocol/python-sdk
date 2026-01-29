@@ -5,7 +5,7 @@ import pytest
 from mcp import Client
 from mcp.client._memory import InMemoryTransport
 from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import Resource
 
 
@@ -30,14 +30,12 @@ def simple_server() -> Server:
 
 
 @pytest.fixture
-def fastmcp_server() -> FastMCP:
-    """Create a FastMCP server for testing."""
-    server = FastMCP("test")
+def mcpserver_server() -> MCPServer:
+    """Create an MCPServer server for testing."""
+    server = MCPServer("test")
 
-    # pragma: no cover on handlers below - they exist only to register capabilities.
-    # Transport tests verify stream creation and basic protocol, not handler invocation.
     @server.tool()
-    def greet(name: str) -> str:  # pragma: no cover
+    def greet(name: str) -> str:
         """Greet someone by name."""
         return f"Hello, {name}!"
 
@@ -60,40 +58,40 @@ async def test_with_server(simple_server: Server):
         assert write_stream is not None
 
 
-async def test_with_fastmcp(fastmcp_server: FastMCP):
-    """Test creating transport with a FastMCP instance."""
-    transport = InMemoryTransport(fastmcp_server)
+async def test_with_mcpserver(mcpserver_server: MCPServer):
+    """Test creating transport with an MCPServer instance."""
+    transport = InMemoryTransport(mcpserver_server)
     async with transport.connect() as (read_stream, write_stream):
         assert read_stream is not None
         assert write_stream is not None
 
 
-async def test_server_is_running(fastmcp_server: FastMCP):
+async def test_server_is_running(mcpserver_server: MCPServer):
     """Test that the server is running and responding to requests."""
-    async with Client(fastmcp_server) as client:
+    async with Client(mcpserver_server) as client:
         assert client.server_capabilities is not None
 
 
-async def test_list_tools(fastmcp_server: FastMCP):
+async def test_list_tools(mcpserver_server: MCPServer):
     """Test listing tools through the transport."""
-    async with Client(fastmcp_server) as client:
+    async with Client(mcpserver_server) as client:
         tools_result = await client.list_tools()
         assert len(tools_result.tools) > 0
         tool_names = [t.name for t in tools_result.tools]
         assert "greet" in tool_names
 
 
-async def test_call_tool(fastmcp_server: FastMCP):
+async def test_call_tool(mcpserver_server: MCPServer):
     """Test calling a tool through the transport."""
-    async with Client(fastmcp_server) as client:
+    async with Client(mcpserver_server) as client:
         result = await client.call_tool("greet", {"name": "World"})
         assert result is not None
         assert len(result.content) > 0
         assert "Hello, World!" in str(result.content[0])
 
 
-async def test_raise_exceptions(fastmcp_server: FastMCP):
+async def test_raise_exceptions(mcpserver_server: MCPServer):
     """Test that raise_exceptions parameter is passed through."""
-    transport = InMemoryTransport(fastmcp_server, raise_exceptions=True)
+    transport = InMemoryTransport(mcpserver_server, raise_exceptions=True)
     async with transport.connect() as (read_stream, _write_stream):
         assert read_stream is not None

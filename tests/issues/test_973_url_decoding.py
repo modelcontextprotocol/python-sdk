@@ -3,7 +3,7 @@
 Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/973
 """
 
-from mcp.server.fastmcp.resources import ResourceTemplate
+from mcp.server.mcpserver.resources import ResourceTemplate
 
 
 def test_template_matches_decodes_space():

@@ -15,9 +15,9 @@ If you want to read more about the specification, please visit the [MCP document
 Here's a simple MCP server that exposes a tool, resource, and prompt:
 
 ```python title="server.py"
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("Test Server", json_response=True)
+mcp = MCPServer("Test Server", json_response=True)
 
 
 @mcp.tool()

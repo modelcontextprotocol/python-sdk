@@ -26,6 +26,7 @@ from starlette.requests import Request
 from starlette.routing import Mount
 
 import mcp.types as types
+from mcp import MCPError
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server
@@ -44,16 +45,9 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import (
-    InitializeResult,
-    JSONRPCRequest,
-    TextContent,
-    TextResourceContents,
-    Tool,
-)
+from mcp.types import InitializeResult, JSONRPCRequest, TextContent, TextResourceContents, Tool
 from tests.test_helpers import wait_for_server
 
 # Test constants
@@ -72,14 +66,14 @@ INIT_REQUEST = {
 
 
 # Helper functions
-def extract_protocol_version_from_sse(response: requests.Response) -> str:  # pragma: no cover
+def extract_protocol_version_from_sse(response: requests.Response) -> str:
     """Extract the negotiated protocol version from an SSE initialization response."""
     assert response.headers.get("Content-Type") == "text/event-stream"
     for line in response.text.splitlines():
         if line.startswith("data: "):
             init_data = json.loads(line[6:])
             return init_data["result"]["protocolVersion"]
-    raise ValueError("Could not extract protocol version from SSE response")
+    raise ValueError("Could not extract protocol version from SSE response")  # pragma: no cover
 
 
 # Simple in-memory event store for testing
@@ -90,9 +84,7 @@ class SimpleEventStore(EventStore):
         self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage | None]] = []
         self._event_id_counter = 0
 
-    async def store_event(  # pragma: no cover
-        self, stream_id: StreamId, message: types.JSONRPCMessage | None
-    ) -> EventId:
+    async def store_event(self, stream_id: StreamId, message: types.JSONRPCMessage | None) -> EventId:
         """Store an event and return its ID."""
         self._event_id_counter += 1
         event_id = str(self._event_id_counter)
@@ -871,7 +863,7 @@ def test_get_sse_stream(basic_server: None, basic_server_url: str):
     init_data = None
     assert init_response.headers.get("Content-Type") == "text/event-stream"
     for line in init_response.text.splitlines():  # pragma: no branch
-        if line.startswith("data: "):  # pragma: no cover
+        if line.startswith("data: "):
             init_data = json.loads(line[6:])
             break
     assert init_data is not None
@@ -931,7 +923,7 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     init_data = None
     assert init_response.headers.get("Content-Type") == "text/event-stream"
     for line in init_response.text.splitlines():  # pragma: no branch
-        if line.startswith("data: "):  # pragma: no cover
+        if line.startswith("data: "):
             init_data = json.loads(line[6:])
             break
     assert init_data is not None
@@ -989,11 +981,7 @@ async def initialized_client_session(basic_server: None, basic_server_url: str):
 @pytest.mark.anyio
 async def test_streamable_http_client_basic_connection(basic_server: None, basic_server_url: str):
     """Test basic client connection with initialization."""
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
         async with ClientSession(
             read_stream,
             write_stream,
@@ -1032,7 +1020,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 @pytest.mark.anyio
 async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await initialized_client_session.read_resource(uri="unknown://test-error")
     assert exc_info.value.error.code == 0
     assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
@@ -1069,15 +1057,8 @@ async def test_streamable_http_client_session_persistence(basic_server: None, ba
 @pytest.mark.anyio
 async def test_streamable_http_client_json_response(json_response_server: None, json_server_url: str):
     """Test client with JSON response mode."""
-    async with streamable_http_client(f"{json_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
-        async with ClientSession(
-            read_stream,
-            write_stream,
-        ) as session:
+    async with streamable_http_client(f"{json_server_url}/mcp") as (read_stream, write_stream, _):
+        async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
@@ -1106,11 +1087,7 @@ async def test_streamable_http_client_get_stream(basic_server: None, basic_serve
         if isinstance(message, types.ServerNotification):  # pragma: no branch
             notifications_received.append(message)
 
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
             # Initialize the session - this triggers the GET stream setup
             result = await session.initialize()
@@ -1139,11 +1116,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
     captured_session_id = None
 
     # Create the streamable_http_client with a custom httpx client to capture headers
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        get_session_id,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
@@ -1155,8 +1128,8 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
             tools = await session.list_tools()
             assert len(tools.tools) == 10
 
-    headers: dict[str, str] = {}  # pragma: no cover
-    if captured_session_id:  # pragma: no cover
+    headers: dict[str, str] = {}  # pragma: lax no cover
+    if captured_session_id:  # pragma: lax no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
@@ -1167,7 +1140,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(McpError, match="Session terminated"):  # pragma: no branch
+                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
                     await session.list_tools()
 
 
@@ -1203,11 +1176,7 @@ async def test_streamable_http_client_session_termination_204(
     captured_session_id = None
 
     # Create the streamable_http_client with a custom httpx client to capture headers
-    async with streamable_http_client(f"{basic_server_url}/mcp") as (
-        read_stream,
-        write_stream,
-        get_session_id,
-    ):
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream, get_session_id):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the session
             result = await session.initialize()
@@ -1219,8 +1188,8 @@ async def test_streamable_http_client_session_termination_204(
             tools = await session.list_tools()
             assert len(tools.tools) == 10
 
-    headers: dict[str, str] = {}  # pragma: no cover
-    if captured_session_id:  # pragma: no cover
+    headers: dict[str, str] = {}  # pragma: lax no cover
+    if captured_session_id:  # pragma: lax no cover
         headers[MCP_SESSION_ID_HEADER] = captured_session_id
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
@@ -1231,10 +1200,7 @@ async def test_streamable_http_client_session_termination_204(
         ):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Attempt to make a request after termination
-                with pytest.raises(  # pragma: no branch
-                    McpError,
-                    match="Session terminated",
-                ):
+                with pytest.raises(MCPError, match="Session terminated"):  # pragma: no branch
                     await session.list_tools()
 
 
@@ -1281,7 +1247,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             captured_protocol_version = result.protocol_version
 
             # Start the tool that will wait on lock in a task
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def run_tool():
                     metadata = ClientMessageMetadata(
@@ -1304,20 +1270,21 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 # Kill the client session while tool is waiting on lock
                 tg.cancel_scope.cancel()
 
-    # Verify we received exactly one notification
-    assert len(captured_notifications) == 1  # pragma: no cover
-    assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: no cover
-    assert captured_notifications[0].params.data == "First notification before lock"  # pragma: no cover
+            # Verify we received exactly one notification (inside ClientSession
+            # so coverage tracks these on Python 3.11, see PR #1897 for details)
+            assert len(captured_notifications) == 1  # pragma: lax no cover
+            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: lax no cover
+            assert captured_notifications[0].params.data == "First notification before lock"  # pragma: lax no cover
 
-    # Clear notifications for the second phase
-    captured_notifications = []  # pragma: no cover
-
-    # Now resume the session with the same mcp-session-id and protocol version
-    headers: dict[str, Any] = {}  # pragma: no cover
-    if captured_session_id:  # pragma: no cover
-        headers[MCP_SESSION_ID_HEADER] = captured_session_id
-    if captured_protocol_version:  # pragma: no cover
-        headers[MCP_PROTOCOL_VERSION_HEADER] = captured_protocol_version
+    # Clear notifications and set up headers for phase 2 (between connections,
+    # not tracked by coverage on Python 3.11 due to cancel scope + sys.settrace bug)
+    captured_notifications = []  # pragma: lax no cover
+    assert captured_session_id is not None  # pragma: lax no cover
+    assert captured_protocol_version is not None  # pragma: lax no cover
+    headers: dict[str, Any] = {  # pragma: lax no cover
+        MCP_SESSION_ID_HEADER: captured_session_id,
+        MCP_PROTOCOL_VERSION_HEADER: captured_protocol_version,
+    }
 
     async with create_mcp_http_client(headers=headers) as httpx_client:
         async with streamable_http_client(f"{server_url}/mcp", http_client=httpx_client) as (
@@ -1325,7 +1292,9 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             write_stream,
             _,
         ):
-            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            async with ClientSession(
+                read_stream, write_stream, message_handler=message_handler
+            ) as session:  # pragma: no branch
                 result = await session.send_request(
                     types.CallToolRequest(params=types.CallToolRequestParams(name="release_lock", arguments={})),
                     types.CallToolResult,
@@ -1347,9 +1316,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
 
                 # We should have received the remaining notifications
                 assert len(captured_notifications) == 1
-
-            assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: no cover
-            assert captured_notifications[0].params.data == "Second notification after lock"  # pragma: no cover
+                assert isinstance(captured_notifications[0], types.LoggingMessageNotification)
+                assert captured_notifications[0].params.data == "Second notification after lock"
 
 
 @pytest.mark.anyio
@@ -1582,8 +1550,8 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
                     contexts.append(context_data)
 
     # Verify each request had its own context
-    assert len(contexts) == 3  # pragma: no cover
-    for i, ctx in enumerate(contexts):  # pragma: no cover
+    assert len(contexts) == 3
+    for i, ctx in enumerate(contexts):
         assert ctx["request_id"] == f"request-{i}"
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
@@ -2153,7 +2121,7 @@ async def test_streamable_http_multiple_reconnections(
             assert "Completed 3 checkpoints" in result.content[0].text
 
     # 4 priming + 3 notifications + 1 response = 8 tokens
-    assert len(resumption_tokens) == 8, (  # pragma: no cover
+    assert len(resumption_tokens) == 8, (  # pragma: lax no cover
         f"Expected 8 resumption tokens (4 priming + 3 notifs + 1 response), "
         f"got {len(resumption_tokens)}: {resumption_tokens}"
     )

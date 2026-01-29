@@ -9,7 +9,7 @@ from inline_snapshot import snapshot
 import mcp.types as types
 from mcp.client.client import Client
 from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import (
     CallToolResult,
     EmptyResult,
@@ -68,9 +68,9 @@ def simple_server() -> Server:
 
 
 @pytest.fixture
-def app() -> FastMCP:
-    """Create a FastMCP server for testing."""
-    server = FastMCP("test")
+def app() -> MCPServer:
+    """Create an MCPServer server for testing."""
+    server = MCPServer("test")
 
     @server.tool()
     def greet(name: str) -> str:
@@ -90,7 +90,7 @@ def app() -> FastMCP:
     return server
 
 
-async def test_client_is_initialized(app: FastMCP):
+async def test_client_is_initialized(app: MCPServer):
     """Test that the client is initialized after entering context."""
     async with Client(app) as client:
         assert client.server_capabilities == snapshot(
@@ -114,13 +114,13 @@ async def test_client_with_simple_server(simple_server: Server):
         )
 
 
-async def test_client_send_ping(app: FastMCP):
+async def test_client_send_ping(app: MCPServer):
     async with Client(app) as client:
         result = await client.send_ping()
         assert result == snapshot(EmptyResult())
 
 
-async def test_client_list_tools(app: FastMCP):
+async def test_client_list_tools(app: MCPServer):
     async with Client(app) as client:
         result = await client.list_tools()
         assert result == snapshot(
@@ -147,7 +147,7 @@ async def test_client_list_tools(app: FastMCP):
         )
 
 
-async def test_client_call_tool(app: FastMCP):
+async def test_client_call_tool(app: MCPServer):
     async with Client(app) as client:
         result = await client.call_tool("greet", {"name": "World"})
         assert result == snapshot(
@@ -158,7 +158,7 @@ async def test_client_call_tool(app: FastMCP):
         )
 
 
-async def test_read_resource(app: FastMCP):
+async def test_read_resource(app: MCPServer):
     """Test reading a resource."""
     async with Client(app) as client:
         result = await client.read_resource("test://resource")
@@ -169,7 +169,7 @@ async def test_read_resource(app: FastMCP):
         )
 
 
-async def test_get_prompt(app: FastMCP):
+async def test_get_prompt(app: MCPServer):
     """Test getting a prompt."""
     async with Client(app) as client:
         result = await client.get_prompt("greeting_prompt", {"name": "Alice"})
@@ -181,14 +181,14 @@ async def test_get_prompt(app: FastMCP):
         )
 
 
-def test_client_session_property_before_enter(app: FastMCP):
+def test_client_session_property_before_enter(app: MCPServer):
     """Test that accessing session before context manager raises RuntimeError."""
     client = Client(app)
     with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
         client.session
 
 
-async def test_client_reentry_raises_runtime_error(app: FastMCP):
+async def test_client_reentry_raises_runtime_error(app: MCPServer):
     """Test that reentering a client raises RuntimeError."""
     async with Client(app) as client:
         with pytest.raises(RuntimeError, match="Client is already entered"):
@@ -237,7 +237,7 @@ async def test_client_set_logging_level(simple_server: Server):
         assert result == snapshot(EmptyResult())
 
 
-async def test_client_list_resources_with_params(app: FastMCP):
+async def test_client_list_resources_with_params(app: MCPServer):
     """Test listing resources with params parameter."""
     async with Client(app) as client:
         result = await client.list_resources()
@@ -255,14 +255,14 @@ async def test_client_list_resources_with_params(app: FastMCP):
         )
 
 
-async def test_client_list_resource_templates(app: FastMCP):
+async def test_client_list_resource_templates(app: MCPServer):
     """Test listing resource templates with params parameter."""
     async with Client(app) as client:
         result = await client.list_resource_templates()
         assert result == snapshot(ListResourceTemplatesResult(resource_templates=[]))
 
 
-async def test_list_prompts(app: FastMCP):
+async def test_list_prompts(app: MCPServer):
     """Test listing prompts with params parameter."""
     async with Client(app) as client:
         result = await client.list_prompts()

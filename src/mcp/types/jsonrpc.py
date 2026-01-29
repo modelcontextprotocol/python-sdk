@@ -59,15 +59,15 @@ class ErrorData(BaseModel):
     """The error type that occurred."""
 
     message: str
-    """
-    A short description of the error. The message SHOULD be limited to a concise single
-    sentence.
+    """A short description of the error.
+
+    The message SHOULD be limited to a concise single sentence.
     """
 
     data: Any = None
-    """
-    Additional information about the error. The value of this member is defined by the
-    sender (e.g. detailed error information, nested errors etc.).
+    """Additional information about the error.
+
+    The value of this member is defined by the sender (e.g. detailed error information, nested errors, etc.).
     """
 
 

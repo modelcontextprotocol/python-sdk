@@ -1,7 +1,7 @@
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.session import ServerSession
 
-mcp = FastMCP(name="Notifications Example")
+mcp = MCPServer(name="Notifications Example")
 
 
 @mcp.tool()

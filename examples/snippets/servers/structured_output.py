@@ -4,9 +4,9 @@ from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("Structured Output Example")
+mcp = MCPServer("Structured Output Example")
 
 
 # Using Pydantic models for rich structured data

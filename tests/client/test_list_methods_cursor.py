@@ -5,7 +5,7 @@ import pytest
 import mcp.types as types
 from mcp import Client
 from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import ListToolsRequest, ListToolsResult
 
 from .conftest import StreamSpyCollection
@@ -16,7 +16,7 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 async def full_featured_server():
     """Create a server with tools, resources, prompts, and templates."""
-    server = FastMCP("test")
+    server = MCPServer("test")
 
     # pragma: no cover on handlers below - these exist only to register items with the
     # server so list_* methods return results. The handlers themselves are never called
@@ -55,7 +55,7 @@ async def full_featured_server():
 )
 async def test_list_methods_params_parameter(
     stream_spy: Callable[[], StreamSpyCollection],
-    full_featured_server: FastMCP,
+    full_featured_server: MCPServer,
     method_name: str,
     request_method: str,
 ):
@@ -95,7 +95,7 @@ async def test_list_methods_params_parameter(
 
 
 async def test_list_tools_with_strict_server_validation(
-    full_featured_server: FastMCP,
+    full_featured_server: MCPServer,
 ):
     """Test pagination with a server that validates request format strictly."""
     async with Client(full_featured_server) as client:

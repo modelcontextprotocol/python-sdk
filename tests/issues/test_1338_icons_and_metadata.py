@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import Icon
 
 pytestmark = pytest.mark.anyio
@@ -19,7 +19,7 @@ async def test_icons_and_website_url():
     )
 
     # Create server with website URL and icon
-    mcp = FastMCP("TestServer", website_url="https://example.com", icons=[test_icon])
+    mcp = MCPServer("TestServer", website_url="https://example.com", icons=[test_icon])
 
     # Create tool with icon
     @mcp.tool(icons=[test_icon])
@@ -100,7 +100,7 @@ async def test_multiple_icons():
     icon2 = Icon(src="data:image/png;base64,icon2", mime_type="image/png", sizes=["32x32"])
     icon3 = Icon(src="data:image/png;base64,icon3", mime_type="image/png", sizes=["64x64"])
 
-    mcp = FastMCP("MultiIconServer")
+    mcp = MCPServer("MultiIconServer")
 
     # Create tool with multiple icons
     @mcp.tool(icons=[icon1, icon2, icon3])
@@ -122,7 +122,7 @@ async def test_multiple_icons():
 async def test_no_icons_or_website():
     """Test that server works without icons or websiteUrl."""
 
-    mcp = FastMCP("BasicServer")
+    mcp = MCPServer("BasicServer")
 
     @mcp.tool()
     def basic_tool() -> str:  # pragma: no cover

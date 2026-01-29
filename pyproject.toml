@@ -66,8 +66,9 @@ dev = [
     "pytest-pretty>=1.2.0",
     "inline-snapshot>=0.23.0",
     "dirty-equals>=0.9.0",
-    "coverage[toml]>=7.13.1",
+    "coverage[toml]>=7.10.7,<=7.13",
     "pillow>=12.0",
+    "strict-no-cover",
 ]
 docs = [
     "mkdocs>=1.6.1",
@@ -122,7 +123,7 @@ executionEnvironments = [
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = ["README.md"]
+extend-exclude = ["README.md", "README.v2.md"]
 
 [tool.ruff.lint]
 select = [
@@ -148,7 +149,7 @@ max-complexity = 24 # Default is 10
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"tests/server/fastmcp/test_func_metadata.py" = ["E501"]
+"tests/server/mcpserver/test_func_metadata.py" = ["E501"]
 "tests/shared/test_progress_notifications.py" = ["PLW0603"]
 
 [tool.ruff.lint.pylint]
@@ -163,6 +164,7 @@ members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 
 [tool.pytest.ini_options]
 log_cli = true
@@ -198,7 +200,6 @@ branch = true
 patch = ["subprocess"]
 concurrency = ["multiprocessing", "thread"]
 source = ["src", "tests"]
-relative_files = true
 omit = [
     "src/mcp/client/__main__.py",
     "src/mcp/server/__main__.py",
@@ -215,6 +216,7 @@ ignore_errors = true
 precision = 2
 exclude_lines = [
     "pragma: no cover",
+    "pragma: lax no cover",
     "if TYPE_CHECKING:",
     "@overload",
     "raise NotImplementedError",
@@ -228,3 +230,7 @@ source = [
     "/home/runner/work/python-sdk/python-sdk/src/",
     'D:\a\python-sdk\python-sdk\src',
 ]
+
+[tool.inline-snapshot]
+default-flags = ["disable"]
+format-command = "ruff format --stdin-filename {filename}"

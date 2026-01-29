@@ -30,10 +30,7 @@ from mcp.shared.message import SessionMessage
 
 
 @asynccontextmanager
-async def stdio_server(
-    stdin: anyio.AsyncFile[str] | None = None,
-    stdout: anyio.AsyncFile[str] | None = None,
-):
+async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """

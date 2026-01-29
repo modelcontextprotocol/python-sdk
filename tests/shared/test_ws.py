@@ -12,20 +12,12 @@ from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket
 
+from mcp import MCPError
 from mcp.client.session import ClientSession
 from mcp.client.websocket import websocket_client
 from mcp.server import Server
 from mcp.server.websocket import websocket_server
-from mcp.shared.exceptions import McpError
-from mcp.types import (
-    EmptyResult,
-    ErrorData,
-    InitializeResult,
-    ReadResourceResult,
-    TextContent,
-    TextResourceContents,
-    Tool,
-)
+from mcp.types import EmptyResult, InitializeResult, ReadResourceResult, TextContent, TextResourceContents, Tool
 from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_server_for_WS"
@@ -58,7 +50,7 @@ class ServerTest(Server):  # pragma: no cover
                 await anyio.sleep(2.0)
                 return f"Slow response from {parsed.netloc}"
 
-            raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
+            raise MCPError(code=404, message="OOPS! no resource with that URI was found")
 
         @self.list_tools()
         async def handle_list_tools() -> list[Tool]:
@@ -84,12 +76,7 @@ def make_server_app() -> Starlette:  # pragma: no cover
         async with websocket_server(websocket.scope, websocket.receive, websocket.send) as streams:
             await server.run(streams[0], streams[1], server.create_initialization_options())
 
-    app = Starlette(
-        routes=[
-            WebSocketRoute("/ws", endpoint=handle_ws),
-        ]
-    )
-
+    app = Starlette(routes=[WebSocketRoute("/ws", endpoint=handle_ws)])
     return app
 
 
@@ -105,7 +92,7 @@ def run_server(server_port: int) -> None:  # pragma: no cover
         time.sleep(0.5)
 
 
-@pytest.fixture()  # pragma: no cover
+@pytest.fixture()
 def server(server_port: int) -> Generator[None, None, None]:
     proc = multiprocessing.Process(target=run_server, kwargs={"server_port": server_port}, daemon=True)
     print("starting process")
@@ -176,7 +163,7 @@ async def test_ws_client_exception_handling(
     initialized_ws_client_session: ClientSession,
 ) -> None:
     """Test exception handling in WebSocket communication"""
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await initialized_ws_client_session.read_resource("unknown://example")
     assert exc_info.value.error.code == 404
 

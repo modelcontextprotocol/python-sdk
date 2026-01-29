@@ -10,17 +10,22 @@ from typing_extensions import NotRequired, TypedDict
 from mcp.types.jsonrpc import RequestId
 
 LATEST_PROTOCOL_VERSION = "2025-11-25"
+"""The latest version of the Model Context Protocol.
 
+You can find the latest specification at https://modelcontextprotocol.io/specification/latest.
 """
-The default negotiated version of the Model Context Protocol when no version is specified.
-We need this to satisfy the MCP specification, which requires the server to assume a
-specific version if none is provided by the client. See section "Protocol Version Header" at
-https://modelcontextprotocol.io/specification
-"""
+
 DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
+"""The default negotiated version of the Model Context Protocol when no version is specified.
+
+We need this to satisfy the MCP specification, which requires the server to assume a specific version if none is
+provided by the client.
+
+See the "Protocol Version Header" at
+https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header).
+"""
 
 ProgressToken = str | int
-Cursor = str
 Role = Literal["user", "assistant"]
 
 TaskExecutionMode = Literal["forbidden", "optional", "required"]
@@ -50,6 +55,7 @@ class RequestParamsMeta(TypedDict, extra_items=Any):
 
 class TaskMetadata(MCPModel):
     """Metadata for augmenting a request with task execution.
+
     Include this in the `task` field of the request parameters.
     """
 
@@ -72,9 +78,9 @@ class RequestParams(MCPModel):
 
 
 class PaginatedRequestParams(RequestParams):
-    cursor: Cursor | None = None
-    """
-    An opaque token representing the current pagination position.
+    cursor: str | None = None
+    """An opaque token representing the current pagination position.
+
     If provided, the server should return results starting after this cursor.
     """
 
@@ -124,7 +130,7 @@ class Result(MCPModel):
 
 
 class PaginatedResult(Result):
-    next_cursor: Cursor | None = None
+    next_cursor: str | None = None
     """
     An opaque token representing the pagination position after the last returned result.
     If present, there may be more results available.
@@ -369,16 +375,22 @@ class ServerCapabilities(MCPModel):
 
     experimental: dict[str, dict[str, Any]] | None = None
     """Experimental, non-standard capabilities that the server supports."""
+
     logging: LoggingCapability | None = None
     """Present if the server supports sending log messages to the client."""
+
     prompts: PromptsCapability | None = None
     """Present if the server offers any prompt templates."""
+
     resources: ResourcesCapability | None = None
     """Present if the server offers any resources to read."""
+
     tools: ToolsCapability | None = None
     """Present if the server offers any tools to call."""
+
     completions: CompletionsCapability | None = None
     """Present if the server offers autocompletion suggestions for prompts and resources."""
+
     tasks: ServerTasksCapability | None = None
     """Present if the server supports task-augmented requests."""
 
@@ -413,8 +425,8 @@ class Task(MCPModel):
     """Current task state."""
 
     status_message: str | None = None
-    """
-    Optional human-readable message describing the current task state.
+    """Optional human-readable message describing the current task state.
+
     This can provide context for any status, including:
     - Reasons for "cancelled" status
     - Summaries for "completed" status
@@ -583,16 +595,14 @@ class ProgressNotificationParams(NotificationParams):
     total: float | None = None
     """Total number of items to process (or total progress required), if known."""
     message: str | None = None
-    """
-    Message related to progress. This should provide relevant human readable
-    progress information.
+    """Message related to progress.
+
+    This should provide relevant human readable progress information.
     """
 
 
 class ProgressNotification(Notification[ProgressNotificationParams, Literal["notifications/progress"]]):
-    """An out-of-band notification used to inform the receiver of a progress update for a
-    long-running request.
-    """
+    """An out-of-band notification used to inform the receiver of a progress update for a long-running request."""
 
     method: Literal["notifications/progress"] = "notifications/progress"
     params: ProgressNotificationParams
@@ -614,20 +624,24 @@ class Resource(BaseMetadata):
 
     uri: str
     """The URI of this resource."""
+
     description: str | None = None
     """A description of what this resource represents."""
+
     mime_type: str | None = None
     """The MIME type of this resource, if known."""
+
     size: int | None = None
-    """
-    The size of the raw resource content, in bytes (i.e., before base64 encoding
-    or any tokenization), if known.
+    """The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
 
     This can be used by Hosts to display file sizes and estimate context window usage.
     """
+
     icons: list[Icon] | None = None
     """An optional list of icons for this resource."""
+
     annotations: Annotations | None = None
+
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -639,20 +653,22 @@ class ResourceTemplate(BaseMetadata):
     """A template description for resources available on the server."""
 
     uri_template: str
-    """
-    A URI template (according to RFC 6570) that can be used to construct resource
-    URIs.
-    """
+    """A URI template (according to RFC 6570) that can be used to construct resource URIs."""
+
     description: str | None = None
     """A human-readable description of what this template is for."""
+
     mime_type: str | None = None
+    """The MIME type for all resources that match this template.
+
+    This should only be included if all resources matching this template have the same type.
     """
-    The MIME type for all resources that match this template. This should only be
-    included if all resources matching this template have the same type.
-    """
+
     icons: list[Icon] | None = None
     """An optional list of icons for this resource template."""
+
     annotations: Annotations | None = None
+
     meta: Meta | None = Field(alias="_meta", default=None)
     """
     See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1638,8 +1654,8 @@ class ElicitRequestURLParams(RequestParams):
     """The URL that the user should navigate to."""
 
     elicitation_id: str
-    """
-    The ID of the elicitation, which must be unique within the context of the server.
+    """The ID of the elicitation, which must be unique within the context of the server.
+
     The client MUST treat this ID as an opaque value.
     """
 

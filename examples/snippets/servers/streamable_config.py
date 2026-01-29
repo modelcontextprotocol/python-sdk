@@ -2,9 +2,9 @@
 uv run examples/snippets/servers/streamable_config.py
 """
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP("StatelessServer")
+mcp = MCPServer("StatelessServer")
 
 
 # Add a simple tool to demonstrate the server

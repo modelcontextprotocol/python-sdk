@@ -1,8 +1,8 @@
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.session import ServerSession
 from mcp.types import SamplingMessage, TextContent
 
-mcp = FastMCP(name="Sampling Example")
+mcp = MCPServer(name="Sampling Example")
 
 
 @mcp.tool()

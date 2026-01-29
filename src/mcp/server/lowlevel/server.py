@@ -101,7 +101,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -233,7 +233,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             tools_capability = types.ToolsCapability(list_changed=notification_options.tools_changed)
 
         # Set logging capabilities if handler exists
-        if types.SetLevelRequest in self.request_handlers:  # pragma: no cover
+        if types.SetLevelRequest in self.request_handlers:
             logging_capability = types.LoggingCapability()
 
         # Set completions capabilities if handler exists
@@ -379,7 +379,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                                 mime_type=mime_type or "text/plain",
                                 **meta_kwargs,
                             )
-                        case bytes() as data:  # pragma: no cover
+                        case bytes() as data:  # pragma: no branch
                             return types.BlobResourceContents(
                                 uri=req.params.uri,
                                 blob=base64.b64encode(data).decode(),
@@ -388,7 +388,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                             )
 
                 match result:
-                    case str() | bytes() as data:  # pragma: no cover
+                    case str() | bytes() as data:  # pragma: lax no cover
                         warnings.warn(
                             "Returning str or bytes from read_resource is deprecated. "
                             "Use Iterable[ReadResourceContents] instead.",
@@ -407,16 +407,14 @@ class Server(Generic[LifespanResultT, RequestT]):
                     case _:  # pragma: no cover
                         raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
 
-                return types.ReadResourceResult(  # pragma: no cover
-                    contents=[content],
-                )
+                return types.ReadResourceResult(contents=[content])  # pragma: no cover
 
             self.request_handlers[types.ReadResourceRequest] = handler
             return func
 
         return decorator
 
-    def set_logging_level(self):  # pragma: no cover
+    def set_logging_level(self):
         def decorator(func: Callable[[types.LoggingLevel], Awaitable[None]]):
             logger.debug("Registering handler for SetLevelRequest")
 
@@ -429,7 +427,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def subscribe_resource(self):  # pragma: no cover
+    def subscribe_resource(self):
         def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for SubscribeRequest")
 
@@ -442,7 +440,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return decorator
 
-    def unsubscribe_resource(self):  # pragma: no cover
+    def unsubscribe_resource(self):
         def decorator(func: Callable[[str], Awaitable[None]]):
             logger.debug("Registering handler for UnsubscribeRequest")
 
@@ -468,7 +466,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 result = await wrapper(req)
 
                 # Handle both old style (list[Tool]) and new style (ListToolsResult)
-                if isinstance(result, types.ListToolsResult):  # pragma: no cover
+                if isinstance(result, types.ListToolsResult):
                     # Refresh the tool cache with returned tools
                     for tool in result.tools:
                         validate_and_warn_tool_name(tool.name)
@@ -571,7 +569,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         # tool returned structured content only
                         maybe_structured_content = cast(StructuredContent, results)
                         unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
-                    elif hasattr(results, "__iter__"):  # pragma: no cover
+                    elif hasattr(results, "__iter__"):
                         # tool returned unstructured content only
                         unstructured_content = cast(UnstructuredContent, results)
                         maybe_structured_content = None
@@ -714,7 +712,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         await self._handle_request(
                             message, responder.request, session, lifespan_context, raise_exceptions
                         )
-                case Exception():  # pragma: no cover
+                case Exception():
                     logger.error(f"Received exception from stream: {message}")
                     await session.send_log_message(
                         level="error",
@@ -726,7 +724,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 case _:
                     await self._handle_notification(message)
 
-            for warning in w:  # pragma: no cover
+            for warning in w:  # pragma: lax no cover
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
 
     async def _handle_request(
@@ -781,16 +779,13 @@ class Server(Generic[LifespanResultT, RequestT]):
                     )
                 )
                 response = await handler(req)
-            except McpError as err:  # pragma: no cover
+            except MCPError as err:
                 response = err.error
-            except anyio.get_cancelled_exc_class():  # pragma: no cover
-                logger.info(
-                    "Request %s cancelled - duplicate response suppressed",
-                    message.request_id,
-                )
+            except anyio.get_cancelled_exc_class():
+                logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
                 return
-            except Exception as err:  # pragma: no cover
-                if raise_exceptions:
+            except Exception as err:
+                if raise_exceptions:  # pragma: no cover
                     raise err
                 response = types.ErrorData(code=0, message=str(err), data=None)
             finally:
@@ -800,12 +795,7 @@ class Server(Generic[LifespanResultT, RequestT]):
 
             await message.respond(response)
         else:  # pragma: no cover
-            await message.respond(
-                types.ErrorData(
-                    code=types.METHOD_NOT_FOUND,
-                    message="Method not found",
-                )
-            )
+            await message.respond(types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found"))
 
         logger.debug("Response sent")
 
@@ -830,7 +820,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
         token_verifier: TokenVerifier | None = None,
-        auth_server_provider: (OAuthAuthorizationServerProvider[Any, Any, Any] | None) = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
         custom_starlette_routes: list[Route] | None = None,
         debug: bool = False,
     ) -> Starlette:
