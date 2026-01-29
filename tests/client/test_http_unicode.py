@@ -173,7 +173,7 @@ async def test_streamable_http_client_unicode_tool_call(running_unicode_server: 
     base_url = running_unicode_server
     endpoint_url = f"{base_url}/mcp"
 
-    async with streamable_http_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
+    async with streamable_http_client(endpoint_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
@@ -205,7 +205,7 @@ async def test_streamable_http_client_unicode_prompts(running_unicode_server: st
     base_url = running_unicode_server
     endpoint_url = f"{base_url}/mcp"
 
-    async with streamable_http_client(endpoint_url) as (read_stream, write_stream, _get_session_id):
+    async with streamable_http_client(endpoint_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 

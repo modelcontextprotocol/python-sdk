@@ -53,7 +53,7 @@ pytestmark = pytest.mark.anyio
 async def test_with_server(simple_server: Server):
     """Test creating transport with a Server instance."""
     transport = InMemoryTransport(simple_server)
-    async with transport.connect() as (read_stream, write_stream):
+    async with transport as (read_stream, write_stream):
         assert read_stream is not None
         assert write_stream is not None
 
@@ -61,7 +61,7 @@ async def test_with_server(simple_server: Server):
 async def test_with_mcpserver(mcpserver_server: MCPServer):
     """Test creating transport with an MCPServer instance."""
     transport = InMemoryTransport(mcpserver_server)
-    async with transport.connect() as (read_stream, write_stream):
+    async with transport as (read_stream, write_stream):
         assert read_stream is not None
         assert write_stream is not None
 
@@ -93,5 +93,5 @@ async def test_call_tool(mcpserver_server: MCPServer):
 async def test_raise_exceptions(mcpserver_server: MCPServer):
     """Test that raise_exceptions parameter is passed through."""
     transport = InMemoryTransport(mcpserver_server, raise_exceptions=True)
-    async with transport.connect() as (read_stream, _write_stream):
+    async with transport as (read_stream, _write_stream):
         assert read_stream is not None

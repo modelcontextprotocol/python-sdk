@@ -2213,11 +2213,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamable_http_client("http://localhost:8000/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client("http://localhost:8000/mcp") as (read_stream, write_stream):
         # Create a session using the client streams
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
@@ -2395,7 +2391,7 @@ async def main():
     )
 
     async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
-        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write, _):
+        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
 

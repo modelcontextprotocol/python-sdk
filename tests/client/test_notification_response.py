@@ -125,12 +125,8 @@ async def test_non_compliant_notification_response(non_sdk_server: None, non_sdk
         if isinstance(message, Exception):
             returned_exception = message
 
-    async with streamable_http_client(server_url) as (read_stream, write_stream, _):
-        async with ClientSession(
-            read_stream,
-            write_stream,
-            message_handler=message_handler,
-        ) as session:
+    async with streamable_http_client(server_url) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
             # Initialize should work normally
             await session.initialize()
 

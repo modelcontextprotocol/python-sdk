@@ -69,7 +69,7 @@ async def main():
     )
 
     async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
-        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write, _):
+        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
 

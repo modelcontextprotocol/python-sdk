@@ -14,6 +14,7 @@ from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
+from mcp.client._transport import TransportStreams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -200,8 +201,8 @@ class StreamableHTTPTransport:
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
 
-            except Exception as exc:  # pragma: lax no cover
-                logger.debug(f"GET stream error: {exc}")
+            except Exception:  # pragma: lax no cover
+                logger.debug("GET stream error", exc_info=True)
                 attempt += 1
 
             if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
@@ -493,20 +494,16 @@ class StreamableHTTPTransport:
         return self.session_id
 
 
+# TODO(Marcelo): I've dropped the `get_session_id` callback because it breaks the Transport protocol. Is that needed?
+# It's a completely wrong abstraction, so removal is a good idea. But if we need the client to find the session ID,
+# we should think about a better way to do it. I believe we can achieve it with other means.
 @asynccontextmanager
 async def streamable_http_client(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
-) -> AsyncGenerator[
-    tuple[
-        MemoryObjectReceiveStream[SessionMessage | Exception],
-        MemoryObjectSendStream[SessionMessage],
-        GetSessionIdCallback,
-    ],
-    None,
-]:
+) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
     Args:
@@ -520,7 +517,6 @@ async def streamable_http_client(
         Tuple containing:
             - read_stream: Stream for reading messages from the server
             - write_stream: Stream for sending messages to the server
-            - get_session_id_callback: Function to retrieve the current session ID
 
     Example:
         See examples/snippets/clients/ for usage patterns.
@@ -561,7 +557,7 @@ async def streamable_http_client(
                 )
 
                 try:
-                    yield (read_stream, write_stream, transport.get_session_id)
+                    yield read_stream, write_stream
                 finally:
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)

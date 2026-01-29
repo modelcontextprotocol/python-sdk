@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from types import TracebackType
 from typing import Any
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
+from mcp.client._transport import TransportStreams
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.memory import create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
 
 
 class InMemoryTransport:
@@ -23,17 +23,17 @@ class InMemoryTransport:
     stopped when the context manager exits.
 
     Example:
-        server = MCPServer("test")
-        transport = InMemoryTransport(server)
+        ```python
+        from mcp.client import Client, ClientSession
+        from mcp.server.mcpserver import MCPServer
+        from mcp.client.memory import InMemoryTransport
 
-        async with transport.connect() as (read_stream, write_stream):
+        server = MCPServer("test")
+        async with InMemoryTransport(server) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 # Use the session...
-
-    Or more commonly, use with Client:
-        async with Client(server) as client:
-            result = await client.call_tool("my_tool", {...})
+        ```
     """
 
     def __init__(self, server: Server[Any] | MCPServer, *, raise_exceptions: bool = False) -> None:
@@ -45,26 +45,15 @@ class InMemoryTransport:
         """
         self._server = server
         self._raise_exceptions = raise_exceptions
+        self._cm: AbstractAsyncContextManager[TransportStreams] | None = None
 
     @asynccontextmanager
-    async def connect(
-        self,
-    ) -> AsyncGenerator[
-        tuple[
-            MemoryObjectReceiveStream[SessionMessage | Exception],
-            MemoryObjectSendStream[SessionMessage],
-        ],
-        None,
-    ]:
-        """Connect to the server and return streams for communication.
-
-        Yields:
-            A tuple of (read_stream, write_stream) for bidirectional communication
-        """
+    async def _connect(self) -> AsyncIterator[TransportStreams]:
+        """Connect to the server and yield streams for communication."""
         # Unwrap MCPServer to get underlying Server
-        actual_server: Server[Any]
         if isinstance(self._server, MCPServer):
-            actual_server = self._server._lowlevel_server  # type: ignore[reportPrivateUsage]
+            # TODO(Marcelo): Make `lowlevel_server` public.
+            actual_server: Server[Any] = self._server._lowlevel_server  # type: ignore[reportPrivateUsage]
         else:
             actual_server = self._server
 
@@ -87,3 +76,16 @@ class InMemoryTransport:
                     yield client_read, client_write
                 finally:
                     tg.cancel_scope.cancel()
+
+    async def __aenter__(self) -> TransportStreams:
+        """Connect to the server and return streams for communication."""
+        self._cm = self._connect()
+        return await self._cm.__aenter__()
+
+    async def __aexit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
+        """Close the transport and stop the server."""
+        if self._cm is not None:
+            await self._cm.__aexit__(exc_type, exc_val, exc_tb)
+            self._cm = None

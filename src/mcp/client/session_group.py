@@ -296,7 +296,7 @@ class ClientSessionGroup:
                     http_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
                 )
-                read, write, _ = await session_stack.enter_async_context(client)
+                read, write = await session_stack.enter_async_context(client)
 
             session = await session_stack.enter_async_context(
                 mcp.ClientSession(
