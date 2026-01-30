@@ -1,0 +1,379 @@
+# Public API Allowlist for mcp v2
+#
+# This file is the source of truth for the SDK's public API surface.
+# The audit script (scripts/audit_public_api.py) compares the live declared
+# surface against this list and fails CI on any drift.
+#
+# Lines starting with # are comments.
+# Entries marked [TODO] are not yet surfaced via __init__.py — they are
+# planned additions from docs/public-api-plan.md Phase 2.
+#
+# Editing this file is how you intentionally expand or shrink the public API.
+# Every change should be accompanied by a rationale (in PR description or commit).
+
+# ---------------------------------------------------------------------------
+# mcp (top-level convenience re-exports)
+# ---------------------------------------------------------------------------
+mcp.CallToolRequest
+mcp.Client
+mcp.ClientCapabilities
+mcp.ClientNotification
+mcp.ClientRequest
+mcp.ClientResult
+mcp.ClientSession
+mcp.ClientSessionGroup
+mcp.CompleteRequest
+mcp.CreateMessageRequest
+mcp.CreateMessageResult
+mcp.CreateMessageResultWithTools
+mcp.ErrorData
+mcp.GetPromptRequest
+mcp.GetPromptResult
+mcp.Implementation
+mcp.IncludeContext
+mcp.InitializeRequest
+mcp.InitializeResult
+mcp.InitializedNotification
+mcp.JSONRPCError
+mcp.JSONRPCRequest
+mcp.JSONRPCResponse
+mcp.ListPromptsRequest
+mcp.ListPromptsResult
+mcp.ListResourcesRequest
+mcp.ListResourcesResult
+mcp.ListToolsResult
+mcp.LoggingLevel
+mcp.LoggingMessageNotification
+mcp.MCPError
+mcp.Notification
+mcp.PingRequest
+mcp.ProgressNotification
+mcp.PromptsCapability
+mcp.ReadResourceRequest
+mcp.ReadResourceResult
+mcp.Resource
+mcp.ResourceUpdatedNotification
+mcp.ResourcesCapability
+mcp.RootsCapability
+mcp.SamplingCapability
+mcp.SamplingContent
+mcp.SamplingContextCapability
+mcp.SamplingMessage
+mcp.SamplingMessageContentBlock
+mcp.SamplingRole
+mcp.SamplingToolsCapability
+mcp.ServerCapabilities
+mcp.ServerNotification
+mcp.ServerRequest
+mcp.ServerResult
+mcp.ServerSession
+mcp.SetLevelRequest
+mcp.StdioServerParameters
+mcp.StopReason
+mcp.SubscribeRequest
+mcp.Tool
+mcp.ToolChoice
+mcp.ToolResultContent
+mcp.ToolUseContent
+mcp.ToolsCapability
+mcp.UnsubscribeRequest
+mcp.UrlElicitationRequiredError
+mcp.stdio_client
+mcp.stdio_server
+
+# ---------------------------------------------------------------------------
+# mcp.client
+# ---------------------------------------------------------------------------
+mcp.client.Client
+mcp.client.ClientSession
+# [TODO] Phase 2 — transport entry points, not yet re-exported from client/__init__.py
+# mcp.client.sse_client
+# mcp.client.streamable_http_client
+# mcp.client.websocket_client
+# [TODO] Phase 2 — session group parameter types, not yet re-exported
+# mcp.client.SseServerParameters
+# mcp.client.StreamableHttpParameters
+# mcp.client.ServerParameters
+# mcp.client.ClientSessionParameters
+# [TODO] Phase 2 — callback protocol types, not yet re-exported
+# mcp.client.SamplingFnT
+# mcp.client.ElicitationFnT
+# mcp.client.ListRootsFnT
+# mcp.client.LoggingFnT
+# mcp.client.MessageHandlerFnT
+
+# ---------------------------------------------------------------------------
+# mcp.client.auth
+# ---------------------------------------------------------------------------
+mcp.client.auth.OAuthClientProvider
+mcp.client.auth.OAuthFlowError
+mcp.client.auth.OAuthRegistrationError
+mcp.client.auth.OAuthTokenError
+mcp.client.auth.PKCEParameters
+mcp.client.auth.TokenStorage
+
+# ---------------------------------------------------------------------------
+# mcp.client.experimental
+# ---------------------------------------------------------------------------
+mcp.client.experimental.ExperimentalClientFeatures
+
+# ---------------------------------------------------------------------------
+# mcp.server
+# ---------------------------------------------------------------------------
+mcp.server.InitializationOptions
+mcp.server.MCPServer
+mcp.server.NotificationOptions
+mcp.server.Server
+# [TODO] Phase 2 — transport types, not yet re-exported from server/__init__.py
+# mcp.server.SseServerTransport
+# mcp.server.EventStore
+# mcp.server.TransportSecuritySettings
+# [TODO] Phase 2 — elicitation result types, not yet re-exported
+# mcp.server.ElicitationResult
+# mcp.server.UrlElicitationResult
+# mcp.server.AcceptedElicitation
+# mcp.server.DeclinedElicitation
+# mcp.server.CancelledElicitation
+
+# ---------------------------------------------------------------------------
+# mcp.server.lowlevel
+# ---------------------------------------------------------------------------
+mcp.server.lowlevel.NotificationOptions
+mcp.server.lowlevel.Server
+
+# ---------------------------------------------------------------------------
+# mcp.server.mcpserver
+# ---------------------------------------------------------------------------
+mcp.server.mcpserver.Audio
+mcp.server.mcpserver.Context
+mcp.server.mcpserver.Icon
+mcp.server.mcpserver.Image
+mcp.server.mcpserver.MCPServer
+
+# ---------------------------------------------------------------------------
+# mcp.server.mcpserver.prompts
+# ---------------------------------------------------------------------------
+mcp.server.mcpserver.prompts.Prompt
+mcp.server.mcpserver.prompts.PromptManager
+
+# ---------------------------------------------------------------------------
+# mcp.server.mcpserver.resources
+# ---------------------------------------------------------------------------
+mcp.server.mcpserver.resources.BinaryResource
+mcp.server.mcpserver.resources.DirectoryResource
+mcp.server.mcpserver.resources.FileResource
+mcp.server.mcpserver.resources.FunctionResource
+mcp.server.mcpserver.resources.HttpResource
+mcp.server.mcpserver.resources.Resource
+mcp.server.mcpserver.resources.ResourceManager
+mcp.server.mcpserver.resources.ResourceTemplate
+mcp.server.mcpserver.resources.TextResource
+
+# ---------------------------------------------------------------------------
+# mcp.server.mcpserver.tools
+# ---------------------------------------------------------------------------
+mcp.server.mcpserver.tools.Tool
+mcp.server.mcpserver.tools.ToolManager
+
+# ---------------------------------------------------------------------------
+# mcp.server.auth
+# ---------------------------------------------------------------------------
+# [TODO] Phase 2 — server auth types, not yet re-exported from server/auth/__init__.py
+# mcp.server.auth.OAuthAuthorizationServerProvider
+# mcp.server.auth.TokenVerifier
+# mcp.server.auth.AuthSettings
+
+# ---------------------------------------------------------------------------
+# mcp.types (MCP protocol types — mirrors the spec, all public)
+# ---------------------------------------------------------------------------
+mcp.types.Annotations
+mcp.types.AudioContent
+mcp.types.BaseMetadata
+mcp.types.BlobResourceContents
+mcp.types.CONNECTION_CLOSED
+mcp.types.CallToolRequest
+mcp.types.CallToolRequestParams
+mcp.types.CallToolResult
+mcp.types.CancelTaskRequest
+mcp.types.CancelTaskRequestParams
+mcp.types.CancelTaskResult
+mcp.types.CancelledNotification
+mcp.types.CancelledNotificationParams
+mcp.types.ClientCapabilities
+mcp.types.ClientNotification
+mcp.types.ClientRequest
+mcp.types.ClientResult
+mcp.types.ClientTasksCapability
+mcp.types.ClientTasksRequestsCapability
+mcp.types.CompleteRequest
+mcp.types.CompleteRequestParams
+mcp.types.CompleteResult
+mcp.types.Completion
+mcp.types.CompletionArgument
+mcp.types.CompletionContext
+mcp.types.CompletionsCapability
+mcp.types.ContentBlock
+mcp.types.CreateMessageRequest
+mcp.types.CreateMessageRequestParams
+mcp.types.CreateMessageResult
+mcp.types.CreateMessageResultWithTools
+mcp.types.CreateTaskResult
+mcp.types.DEFAULT_NEGOTIATED_VERSION
+mcp.types.ElicitCompleteNotification
+mcp.types.ElicitCompleteNotificationParams
+mcp.types.ElicitRequest
+mcp.types.ElicitRequestFormParams
+mcp.types.ElicitRequestParams
+mcp.types.ElicitRequestURLParams
+mcp.types.ElicitRequestedSchema
+mcp.types.ElicitResult
+mcp.types.ElicitationCapability
+mcp.types.ElicitationRequiredErrorData
+mcp.types.EmbeddedResource
+mcp.types.EmptyResult
+mcp.types.ErrorData
+mcp.types.FormElicitationCapability
+mcp.types.GetPromptRequest
+mcp.types.GetPromptRequestParams
+mcp.types.GetPromptResult
+mcp.types.GetTaskPayloadRequest
+mcp.types.GetTaskPayloadRequestParams
+mcp.types.GetTaskPayloadResult
+mcp.types.GetTaskRequest
+mcp.types.GetTaskRequestParams
+mcp.types.GetTaskResult
+mcp.types.INTERNAL_ERROR
+mcp.types.INVALID_PARAMS
+mcp.types.INVALID_REQUEST
+mcp.types.Icon
+mcp.types.ImageContent
+mcp.types.Implementation
+mcp.types.IncludeContext
+mcp.types.InitializeRequest
+mcp.types.InitializeRequestParams
+mcp.types.InitializeResult
+mcp.types.InitializedNotification
+mcp.types.JSONRPCError
+mcp.types.JSONRPCMessage
+mcp.types.JSONRPCNotification
+mcp.types.JSONRPCRequest
+mcp.types.JSONRPCResponse
+mcp.types.LATEST_PROTOCOL_VERSION
+mcp.types.ListPromptsRequest
+mcp.types.ListPromptsResult
+mcp.types.ListResourceTemplatesRequest
+mcp.types.ListResourceTemplatesResult
+mcp.types.ListResourcesRequest
+mcp.types.ListResourcesResult
+mcp.types.ListRootsRequest
+mcp.types.ListRootsResult
+mcp.types.ListTasksRequest
+mcp.types.ListTasksResult
+mcp.types.ListToolsRequest
+mcp.types.ListToolsResult
+mcp.types.LoggingCapability
+mcp.types.LoggingLevel
+mcp.types.LoggingMessageNotification
+mcp.types.LoggingMessageNotificationParams
+mcp.types.METHOD_NOT_FOUND
+mcp.types.ModelHint
+mcp.types.ModelPreferences
+mcp.types.Notification
+mcp.types.NotificationParams
+mcp.types.PARSE_ERROR
+mcp.types.PaginatedRequest
+mcp.types.PaginatedRequestParams
+mcp.types.PaginatedResult
+mcp.types.PingRequest
+mcp.types.ProgressNotification
+mcp.types.ProgressNotificationParams
+mcp.types.ProgressToken
+mcp.types.Prompt
+mcp.types.PromptArgument
+mcp.types.PromptListChangedNotification
+mcp.types.PromptMessage
+mcp.types.PromptReference
+mcp.types.PromptsCapability
+mcp.types.REQUEST_TIMEOUT
+mcp.types.ReadResourceRequest
+mcp.types.ReadResourceRequestParams
+mcp.types.ReadResourceResult
+mcp.types.RelatedTaskMetadata
+mcp.types.Request
+mcp.types.RequestId
+mcp.types.RequestParams
+mcp.types.RequestParamsMeta
+mcp.types.Resource
+mcp.types.ResourceContents
+mcp.types.ResourceLink
+mcp.types.ResourceListChangedNotification
+mcp.types.ResourceTemplate
+mcp.types.ResourceTemplateReference
+mcp.types.ResourceUpdatedNotification
+mcp.types.ResourceUpdatedNotificationParams
+mcp.types.ResourcesCapability
+mcp.types.Result
+mcp.types.Role
+mcp.types.Root
+mcp.types.RootsCapability
+mcp.types.RootsListChangedNotification
+mcp.types.SamplingCapability
+mcp.types.SamplingContent
+mcp.types.SamplingContextCapability
+mcp.types.SamplingMessage
+mcp.types.SamplingMessageContentBlock
+mcp.types.SamplingToolsCapability
+mcp.types.ServerCapabilities
+mcp.types.ServerNotification
+mcp.types.ServerRequest
+mcp.types.ServerResult
+mcp.types.ServerTasksCapability
+mcp.types.ServerTasksRequestsCapability
+mcp.types.SetLevelRequest
+mcp.types.SetLevelRequestParams
+mcp.types.StopReason
+mcp.types.SubscribeRequest
+mcp.types.SubscribeRequestParams
+mcp.types.TASK_FORBIDDEN
+mcp.types.TASK_OPTIONAL
+mcp.types.TASK_REQUIRED
+mcp.types.TASK_STATUS_CANCELLED
+mcp.types.TASK_STATUS_COMPLETED
+mcp.types.TASK_STATUS_FAILED
+mcp.types.TASK_STATUS_INPUT_REQUIRED
+mcp.types.TASK_STATUS_WORKING
+mcp.types.Task
+mcp.types.TaskExecutionMode
+mcp.types.TaskMetadata
+mcp.types.TaskStatus
+mcp.types.TaskStatusNotification
+mcp.types.TaskStatusNotificationParams
+mcp.types.TasksCallCapability
+mcp.types.TasksCancelCapability
+mcp.types.TasksCreateElicitationCapability
+mcp.types.TasksCreateMessageCapability
+mcp.types.TasksElicitationCapability
+mcp.types.TasksListCapability
+mcp.types.TasksSamplingCapability
+mcp.types.TasksToolsCapability
+mcp.types.TextContent
+mcp.types.TextResourceContents
+mcp.types.Tool
+mcp.types.ToolAnnotations
+mcp.types.ToolChoice
+mcp.types.ToolExecution
+mcp.types.ToolListChangedNotification
+mcp.types.ToolResultContent
+mcp.types.ToolUseContent
+mcp.types.ToolsCapability
+mcp.types.URL_ELICITATION_REQUIRED
+mcp.types.UnsubscribeRequest
+mcp.types.UnsubscribeRequestParams
+mcp.types.UrlElicitationCapability
+mcp.types.client_notification_adapter
+mcp.types.client_request_adapter
+mcp.types.client_result_adapter
+mcp.types.jsonrpc_message_adapter
+mcp.types.server_notification_adapter
+mcp.types.server_request_adapter
+mcp.types.server_result_adapter
