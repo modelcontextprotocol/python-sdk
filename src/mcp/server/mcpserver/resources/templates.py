@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
+from mcp.server.mcpserver.utilities.docstring_utils import parse_docstring
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.types import Annotations, Icon
 
@@ -59,10 +60,14 @@ class ResourceTemplate(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
+        # Parse docstring to extract summary and parameter descriptions
+        doc_summary, param_descriptions = parse_docstring(fn)
+
         # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
+            param_descriptions=param_descriptions,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
@@ -73,7 +78,7 @@ class ResourceTemplate(BaseModel):
             uri_template=uri_template,
             name=func_name,
             title=title,
-            description=description or fn.__doc__ or "",
+            description=description or doc_summary or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             icons=icons,
             annotations=annotations,
