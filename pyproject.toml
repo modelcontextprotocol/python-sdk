@@ -10,7 +10,7 @@ maintainers = [
     { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
     { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
     { name = "Max Isbey", email = "add-yourself@gmail.com" },
-    { name = "Felix Weinberger", email = "add-yourself@gmail.com" }
+    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" }
 ]
 keywords = ["git", "mcp", "llm", "automation"]
 license = { text = "MIT" }
