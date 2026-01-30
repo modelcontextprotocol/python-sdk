@@ -44,8 +44,56 @@ async with http_client:
     async with streamable_http_client(
         url="http://localhost:8000/mcp",
         http_client=http_client,
-    ) as (read_stream, write_stream, get_session_id):
+    ) as (read_stream, write_stream):
         ...
+```
+
+### `get_session_id` callback removed from `streamable_http_client`
+
+The `get_session_id` callback (third element of the returned tuple) has been removed from `streamable_http_client`. The function now returns a 2-tuple `(read_stream, write_stream)` instead of a 3-tuple.
+
+If you need to capture the session ID (e.g., for session resumption testing), you can use httpx event hooks to capture it from the response headers:
+
+**Before (v1):**
+
+```python
+from mcp.client.streamable_http import streamable_http_client
+
+async with streamable_http_client(url) as (read_stream, write_stream, get_session_id):
+    async with ClientSession(read_stream, write_stream) as session:
+        await session.initialize()
+        session_id = get_session_id()  # Get session ID via callback
+```
+
+**After (v2):**
+
+```python
+import httpx
+from mcp.client.streamable_http import streamable_http_client
+
+# Option 1: Simply ignore if you don't need the session ID
+async with streamable_http_client(url) as (read_stream, write_stream):
+    async with ClientSession(read_stream, write_stream) as session:
+        await session.initialize()
+
+# Option 2: Capture session ID via httpx event hooks if needed
+captured_session_ids: list[str] = []
+
+async def capture_session_id(response: httpx.Response) -> None:
+    session_id = response.headers.get("mcp-session-id")
+    if session_id:
+        captured_session_ids.append(session_id)
+
+http_client = httpx.AsyncClient(
+    event_hooks={"response": [capture_session_id]},
+    follow_redirects=True,
+)
+
+async with http_client:
+    async with streamable_http_client(url, http_client=http_client) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            session_id = captured_session_ids[0] if captured_session_ids else None
 ```
 
 ### `StreamableHTTPTransport` parameters removed
