@@ -123,7 +123,7 @@ executionEnvironments = [
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = ["README.md"]
+extend-exclude = ["README.md", "README.v2.md"]
 
 [tool.ruff.lint]
 select = [

@@ -80,4 +80,4 @@ jobs:
         run: uv sync --frozen --all-extras --python 3.10
 
       - name: Check README snippets are up to date
-        run: uv run --frozen scripts/update_readme_snippets.py --check
+        run: uv run --frozen scripts/update_readme_snippets.py --check --readme README.v2.md
