@@ -489,9 +489,10 @@ class StreamableHTTPTransport:
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")
 
+    # TODO(Marcelo): Check the TODO below, and cover this with tests if necessary.
     def get_session_id(self) -> str | None:
         """Get the current session ID."""
-        return self.session_id
+        return self.session_id  # pragma: no cover
 
 
 # TODO(Marcelo): I've dropped the `get_session_id` callback because it breaks the Transport protocol. Is that needed?

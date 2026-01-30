@@ -86,6 +86,6 @@ class InMemoryTransport:
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
     ) -> None:
         """Close the transport and stop the server."""
-        if self._cm is not None:
+        if self._cm is not None:  # pragma: no branch
             await self._cm.__aexit__(exc_type, exc_val, exc_tb)
             self._cm = None
