@@ -168,10 +168,7 @@ class Experimental:
             RuntimeError: If task support is not enabled or task_metadata is missing
 
         Example:
-            @server.call_tool()
-            async def handle_tool(name: str, args: dict):
-                ctx = server.request_context
-
+            async def handle_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
                 async def work(task: ServerTaskContext) -> CallToolResult:
                     result = await task.elicit(
                         message="Are you sure?",
