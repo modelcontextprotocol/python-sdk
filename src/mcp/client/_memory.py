@@ -21,19 +21,6 @@ class InMemoryTransport:
     This transport starts the server in a background task and provides
     streams for client-side communication. The server is automatically
     stopped when the context manager exits.
-
-    Example:
-        ```python
-        from mcp.client import Client, ClientSession
-        from mcp.server.mcpserver import MCPServer
-        from mcp.client.memory import InMemoryTransport
-
-        server = MCPServer("test")
-        async with InMemoryTransport(server) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                # Use the session...
-        ```
     """
 
     def __init__(self, server: Server[Any] | MCPServer, *, raise_exceptions: bool = False) -> None:
