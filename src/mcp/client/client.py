@@ -95,8 +95,8 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
-    _session: ClientSession | None = None
-    _exit_stack: AsyncExitStack | None = None
+    _session: ClientSession | None = field(init=False, default=None)
+    _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
 
     def __post_init__(self) -> None:
@@ -113,10 +113,7 @@ class Client:
             raise RuntimeError("Client is already entered; cannot reenter")
 
         async with AsyncExitStack() as exit_stack:
-            # Transports may return additional values (e.g., streamable_http_client returns a 3-tuple)
-            # We only need the first two elements (read_stream, write_stream)
-            streams = await exit_stack.enter_async_context(self._transport)
-            read_stream, write_stream = streams[0], streams[1]
+            read_stream, write_stream = await exit_stack.enter_async_context(self._transport)
 
             self._session = await exit_stack.enter_async_context(
                 ClientSession(
