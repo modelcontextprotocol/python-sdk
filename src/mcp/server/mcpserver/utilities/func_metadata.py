@@ -172,6 +172,7 @@ def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
     structured_output: bool | None = None,
+    param_descriptions: dict[str, str] | None = None,
 ) -> FuncMetadata:
     """Given a function, return metadata including a pydantic model representing its
     signature.
@@ -203,6 +204,10 @@ def func_metadata(
             - TypedDict - converted to a Pydantic model with same fields
             - Dataclasses and other annotated classes - converted to Pydantic models
             - Generic types (list, dict, Union, etc.) - wrapped in a model with a 'result' field
+        param_descriptions: Optional dict mapping parameter names to descriptions
+            extracted from the function's docstring. These are used as fallback
+            descriptions when a parameter does not already have a description
+            from a Field() annotation.
 
     Returns:
         A FuncMetadata object containing:
@@ -231,6 +236,13 @@ def func_metadata(
 
         if param.annotation is inspect.Parameter.empty:
             field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+
+        # Inject docstring parameter description as fallback, but only if the
+        # parameter doesn't already have a description from a Field() annotation.
+        if param_descriptions and param.name in param_descriptions:
+            if not _has_field_description(annotation, param.default):
+                field_kwargs["description"] = param_descriptions[param.name]
+
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
@@ -416,6 +428,25 @@ def _try_create_model_and_schema(
         return model, schema, wrap_output
 
     return None, None, False
+
+
+def _has_field_description(annotation: Any, default: Any) -> bool:
+    """Check if a parameter already has a description from a Field() annotation.
+
+    Checks both Annotated metadata (e.g., Annotated[int, Field(description="...")])
+    and default values (e.g., param: str = Field(description="...")).
+    """
+    # Check if the default value is a FieldInfo with a description
+    if isinstance(default, FieldInfo) and default.description is not None:
+        return True
+
+    # Check if the annotation is Annotated with a FieldInfo that has a description
+    if get_origin(annotation) is Annotated:
+        for arg in get_args(annotation)[1:]:
+            if isinstance(arg, FieldInfo) and arg.description is not None:
+                return True
+
+    return False
 
 
 _no_default = object()
