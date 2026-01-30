@@ -8,6 +8,9 @@ authors = [{ name = "Anthropic, PBC." }]
 maintainers = [
     { name = "David Soria Parra", email = "davidsp@anthropic.com" },
     { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
+    { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
+    { name = "Max Isbey", email = "maxisbey@anthropic.com" },
+    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" }
 ]
 keywords = ["git", "mcp", "llm", "automation"]
 license = { text = "MIT" }
