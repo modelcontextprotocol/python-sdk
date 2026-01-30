@@ -156,7 +156,7 @@ class ConformanceOAuthCallbackHandler:
 @register("initialize")
 async def run_initialize(server_url: str) -> None:
     """Connect, initialize, list tools, close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             logger.debug("Initialized successfully")
@@ -167,7 +167,7 @@ async def run_initialize(server_url: str) -> None:
 @register("tools_call")
 async def run_tools_call(server_url: str) -> None:
     """Connect, initialize, list tools, call add_numbers(a=5, b=3), close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             await session.list_tools()
@@ -178,7 +178,7 @@ async def run_tools_call(server_url: str) -> None:
 @register("sse-retry")
 async def run_sse_retry(server_url: str) -> None:
     """Connect, initialize, list tools, call test_reconnection, close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             await session.list_tools()
@@ -209,7 +209,7 @@ async def default_elicitation_callback(
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
     """Connect with elicitation callback that applies schema defaults."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(
             read_stream, write_stream, elicitation_callback=default_elicitation_callback
         ) as session:
@@ -296,7 +296,7 @@ async def run_auth_code_client(server_url: str) -> None:
 async def _run_auth_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
     """Common session logic for all OAuth flows."""
     client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
-    async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream):
         async with ClientSession(
             read_stream, write_stream, elicitation_callback=default_elicitation_callback
         ) as session:
