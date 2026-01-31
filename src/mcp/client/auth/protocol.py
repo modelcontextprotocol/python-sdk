@@ -5,7 +5,7 @@
 """
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
@@ -128,7 +128,8 @@ class ClientRegisterableProtocol(AuthProtocol):
         ...
 
 
-class DPoPEnabledProtocol(AuthProtocol):
+@runtime_checkable
+class DPoPEnabledProtocol(AuthProtocol, Protocol):
     """支持DPoP的协议扩展接口（阶段4实现）"""
 
     def supports_dpop(self) -> bool:

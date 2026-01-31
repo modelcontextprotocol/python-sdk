@@ -8,10 +8,12 @@ from typing import Any, Protocol
 
 from starlette.requests import Request
 
+from mcp.server.auth.dpop import DPoPProofVerifier, DPoPVerificationError, extract_dpop_proof
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
 BEARER_PREFIX = "Bearer "
-APIKEY_HEADER = "x-api-key" # if found, use it; if not, use Authorization: Bearer <key>
+DPOP_PREFIX = "DPoP "
+APIKEY_HEADER = "x-api-key"  # if found, use it; if not, use Authorization: Bearer <key>
 
 
 class CredentialVerifier(Protocol):
@@ -37,9 +39,10 @@ class CredentialVerifier(Protocol):
 
 class OAuthTokenVerifier:
     """
-    OAuth Bearer 凭证验证器。
+    OAuth Bearer/DPoP 凭证验证器。
 
-    封装现有 TokenVerifier，仅做 Bearer 校验；DPoP 参数占位，阶段4 再实现。
+    支持 Bearer 和 DPoP 两种 token 类型。当提供 dpop_verifier 时，会验证 DPoP proof
+    的签名、htm/htu/iat/ath 等声明。注：cnf.jkt 绑定检查暂未实现（需 AccessToken 扩展）。
     """
 
     def __init__(self, token_verifier: TokenVerifier) -> None:
@@ -50,16 +53,53 @@ class OAuthTokenVerifier:
         request: Request,
         dpop_verifier: Any = None,
     ) -> AccessToken | None:
-        auth_header = next(
-            (request.headers.get(key) for key in request.headers if key.lower() == "authorization"),
-            None,
-        )
-        if not auth_header or not auth_header.lower().startswith(BEARER_PREFIX.lower()):
+        auth_header = _get_header_ignore_case(request, "authorization")
+        if not auth_header:
             return None
-        token = auth_header[len(BEARER_PREFIX) :].strip()
+
+        # Determine token type and extract token
+        token: str | None = None
+        is_dpop_bound = False
+
+        if auth_header.lower().startswith(DPOP_PREFIX.lower()):
+            # DPoP-bound access token (Authorization: DPoP <token>)
+            token = auth_header[len(DPOP_PREFIX):].strip()
+            is_dpop_bound = True
+        elif auth_header.lower().startswith(BEARER_PREFIX.lower()):
+            token = auth_header[len(BEARER_PREFIX):].strip()
+
         if not token:
             return None
-        return await self._token_verifier.verify_token(token)
+
+        # Verify the token itself
+        access_token = await self._token_verifier.verify_token(token)
+        if access_token is None:
+            return None
+
+        # DPoP verification if verifier provided and DPoP header present
+        if dpop_verifier is not None and isinstance(dpop_verifier, DPoPProofVerifier):
+            headers_dict = dict(request.headers)
+            dpop_proof = extract_dpop_proof(headers_dict)
+
+            if is_dpop_bound and not dpop_proof:
+                # DPoP-bound token requires DPoP proof
+                return None
+
+            if dpop_proof:
+                try:
+                    http_uri = str(request.url)
+                    http_method = request.method
+
+                    await dpop_verifier.verify(
+                        dpop_proof,
+                        http_method,
+                        http_uri,
+                        access_token=token,
+                    )
+                except DPoPVerificationError:
+                    return None
+
+        return access_token
 
 
 def _get_header_ignore_case(request: Request, name: str) -> str | None:

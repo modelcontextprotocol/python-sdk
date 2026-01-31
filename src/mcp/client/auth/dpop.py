@@ -17,9 +17,11 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from mcp.client.auth.protocol import DPoPProofGenerator, DPoPStorage
 
+DPoPAlgorithm = Literal["ES256", "RS256"]
+
 _BITS_PER_BYTE = 8
 # NIST SP 800-57 recommended minimum for RSA keys (valid through 2030+)
-_RSA_KEY_SIZE_DEFAULT = 2048
+RSA_KEY_SIZE_DEFAULT = 2048
 # RFC 8017 / cryptography library recommended value
 _RSA_PUBLIC_EXPONENT = 65537
 
@@ -37,7 +39,7 @@ class DPoPKeyPair:
     def __init__(
         self,
         private_key: EllipticCurvePrivateKey | RSAPrivateKey,
-        algorithm: Literal["ES256", "RS256"] = "ES256",
+        algorithm: DPoPAlgorithm = "ES256",
     ) -> None:
         self._private_key: EllipticCurvePrivateKey | RSAPrivateKey = private_key
         self._algorithm = algorithm
@@ -54,9 +56,9 @@ class DPoPKeyPair:
     @classmethod
     def generate(
         cls,
-        algorithm: Literal["ES256", "RS256"] = "ES256",
+        algorithm: DPoPAlgorithm = "ES256",
         *,
-        rsa_key_size: int = _RSA_KEY_SIZE_DEFAULT,
+        rsa_key_size: int = RSA_KEY_SIZE_DEFAULT,
     ) -> "DPoPKeyPair":
         """Generate a new DPoP key pair.
 
@@ -81,9 +83,9 @@ class DPoPKeyPair:
         if algorithm == "ES256":
             key: EllipticCurvePrivateKey | RSAPrivateKey = ec_generate(SECP256R1())
         elif algorithm == "RS256":
-            if rsa_key_size < _RSA_KEY_SIZE_DEFAULT:
+            if rsa_key_size < RSA_KEY_SIZE_DEFAULT:
                 raise ValueError(
-                    f"RSA key size must be at least {_RSA_KEY_SIZE_DEFAULT} bits, got {rsa_key_size}"
+                    f"RSA key size must be at least {RSA_KEY_SIZE_DEFAULT} bits, got {rsa_key_size}"
                 )
             key = rsa_generate(public_exponent=_RSA_PUBLIC_EXPONENT, key_size=rsa_key_size)
         else:

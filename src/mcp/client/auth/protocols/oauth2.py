@@ -10,18 +10,24 @@ discover_metadata 在提供 http_client 时执行 RFC 8414 授权服务器元数
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
+from pydantic import AnyHttpUrl
 
+from mcp.client.auth.dpop import (
+    RSA_KEY_SIZE_DEFAULT,
+    DPoPAlgorithm,
+    DPoPKeyPair,
+    DPoPProofGeneratorImpl,
+)
 from mcp.client.auth.oauth2 import OAuthClientProvider
-from mcp.client.auth.protocol import AuthContext
+from mcp.client.auth.protocol import AuthContext, DPoPProofGenerator
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     create_oauth_metadata_request,
     handle_auth_metadata_response,
 )
-from pydantic import AnyHttpUrl
-
 from mcp.shared.auth import (
     AuthCredentials,
     AuthProtocolMetadata,
@@ -84,12 +90,12 @@ class OAuth2Protocol:
     """
     OAuth 2.0 协议薄适配层。
 
-    实现 AuthProtocol，authenticate 委托 OAuthClientProvider.run_authentication，
-    不重复实现 OAuth 流程。
+    实现 AuthProtocol 和 DPoPEnabledProtocol，authenticate 委托 OAuthClientProvider.run_authentication，
+    不重复实现 OAuth 流程。DPoP 支持通过 dpop_enabled 配置启用。
     """
 
     protocol_id: str = "oauth2"
-    protocol_version: str = "1.0"
+    protocol_version: str = "2.0"
 
     def __init__(
         self,
@@ -98,12 +104,20 @@ class OAuth2Protocol:
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
         client_metadata_url: str | None = None,
+        dpop_enabled: bool = False,
+        dpop_algorithm: DPoPAlgorithm = "ES256",
+        dpop_rsa_key_size: int = RSA_KEY_SIZE_DEFAULT,
     ):
         self._client_metadata = client_metadata
         self._redirect_handler = redirect_handler
         self._callback_handler = callback_handler
         self._timeout = timeout
         self._client_metadata_url = client_metadata_url
+        self._dpop_enabled = dpop_enabled
+        self._dpop_algorithm: DPoPAlgorithm = dpop_algorithm
+        self._dpop_rsa_key_size = dpop_rsa_key_size
+        self._dpop_key_pair: DPoPKeyPair | None = None
+        self._dpop_generator: DPoPProofGeneratorImpl | None = None
 
     async def authenticate(self, context: AuthContext) -> AuthCredentials:
         """从 AuthContext 组装 OAuth 上下文，委托 OAuthClientProvider.run_authentication，返回 OAuthCredentials。"""
@@ -194,4 +208,30 @@ class OAuth2Protocol:
                     return _oauth_metadata_to_protocol_metadata(asm)
             except Exception as e:
                 logger.debug("OAuth AS metadata discovery failed for %s: %s", url, e)
+        return None
+
+    # DPoPEnabledProtocol implementation
+
+    def supports_dpop(self) -> bool:
+        """Check if DPoP is enabled for this protocol instance."""
+        return self._dpop_enabled
+
+    def get_dpop_proof_generator(self) -> DPoPProofGenerator | None:
+        """Get the DPoP proof generator if DPoP is initialized."""
+        return self._dpop_generator
+
+    async def initialize_dpop(self) -> None:
+        """Initialize DPoP by generating a key pair and creating the proof generator."""
+        if not self._dpop_enabled:
+            return
+        if self._dpop_key_pair is None:
+            self._dpop_key_pair = DPoPKeyPair.generate(
+                self._dpop_algorithm, rsa_key_size=self._dpop_rsa_key_size
+            )
+            self._dpop_generator = DPoPProofGeneratorImpl(self._dpop_key_pair)
+
+    def get_dpop_public_key_jwk(self) -> dict[str, Any] | None:
+        """Get the DPoP public key JWK for token binding (cnf.jkt)."""
+        if self._dpop_generator is not None:
+            return self._dpop_generator.get_public_key_jwk()
         return None

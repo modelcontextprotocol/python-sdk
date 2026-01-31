@@ -12,7 +12,7 @@ from typing import Any, Protocol
 import anyio
 import httpx
 
-from mcp.client.auth.protocol import AuthContext, AuthProtocol
+from mcp.client.auth.protocol import AuthContext, AuthProtocol, DPoPEnabledProtocol
 from mcp.client.auth.registry import AuthProtocolRegistry
 from mcp.client.auth.utils import (
     build_protected_resource_metadata_discovery_urls,
@@ -149,11 +149,36 @@ class MultiProtocolAuthProvider(httpx.Auth):
             return False
         return protocol.validate_credentials(credentials)
 
+    async def _ensure_dpop_initialized(self, credentials: AuthCredentials) -> None:
+        """Ensure DPoP is initialized for the protocol if enabled."""
+        if not self.dpop_enabled:
+            return
+        protocol = self._get_protocol(credentials.protocol_id)
+        if protocol is not None and isinstance(protocol, DPoPEnabledProtocol):
+            if protocol.supports_dpop():
+                await protocol.initialize_dpop()
+
     def _prepare_request(self, request: httpx.Request, credentials: AuthCredentials) -> None:
-        """为请求添加协议指定的认证信息（仅协议 prepare_request，不含 DPoP）。"""
+        """为请求添加协议指定的认证信息，包括 DPoP proof（如启用）。"""
         protocol = self._get_protocol(credentials.protocol_id)
         if protocol is not None:
             protocol.prepare_request(request, credentials)
+
+            # Generate and attach DPoP proof if enabled and protocol supports it
+            if self.dpop_enabled and isinstance(protocol, DPoPEnabledProtocol):
+                if protocol.supports_dpop():
+                    generator = protocol.get_dpop_proof_generator()
+                    if generator is not None:
+                        # Get access token for ath claim binding
+                        access_token: str | None = None
+                        if isinstance(credentials, OAuthCredentials):
+                            access_token = credentials.access_token
+                        proof = generator.generate_proof(
+                            str(request.method),
+                            str(request.url),
+                            credential=access_token,
+                        )
+                        request.headers["DPoP"] = proof
 
     async def _fetch_prm(
         self, resource_metadata_url: str | None, server_url: str
@@ -271,6 +296,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
                 # 无有效凭证时直接发送请求，依赖 401 响应后再做发现与认证（见下方 401 处理）
                 pass
             else:
+                await self._ensure_dpop_initialized(credentials)
                 self._prepare_request(request, credentials)
 
         response = yield request
@@ -280,6 +306,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
                 await self._handle_401_response(response, request)
                 credentials = await self._get_credentials()
                 if credentials and self._is_credentials_valid(credentials):
+                    await self._ensure_dpop_initialized(credentials)
                     self._prepare_request(request, credentials)
                     response = yield request
         elif response.status_code == 403:

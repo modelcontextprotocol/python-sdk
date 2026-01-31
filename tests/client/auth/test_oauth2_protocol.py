@@ -38,7 +38,7 @@ def oauth2_protocol(client_metadata: OAuthClientMetadata) -> OAuth2Protocol:
 
 def test_oauth2_protocol_id_and_version(oauth2_protocol: OAuth2Protocol) -> None:
     assert oauth2_protocol.protocol_id == "oauth2"
-    assert oauth2_protocol.protocol_version == "1.0"
+    assert oauth2_protocol.protocol_version == "2.0"
 
 
 def test_prepare_request_sets_bearer_header(oauth2_protocol: OAuth2Protocol) -> None:
