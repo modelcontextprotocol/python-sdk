@@ -52,6 +52,7 @@ class ResourceServerSettings(BaseSettings):
     api_key_valid_keys: str = "demo-api-key-12345"
     default_protocol: str = "oauth2"
     protocol_preferences: str = "oauth2:1,api_key:2,mutual_tls:3"
+    dpop_enabled: bool = False
 
 
 def _protocol_metadata_list(settings: ResourceServerSettings) -> list[AuthProtocolMetadata]:
@@ -92,10 +93,13 @@ def create_multiprotocol_resource_server(settings: ResourceServerSettings) -> St
         validate_resource=settings.oauth_strict,
     )
     api_key_keys = {k.strip() for k in settings.api_key_valid_keys.split(",") if k.strip()}
-    backend = build_multiprotocol_backend(
-        oauth_verifier, api_key_keys, api_key_scopes=[settings.mcp_scope]
+    backend, dpop_verifier = build_multiprotocol_backend(
+        oauth_verifier,
+        api_key_keys,
+        api_key_scopes=[settings.mcp_scope],
+        dpop_enabled=settings.dpop_enabled,
     )
-    adapter = MultiProtocolAuthBackendAdapter(backend)
+    adapter = MultiProtocolAuthBackendAdapter(backend, dpop_verifier=dpop_verifier)
 
     fastmcp = FastMCP(
         name="MCP Resource Server (multiprotocol)",
@@ -201,12 +205,14 @@ def create_multiprotocol_resource_server(settings: ResourceServerSettings) -> St
 )
 @click.option("--oauth-strict", is_flag=True, help="Enable RFC 8707 resource validation")
 @click.option("--api-keys", default="demo-api-key-12345", help="Comma-separated valid API keys")
+@click.option("--dpop-enabled", is_flag=True, help="Enable DPoP proof verification (RFC 9449)")
 def main(
     port: int,
     auth_server: str,
     transport: Literal["sse", "streamable-http"],
     oauth_strict: bool,
     api_keys: str,
+    dpop_enabled: bool,
 ) -> int:
     """Run the multi-protocol MCP Resource Server."""
     logging.basicConfig(level=logging.INFO)
@@ -221,6 +227,7 @@ def main(
             auth_server_introspection_endpoint=f"{auth_server}/introspect",
             oauth_strict=oauth_strict,
             api_key_valid_keys=api_keys,
+            dpop_enabled=dpop_enabled,
         )
     except ValueError as e:
         logger.error("Configuration error: %s", e)
@@ -229,6 +236,8 @@ def main(
     app = create_multiprotocol_resource_server(settings)
     logger.info("Multi-protocol RS running on %s", settings.server_url)
     logger.info("Auth: OAuth (introspection), API Key (X-API-Key or Bearer <key>), mTLS (placeholder)")
+    if dpop_enabled:
+        logger.info("DPoP: enabled (RFC 9449)")
     uvicorn.run(app, host=settings.host, port=settings.port)
     return 0
 
