@@ -335,12 +335,16 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception as e:
-            logger.debug(f"SSE stream ended: {e}")  # pragma: no cover
+            logger.debug(f"SSE stream ended: {e}")
 
         # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:
+            # No event ID received before disconnect - cannot reconnect,
+            # send error to unblock the client
+            await self._send_disconnect_error(ctx)
 
     async def _handle_reconnection(
         self,
@@ -353,6 +357,7 @@ class StreamableHTTPTransport:
         # Bail if max retries exceeded
         if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+            await self._send_disconnect_error(ctx)
             return
 
         # Always wait - use server value or default
@@ -417,6 +422,17 @@ class StreamableHTTPTransport:
         )
         session_message = SessionMessage(jsonrpc_error)
         await read_stream_writer.send(session_message)
+
+    async def _send_disconnect_error(self, ctx: RequestContext) -> None:
+        """Send a disconnect error to unblock the client waiting on the read stream."""
+        if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
+            request_id = ctx.session_message.message.id
+            jsonrpc_error = JSONRPCError(
+                jsonrpc="2.0",
+                id=request_id,
+                error=ErrorData(code=-32000, message="SSE stream disconnected before receiving a response"),
+            )
+            await ctx.read_stream_writer.send(SessionMessage(jsonrpc_error))
 
     async def post_writer(
         self,
