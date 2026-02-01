@@ -2,6 +2,8 @@
 
 > 基于章节12.5（与OAuth的区别）和章节13（现有代码改造点清单），结合DPoP抽象设计，制定的完整改造计划
 
+**相关文档**：`docs/authorization-multiprotocol.md`（多协议设计与用法）、`docs/dpop-nonce-implementation-plan.md`（DPoP nonce 实现方案）、`mcp/client/auth/multi-protocol-design.md`（顶层设计）
+
 ## 一、改造目标
 
 ### 1.1 核心目标
@@ -277,7 +279,7 @@ DPoP作为独立的通用组件，协议可以选择性使用：
 **优先级**: 🟡 中
 
 **改造内容**:
-1. **新增统一能力发现端点支持**
+1. **新增统一能力发现端点支持**（发现顺序取舍见 **十一、11.4**）
    ```python
    async def discover_authorization_servers(
        resource_url: str,
@@ -427,7 +429,7 @@ DPoP作为独立的通用组件，协议可以选择性使用：
                # 4. 发送请求
                response = yield request
                
-               # 5. 处理401/403响应
+               # 5. 处理401/403响应（OAuth 分支通过 oauth_401_flow_generator 驱动，取舍见十一、11.1）
                if response.status_code == 401:
                    await self._handle_401_response(response, request)
                elif response.status_code == 403:
@@ -437,6 +439,7 @@ DPoP作为独立的通用组件，协议可以选择性使用：
 2. **OAuthClientProvider 保持为 OAuth 逻辑唯一实现（最大程度复用）**
    - **不**将 OAuth 逻辑迁出到 OAuth2Protocol；新增 `run_authentication(http_client, ...)` 供多协议路径调用
    - 保持现有 API 不变（向后兼容）；OAuth2Protocol 为薄适配层，内部委托 `OAuthClientProvider.run_authentication`
+   - 取舍原因见 **十一、设计取舍与方案说明 11.1**
 
 3. **协议上下文扩展**
    ```python
@@ -528,6 +531,8 @@ DPoP作为独立的通用组件，协议可以选择性使用：
    ```
 
 #### 3.2.7 API Key 认证方案约定（方案 A）
+
+**取舍**：采用 X-API-Key + 可选 Bearer，不解析非标准 `ApiKey` scheme。取舍原因见 **十一、11.2**。
 
 **约定**（与前述 3.2.5 协议特定的实现示例一致）：
 - **标准兼容**：不解析非标准 `Authorization: ApiKey <key>`（`ApiKey` 非 IANA 注册 scheme）；API Key 使用标准 `Bearer` 或专用 header。
@@ -1043,6 +1048,8 @@ DPoP作为独立的通用组件，协议可以选择性使用：
     - 依赖：协议抽象接口
     - 注意：这是可选功能，可以跳过
 
+**DPoP Nonce**：阶段4 完成后可按 `docs/dpop-nonce-implementation-plan.md` 实现 RS/Client/AS 侧 nonce 支持；与当前 DPoP 基础实现正交。
+
 ### 4.4 依赖关系图
 
 ```mermaid
@@ -1301,6 +1308,8 @@ graph TD
 5. **渐进式迁移**：可以逐步启用新功能
 6. **最小化接口**：基础接口只包含必需方法，可选功能通过扩展接口实现
 
+**设计取舍**：OAuth 薄适配层、Generator 驱动 401 流程、API Key 方案 A、协议发现顺序、DPoP nonce 风险化解等详见 **十一、设计取舍与方案说明**。
+
 **预计时间**：
 - 核心功能：7周（阶段1-3）
 - 完整功能（含DPoP）：9周（阶段1-5，阶段4可选）
@@ -1310,3 +1319,90 @@ graph TD
 - 熟悉Python异步编程
 - 熟悉HTTP协议和RESTful API设计
 - 熟悉测试驱动开发
+
+---
+
+## 十一、设计取舍与方案说明
+
+本节汇总历史讨论中的关键设计决策，说明多方案并存时的取舍原因，便于后续实现与评审时对齐。
+
+### 11.1 OAuth 逻辑复用与 401 流程驱动
+
+多协议下的 OAuth 集成涉及两个相关联的取舍：**逻辑归属**（薄适配层 vs 逻辑迁移）与 **401 流程驱动方式**（Generator vs 新建 HTTP 客户端）。
+
+**逻辑归属 — 可选方案**：
+- **方案 A**：将 OAuth 逻辑迁出到 `OAuth2Protocol`，`OAuthClientProvider` 仅作为遗留入口
+- **方案 B**：`OAuth2Protocol` 为薄适配层，内部委托 `OAuthClientProvider.run_authentication`，OAuth 逻辑保持在 `oauth2.py`
+
+**401 流程驱动 — 可选方案**：
+- **方案 A**：在 401 处理分支内新建 `httpx.AsyncClient`，独立发送 OAuth 相关请求
+- **方案 B**：使用共享的 `oauth_401_flow_generator`，由 `MultiProtocolAuthProvider` 驱动，所有 OAuth 步骤通过 `yield` 请求交由同一 `http_client` 发送
+
+**取舍**：二者均采用 **方案 B**（薄适配层 + Generator 驱动）。
+
+**原因**：
+1. 最大程度复用现有 OAuth 实现，降低迁移风险与回归面；`OAuthClientProvider` 仍为 OAuth 逻辑唯一实现，避免双轨维护
+2. 薄适配层通过 `run_authentication(http_client, ...)` 调用，自然要求由调用方传入 `http_client`；Generator 模式使 `MultiProtocolAuthProvider` 作为驱动方，用同一 `http_client` 发送所有 OAuth 请求，二者设计上互锁
+3. 避免在 httpx 认证流程中创建新客户端导致的锁死锁风险；请求统一由 `httpx.Client(auth=provider)` 使用的同一 `http_client` 发送，行为可预测
+4. OAuth 流程（AS 发现、注册、授权、Token 交换）全部由 generator 产出请求，驱动方负责发送并回传响应；现有 `OAuthClientProvider` 用户无需改动
+
+### 11.2 API Key 认证方案：标准 scheme vs 自定义 scheme
+
+**可选方案**：
+- **方案 A**：使用 `X-API-Key` + 可选 `Authorization: Bearer <key>`，不解析非标准 `Authorization: ApiKey <key>`
+- **方案 B**：使用自定义 `Authorization: ApiKey <key>` scheme
+
+**取舍**：采用 **方案 A**。
+
+**原因**：
+1. `ApiKey` 非 IANA 注册的 HTTP Authentication scheme，方案 B 不符合 HTTP 规范
+2. RFC 6750 规定 Bearer token 为 opaque string，使用 `Bearer` 承载 API Key 语义合理
+3. 不在 token 内加前缀（如 `apikey:xxx`）；区分由验证器顺序与 `valid_keys` 完成，符合 Bearer 不解析 token 内容的约定
+
+### 11.3 Mutual TLS 与 IANA "Mutual" scheme
+
+**说明**：IANA 注册的 "Mutual" scheme（RFC 8120）表示基于密码的双向认证，与基于客户端证书的 Mutual TLS（mTLS）不同。
+
+**取舍**：mTLS 在 TLS 握手层处理，不解析 HTTP `Authorization` 头；`Mutual TLS` 验证器从 TLS 连接/握手上下文读取客户端证书并校验。
+
+### 11.4 协议发现顺序：统一端点 vs PRM 优先
+
+**取舍**：客户端优先请求 `/.well-known/authorization_servers`（统一发现）；若 404 或空，回退到 PRM 的 `mcp_auth_protocols`。
+
+**原因**：统一端点便于多协议声明与扩展；PRM 回退保证仅支持 RFC 9728 的 RS 仍可被多协议客户端发现。
+
+### 11.5 授权端点归属：AS 与 RS 的 URL 树
+
+| 端点 | 归属 | 用途 |
+|------|------|------|
+| `/.well-known/oauth-authorization-server` | AS | OAuth 元数据（RFC 8414） |
+| `/authorize`, `/token`, `/register`, `/introspect` | AS | OAuth 流程 |
+| `/.well-known/oauth-protected-resource{path}` | RS | PRM（RFC 9728） |
+| `/.well-known/authorization_servers` | RS | 统一协议发现（MCP 扩展） |
+
+**说明**：AS 与 RS 可能部署在不同主机（如 AS 9000、RS 8002）；客户端先向 RS 获取 PRM/协议列表，再根据 `metadata_url` 向 AS 获取 OAuth 元数据。
+
+### 11.6 TokenStorage 双契约：OAuthToken vs AuthCredentials
+
+**取舍**：`TokenStorage` 支持 `get_tokens() → AuthCredentials | OAuthToken | None` 与 `set_tokens(AuthCredentials | OAuthToken)`；`MultiProtocolAuthProvider` 内部负责 OAuthToken 与 OAuthCredentials 的转换。
+
+**原因**：现有 OAuth 存储只处理 `OAuthToken`；多协议存储需处理 `APIKeyCredentials` 等。双契约 + 内部转换使 OAuth 存储无需改造即可工作。
+
+### 11.7 DPoP Nonce 实现：风险与方案
+
+DPoP nonce 详细方案见 `docs/dpop-nonce-implementation-plan.md`。关键取舍如下：
+
+| 风险 | 解决方案 |
+|------|----------|
+| **Token 请求 DPoP 缺失** | 单独 TODO 6a 实现 Token 请求 DPoP 与 400 `use_dpop_nonce` 重试，作为 AS nonce 前置依赖 |
+| **AS 改造范围过大** | 拆分为 TODO 6b（SDK TokenHandler DPoP+nonce）与 TODO 6c（simple-auth 示例 DPoP-bound token），各 ≤300 行 |
+
+**分阶段**：先 RS + Client nonce（TODO 1–5），后 AS nonce（TODO 6a–6c），降低单次改动量。
+
+### 11.8 测试 skipped 说明
+
+全量回归中约有 95 个 skipped：
+- **约 90+** 来自 `tests/experimental/tasks/test_spec_compliance.py`：占位测试，内部 `pytest.skip("TODO")`，与多协议改造无关
+- **其余**：平台条件（如 Windows 专用、无 `tee` 命令）、显式跳过（如 SSE timeout 相关 bug 测试）
+
+改造过程中不修改上述 skip 逻辑。
