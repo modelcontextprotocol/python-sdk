@@ -149,10 +149,15 @@ async def test_discover_metadata_from_prm_returns_oauth2_entry(
 
 
 @pytest.mark.anyio
-async def test_authenticate_requires_http_client(
+async def test_authenticate_creates_own_http_client(
     oauth2_protocol: OAuth2Protocol,
     client_metadata: OAuthClientMetadata,
 ) -> None:
+    """OAuth2Protocol.authenticate creates its own httpx client, so context.http_client can be None.
+    
+    This tests that the method doesn't crash when http_client is None.
+    It will still fail during OAuth discovery (no server running), but that's expected.
+    """
     context = AuthContext(
         server_url="https://example.com",
         storage=None,
@@ -165,7 +170,10 @@ async def test_authenticate_requires_http_client(
         protected_resource_metadata=None,
         scope_from_www_auth=None,
     )
-    with pytest.raises(ValueError, match="context.http_client"):
+    # Now authenticate creates its own client, so it won't raise ValueError for http_client=None
+    # It will fail during OAuth discovery since there's no server, which is expected
+    from mcp.client.auth.exceptions import OAuthFlowError
+    with pytest.raises(OAuthFlowError, match="Could not discover"):
         await oauth2_protocol.authenticate(context)
 
 

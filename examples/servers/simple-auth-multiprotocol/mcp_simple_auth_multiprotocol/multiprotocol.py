@@ -1,5 +1,6 @@
 """Multi-protocol auth: adapter for Starlette and Mutual TLS placeholder verifier."""
 
+import logging
 import time
 from typing import Any, cast
 
@@ -15,6 +16,8 @@ from mcp.server.auth.verifiers import (
     MultiProtocolAuthBackend,
     OAuthTokenVerifier,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class MutualTLSVerifier:
@@ -84,11 +87,37 @@ class MultiProtocolAuthBackendAdapter(AuthenticationBackend):
         self._dpop_verifier = dpop_verifier
 
     async def authenticate(self, conn: HTTPConnection) -> tuple[AuthCredentials, AuthenticatedUser] | None:
-        result = await self._backend.verify(cast(Request, conn), dpop_verifier=self._dpop_verifier)
+        request = cast(Request, conn)
+
+        # Log DPoP status
+        dpop_header = request.headers.get("dpop")
+        if self._dpop_verifier is not None:
+            if dpop_header:
+                logger.info("DPoP proof present, verification enabled")
+            else:
+                logger.debug("DPoP verification enabled but no DPoP header in request")
+        elif dpop_header:
+            logger.debug("DPoP header present but verification not enabled (ignoring)")
+
+        result = await self._backend.verify(request, dpop_verifier=self._dpop_verifier)
+
         if result is None:
+            if dpop_header and self._dpop_verifier is not None:
+                logger.warning("Authentication failed (DPoP proof may be invalid)")
+            else:
+                logger.debug("Authentication failed (no valid credentials)")
             return None
+
         if result.expires_at is not None and result.expires_at < int(time.time()):
+            logger.warning("Token expired for client_id=%s", result.client_id)
             return None
+
+        # Log successful authentication
+        if dpop_header and self._dpop_verifier is not None:
+            logger.info("Authentication successful with DPoP (client_id=%s)", result.client_id)
+        else:
+            logger.info("Authentication successful (client_id=%s)", result.client_id)
+
         return (
             AuthCredentials(result.scopes or []),
             AuthenticatedUser(result),

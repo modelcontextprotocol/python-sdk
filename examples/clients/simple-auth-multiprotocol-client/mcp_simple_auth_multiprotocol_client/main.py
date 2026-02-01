@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Multi-protocol MCP client: API Key + Mutual TLS (placeholder)."""
+"""Multi-protocol MCP client: OAuth (with optional DPoP), API Key, Mutual TLS (placeholder)."""
 
 import asyncio
 import os
+import threading
+import time
+import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from mcp.client.auth.multi_protocol import MultiProtocolAuthProvider, TokenStorage
 from mcp.client.auth.protocol import AuthContext, AuthProtocol
+from mcp.client.auth.protocols.oauth2 import OAuth2Protocol
 from mcp.client.auth.registry import AuthProtocolRegistry
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -15,22 +21,109 @@ from mcp.shared.auth import (
     APIKeyCredentials,
     AuthCredentials,
     AuthProtocolMetadata,
+    OAuthClientMetadata,
     OAuthToken,
     ProtectedResourceMetadata,
 )
+from pydantic import AnyHttpUrl
 
 
 class InMemoryStorage(TokenStorage):
-    """In-memory credential storage."""
+    """In-memory credential storage supporting both AuthCredentials and OAuthToken.
+    
+    Also implements get_client_info/set_client_info for OAuth client registration storage.
+    """
 
     def __init__(self) -> None:
-        self._creds: AuthCredentials | None = None
+        self._creds: AuthCredentials | OAuthToken | None = None
+        self._client_info: Any = None
 
     async def get_tokens(self) -> AuthCredentials | OAuthToken | None:
         return self._creds
 
     async def set_tokens(self, tokens: AuthCredentials | OAuthToken) -> None:
-        self._creds = tokens if isinstance(tokens, AuthCredentials) else None
+        self._creds = tokens
+
+    async def get_client_info(self) -> Any:
+        """Get stored OAuth client information."""
+        return self._client_info
+
+    async def set_client_info(self, client_info: Any) -> None:
+        """Store OAuth client information."""
+        self._client_info = client_info
+
+
+class CallbackHandler(BaseHTTPRequestHandler):
+    """HTTP handler to capture OAuth callback."""
+
+    def __init__(self, request: Any, client_address: Any, server: Any, callback_data: dict[str, Any]):
+        self.callback_data = callback_data
+        super().__init__(request, client_address, server)
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        query_params = parse_qs(parsed.query)
+        if "code" in query_params:
+            self.callback_data["authorization_code"] = query_params["code"][0]
+            self.callback_data["state"] = query_params.get("state", [None])[0]
+            self.send_response(200)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<h1>Authorization Successful!</h1><p>You can close this window.</p>")
+        elif "error" in query_params:
+            self.callback_data["error"] = query_params["error"][0]
+            self.send_response(400)
+            self.send_header("Content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(f"<h1>Error</h1><p>{query_params['error'][0]}</p>".encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass  # Suppress logging
+
+
+class CallbackServer:
+    """Server to handle OAuth callbacks."""
+
+    def __init__(self, port: int = 3031):
+        self.port = port
+        self.server: HTTPServer | None = None
+        self.thread: threading.Thread | None = None
+        self.callback_data: dict[str, Any] = {"authorization_code": None, "state": None, "error": None}
+
+    def start(self) -> None:
+        callback_data = self.callback_data
+
+        class DataHandler(CallbackHandler):
+            def __init__(self, request: Any, client_address: Any, server: Any):
+                super().__init__(request, client_address, server, callback_data)
+
+        self.server = HTTPServer(("localhost", self.port), DataHandler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        print(f"Callback server started on http://localhost:{self.port}")
+
+    def stop(self) -> None:
+        if self.server:
+            self.server.shutdown()
+            self.server.server_close()
+        if self.thread:
+            self.thread.join(timeout=1)
+
+    def wait_for_callback(self, timeout: int = 300) -> str:
+        start = time.time()
+        while time.time() - start < timeout:
+            if self.callback_data["authorization_code"]:
+                return self.callback_data["authorization_code"]
+            if self.callback_data["error"]:
+                raise RuntimeError(f"OAuth error: {self.callback_data['error']}")
+            time.sleep(0.1)
+        raise RuntimeError("Timeout waiting for OAuth callback")
+
+    def get_state(self) -> str | None:
+        return self.callback_data["state"]
 
 
 class ApiKeyProtocol:
@@ -86,36 +179,87 @@ class MutualTlsPlaceholderProtocol:
 
 
 def _register_protocols() -> None:
+    AuthProtocolRegistry.register("oauth2", OAuth2Protocol)
     AuthProtocolRegistry.register("api_key", ApiKeyProtocol)
     AuthProtocolRegistry.register("mutual_tls", MutualTlsPlaceholderProtocol)
 
 
 class SimpleAuthMultiprotocolClient:
-    """MCP client with multi-protocol auth (API Key + mTLS placeholder)."""
+    """MCP client with multi-protocol auth (OAuth + DPoP, API Key, mTLS placeholder)."""
 
-    def __init__(self, server_url: str) -> None:
+    def __init__(self, server_url: str, use_oauth: bool = False, dpop_enabled: bool = False) -> None:
         self.server_url = server_url
+        self.use_oauth = use_oauth
+        self.dpop_enabled = dpop_enabled
         self.session: ClientSession | None = None
 
     async def connect(self) -> None:
         _register_protocols()
-        api_key = os.getenv("MCP_API_KEY", "demo-api-key-12345")
         storage = InMemoryStorage()
-        protocols: list[AuthProtocol] = [
-            ApiKeyProtocol(api_key=api_key),
-            MutualTlsPlaceholderProtocol(),
-        ]
-        auth = MultiProtocolAuthProvider(
-            server_url=self.server_url.rstrip("/").replace("/mcp", ""),
-            storage=storage,
-            protocols=protocols,
-        )
-        async with httpx.AsyncClient(auth=auth, follow_redirects=True) as http_client:
-            async with streamable_http_client(
-                url=self.server_url,
-                http_client=http_client,
-            ) as (read_stream, write_stream, get_session_id):
-                await self._run_session(read_stream, write_stream, get_session_id)
+        protocols: list[AuthProtocol] = []
+
+        callback_server: CallbackServer | None = None
+
+        if self.use_oauth:
+            # Setup OAuth with optional DPoP
+            callback_server = CallbackServer(port=3031)
+            callback_server.start()
+
+            async def callback_handler() -> tuple[str, str | None]:
+                print("Waiting for OAuth authorization...")
+                try:
+                    code = callback_server.wait_for_callback(timeout=300)
+                    return code, callback_server.get_state()
+                finally:
+                    callback_server.stop()
+
+            async def redirect_handler(url: str) -> None:
+                print(f"Opening browser for authorization: {url}")
+                webbrowser.open(url)
+
+            client_metadata = OAuthClientMetadata(
+                client_name="Multi-protocol Auth Client",
+                redirect_uris=[AnyHttpUrl("http://localhost:3031/callback")],
+                grant_types=["authorization_code", "refresh_token"],
+                response_types=["code"],
+            )
+
+            oauth_protocol = OAuth2Protocol(
+                client_metadata=client_metadata,
+                redirect_handler=redirect_handler,
+                callback_handler=callback_handler,
+                dpop_enabled=self.dpop_enabled,
+            )
+            protocols.append(oauth_protocol)
+            print(f"OAuth protocol enabled (DPoP: {self.dpop_enabled})")
+
+        # Always add API Key and mTLS as fallback
+        api_key = os.getenv("MCP_API_KEY", "demo-api-key-12345")
+        protocols.append(ApiKeyProtocol(api_key=api_key))
+        protocols.append(MutualTlsPlaceholderProtocol())
+
+        try:
+            # Create http_client first, then pass it to auth provider
+            # This allows OAuth discovery to work (requires http_client for PRM fetch)
+            async with httpx.AsyncClient(follow_redirects=True) as http_client:
+                auth = MultiProtocolAuthProvider(
+                    server_url=self.server_url.rstrip("/").replace("/mcp", ""),
+                    storage=storage,
+                    protocols=protocols,
+                    http_client=http_client,
+                    dpop_enabled=self.dpop_enabled,
+                )
+                # Set auth on client after creation
+                http_client.auth = auth
+
+                async with streamable_http_client(
+                    url=self.server_url,
+                    http_client=http_client,
+                ) as (read_stream, write_stream, get_session_id):
+                    await self._run_session(read_stream, write_stream, get_session_id)
+        finally:
+            if callback_server:
+                callback_server.stop()
 
     async def _run_session(self, read_stream: Any, write_stream: Any, get_session_id: Any) -> None:
         print("Initializing MCP session...")
@@ -196,8 +340,17 @@ class SimpleAuthMultiprotocolClient:
 
 async def main() -> None:
     server_url = os.getenv("MCP_SERVER_URL", "http://localhost:8002/mcp")
+    use_oauth = os.getenv("MCP_USE_OAUTH", "").lower() in ("1", "true", "yes")
+    dpop_enabled = os.getenv("MCP_DPOP_ENABLED", "").lower() in ("1", "true", "yes")
+
     print(f"Connecting to {server_url}...")
-    client = SimpleAuthMultiprotocolClient(server_url)
+    print(f"  OAuth: {'enabled' if use_oauth else 'disabled'}")
+    print(f"  DPoP: {'enabled' if dpop_enabled else 'disabled'}")
+
+    if dpop_enabled and not use_oauth:
+        print("  Warning: DPoP requires OAuth enabled (MCP_USE_OAUTH=1) to take effect")
+
+    client = SimpleAuthMultiprotocolClient(server_url, use_oauth=use_oauth, dpop_enabled=dpop_enabled)
     try:
         await client.connect()
     except Exception as e:

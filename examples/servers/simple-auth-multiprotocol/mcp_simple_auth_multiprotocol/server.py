@@ -62,7 +62,7 @@ def _protocol_metadata_list(settings: ResourceServerSettings) -> list[AuthProtoc
     return [
         AuthProtocolMetadata(
             protocol_id="oauth2",
-            protocol_version="1.0",
+            protocol_version="2.0",
             metadata_url=oauth_metadata_url,
             scopes_supported=[settings.mcp_scope],
         ),
