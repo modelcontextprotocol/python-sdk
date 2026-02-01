@@ -88,7 +88,8 @@ class OAuthTokenVerifier:
             if dpop_proof:
                 try:
                     http_uri = str(request.url)
-                    http_method = request.method
+                    # Use scope to get method for HTTPConnection compatibility
+                    http_method = request.scope.get("method", "")
 
                     await dpop_verifier.verify(
                         dpop_proof,

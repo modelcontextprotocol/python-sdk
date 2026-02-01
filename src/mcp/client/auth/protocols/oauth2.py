@@ -120,10 +120,11 @@ class OAuth2Protocol:
         self._dpop_generator: DPoPProofGeneratorImpl | None = None
 
     async def authenticate(self, context: AuthContext) -> AuthCredentials:
-        """从 AuthContext 组装 OAuth 上下文，委托 OAuthClientProvider.run_authentication，返回 OAuthCredentials。"""
-        if context.http_client is None:
-            raise ValueError("OAuth2Protocol.authenticate requires context.http_client")
-
+        """从 AuthContext 组装 OAuth 上下文，委托 OAuthClientProvider.run_authentication，返回 OAuthCredentials。
+        
+        Note: Uses a fresh httpx client without auth for OAuth flow to avoid lock
+        deadlock when called from within MultiProtocolAuthProvider.async_auth_flow.
+        """
         provider = OAuthClientProvider(
             server_url=context.server_url,
             client_metadata=self._client_metadata,
@@ -138,13 +139,16 @@ class OAuth2Protocol:
             protocol_version = getattr(
                 context.protocol_metadata, "protocol_version", None
             )
-        await provider.run_authentication(
-            context.http_client,
-            resource_metadata_url=context.resource_metadata_url,
-            scope_from_www_auth=context.scope_from_www_auth,
-            protocol_version=protocol_version,
-            protected_resource_metadata=context.protected_resource_metadata,
-        )
+        # Use a fresh client without auth for OAuth discovery/registration/token exchange
+        # to avoid lock deadlock when called from async_auth_flow
+        async with httpx.AsyncClient(follow_redirects=True) as oauth_client:
+            await provider.run_authentication(
+                oauth_client,
+                resource_metadata_url=context.resource_metadata_url,
+                scope_from_www_auth=context.scope_from_www_auth,
+                protocol_version=protocol_version,
+                protected_resource_metadata=context.protected_resource_metadata,
+            )
         if not provider.context.current_tokens:
             raise RuntimeError("run_authentication completed but no tokens in provider")
         return _token_to_oauth_credentials(provider.context.current_tokens)

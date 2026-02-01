@@ -2,21 +2,41 @@
 多协议认证提供者。
 
 提供基于协议注册表与发现的统一 HTTP 认证流程，支持 OAuth 2.0、API Key 等协议。
+
+TokenStorage 双契约与转换约定
+----------------------------
+- **oauth2 契约**（OAuthClientProvider 使用）：get_tokens() -> OAuthToken | None，
+  set_tokens(OAuthToken)；另可有 get_client_info/set_client_info。
+- **multi_protocol 契约**（本模块 TokenStorage）：get_tokens() -> AuthCredentials | OAuthToken | None，
+  set_tokens(AuthCredentials | OAuthToken)。
+- **转换约定**：MultiProtocolAuthProvider 在调用方做转换，不扩展协议方法：
+  - 取回时：_get_credentials() 调用 storage.get_tokens()，若得到 OAuthToken 则经
+    _oauth_token_to_credentials 转为 OAuthCredentials。
+  - 写入时：401 流程得到 AuthCredentials 后经 _credentials_to_storage 转为
+    OAuthToken（仅 OAuthCredentials 转 OAuthToken，其他凭证原样），再调用 storage.set_tokens(to_store)。
+- 因此仅实现 get_tokens/set_tokens(OAuthToken) 的旧存储可直接用于 MultiProtocolAuthProvider，
+  无需改存储实现。可选使用 OAuthTokenStorageAdapter 将此类存储包装为满足 multi_protocol 契约。
 """
 
+import json
 import logging
 import time
 from collections.abc import AsyncGenerator
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
+from urllib.parse import urljoin
 
 import anyio
 import httpx
+from pydantic import ValidationError
 
+from mcp.client.auth._oauth_401_flow import oauth_401_flow_generator
+from mcp.client.auth.oauth2 import OAuthClientProvider, TokenStorage as OAuth2TokenStorage
 from mcp.client.auth.protocol import AuthContext, AuthProtocol, DPoPEnabledProtocol
 from mcp.client.auth.registry import AuthProtocolRegistry
+from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.client.auth.utils import (
     build_protected_resource_metadata_discovery_urls,
-    discover_authorization_servers,
+    create_oauth_metadata_request,
     extract_auth_protocols_from_www_auth,
     extract_default_protocol_from_www_auth,
     extract_field_from_www_auth,
@@ -180,99 +200,25 @@ class MultiProtocolAuthProvider(httpx.Auth):
                         )
                         request.headers["DPoP"] = proof
 
-    async def _fetch_prm(
-        self, resource_metadata_url: str | None, server_url: str
-    ) -> ProtectedResourceMetadata | None:
-        """按 SEP-985 顺序请求 PRM：先 resource_metadata，再 well-known 回退。"""
-        if not self._http_client:
-            return None
-        urls = build_protected_resource_metadata_discovery_urls(
-            resource_metadata_url, server_url
-        )
-        for url in urls:
+    async def _parse_protocols_from_discovery_response(
+        self, response: httpx.Response, prm: ProtectedResourceMetadata | None
+    ) -> list[AuthProtocolMetadata]:
+        """解析 .well-known/authorization_servers 响应，回退到 PRM。"""
+        if response.status_code == 200:
             try:
-                resp = await self._http_client.get(url)
-                prm = await handle_protected_resource_response(resp)
-                if prm is not None:
-                    return prm
-            except Exception as e:
-                logger.debug("PRM discovery failed for %s: %s", url, e)
-        return None
-
-    async def _discover_and_authenticate(
-        self, request: httpx.Request, response: httpx.Response
-    ) -> None:
-        """
-        根据 401 响应进行协议发现与认证，并将新凭证写入 storage。
-
-        流程：解析 WWW-Authenticate → 可选获取 PRM → 发现协议列表 →
-        注册表选择协议 → 协议 authenticate → 写回 storage（含 OAuth 凭证转 OAuthToken 适配）。
-        """
-        resource_metadata_url = extract_resource_metadata_from_www_auth(response)
-        auth_protocols_header = extract_auth_protocols_from_www_auth(response)
-        default_protocol = extract_default_protocol_from_www_auth(response)
-        protocol_preferences = extract_protocol_preferences_from_www_auth(response)
-
-        server_url = str(request.url)
-        prm: ProtectedResourceMetadata | None = None
-        protocols_metadata: list[AuthProtocolMetadata] = []
-
-        if self._http_client:
-            prm = await self._fetch_prm(resource_metadata_url, server_url)
-            protocols_metadata = await discover_authorization_servers(
-                server_url, self._http_client, prm
-            )
-
-        available = (
-            [m.protocol_id for m in protocols_metadata]
-            if protocols_metadata
-            else (auth_protocols_header or [])
-        )
-        if not available:
-            logger.debug("No available protocols from discovery or WWW-Authenticate")
-            return
-
-        selected_id = AuthProtocolRegistry.select_protocol(
-            available, default_protocol, protocol_preferences
-        )
-        if not selected_id:
-            logger.debug("No supported protocol selected for %s", available)
-            return
-
-        protocol = self._get_protocol(selected_id)
-        if not protocol:
-            logger.debug("Protocol %s not in provider", selected_id)
-            return
-
-        protocol_metadata: AuthProtocolMetadata | None = None
-        if protocols_metadata:
-            for m in protocols_metadata:
-                if m.protocol_id == selected_id:
-                    protocol_metadata = m
-                    break
-
-        context = AuthContext(
-            server_url=server_url,
-            storage=self.storage,
-            protocol_id=selected_id,
-            protocol_metadata=protocol_metadata,
-            current_credentials=None,
-            dpop_storage=self.dpop_storage,
-            dpop_enabled=self.dpop_enabled,
-            http_client=self._http_client,
-            resource_metadata_url=resource_metadata_url,
-            protected_resource_metadata=prm,
-            scope_from_www_auth=extract_scope_from_www_auth(response),
-        )
-        credentials = await protocol.authenticate(context)
-        to_store = _credentials_to_storage(credentials)
-        await self.storage.set_tokens(to_store)
-
-    async def _handle_401_response(
-        self, response: httpx.Response, request: httpx.Request
-    ) -> None:
-        """处理 401：解析 WWW-Authenticate，触发发现与认证（骨架），便于后续重试。"""
-        await self._discover_and_authenticate(request, response)
+                content = await response.aread()
+                data = json.loads(content.decode())
+                raw = data.get("protocols")
+                protocols_data: list[dict[str, Any]] = (
+                    cast(list[dict[str, Any]], raw) if isinstance(raw, list) else []
+                )
+                if protocols_data:
+                    return [AuthProtocolMetadata.model_validate(p) for p in protocols_data]
+            except (ValidationError, ValueError, KeyError, TypeError) as e:
+                logger.debug("Unified authorization_servers parse failed: %s", e)
+        if prm is not None and prm.mcp_auth_protocols:
+            return list(prm.mcp_auth_protocols)
+        return []
 
     async def _handle_403_response(
         self, response: httpx.Response, request: httpx.Request
@@ -303,7 +249,112 @@ class MultiProtocolAuthProvider(httpx.Auth):
 
         if response.status_code == 401:
             async with self._lock:
-                await self._handle_401_response(response, request)
+                resource_metadata_url = extract_resource_metadata_from_www_auth(response)
+                auth_protocols_header = extract_auth_protocols_from_www_auth(response)
+                default_protocol = extract_default_protocol_from_www_auth(response)
+                protocol_preferences = extract_protocol_preferences_from_www_auth(response)
+                server_url = str(request.url)
+
+                # Step 1: PRM discovery (yield)
+                prm: ProtectedResourceMetadata | None = None
+                prm_urls = build_protected_resource_metadata_discovery_urls(
+                    resource_metadata_url, server_url
+                )
+                for url in prm_urls:
+                    prm_req = create_oauth_metadata_request(url)
+                    prm_resp = yield prm_req
+                    prm = await handle_protected_resource_response(prm_resp)
+                    if prm is not None:
+                        break
+
+                # Step 2: Protocol discovery (yield)
+                discovery_url = urljoin(
+                    server_url.rstrip("/") + "/",
+                    ".well-known/authorization_servers",
+                )
+                discovery_req = create_oauth_metadata_request(discovery_url)
+                discovery_resp = yield discovery_req
+                protocols_metadata = await self._parse_protocols_from_discovery_response(
+                    discovery_resp, prm
+                )
+
+                available = (
+                    [m.protocol_id for m in protocols_metadata]
+                    if protocols_metadata
+                    else (auth_protocols_header or [])
+                )
+                if not available:
+                    logger.debug("No available protocols from discovery or WWW-Authenticate")
+                else:
+                    selected_id = AuthProtocolRegistry.select_protocol(
+                        available, default_protocol, protocol_preferences
+                    )
+                    if selected_id:
+                        protocol = self._get_protocol(selected_id)
+                        if protocol:
+                            protocol_metadata = None
+                            if protocols_metadata:
+                                for m in protocols_metadata:
+                                    if m.protocol_id == selected_id:
+                                        protocol_metadata = m
+                                        break
+
+                            if selected_id == "oauth2":
+                                # OAuth: drive shared generator (single client, yield)
+                                oauth_protocol = protocol
+                                provider = OAuthClientProvider(
+                                    server_url=server_url,
+                                    client_metadata=getattr(
+                                        oauth_protocol, "_client_metadata"
+                                    ),
+                                    storage=cast(OAuth2TokenStorage, self.storage),
+                                    redirect_handler=getattr(
+                                        oauth_protocol, "_redirect_handler", None
+                                    ),
+                                    callback_handler=getattr(
+                                        oauth_protocol, "_callback_handler", None
+                                    ),
+                                    timeout=getattr(
+                                        oauth_protocol, "_timeout", self.timeout
+                                    ),
+                                    client_metadata_url=getattr(
+                                        oauth_protocol, "_client_metadata_url", None
+                                    ),
+                                )
+                                provider.context.protocol_version = request.headers.get(
+                                    MCP_PROTOCOL_VERSION
+                                )
+                                gen = oauth_401_flow_generator(
+                                    provider, request, response, initial_prm=prm
+                                )
+                                auth_req = await gen.__anext__()
+                                while True:
+                                    auth_resp = yield auth_req
+                                    try:
+                                        auth_req = await gen.asend(auth_resp)
+                                    except StopAsyncIteration:
+                                        break
+                            else:
+                                # API Key, mTLS, etc.: call protocol.authenticate
+                                context = AuthContext(
+                                    server_url=server_url,
+                                    storage=self.storage,
+                                    protocol_id=selected_id,
+                                    protocol_metadata=protocol_metadata,
+                                    current_credentials=None,
+                                    dpop_storage=self.dpop_storage,
+                                    dpop_enabled=self.dpop_enabled,
+                                    http_client=self._http_client,
+                                    resource_metadata_url=resource_metadata_url,
+                                    protected_resource_metadata=prm,
+                                    scope_from_www_auth=extract_scope_from_www_auth(
+                                        response
+                                    ),
+                                )
+                                credentials = await protocol.authenticate(context)
+                                to_store = _credentials_to_storage(credentials)
+                                await self.storage.set_tokens(to_store)
+
                 credentials = await self._get_credentials()
                 if credentials and self._is_credentials_valid(credentials):
                     await self._ensure_dpop_initialized(credentials)
