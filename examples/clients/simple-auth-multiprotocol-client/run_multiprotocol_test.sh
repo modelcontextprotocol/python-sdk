@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Phase 2 multi-protocol integration test: start simple-auth-multiprotocol RS (and optionally AS for OAuth),
+# Multi-protocol integration test: start simple-auth-multiprotocol RS (and optionally AS for OAuth), 
 # then run client with API Key, OAuth, or Mutual TLS (placeholder).
-# Usage: from repo root, run: ./scripts/run_phase2_multiprotocol_integration_test.sh
+# This test is for testing multi-protocol support with API Key, OAuth, or Mutual TLS.
+# Usage: in the repo root, run: ./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh
 # Env: MCP_PHASE2_PROTOCOL=api_key (default) | oauth | mutual_tls (client will show "not implemented" for mTLS).
 # For api_key/mutual_tls: simple-auth-multiprotocol-client; for oauth: simple-auth-client (complete OAuth in browser).
 # You must run at mcp> prompt: list, call get_time {}, quit.
 
 set -e
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SIMPLE_AUTH_SERVER="${REPO_ROOT}/examples/servers/simple-auth"
 MULTIPROTOCOL_SERVER="${REPO_ROOT}/examples/servers/simple-auth-multiprotocol"
 MULTIPROTOCOL_CLIENT="${REPO_ROOT}/examples/clients/simple-auth-multiprotocol-client"

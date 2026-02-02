@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Phase 1 OAuth2 integration test: start simple-auth (AS + RS) and run simple-auth-client.
-# Usage: from repo root, run:  ./scripts/run_phase1_oauth2_integration_test.sh
+# OAuth2 integration test: start simple-auth (AS + RS) and run simple-auth-client.
+# This test is for testing Oauth2 flow with multi-protocol support.
+# Usage: in the repo root, run: ./examples/clients/simple-auth-multiprotocol-client/run_oauth2_test.sh
 # You must complete OAuth in the browser and run list / call get_time / quit at the mcp> prompt.
 
 set -e
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SIMPLE_AUTH_SERVER="${REPO_ROOT}/examples/servers/simple-auth"
 SIMPLE_AUTH_CLIENT="${REPO_ROOT}/examples/clients/simple-auth-client"
 AS_PORT=9000

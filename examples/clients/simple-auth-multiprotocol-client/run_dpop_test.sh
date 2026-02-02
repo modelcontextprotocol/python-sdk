@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Phase 4 DPoP integration test: start simple-auth (AS) and simple-auth-multiprotocol (RS with DPoP),
+# DPoP integration test: start simple-auth AS and simple-auth-multiprotocol RS with DPoP,
 # then run automated DPoP verification tests and optional OAuth+DPoP manual test.
 #
-# Usage: from repo root, run: ./scripts/run_phase4_dpop_integration_test.sh
+# This test is for testing DPoP + OAuth2 flow with multi-protocol support.
+# Usage: in the repo root, run: ./examples/clients/simple-auth-multiprotocol-client/run_dpop_test.sh
 #
 # Env variables:
 #   MCP_RS_PORT     - Resource Server port (default: 8002)
@@ -17,7 +18,7 @@
 
 set -e
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SIMPLE_AUTH_SERVER="${REPO_ROOT}/examples/servers/simple-auth"
 MULTIPROTOCOL_SERVER="${REPO_ROOT}/examples/servers/simple-auth-multiprotocol"
 MULTIPROTOCOL_CLIENT="${REPO_ROOT}/examples/clients/simple-auth-multiprotocol-client"
