@@ -173,8 +173,13 @@ class Icon(MCPModel):
     """Optional list of strings specifying icon dimensions (e.g., ["48x48", "96x96"])."""
 
     theme: IconTheme | None = None
-    """Optional theme specifier. 'light' indicates the icon is designed for a light
-    background, 'dark' indicates the icon is designed for a dark background."""
+    """Optional theme specifier.
+    
+    `"light"` indicates the icon is designed for a light background, `"dark"` indicates the icon 
+    is designed for a dark background.
+    
+    See https://modelcontextprotocol.io/specification/2025-11-25/schema#icon for more details.
+    """
 
 
 class Implementation(BaseMetadata):
