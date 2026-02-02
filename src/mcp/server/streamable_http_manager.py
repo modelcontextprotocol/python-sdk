@@ -24,7 +24,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
-    from mcp.server.lowlevel.server import Server as MCPServer
+    from mcp.server.lowlevel.server import Server as LowLevelServer
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class StreamableHTTPSessionManager:
 
     def __init__(
         self,
-        app: MCPServer[Any, Any],
+        app: LowLevelServer[Any, Any],
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
