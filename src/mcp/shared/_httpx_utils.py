@@ -66,9 +66,7 @@ def create_mcp_http_client(
             response = await client.get("/protected-endpoint")
     """
     # Set MCP defaults
-    kwargs: dict[str, Any] = {
-        "follow_redirects": True,
-    }
+    kwargs: dict[str, Any] = {"follow_redirects": True}
 
     # Handle timeout
     if timeout is None:

@@ -14,6 +14,7 @@ from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 
+from mcp.client._transport import TransportStreams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -31,10 +32,10 @@ from mcp.types import (
 logger = logging.getLogger(__name__)
 
 
+# TODO(Marcelo): Put the TransportStreams in a module under shared, so we can import here.
 SessionMessageOrError = SessionMessage | Exception
 StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
 StreamReader = MemoryObjectReceiveStream[SessionMessage]
-GetSessionIdCallback = Callable[[], str | None]
 
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
@@ -199,7 +200,7 @@ class StreamableHTTPTransport:
 
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
-
+                    
             except httpx.HTTPStatusError as exc:  # pragma: lax no cover
                 # Handle HTTP errors that are retryable
                 if exc.response.status_code == 405:
@@ -213,7 +214,7 @@ class StreamableHTTPTransport:
                 logger.debug(f"GET stream HTTP error: {exc.response.status_code} - {exc}")
                 attempt += 1
             except Exception as exc:  # pragma: lax no cover
-                logger.debug(f"GET stream error: {exc}")
+                logger.debug("GET stream error", exc_info=True)
                 attempt += 1
 
             if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
@@ -500,25 +501,22 @@ class StreamableHTTPTransport:
         except Exception as exc:  # pragma: no cover
             logger.warning(f"Session termination failed: {exc}")
 
+    # TODO(Marcelo): Check the TODO below, and cover this with tests if necessary.
     def get_session_id(self) -> str | None:
         """Get the current session ID."""
-        return self.session_id
+        return self.session_id  # pragma: no cover
 
 
+# TODO(Marcelo): I've dropped the `get_session_id` callback because it breaks the Transport protocol. Is that needed?
+# It's a completely wrong abstraction, so removal is a good idea. But if we need the client to find the session ID,
+# we should think about a better way to do it. I believe we can achieve it with other means.
 @asynccontextmanager
 async def streamable_http_client(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
-) -> AsyncGenerator[
-    tuple[
-        MemoryObjectReceiveStream[SessionMessage | Exception],
-        MemoryObjectSendStream[SessionMessage],
-        GetSessionIdCallback,
-    ],
-    None,
-]:
+) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
     Args:
@@ -532,7 +530,6 @@ async def streamable_http_client(
         Tuple containing:
             - read_stream: Stream for reading messages from the server
             - write_stream: Stream for sending messages to the server
-            - get_session_id_callback: Function to retrieve the current session ID
 
     Example:
         See examples/snippets/clients/ for usage patterns.
@@ -573,7 +570,7 @@ async def streamable_http_client(
                 )
 
                 try:
-                    yield (read_stream, write_stream, transport.get_session_id)
+                    yield read_stream, write_stream
                 finally:
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)

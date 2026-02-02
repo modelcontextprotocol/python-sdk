@@ -73,7 +73,7 @@ def get_text(result: CallToolResult) -> str:
 
 
 async def run(url: str) -> None:
-    async with streamable_http_client(url) as (read, write, _):
+    async with streamable_http_client(url) as (read, write):
         async with ClientSession(
             read,
             write,
