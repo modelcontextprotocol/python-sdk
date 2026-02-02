@@ -8,10 +8,12 @@ import anyio
 import pytest
 from pydantic import TypeAdapter
 
+import mcp.types as types
 from mcp.server.lowlevel.server import NotificationOptions, Server
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     ClientCapabilities,
@@ -30,7 +32,7 @@ async def test_lowlevel_server_lifespan():
     """Test that lifespan works in low-level server."""
 
     @asynccontextmanager
-    async def test_lifespan(server: Server) -> AsyncIterator[dict[str, bool]]:
+    async def test_lifespan(server: ServerSession) -> AsyncIterator[dict[str, bool]]:
         """Test lifespan context that tracks startup/shutdown."""
         context = {"started": False, "shutdown": False}
         try:
@@ -39,20 +41,20 @@ async def test_lowlevel_server_lifespan():
         finally:
             context["shutdown"] = True
 
-    server = Server[dict[str, bool]]("test", lifespan=test_lifespan)
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, dict[str, bool], Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
+        assert isinstance(ctx.lifespan_context, dict)
+        assert ctx.lifespan_context["started"]
+        assert not ctx.lifespan_context["shutdown"]
+        return types.CallToolResult(content=[TextContent(type="text", text="true")])
+
+    server = Server[dict[str, bool]]("test", lifespan=test_lifespan, on_call_tool=on_call_tool)
 
     # Create memory streams for testing
     send_stream1, receive_stream1 = anyio.create_memory_object_stream[SessionMessage](100)
     send_stream2, receive_stream2 = anyio.create_memory_object_stream[SessionMessage](100)
-
-    # Create a tool that accesses lifespan context
-    @server.call_tool()
-    async def check_lifespan(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        ctx = server.request_context
-        assert isinstance(ctx.lifespan_context, dict)
-        assert ctx.lifespan_context["started"]
-        assert not ctx.lifespan_context["shutdown"]
-        return [TextContent(type="text", text="true")]
 
     # Run server in background task
     async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:

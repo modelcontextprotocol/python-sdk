@@ -6,11 +6,13 @@ from typing import Any
 import anyio
 import pytest
 
+import mcp.types as mcp_types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -222,71 +224,78 @@ async def test_server_capabilities_partial_tasks() -> None:
 @pytest.mark.anyio
 async def test_tool_with_task_execution_metadata() -> None:
     """Test that tools can declare task execution mode."""
-    server = Server("test")
+    from mcp import Client
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="quick_tool",
-                description="Fast tool",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support=TASK_FORBIDDEN),
-            ),
-            Tool(
-                name="long_tool",
-                description="Long running tool",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            ),
-            Tool(
-                name="flexible_tool",
-                description="Can be either",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support=TASK_OPTIONAL),
-            ),
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="quick_tool",
+                    description="Fast tool",
+                    input_schema={"type": "object", "properties": {}},
+                    execution=ToolExecution(task_support=TASK_FORBIDDEN),
+                ),
+                Tool(
+                    name="long_tool",
+                    description="Long running tool",
+                    input_schema={"type": "object", "properties": {}},
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                ),
+                Tool(
+                    name="flexible_tool",
+                    description="Can be either",
+                    input_schema={"type": "object", "properties": {}},
+                    execution=ToolExecution(task_support=TASK_OPTIONAL),
+                ),
+            ]
+        )
 
-    tools_handler = server.request_handlers[ListToolsRequest]
-    request = ListToolsRequest(method="tools/list")
-    result = await tools_handler(request)
+    server = Server("test", on_list_tools=on_list_tools)
 
-    assert isinstance(result, ServerResult)
-    assert isinstance(result, ListToolsResult)
-    tools = result.tools
+    async with Client(server) as client:
+        result = await client.list_tools()
+        tools = result.tools
 
-    assert tools[0].execution is not None
-    assert tools[0].execution.task_support == TASK_FORBIDDEN
-    assert tools[1].execution is not None
-    assert tools[1].execution.task_support == TASK_REQUIRED
-    assert tools[2].execution is not None
-    assert tools[2].execution.task_support == TASK_OPTIONAL
+        assert tools[0].execution is not None
+        assert tools[0].execution.task_support == TASK_FORBIDDEN
+        assert tools[1].execution is not None
+        assert tools[1].execution.task_support == TASK_REQUIRED
+        assert tools[2].execution is not None
+        assert tools[2].execution.task_support == TASK_OPTIONAL
 
 
 @pytest.mark.anyio
 async def test_task_metadata_in_call_tool_request() -> None:
     """Test that task metadata is accessible via RequestContext when calling a tool."""
-    server = Server("test")
     captured_task_metadata: TaskMetadata | None = None
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="long_task",
-                description="A long running task",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support="optional"),
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="long_task",
+                    description="A long running task",
+                    input_schema={"type": "object", "properties": {}},
+                    execution=ToolExecution(task_support="optional"),
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult:
         nonlocal captured_task_metadata
-        ctx = server.request_context
         captured_task_metadata = ctx.experimental.task_metadata
-        return [TextContent(type="text", text="done")]
+        return mcp_types.CallToolResult(content=[TextContent(type="text", text="done")])
 
+    server = Server("test", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
@@ -347,25 +356,30 @@ async def test_task_metadata_in_call_tool_request() -> None:
 @pytest.mark.anyio
 async def test_task_metadata_is_task_property() -> None:
     """Test that RequestContext.experimental.is_task works correctly."""
-    server = Server("test")
     is_task_values: list[bool] = []
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="test_tool",
-                description="Test tool",
-                input_schema={"type": "object", "properties": {}},
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="test_tool",
+                    description="Test tool",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        ctx = server.request_context
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult:
         is_task_values.append(ctx.experimental.is_task)
-        return [TextContent(type="text", text="done")]
+        return mcp_types.CallToolResult(content=[TextContent(type="text", text="done")])
 
+    server = Server("test", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 

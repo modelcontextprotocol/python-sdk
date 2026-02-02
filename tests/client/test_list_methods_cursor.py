@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -6,6 +7,8 @@ import mcp.types as types
 from mcp import Client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.types import ListToolsRequest, ListToolsResult
 
 from .conftest import StreamSpyCollection
@@ -106,13 +109,18 @@ async def test_list_tools_with_strict_server_validation(
 
 async def test_list_tools_with_lowlevel_server():
     """Test that list_tools works with a lowlevel Server using params."""
-    server = Server("test-lowlevel")
 
-    @server.list_tools()
-    async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
+    async def handle_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> ListToolsResult:
         # Echo back what cursor we received in the tool description
-        cursor = request.params.cursor if request.params else None
-        return ListToolsResult(tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", input_schema={})])
+        cursor = params.cursor if params else None
+        return ListToolsResult(
+            tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", inputSchema={})]
+        )
+
+    server = Server("test-lowlevel", on_list_tools=handle_list_tools)
 
     async with Client(server) as client:
         result = await client.list_tools()

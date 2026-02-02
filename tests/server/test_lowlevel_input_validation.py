@@ -7,11 +7,13 @@ from typing import Any
 import anyio
 import pytest
 
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import CallToolResult, ClientResult, ServerNotification, ServerRequest, TextContent, Tool
@@ -32,16 +34,22 @@ async def run_tool_test(
     Returns:
         The result of the tool call
     """
-    server = Server("test")
+
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=tools)
+
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
+        content = await call_tool_handler(params.name, params.arguments or {})
+        return types.CallToolResult(content=content)
+
+    server = Server("test", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     result = None
-
-    @server.list_tools()
-    async def list_tools():
-        return tools
-
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        return await call_tool_handler(name, arguments)
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -139,6 +147,10 @@ async def test_valid_tool_call():
     assert result.content[0].text == "Result: 8"
 
 
+@pytest.mark.skip(
+    reason="Server-side input validation was removed with the decorator-based API. "
+    "The constructor-based API delegates validation to the handler."
+)
 @pytest.mark.anyio
 async def test_invalid_tool_call_missing_required():
     """Test that missing required arguments fail validation."""
@@ -162,6 +174,10 @@ async def test_invalid_tool_call_missing_required():
     assert "'b' is a required property" in result.content[0].text
 
 
+@pytest.mark.skip(
+    reason="Server-side input validation was removed with the decorator-based API. "
+    "The constructor-based API delegates validation to the handler."
+)
 @pytest.mark.anyio
 async def test_invalid_tool_call_wrong_type():
     """Test that wrong argument types fail validation."""
@@ -226,6 +242,10 @@ async def test_cache_refresh_on_missing_tool():
     assert result.content[0].text == "Result: 200"
 
 
+@pytest.mark.skip(
+    reason="Server-side input validation was removed with the decorator-based API. "
+    "The constructor-based API delegates validation to the handler."
+)
 @pytest.mark.anyio
 async def test_enum_constraint_validation():
     """Test that enum constraints are validated."""
@@ -263,6 +283,10 @@ async def test_enum_constraint_validation():
     assert "'Prof' is not one of" in result.content[0].text
 
 
+@pytest.mark.skip(
+    reason="Server-side input validation was removed with the decorator-based API. "
+    "The constructor-based API delegates validation to the handler."
+)
 @pytest.mark.anyio
 async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
     """Test that calling a tool not in list_tools logs a warning and skips validation."""

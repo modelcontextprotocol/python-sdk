@@ -8,11 +8,13 @@ import pytest
 from anyio import Event
 from anyio.abc import TaskGroup
 
+import mcp.types as mcp_types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.experimental.tasks.helpers import task_execution
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
@@ -52,16 +54,20 @@ class AppContext:
 async def test_session_experimental_get_task() -> None:
     """Test session.experimental.get_task() method."""
     # Note: We bypass the normal lifespan mechanism
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, AppContext, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
@@ -80,6 +86,10 @@ async def test_session_experimental_get_task() -> None:
             return CreateTaskResult(task=task)
 
         raise NotImplementedError
+
+    server: Server[AppContext, Any] = Server(  # type: ignore[assignment]
+        "test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool
+    )
 
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
@@ -159,16 +169,20 @@ async def test_session_experimental_get_task() -> None:
 @pytest.mark.anyio
 async def test_session_experimental_get_task_result() -> None:
     """Test session.experimental.get_task_result() method."""
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, AppContext, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
@@ -189,6 +203,10 @@ async def test_session_experimental_get_task_result() -> None:
             return CreateTaskResult(task=task)
 
         raise NotImplementedError
+
+    server: Server[AppContext, Any] = Server(  # type: ignore[assignment]
+        "test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool
+    )
 
     @server.experimental.get_task_result()
     async def handle_get_task_result(
@@ -265,16 +283,20 @@ async def test_session_experimental_get_task_result() -> None:
 @pytest.mark.anyio
 async def test_session_experimental_list_tasks() -> None:
     """Test TaskClient.list_tasks() method."""
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, AppContext, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
@@ -293,6 +315,10 @@ async def test_session_experimental_list_tasks() -> None:
             return CreateTaskResult(task=task)
 
         raise NotImplementedError
+
+    server: Server[AppContext, Any] = Server(  # type: ignore[assignment]
+        "test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool
+    )
 
     @server.experimental.list_tasks()
     async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
@@ -360,16 +386,20 @@ async def test_session_experimental_list_tasks() -> None:
 @pytest.mark.anyio
 async def test_session_experimental_cancel_task() -> None:
     """Test TaskClient.cancel_task() method."""
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, AppContext, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
@@ -379,6 +409,10 @@ async def test_session_experimental_cancel_task() -> None:
             return CreateTaskResult(task=task)
 
         raise NotImplementedError
+
+    server: Server[AppContext, Any] = Server(  # type: ignore[assignment]
+        "test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool
+    )
 
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:

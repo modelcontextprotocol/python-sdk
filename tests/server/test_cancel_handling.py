@@ -8,6 +8,8 @@ import pytest
 import mcp.types as types
 from mcp import Client
 from mcp.server.lowlevel.server import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
     CallToolRequest,
@@ -23,34 +25,40 @@ from mcp.types import (
 async def test_server_remains_functional_after_cancel():
     """Verify server can handle new requests after a cancellation."""
 
-    server = Server("test-server")
-
     # Track tool calls
     call_count = 0
     ev_first_call = anyio.Event()
     first_request_id = None
 
-    @server.list_tools()
-    async def handle_list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="test_tool",
-                description="Tool for testing",
-                input_schema={},
-            )
-        ]
+    async def handle_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="test_tool",
+                    description="Tool for testing",
+                    inputSchema={},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+    async def handle_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         nonlocal call_count, first_request_id
-        if name == "test_tool":
+        if params.name == "test_tool":
             call_count += 1
             if call_count == 1:
-                first_request_id = server.request_context.request_id
+                first_request_id = ctx.request_id
                 ev_first_call.set()
                 await anyio.sleep(5)  # First call is slow
-            return [types.TextContent(type="text", text=f"Call number: {call_count}")]
-        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+            return types.CallToolResult(content=[types.TextContent(type="text", text=f"Call number: {call_count}")])
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
+
+    server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async with Client(server) as client:
         # First request (will be cancelled)

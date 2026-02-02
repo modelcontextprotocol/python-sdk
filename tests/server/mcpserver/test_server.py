@@ -240,7 +240,7 @@ class TestServerTools:
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
         async with Client(mcp) as client:
-            result = await client.call_tool("my_tool", {"arg1": "value"})
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert not hasattr(result, "error")
             assert len(result.content) > 0
 

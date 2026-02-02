@@ -12,6 +12,8 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.types import ContentBlock, TextContent
@@ -32,36 +34,46 @@ async def test_notification_validation_error(tmp_path: Path):
     - Slow operations use minimal timeout (10ms) for quick test execution
     """
 
-    server = Server(name="test")
     request_count = 0
     slow_request_lock = anyio.Event()
 
-    @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="slow",
-                description="A slow tool",
-                input_schema={"type": "object"},
-            ),
-            types.Tool(
-                name="fast",
-                description="A fast tool",
-                input_schema={"type": "object"},
-            ),
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="slow",
+                    description="A slow tool",
+                    input_schema={"type": "object"},
+                ),
+                types.Tool(
+                    name="fast",
+                    description="A fast tool",
+                    input_schema={"type": "object"},
+                ),
+            ]
+        )
 
-    @server.call_tool()
-    async def slow_tool(name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock]:
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         nonlocal request_count
         request_count += 1
+        name = params.name
 
         if name == "slow":
             await slow_request_lock.wait()  # it should timeout here
-            return [TextContent(type="text", text=f"slow {request_count}")]
+            return types.CallToolResult(content=[TextContent(type="text", text=f"slow {request_count}")])
         elif name == "fast":
-            return [TextContent(type="text", text=f"fast {request_count}")]
-        return [TextContent(type="text", text=f"unknown {request_count}")]  # pragma: no cover
+            return types.CallToolResult(content=[TextContent(type="text", text=f"fast {request_count}")])
+        return types.CallToolResult(
+            content=[TextContent(type="text", text=f"unknown {request_count}")]
+        )  # pragma: no cover
+
+    server = Server(name="test", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
     async def server_handler(
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],

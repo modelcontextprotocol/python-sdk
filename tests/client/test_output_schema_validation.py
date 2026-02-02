@@ -7,8 +7,11 @@ from unittest.mock import patch
 import jsonschema
 import pytest
 
+import mcp.types as types
 from mcp import Client
 from mcp.server.lowlevel import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.types import Tool
 
 
@@ -41,9 +44,6 @@ def bypass_server_output_validation():
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_basemodel():
     """Test that client validates structured content against schema for BaseModel outputs"""
-    # Create a malicious low-level server that returns invalid structured content
-    server = Server("test-server")
-
     # Define the expected schema for our tool
     output_schema = {
         "type": "object",
@@ -52,22 +52,33 @@ async def test_tool_structured_output_client_side_validation_basemodel():
         "title": "UserOutput",
     }
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="get_user",
-                description="Get user data",
-                input_schema={"type": "object"},
-                output_schema=output_schema,
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="get_user",
+                    description="Get user data",
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         # Return invalid structured content - age is string instead of integer
-        # The low-level server will wrap this in CallToolResult
-        return {"name": "John", "age": "invalid"}  # Invalid: age should be int
+        return types.CallToolResult(
+            content=[],
+            structured_content={"name": "John", "age": "invalid"},  # Invalid: age should be int
+        )
+
+    # Create a malicious low-level server that returns invalid structured content
+    server = Server("test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
     # Test that client validates the structured content
     with bypass_server_output_validation():
@@ -82,8 +93,6 @@ async def test_tool_structured_output_client_side_validation_basemodel():
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_primitive():
     """Test that client validates structured content for primitive outputs"""
-    server = Server("test-server")
-
     # Primitive types are wrapped in {"result": value}
     output_schema = {
         "type": "object",
@@ -92,21 +101,32 @@ async def test_tool_structured_output_client_side_validation_primitive():
         "title": "calculate_Output",
     }
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="calculate",
-                description="Calculate something",
-                input_schema={"type": "object"},
-                output_schema=output_schema,
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="calculate",
+                    description="Calculate something",
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         # Return invalid structured content - result is string instead of integer
-        return {"result": "not_a_number"}  # Invalid: should be int
+        return types.CallToolResult(
+            content=[],
+            structured_content={"result": "not_a_number"},  # Invalid: should be int
+        )
+
+    server = Server("test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
     with bypass_server_output_validation():
         async with Client(server) as client:
@@ -119,26 +139,35 @@ async def test_tool_structured_output_client_side_validation_primitive():
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_dict_typed():
     """Test that client validates dict[str, T] structured content"""
-    server = Server("test-server")
-
     # dict[str, int] schema
     output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="get_scores",
-                description="Get scores",
-                input_schema={"type": "object"},
-                output_schema=output_schema,
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="get_scores",
+                    description="Get scores",
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         # Return invalid structured content - values should be integers
-        return {"alice": "100", "bob": "85"}  # Invalid: values should be int
+        return types.CallToolResult(
+            content=[],
+            structured_content={"alice": "100", "bob": "85"},  # Invalid: values should be int
+        )
+
+    server = Server("test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
     with bypass_server_output_validation():
         async with Client(server) as client:
@@ -151,8 +180,6 @@ async def test_tool_structured_output_client_side_validation_dict_typed():
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_missing_required():
     """Test that client validates missing required fields"""
-    server = Server("test-server")
-
     output_schema = {
         "type": "object",
         "properties": {"name": {"type": "string"}, "age": {"type": "integer"}, "email": {"type": "string"}},
@@ -160,21 +187,32 @@ async def test_tool_structured_output_client_side_validation_missing_required():
         "title": "PersonOutput",
     }
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="get_person",
-                description="Get person data",
-                input_schema={"type": "object"},
-                output_schema=output_schema,
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="get_person",
+                    description="Get person data",
+                    input_schema={"type": "object"},
+                    output_schema=output_schema,
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         # Return structured content missing required field 'email'
-        return {"name": "John", "age": 30}  # Missing required 'email'
+        return types.CallToolResult(
+            content=[],
+            structured_content={"name": "John", "age": 30},  # Missing required 'email'
+        )
+
+    server = Server("test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
     with bypass_server_output_validation():
         async with Client(server) as client:
@@ -187,17 +225,25 @@ async def test_tool_structured_output_client_side_validation_missing_required():
 @pytest.mark.anyio
 async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
     """Test that client logs warning when tool is not in list_tools but has output_schema"""
-    server = Server("test-server")
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
         # Return empty list - tool is not listed
-        return []
+        return types.ListToolsResult(tools=[])
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         # Server still responds to the tool call with structured content
-        return {"result": 42}
+        return types.CallToolResult(
+            content=[],
+            structured_content={"result": 42},
+        )
+
+    server = Server("test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
     # Set logging level to capture warnings
     caplog.set_level(logging.WARNING)

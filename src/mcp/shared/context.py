@@ -16,7 +16,7 @@ RequestT = TypeVar("RequestT", default=Any)
 
 @dataclass
 class RequestContext(Generic[SessionT, LifespanContextT, RequestT]):
-    request_id: RequestId
+    request_id: RequestId | None
     meta: RequestParamsMeta | None
     session: SessionT
     lifespan_context: LifespanContextT

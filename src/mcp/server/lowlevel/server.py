@@ -1,83 +1,60 @@
 """MCP Server Module
 
 This module provides a framework for creating an MCP (Model Context Protocol) server.
-It allows you to easily define and handle various types of requests and notifications
-in an asynchronous manner.
 
 Usage:
-1. Create a Server instance:
-   server = Server("your_server_name")
+1. Define handler functions that receive (context, params) and return result objects:
 
-2. Define request handlers using decorators:
-   @server.list_prompts()
-   async def handle_list_prompts(request: types.ListPromptsRequest) -> types.ListPromptsResult:
-       # Implementation
+   async def list_tools(
+       ctx: RequestContext[ServerSession, Any, Any],
+       params: types.PaginatedRequestParams | None,
+   ) -> types.ListToolsResult:
+       return types.ListToolsResult(tools=[
+           types.Tool(name="my-tool", description="...")
+       ])
 
-   @server.get_prompt()
-   async def handle_get_prompt(
-       name: str, arguments: dict[str, str] | None
-   ) -> types.GetPromptResult:
-       # Implementation
+   async def call_tool(
+       ctx: RequestContext[ServerSession, Any, Any],
+       params: types.CallToolRequestParams,
+   ) -> types.CallToolResult:
+       # Access context for session, lifespan data, etc.
+       db = ctx.lifespan_context["db"]
+       return types.CallToolResult(content=[...])
 
-   @server.list_tools()
-   async def handle_list_tools(request: types.ListToolsRequest) -> types.ListToolsResult:
-       # Implementation
+2. Create a Server instance with handlers:
 
-   @server.call_tool()
-   async def handle_call_tool(
-       name: str, arguments: dict | None
-   ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-       # Implementation
+   server = Server(
+       name="your_server_name",
+       on_list_tools=list_tools,
+       on_call_tool=call_tool,
+   )
 
-   @server.list_resource_templates()
-   async def handle_list_resource_templates() -> list[types.ResourceTemplate]:
-       # Implementation
+3. Run the server:
 
-3. Define notification handlers if needed:
-   @server.progress_notification()
-   async def handle_progress(
-       progress_token: str | int, progress: float, total: float | None,
-       message: str | None
-   ) -> None:
-       # Implementation
-
-4. Run the server:
    async def main():
        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
            await server.run(
                read_stream,
                write_stream,
-               InitializationOptions(
-                   server_name="your_server_name",
-                   server_version="your_version",
-                   capabilities=server.get_capabilities(
-                       notification_options=NotificationOptions(),
-                       experimental_capabilities={},
-                   ),
-               ),
+               server.create_initialization_options(),
            )
 
    asyncio.run(main())
 
-The Server class provides methods to register handlers for various MCP requests and
-notifications. It automatically manages the request context and handles incoming
-messages from the client.
+Note: The decorator-based API is deprecated but still supported for backward compatibility.
 """
 
 from __future__ import annotations
 
-import base64
 import contextvars
-import json
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic, TypeAlias, cast
+from typing import Any, Generic
 
 import anyio
-import jsonschema
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -93,15 +70,13 @@ from mcp.server.auth.routes import build_resource_metadata_url, create_auth_rout
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
-from mcp.server.lowlevel.func_inspection import create_call_wrapper
-from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -110,11 +85,6 @@ logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 RequestT = TypeVar("RequestT", default=Any)
-
-# type aliases for tool call results
-StructuredContent: TypeAlias = dict[str, Any]
-UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
-CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
 # This will be properly typed in each Server instance's context
 request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
@@ -159,6 +129,74 @@ class Server(Generic[LifespanResultT, RequestT]):
             [Server[LifespanResultT, RequestT]],
             AbstractAsyncContextManager[LifespanResultT],
         ] = lifespan,
+        *,
+        # Prompts
+        on_list_prompts: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ]
+        | None = None,
+        on_get_prompt: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult],
+        ]
+        | None = None,
+        # Resources
+        on_list_resources: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ]
+        | None = None,
+        on_list_resource_templates: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ]
+        | None = None,
+        on_read_resource: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult],
+        ]
+        | None = None,
+        on_subscribe_resource: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        on_unsubscribe_resource: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        # Tools
+        on_list_tools: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ]
+        | None = None,
+        on_call_tool: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult],
+        ]
+        | None = None,
+        # Logging
+        on_set_logging_level: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.SetLevelRequestParams],
+            Awaitable[types.EmptyResult],
+        ]
+        | None = None,
+        # Completions
+        on_completion: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ]
+        | None = None,
+        # Notifications
+        on_progress_notification: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.ProgressNotificationParams],
+            Awaitable[None],
+        ]
+        | None = None,
+        custom_handlers: dict[str, Callable[..., Awaitable[types.ServerResult]]] | None = None,
     ):
         self.name = name
         self.version = version
@@ -176,6 +214,32 @@ class Server(Generic[LifespanResultT, RequestT]):
         self._experimental_handlers: ExperimentalHandlers | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
+
+        # Register handlers from constructor parameters
+        if on_list_prompts is not None:
+            self._register_list_prompts_handler(on_list_prompts)
+        if on_get_prompt is not None:
+            self._register_get_prompt_handler(on_get_prompt)
+        if on_list_resources is not None:
+            self._register_list_resources_handler(on_list_resources)
+        if on_list_resource_templates is not None:
+            self._register_list_resource_templates_handler(on_list_resource_templates)
+        if on_read_resource is not None:
+            self._register_read_resource_handler(on_read_resource)
+        if on_subscribe_resource is not None:
+            self._register_subscribe_resource_handler(on_subscribe_resource)
+        if on_unsubscribe_resource is not None:
+            self._register_unsubscribe_resource_handler(on_unsubscribe_resource)
+        if on_list_tools is not None:
+            self._register_list_tools_handler(on_list_tools)
+        if on_call_tool is not None:
+            self._register_call_tool_handler(on_call_tool)
+        if on_set_logging_level is not None:
+            self._register_set_logging_level_handler(on_set_logging_level)
+        if on_completion is not None:
+            self._register_completion_handler(on_completion)
+        if on_progress_notification is not None:
+            self._register_progress_notification_handler(on_progress_notification)
 
     def create_initialization_options(
         self,
@@ -285,373 +349,263 @@ class Server(Generic[LifespanResultT, RequestT]):
             )
         return self._session_manager  # pragma: no cover
 
-    def list_prompts(self):
-        def decorator(
-            func: Callable[[], Awaitable[list[types.Prompt]]]
-            | Callable[[types.ListPromptsRequest], Awaitable[types.ListPromptsResult]],
-        ):
-            logger.debug("Registering handler for PromptListRequest")
-
-            wrapper = create_call_wrapper(func, types.ListPromptsRequest)
-
-            async def handler(req: types.ListPromptsRequest):
-                result = await wrapper(req)
-                # Handle both old style (list[Prompt]) and new style (ListPromptsResult)
-                if isinstance(result, types.ListPromptsResult):
-                    return result
-                else:
-                    # Old style returns list[Prompt]
-                    return types.ListPromptsResult(prompts=result)
-
-            self.request_handlers[types.ListPromptsRequest] = handler
-            return func
-
-        return decorator
-
-    def get_prompt(self):
-        def decorator(
-            func: Callable[[str, dict[str, str] | None], Awaitable[types.GetPromptResult]],
-        ):
-            logger.debug("Registering handler for GetPromptRequest")
-
-            async def handler(req: types.GetPromptRequest):
-                prompt_get = await func(req.params.name, req.params.arguments)
-                return prompt_get
-
-            self.request_handlers[types.GetPromptRequest] = handler
-            return func
-
-        return decorator
-
-    def list_resources(self):
-        def decorator(
-            func: Callable[[], Awaitable[list[types.Resource]]]
-            | Callable[[types.ListResourcesRequest], Awaitable[types.ListResourcesResult]],
-        ):
-            logger.debug("Registering handler for ListResourcesRequest")
-
-            wrapper = create_call_wrapper(func, types.ListResourcesRequest)
-
-            async def handler(req: types.ListResourcesRequest):
-                result = await wrapper(req)
-                # Handle both old style (list[Resource]) and new style (ListResourcesResult)
-                if isinstance(result, types.ListResourcesResult):
-                    return result
-                else:
-                    # Old style returns list[Resource]
-                    return types.ListResourcesResult(resources=result)
-
-            self.request_handlers[types.ListResourcesRequest] = handler
-            return func
-
-        return decorator
-
-    def list_resource_templates(self):
-        def decorator(func: Callable[[], Awaitable[list[types.ResourceTemplate]]]):
-            logger.debug("Registering handler for ListResourceTemplatesRequest")
-
-            async def handler(_: Any):
-                templates = await func()
-                return types.ListResourceTemplatesResult(resource_templates=templates)
-
-            self.request_handlers[types.ListResourceTemplatesRequest] = handler
-            return func
-
-        return decorator
-
-    def read_resource(self):
-        def decorator(
-            func: Callable[[str], Awaitable[str | bytes | Iterable[ReadResourceContents]]],
-        ):
-            logger.debug("Registering handler for ReadResourceRequest")
-
-            async def handler(req: types.ReadResourceRequest):
-                result = await func(req.params.uri)
-
-                def create_content(data: str | bytes, mime_type: str | None, meta: dict[str, Any] | None = None):
-                    # Note: ResourceContents uses Field(alias="_meta"), so we must use the alias key
-                    meta_kwargs: dict[str, Any] = {"_meta": meta} if meta is not None else {}
-                    match data:
-                        case str() as data:
-                            return types.TextResourceContents(
-                                uri=req.params.uri,
-                                text=data,
-                                mime_type=mime_type or "text/plain",
-                                **meta_kwargs,
-                            )
-                        case bytes() as data:  # pragma: no branch
-                            return types.BlobResourceContents(
-                                uri=req.params.uri,
-                                blob=base64.b64encode(data).decode(),
-                                mime_type=mime_type or "application/octet-stream",
-                                **meta_kwargs,
-                            )
-
-                match result:
-                    case str() | bytes() as data:  # pragma: lax no cover
-                        warnings.warn(
-                            "Returning str or bytes from read_resource is deprecated. "
-                            "Use Iterable[ReadResourceContents] instead.",
-                            DeprecationWarning,
-                            stacklevel=2,
-                        )
-                        content = create_content(data, None)
-                    case Iterable() as contents:
-                        contents_list = [
-                            create_content(
-                                content_item.content, content_item.mime_type, getattr(content_item, "meta", None)
-                            )
-                            for content_item in contents
-                        ]
-                        return types.ReadResourceResult(contents=contents_list)
-                    case _:  # pragma: no cover
-                        raise ValueError(f"Unexpected return type from read_resource: {type(result)}")
-
-                return types.ReadResourceResult(contents=[content])  # pragma: no cover
-
-            self.request_handlers[types.ReadResourceRequest] = handler
-            return func
-
-        return decorator
-
-    def set_logging_level(self):
-        def decorator(func: Callable[[types.LoggingLevel], Awaitable[None]]):
-            logger.debug("Registering handler for SetLevelRequest")
-
-            async def handler(req: types.SetLevelRequest):
-                await func(req.params.level)
-                return types.EmptyResult()
-
-            self.request_handlers[types.SetLevelRequest] = handler
-            return func
-
-        return decorator
-
-    def subscribe_resource(self):
-        def decorator(func: Callable[[str], Awaitable[None]]):
-            logger.debug("Registering handler for SubscribeRequest")
-
-            async def handler(req: types.SubscribeRequest):
-                await func(req.params.uri)
-                return types.EmptyResult()
-
-            self.request_handlers[types.SubscribeRequest] = handler
-            return func
-
-        return decorator
-
-    def unsubscribe_resource(self):
-        def decorator(func: Callable[[str], Awaitable[None]]):
-            logger.debug("Registering handler for UnsubscribeRequest")
-
-            async def handler(req: types.UnsubscribeRequest):
-                await func(req.params.uri)
-                return types.EmptyResult()
-
-            self.request_handlers[types.UnsubscribeRequest] = handler
-            return func
-
-        return decorator
-
-    def list_tools(self):
-        def decorator(
-            func: Callable[[], Awaitable[list[types.Tool]]]
-            | Callable[[types.ListToolsRequest], Awaitable[types.ListToolsResult]],
-        ):
-            logger.debug("Registering handler for ListToolsRequest")
-
-            wrapper = create_call_wrapper(func, types.ListToolsRequest)
-
-            async def handler(req: types.ListToolsRequest):
-                result = await wrapper(req)
-
-                # Handle both old style (list[Tool]) and new style (ListToolsResult)
-                if isinstance(result, types.ListToolsResult):
-                    # Refresh the tool cache with returned tools
-                    for tool in result.tools:
-                        validate_and_warn_tool_name(tool.name)
-                        self._tool_cache[tool.name] = tool
-                    return result
-                else:
-                    # Old style returns list[Tool]
-                    # Clear and refresh the entire tool cache
-                    self._tool_cache.clear()
-                    for tool in result:
-                        validate_and_warn_tool_name(tool.name)
-                        self._tool_cache[tool.name] = tool
-                    return types.ListToolsResult(tools=result)
-
-            self.request_handlers[types.ListToolsRequest] = handler
-            return func
-
-        return decorator
-
-    def _make_error_result(self, error_message: str) -> types.CallToolResult:
-        """Create a CallToolResult with an error."""
-        return types.CallToolResult(
-            content=[types.TextContent(type="text", text=error_message)],
-            is_error=True,
-        )
-
-    async def _get_cached_tool_definition(self, tool_name: str) -> types.Tool | None:
-        """Get tool definition from cache, refreshing if necessary.
-
-        Returns the Tool object if found, None otherwise.
-        """
-        if tool_name not in self._tool_cache:
-            if types.ListToolsRequest in self.request_handlers:
-                logger.debug("Tool cache miss for %s, refreshing cache", tool_name)
-                await self.request_handlers[types.ListToolsRequest](None)
-
-        tool = self._tool_cache.get(tool_name)
-        if tool is None:
-            logger.warning("Tool '%s' not listed, no validation will be performed", tool_name)
-
-        return tool
-
-    def call_tool(self, *, validate_input: bool = True):
-        """Register a tool call handler.
-
-        Args:
-            validate_input: If True, validates input against inputSchema. Default is True.
-
-        The handler validates input against inputSchema (if validate_input=True), calls the tool function,
-        and builds a CallToolResult with the results:
-        - Unstructured content (iterable of ContentBlock): returned in content
-        - Structured content (dict): returned in structuredContent, serialized JSON text returned in content
-        - Both: returned in content and structuredContent
-
-        If outputSchema is defined, validates structuredContent or errors if missing.
-        """
-
-        def decorator(
-            func: Callable[
-                [str, dict[str, Any]],
-                Awaitable[
-                    UnstructuredContent
-                    | StructuredContent
-                    | CombinationContent
-                    | types.CallToolResult
-                    | types.CreateTaskResult
-                ],
-            ],
-        ):
-            logger.debug("Registering handler for CallToolRequest")
-
-            async def handler(req: types.CallToolRequest):
-                try:
-                    tool_name = req.params.name
-                    arguments = req.params.arguments or {}
-                    tool = await self._get_cached_tool_definition(tool_name)
-
-                    # input validation
-                    if validate_input and tool:
-                        try:
-                            jsonschema.validate(instance=arguments, schema=tool.input_schema)
-                        except jsonschema.ValidationError as e:
-                            return self._make_error_result(f"Input validation error: {e.message}")
-
-                    # tool call
-                    results = await func(tool_name, arguments)
-
-                    # output normalization
-                    unstructured_content: UnstructuredContent
-                    maybe_structured_content: StructuredContent | None
-                    if isinstance(results, types.CallToolResult):
-                        return results
-                    elif isinstance(results, types.CreateTaskResult):
-                        # Task-augmented execution returns task info instead of result
-                        return results
-                    elif isinstance(results, tuple) and len(results) == 2:
-                        # tool returned both structured and unstructured content
-                        unstructured_content, maybe_structured_content = cast(CombinationContent, results)
-                    elif isinstance(results, dict):
-                        # tool returned structured content only
-                        maybe_structured_content = cast(StructuredContent, results)
-                        unstructured_content = [types.TextContent(type="text", text=json.dumps(results, indent=2))]
-                    elif hasattr(results, "__iter__"):
-                        # tool returned unstructured content only
-                        unstructured_content = cast(UnstructuredContent, results)
-                        maybe_structured_content = None
-                    else:  # pragma: no cover
-                        return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
-
-                    # output validation
-                    if tool and tool.output_schema is not None:
-                        if maybe_structured_content is None:
-                            return self._make_error_result(
-                                "Output validation error: outputSchema defined but no structured output returned"
-                            )
-                        else:
-                            try:
-                                jsonschema.validate(instance=maybe_structured_content, schema=tool.output_schema)
-                            except jsonschema.ValidationError as e:
-                                return self._make_error_result(f"Output validation error: {e.message}")
-
-                    # result
-                    return types.CallToolResult(
-                        content=list(unstructured_content),
-                        structured_content=maybe_structured_content,
-                        is_error=False,
-                    )
-                except UrlElicitationRequiredError:
-                    # Re-raise UrlElicitationRequiredError so it can be properly handled
-                    # by _handle_request, which converts it to an error response with code -32042
-                    raise
-                except Exception as e:
-                    return self._make_error_result(str(e))
-
-            self.request_handlers[types.CallToolRequest] = handler
-            return func
-
-        return decorator
-
-    def progress_notification(self):
-        def decorator(
-            func: Callable[[str | int, float, float | None, str | None], Awaitable[None]],
-        ):
-            logger.debug("Registering handler for ProgressNotification")
-
-            async def handler(req: types.ProgressNotification):
-                await func(
-                    req.params.progress_token,
-                    req.params.progress,
-                    req.params.total,
-                    req.params.message,
-                )
-
-            self.notification_handlers[types.ProgressNotification] = handler
-            return func
-
-        return decorator
-
-    def completion(self):
-        """Provides completions for prompts and resource templates"""
-
-        def decorator(
-            func: Callable[
-                [
-                    types.PromptReference | types.ResourceTemplateReference,
-                    types.CompletionArgument,
-                    types.CompletionContext | None,
-                ],
-                Awaitable[types.Completion | None],
-            ],
-        ):
-            logger.debug("Registering handler for CompleteRequest")
-
-            async def handler(req: types.CompleteRequest):
-                completion = await func(req.params.ref, req.params.argument, req.params.context)
-                return types.CompleteResult(
-                    completion=completion
-                    if completion is not None
-                    else types.Completion(values=[], total=None, has_more=None),
-                )
-
-            self.request_handlers[types.CompleteRequest] = handler
-            return func
-
-        return decorator
+    # Private handler registration methods for constructor-based API
+    def _register_list_prompts_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListPromptsResult],
+        ],
+    ) -> None:
+        """Register a list prompts handler."""
+        if types.ListPromptsRequest in self.request_handlers:
+            raise ValueError(
+                "A list_prompts handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for ListPromptsRequest")
+
+        async def handler(req: types.ListPromptsRequest) -> types.ListPromptsResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.ListPromptsRequest] = handler
+
+    def _register_get_prompt_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.GetPromptRequestParams],
+            Awaitable[types.GetPromptResult],
+        ],
+    ) -> None:
+        """Register a get prompt handler."""
+        if types.GetPromptRequest in self.request_handlers:
+            raise ValueError(
+                "A get_prompt handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for GetPromptRequest")
+
+        async def handler(req: types.GetPromptRequest) -> types.GetPromptResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.GetPromptRequest] = handler
+
+    def _register_list_resources_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourcesResult],
+        ],
+    ) -> None:
+        """Register a list resources handler."""
+        if types.ListResourcesRequest in self.request_handlers:
+            raise ValueError(
+                "A list_resources handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for ListResourcesRequest")
+
+        async def handler(req: types.ListResourcesRequest) -> types.ListResourcesResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.ListResourcesRequest] = handler
+
+    def _register_list_resource_templates_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListResourceTemplatesResult],
+        ],
+    ) -> None:
+        """Register a list resource templates handler."""
+        if types.ListResourceTemplatesRequest in self.request_handlers:
+            raise ValueError(
+                "A list_resource_templates handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for ListResourceTemplatesRequest")
+
+        async def handler(req: types.ListResourceTemplatesRequest) -> types.ListResourceTemplatesResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.ListResourceTemplatesRequest] = handler
+
+    def _register_read_resource_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.ReadResourceRequestParams],
+            Awaitable[types.ReadResourceResult],
+        ],
+    ) -> None:
+        """Register a read resource handler."""
+        if types.ReadResourceRequest in self.request_handlers:
+            raise ValueError(
+                "A read_resource handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for ReadResourceRequest")
+
+        async def handler(req: types.ReadResourceRequest) -> types.ReadResourceResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.ReadResourceRequest] = handler
+
+    def _register_subscribe_resource_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.SubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ],
+    ) -> None:
+        """Register a subscribe resource handler."""
+        if types.SubscribeRequest in self.request_handlers:
+            raise ValueError(
+                "A subscribe_resource handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for SubscribeRequest")
+
+        async def handler(req: types.SubscribeRequest) -> types.EmptyResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.SubscribeRequest] = handler
+
+    def _register_unsubscribe_resource_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.UnsubscribeRequestParams],
+            Awaitable[types.EmptyResult],
+        ],
+    ) -> None:
+        """Register an unsubscribe resource handler."""
+        if types.UnsubscribeRequest in self.request_handlers:
+            raise ValueError(
+                "An unsubscribe_resource handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for UnsubscribeRequest")
+
+        async def handler(req: types.UnsubscribeRequest) -> types.EmptyResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.UnsubscribeRequest] = handler
+
+    def _register_list_tools_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.PaginatedRequestParams | None],
+            Awaitable[types.ListToolsResult],
+        ],
+    ) -> None:
+        """Register a list tools handler."""
+        if types.ListToolsRequest in self.request_handlers:
+            raise ValueError(
+                "A list_tools handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for ListToolsRequest")
+
+        async def handler(req: types.ListToolsRequest) -> types.ListToolsResult:
+            ctx = request_ctx.get()
+            result = await func(ctx, req.params)
+            # Validate tool names and update cache
+            for tool in result.tools:
+                validate_and_warn_tool_name(tool.name)
+                self._tool_cache[tool.name] = tool
+            return result
+
+        self.request_handlers[types.ListToolsRequest] = handler
+
+    def _register_call_tool_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.CallToolRequestParams],
+            Awaitable[types.CallToolResult],
+        ],
+    ) -> None:
+        """Register a call tool handler."""
+        if types.CallToolRequest in self.request_handlers:
+            raise ValueError(
+                "A call_tool handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for CallToolRequest")
+
+        async def handler(req: types.CallToolRequest) -> types.CallToolResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.CallToolRequest] = handler
+
+    def _register_set_logging_level_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.SetLevelRequestParams],
+            Awaitable[types.EmptyResult],
+        ],
+    ) -> None:
+        """Register a set logging level handler."""
+        if types.SetLevelRequest in self.request_handlers:
+            raise ValueError(
+                "A set_logging_level handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for SetLevelRequest")
+
+        async def handler(req: types.SetLevelRequest) -> types.EmptyResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.SetLevelRequest] = handler
+
+    def _register_completion_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.CompleteRequestParams],
+            Awaitable[types.CompleteResult],
+        ],
+    ) -> None:
+        """Register a completion handler."""
+        if types.CompleteRequest in self.request_handlers:
+            raise ValueError(
+                "A completion handler is already registered. "
+                "Cannot register multiple handlers for the same request type."
+            )
+        logger.debug("Registering handler for CompleteRequest")
+
+        async def handler(req: types.CompleteRequest) -> types.CompleteResult:
+            ctx = request_ctx.get()
+            return await func(ctx, req.params)
+
+        self.request_handlers[types.CompleteRequest] = handler
+
+    def _register_progress_notification_handler(
+        self,
+        func: Callable[
+            [RequestContext[ServerSession, LifespanResultT, RequestT], types.ProgressNotificationParams],
+            Awaitable[None],
+        ],
+    ) -> None:
+        """Register a progress notification handler."""
+        if types.ProgressNotification in self.notification_handlers:
+            raise ValueError(
+                "A progress_notification handler is already registered. "
+                "Cannot register multiple handlers for the same notification type."
+            )
+        logger.debug("Registering handler for ProgressNotification")
+
+        async def handler(notification: types.ProgressNotification) -> None:
+            ctx = request_ctx.get()
+            await func(ctx, notification.params)
+
+        self.notification_handlers[types.ProgressNotification] = handler
 
     async def run(
         self,
@@ -722,7 +676,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                     if raise_exceptions:
                         raise message
                 case _:
-                    await self._handle_notification(message)
+                    await self._handle_notification(message, session, lifespan_context)
 
             for warning in w:  # pragma: lax no cover
                 logger.info("Warning: %s: %s", warning.category.__name__, warning.message)
@@ -799,14 +753,36 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         logger.debug("Response sent")
 
-    async def _handle_notification(self, notify: Any):
+    async def _handle_notification(
+        self,
+        notify: Any,
+        session: ServerSession,
+        lifespan_context: LifespanResultT,
+    ):
         if handler := self.notification_handlers.get(type(notify)):  # type: ignore
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
+            token = None
             try:
+                # Set up context for the notification handler
+                token = request_ctx.set(
+                    RequestContext(
+                        request_id=None,
+                        meta=None,
+                        session=session,
+                        lifespan_context=lifespan_context,
+                        experimental=None,
+                        request=None,
+                        close_sse_stream=None,
+                        close_standalone_sse_stream=None,
+                    )
+                )
                 await handler(notify)
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
+            finally:
+                if token is not None:
+                    request_ctx.reset(token)
 
     def streamable_http_app(
         self,

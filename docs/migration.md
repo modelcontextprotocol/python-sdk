@@ -426,9 +426,95 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
-## Deprecations
+### Low-Level Server Decorator-Based API Removed
 
-<!-- Add deprecations below -->
+The decorator-based API for registering handlers on the low-level `Server` class has been removed. Use the constructor-based handler registration instead, which provides better type safety and clearer dependencies.
+
+**Before (v1):**
+
+```python
+from mcp.server.lowlevel import Server
+
+server = Server("my-server")
+
+@server.list_tools()
+async def list_tools():
+    return [types.Tool(name="tool", description="...")]
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict):
+    return {"result": "..."}
+```
+
+**After (v2):**
+
+```python
+from mcp.server.lowlevel import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
+import mcp.types as types
+from typing import Any
+
+async def list_tools(
+    ctx: RequestContext[ServerSession, Any, Any],
+    params: types.PaginatedRequestParams | None,
+) -> types.ListToolsResult:
+    return types.ListToolsResult(tools=[
+        types.Tool(name="tool", description="...", input_schema={"type": "object"})
+    ])
+
+async def call_tool(
+    ctx: RequestContext[ServerSession, Any, Any],
+    params: types.CallToolRequestParams,
+) -> types.CallToolResult:
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text="result")]
+    )
+
+server = Server(
+    "my-server",
+    on_list_tools=list_tools,
+    on_call_tool=call_tool,
+)
+```
+
+**Key differences:**
+
+1. Handlers receive `(context, params)` instead of extracted arguments
+2. Handlers return proper result types (`ListToolsResult`, `CallToolResult`, etc.)
+3. Context provides access to session, lifespan data, and request metadata
+4. Handlers are passed to the constructor using `on_*` parameters
+
+**Migration steps:**
+
+1. Update handler signatures to accept `(ctx, params)`
+2. Update return types to use proper result classes
+3. Pass handlers to the Server constructor using `on_*` parameters
+4. Remove decorator calls
+
+**Available constructor parameters:**
+
+| Constructor Parameter | Params Type | Return Type |
+|-----------------------|-------------|-------------|
+| `on_list_prompts` | `PaginatedRequestParams \| None` | `ListPromptsResult` |
+| `on_get_prompt` | `GetPromptRequestParams` | `GetPromptResult` |
+| `on_list_resources` | `PaginatedRequestParams \| None` | `ListResourcesResult` |
+| `on_list_resource_templates` | `PaginatedRequestParams \| None` | `ListResourceTemplatesResult` |
+| `on_read_resource` | `ReadResourceRequestParams` | `ReadResourceResult` |
+| `on_subscribe_resource` | `SubscribeRequestParams` | `EmptyResult` |
+| `on_unsubscribe_resource` | `UnsubscribeRequestParams` | `EmptyResult` |
+| `on_list_tools` | `PaginatedRequestParams \| None` | `ListToolsResult` |
+| `on_call_tool` | `CallToolRequestParams` | `CallToolResult` |
+| `on_set_logging_level` | `SetLevelRequestParams` | `EmptyResult` |
+| `on_completion` | `CompleteRequestParams` | `CompleteResult` |
+| `on_progress_notification` | `ProgressNotificationParams` | `None` |
+
+**Benefits:**
+
+- Context available in all handlers (session, lifespan data, request metadata)
+- Type-safe params and return types
+- Clearer dependencies at construction time
+- Better testability (handlers can be mocked/replaced)
 
 ## Bug Fixes
 
@@ -462,13 +548,20 @@ The `streamable_http_app()` method is now available directly on the lowlevel `Se
 
 ```python
 from mcp.server.lowlevel.server import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
+import mcp.types as types
+from typing import Any
 
-server = Server("my-server")
+async def list_tools(
+    ctx: RequestContext[ServerSession, Any, Any],
+    params: types.PaginatedRequestParams | None,
+) -> types.ListToolsResult:
+    return types.ListToolsResult(tools=[
+        types.Tool(name="my_tool", description="...", inputSchema={"type": "object"})
+    ])
 
-# Register handlers...
-@server.list_tools()
-async def list_tools():
-    return [...]
+server = Server("my-server", on_list_tools=list_tools)
 
 # Create a Starlette app for streamable HTTP
 app = server.streamable_http_app(

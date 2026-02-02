@@ -16,11 +16,13 @@ import pytest
 from anyio import Event
 from anyio.abc import TaskGroup
 
+import mcp.types as mcp_types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.experimental.tasks.helpers import task_execution
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
@@ -70,28 +72,32 @@ async def test_task_lifecycle_with_task_execution() -> None:
     4. Work executes in background, auto-fails on exception
     """
     # Note: We bypass the normal lifespan mechanism and pass context directly to _handle_message
-    server: Server[AppContext, Any] = Server("test-tasks")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="process_data",
-                description="Process data asynchronously",
-                input_schema={
-                    "type": "object",
-                    "properties": {"input": {"type": "string"}},
-                },
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="process_data",
+                    description="Process data asynchronously",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"input": {"type": "string"}},
+                    },
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, AppContext, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
-        if name == "process_data" and ctx.experimental.is_task:
+        if params.name == "process_data" and ctx.experimental.is_task:
             # 1. Create task in store
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -106,7 +112,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
                 async with task_execution(task.task_id, app.store) as task_ctx:
                     await task_ctx.update_status("Processing input...")
                     # Simulate work
-                    input_value = arguments.get("input", "")
+                    input_value = (params.arguments or {}).get("input", "")
                     result_text = f"Processed: {input_value.upper()}"
                     await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text=result_text)]))
                 # Signal completion
@@ -119,6 +125,10 @@ async def test_task_lifecycle_with_task_execution() -> None:
             return CreateTaskResult(task=task)
 
         raise NotImplementedError
+
+    server: Server[AppContext, Any] = Server(  # type: ignore[assignment]
+        "test-tasks", on_list_tools=on_list_tools, on_call_tool=on_call_tool
+    )
 
     # Register task query handlers (delegate to store)
     @server.experimental.get_task()
@@ -232,24 +242,28 @@ async def test_task_lifecycle_with_task_execution() -> None:
 async def test_task_auto_fails_on_exception() -> None:
     """Test that task_execution automatically fails the task on unhandled exception."""
     # Note: We bypass the normal lifespan mechanism and pass context directly to _handle_message
-    server: Server[AppContext, Any] = Server("test-tasks-failure")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="failing_task",
-                description="A task that fails",
-                input_schema={"type": "object", "properties": {}},
-            )
-        ]
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: mcp_types.PaginatedRequestParams | None,
+    ) -> mcp_types.ListToolsResult:
+        return mcp_types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="failing_task",
+                    description="A task that fails",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, AppContext, Any],
+        params: mcp_types.CallToolRequestParams,
+    ) -> mcp_types.CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
-        if name == "failing_task" and ctx.experimental.is_task:
+        if params.name == "failing_task" and ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
             task = await app.store.create_task(task_metadata)
@@ -271,6 +285,10 @@ async def test_task_auto_fails_on_exception() -> None:
             return CreateTaskResult(task=task)
 
         raise NotImplementedError
+
+    server: Server[AppContext, Any] = Server(  # type: ignore[assignment]
+        "test-tasks-failure", on_list_tools=on_list_tools, on_call_tool=on_call_tool
+    )
 
     @server.experimental.get_task()
     async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:

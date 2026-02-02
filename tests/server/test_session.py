@@ -9,6 +9,7 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
@@ -85,47 +86,58 @@ async def test_server_session_initialize():
 
 @pytest.mark.anyio
 async def test_server_capabilities():
-    server = Server("test")
     notification_options = NotificationOptions()
     experimental_capabilities: dict[str, Any] = {}
 
+    # Define handlers
+    async def on_list_prompts(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListPromptsResult:  # pragma: no cover
+        return types.ListPromptsResult(prompts=[])
+
+    async def on_list_resources(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListResourcesResult:  # pragma: no cover
+        return types.ListResourcesResult(resources=[])
+
+    async def on_completion(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CompleteRequestParams,
+    ) -> types.CompleteResult:  # pragma: no cover
+        return types.CompleteResult(
+            completion=Completion(values=["completion1", "completion2"]),
+        )
+
     # Initially no capabilities
+    server = Server("test")
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts is None
     assert caps.resources is None
     assert caps.completions is None
 
-    # Add a prompts handler
-    @server.list_prompts()
-    async def list_prompts() -> list[Prompt]:  # pragma: no cover
-        return []
-
+    # With prompts handler only
+    server = Server("test", on_list_prompts=on_list_prompts)
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(list_changed=False)
     assert caps.resources is None
     assert caps.completions is None
 
-    # Add a resources handler
-    @server.list_resources()
-    async def list_resources() -> list[Resource]:  # pragma: no cover
-        return []
-
+    # With prompts and resources handlers
+    server = Server("test", on_list_prompts=on_list_prompts, on_list_resources=on_list_resources)
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(list_changed=False)
     assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)
     assert caps.completions is None
 
-    # Add a complete handler
-    @server.completion()
-    async def complete(  # pragma: no cover
-        ref: PromptReference | ResourceTemplateReference,
-        argument: CompletionArgument,
-        context: CompletionContext | None,
-    ) -> Completion | None:
-        return Completion(
-            values=["completion1", "completion2"],
-        )
-
+    # With all handlers including complete
+    server = Server(
+        "test",
+        on_list_prompts=on_list_prompts,
+        on_list_resources=on_list_resources,
+        on_completion=on_completion,
+    )
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(list_changed=False)
     assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)

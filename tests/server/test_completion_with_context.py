@@ -4,8 +4,11 @@ from typing import Any
 
 import pytest
 
+import mcp.types as types
 from mcp import Client
 from mcp.server.lowlevel import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.types import (
     Completion,
     CompletionArgument,
@@ -18,23 +21,27 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_completion_handler_receives_context():
     """Test that the completion handler receives context correctly."""
-    server = Server("test-server")
 
     # Track what the handler receives
     received_args: dict[str, Any] = {}
 
-    @server.completion()
-    async def handle_completion(
-        ref: PromptReference | ResourceTemplateReference,
-        argument: CompletionArgument,
-        context: CompletionContext | None,
-    ) -> Completion | None:
+    async def on_completion(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CompleteRequestParams,
+    ) -> types.CompleteResult:
+        ref = params.ref
+        argument = params.argument
+        context = params.context
         received_args["ref"] = ref
         received_args["argument"] = argument
         received_args["context"] = context
 
         # Return test completion
-        return Completion(values=["test-completion"], total=1, has_more=False)
+        return types.CompleteResult(
+            completion=Completion(values=["test-completion"], total=1, has_more=False)
+        )
+
+    server = Server("test-server", on_completion=on_completion)
 
     async with Client(server) as client:
         # Test with context
@@ -53,20 +60,20 @@ async def test_completion_handler_receives_context():
 @pytest.mark.anyio
 async def test_completion_backward_compatibility():
     """Test that completion works without context (backward compatibility)."""
-    server = Server("test-server")
-
     context_was_none = False
 
-    @server.completion()
-    async def handle_completion(
-        ref: PromptReference | ResourceTemplateReference,
-        argument: CompletionArgument,
-        context: CompletionContext | None,
-    ) -> Completion | None:
+    async def on_completion(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CompleteRequestParams,
+    ) -> types.CompleteResult:
         nonlocal context_was_none
-        context_was_none = context is None
+        context_was_none = params.context is None
 
-        return Completion(values=["no-context-completion"], total=1, has_more=False)
+        return types.CompleteResult(
+            completion=Completion(values=["no-context-completion"], total=1, has_more=False)
+        )
+
+    server = Server("test-server", on_completion=on_completion)
 
     async with Client(server) as client:
         # Test without context
@@ -82,30 +89,46 @@ async def test_completion_backward_compatibility():
 @pytest.mark.anyio
 async def test_dependent_completion_scenario():
     """Test a real-world scenario with dependent completions."""
-    server = Server("test-server")
 
-    @server.completion()
-    async def handle_completion(
-        ref: PromptReference | ResourceTemplateReference,
-        argument: CompletionArgument,
-        context: CompletionContext | None,
-    ) -> Completion | None:
+    async def on_completion(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CompleteRequestParams,
+    ) -> types.CompleteResult:
+        ref = params.ref
+        argument = params.argument
+        context = params.context
         # Simulate database/table completion scenario
         if isinstance(ref, ResourceTemplateReference):
             if ref.uri == "db://{database}/{table}":
                 if argument.name == "database":
                     # Complete database names
-                    return Completion(values=["users_db", "products_db", "analytics_db"], total=3, has_more=False)
+                    return types.CompleteResult(
+                        completion=Completion(
+                            values=["users_db", "products_db", "analytics_db"], total=3, has_more=False
+                        )
+                    )
                 elif argument.name == "table":
                     # Complete table names based on selected database
                     if context and context.arguments:
                         db = context.arguments.get("database")
                         if db == "users_db":
-                            return Completion(values=["users", "sessions", "permissions"], total=3, has_more=False)
+                            return types.CompleteResult(
+                                completion=Completion(
+                                    values=["users", "sessions", "permissions"], total=3, has_more=False
+                                )
+                            )
                         elif db == "products_db":
-                            return Completion(values=["products", "categories", "inventory"], total=3, has_more=False)
+                            return types.CompleteResult(
+                                completion=Completion(
+                                    values=["products", "categories", "inventory"], total=3, has_more=False
+                                )
+                            )
 
-        return Completion(values=[], total=0, has_more=False)  # pragma: no cover
+        return types.CompleteResult(
+            completion=Completion(values=[], total=0, has_more=False)
+        )  # pragma: no cover
+
+    server = Server("test-server", on_completion=on_completion)
 
     async with Client(server) as client:
         # First, complete database
@@ -136,14 +159,14 @@ async def test_dependent_completion_scenario():
 @pytest.mark.anyio
 async def test_completion_error_on_missing_context():
     """Test that server can raise error when required context is missing."""
-    server = Server("test-server")
 
-    @server.completion()
-    async def handle_completion(
-        ref: PromptReference | ResourceTemplateReference,
-        argument: CompletionArgument,
-        context: CompletionContext | None,
-    ) -> Completion | None:
+    async def on_completion(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CompleteRequestParams,
+    ) -> types.CompleteResult:
+        ref = params.ref
+        argument = params.argument
+        context = params.context
         if isinstance(ref, ResourceTemplateReference):
             if ref.uri == "db://{database}/{table}":
                 if argument.name == "table":
@@ -154,9 +177,15 @@ async def test_completion_error_on_missing_context():
                     # Normal completion if context is provided
                     db = context.arguments.get("database")
                     if db == "test_db":
-                        return Completion(values=["users", "orders", "products"], total=3, has_more=False)
+                        return types.CompleteResult(
+                            completion=Completion(values=["users", "orders", "products"], total=3, has_more=False)
+                        )
 
-        return Completion(values=[], total=0, has_more=False)  # pragma: no cover
+        return types.CompleteResult(
+            completion=Completion(values=[], total=0, has_more=False)
+        )  # pragma: no cover
+
+    server = Server("test-server", on_completion=on_completion)
 
     async with Client(server) as client:
         # Try to complete table without database context - should raise error

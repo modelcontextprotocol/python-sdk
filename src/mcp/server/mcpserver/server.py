@@ -30,7 +30,7 @@ from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -265,17 +265,112 @@ class MCPServer(Generic[LifespanResultT]):
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
     def _setup_handlers(self) -> None:
-        """Set up core MCP protocol handlers."""
-        self._lowlevel_server.list_tools()(self.list_tools)
-        # Note: we disable the lowlevel server's input validation.
-        # MCPServer does ad hoc conversion of incoming data before validating -
-        # for now we preserve this for backwards compatibility.
-        self._lowlevel_server.call_tool(validate_input=False)(self.call_tool)
-        self._lowlevel_server.list_resources()(self.list_resources)
-        self._lowlevel_server.read_resource()(self.read_resource)
-        self._lowlevel_server.list_prompts()(self.list_prompts)
-        self._lowlevel_server.get_prompt()(self.get_prompt)
-        self._lowlevel_server.list_resource_templates()(self.list_resource_templates)
+        """Set up core MCP protocol handlers using private registration methods."""
+        import mcp.types as types
+
+        # Create handler adapters that bridge MCPServer methods to lowlevel Server API
+        async def list_tools_handler(
+            ctx: RequestContext[ServerSession, LifespanResultT, Request],
+            params: types.PaginatedRequestParams | None,
+        ) -> types.ListToolsResult:
+            tools = await self.list_tools()
+            return types.ListToolsResult(tools=tools)
+
+        async def call_tool_handler(
+            ctx: RequestContext[ServerSession, LifespanResultT, Request],
+            params: types.CallToolRequestParams,
+        ) -> types.CallToolResult:
+            try:
+                result = await self.call_tool(params.name, params.arguments or {})
+            except ToolError as e:
+                # Return tool errors as error results
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=str(e))],
+                    is_error=True,
+                )
+
+            # Handle different result formats:
+            # - tuple: (unstructured_content, structured_content) from tools with output schema
+            # - dict: structured content only (legacy format)
+            # - other: sequence of content items
+            if isinstance(result, tuple) and len(result) == 2:
+                content, structured_content = result
+                return types.CallToolResult(content=list(content), structured_content=structured_content)
+            elif isinstance(result, dict):
+                import json
+
+                return types.CallToolResult(
+                    content=[types.TextContent(type="text", text=json.dumps(result, indent=2))],
+                    structured_content=result,
+                )
+            else:
+                return types.CallToolResult(content=list(result))
+
+        async def list_resources_handler(
+            ctx: RequestContext[ServerSession, LifespanResultT, Request],
+            params: types.PaginatedRequestParams | None,
+        ) -> types.ListResourcesResult:
+            resources = await self.list_resources()
+            return types.ListResourcesResult(resources=resources)
+
+        async def read_resource_handler(
+            ctx: RequestContext[ServerSession, LifespanResultT, Request],
+            params: types.ReadResourceRequestParams,
+        ) -> types.ReadResourceResult:
+            import base64
+
+            contents_result = await self.read_resource(params.uri)
+            contents: list[types.TextResourceContents | types.BlobResourceContents] = []
+            for content_item in contents_result:
+                meta_kwargs: dict[str, Any] = {"_meta": content_item.meta} if content_item.meta is not None else {}
+                if isinstance(content_item.content, bytes):
+                    contents.append(
+                        types.BlobResourceContents(
+                            uri=params.uri,
+                            blob=base64.b64encode(content_item.content).decode(),
+                            mime_type=content_item.mime_type or "application/octet-stream",
+                            **meta_kwargs,
+                        )
+                    )
+                else:
+                    contents.append(
+                        types.TextResourceContents(
+                            uri=params.uri,
+                            text=content_item.content,
+                            mime_type=content_item.mime_type or "text/plain",
+                            **meta_kwargs,
+                        )
+                    )
+            return types.ReadResourceResult(contents=contents)
+
+        async def list_prompts_handler(
+            ctx: RequestContext[ServerSession, LifespanResultT, Request],
+            params: types.PaginatedRequestParams | None,
+        ) -> types.ListPromptsResult:
+            prompts = await self.list_prompts()
+            return types.ListPromptsResult(prompts=prompts)
+
+        async def get_prompt_handler(
+            ctx: RequestContext[ServerSession, LifespanResultT, Request],
+            params: types.GetPromptRequestParams,
+        ) -> types.GetPromptResult:
+            return await self.get_prompt(params.name, params.arguments)
+
+        async def list_resource_templates_handler(
+            ctx: RequestContext[ServerSession, LifespanResultT, Request],
+            params: types.PaginatedRequestParams | None,
+        ) -> types.ListResourceTemplatesResult:
+            templates = await self.list_resource_templates()
+            return types.ListResourceTemplatesResult(resource_templates=templates)
+
+        # Register handlers using private methods
+        self._lowlevel_server._register_list_tools_handler(list_tools_handler)
+        self._lowlevel_server._register_call_tool_handler(call_tool_handler)
+        self._lowlevel_server._register_list_resources_handler(list_resources_handler)
+        self._lowlevel_server._register_read_resource_handler(read_resource_handler)
+        self._lowlevel_server._register_list_prompts_handler(list_prompts_handler)
+        self._lowlevel_server._register_get_prompt_handler(get_prompt_handler)
+        self._lowlevel_server._register_list_resource_templates_handler(list_resource_templates_handler)
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
@@ -487,7 +582,33 @@ class MCPServer(Generic[LifespanResultT]):
                     return Completion(values=["option1", "option2"])
                 return None
         """
-        return self._lowlevel_server.completion()
+        import mcp.types as types
+
+        def decorator(
+            func: Callable[
+                [
+                    types.PromptReference | types.ResourceTemplateReference,
+                    types.CompletionArgument,
+                    types.CompletionContext | None,
+                ],
+                Awaitable[types.Completion | None],
+            ],
+        ):
+            async def completion_handler(
+                ctx: RequestContext[ServerSession, LifespanResultT, Request],
+                params: types.CompleteRequestParams,
+            ) -> types.CompleteResult:
+                completion = await func(params.ref, params.argument, params.context)
+                return types.CompleteResult(
+                    completion=completion
+                    if completion is not None
+                    else types.Completion(values=[], total=None, has_more=None),
+                )
+
+            self._lowlevel_server._register_completion_handler(completion_handler)
+            return func
+
+        return decorator
 
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.

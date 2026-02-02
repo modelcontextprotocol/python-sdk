@@ -1,32 +1,40 @@
 """Tests for InMemoryTransport."""
 
+from typing import Any
+
 import pytest
 
+import mcp.types as types
 from mcp import Client
 from mcp.client._memory import InMemoryTransport
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.types import Resource
 
 
 @pytest.fixture
 def simple_server() -> Server:
     """Create a simple MCP server for testing."""
-    server = Server(name="test_server")
 
     # pragma: no cover - handler exists only to register a resource capability.
     # Transport tests verify stream creation, not handler invocation.
-    @server.list_resources()
-    async def handle_list_resources():  # pragma: no cover
-        return [
-            Resource(
-                uri="memory://test",
-                name="Test Resource",
-                description="A test resource",
-            )
-        ]
+    async def handle_list_resources(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListResourcesResult:  # pragma: no cover
+        return types.ListResourcesResult(
+            resources=[
+                Resource(
+                    uri="memory://test",
+                    name="Test Resource",
+                    description="A test resource",
+                )
+            ]
+        )
 
-    return server
+    return Server(name="test_server", on_list_resources=handle_list_resources)
 
 
 @pytest.fixture

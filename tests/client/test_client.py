@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 
 import anyio
@@ -13,6 +14,8 @@ from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.types import (
     CallToolResult,
     EmptyResult,
@@ -41,31 +44,47 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 def simple_server() -> Server:
     """Create a simple MCP server for testing."""
-    server = Server(name="test_server")
 
-    @server.list_resources()
-    async def handle_list_resources():
-        return [Resource(uri="memory://test", name="Test Resource", description="A test resource")]
+    async def handle_list_resources(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(
+            resources=[Resource(uri="memory://test", name="Test Resource", description="A test resource")]
+        )
 
-    @server.subscribe_resource()
-    async def handle_subscribe_resource(uri: str):
-        pass
+    async def handle_subscribe_resource(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.SubscribeRequestParams,
+    ) -> types.EmptyResult:
+        return types.EmptyResult()
 
-    @server.unsubscribe_resource()
-    async def handle_unsubscribe_resource(uri: str):
-        pass
+    async def handle_unsubscribe_resource(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.UnsubscribeRequestParams,
+    ) -> types.EmptyResult:
+        return types.EmptyResult()
 
-    @server.set_logging_level()
-    async def handle_set_logging_level(level: str):
-        pass
+    async def handle_set_logging_level(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.SetLevelRequestParams,
+    ) -> types.EmptyResult:
+        return types.EmptyResult()
 
-    @server.completion()
     async def handle_completion(
-        ref: types.PromptReference | types.ResourceTemplateReference,
-        argument: types.CompletionArgument,
-        context: types.CompletionContext | None,
-    ) -> types.Completion | None:
-        return types.Completion(values=[])
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CompleteRequestParams,
+    ) -> types.CompleteResult:
+        return types.CompleteResult(completion=types.Completion(values=[]))
+
+    server = Server(
+        name="test_server",
+        on_list_resources=handle_list_resources,
+        on_subscribe_resource=handle_subscribe_resource,
+        on_unsubscribe_resource=handle_unsubscribe_resource,
+        on_set_logging_level=handle_set_logging_level,
+        on_completion=handle_completion,
+    )
 
     return server
 
@@ -202,18 +221,16 @@ async def test_client_send_progress_notification():
     """Test sending progress notification."""
     received_from_client = None
     event = anyio.Event()
-    server = Server(name="test_server")
 
-    @server.progress_notification()
     async def handle_progress_notification(
-        progress_token: str | int,
-        progress: float = 0.0,
-        total: float | None = None,
-        message: str | None = None,
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.ProgressNotificationParams,
     ) -> None:
         nonlocal received_from_client
-        received_from_client = {"progress_token": progress_token, "progress": progress}
+        received_from_client = {"progress_token": params.progress_token, "progress": params.progress}
         event.set()
+
+    server = Server(name="test_server", on_progress_notification=handle_progress_notification)
 
     async with Client(server) as client:
         await client.send_progress_notification(progress_token="token123", progress=50.0)

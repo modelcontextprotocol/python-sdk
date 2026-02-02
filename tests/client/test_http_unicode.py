@@ -18,7 +18,9 @@ import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
+from mcp.server.session import ServerSession
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.shared.context import RequestContext
 from mcp.types import TextContent, Tool
 from tests.test_helpers import wait_for_server
 
@@ -46,55 +48,67 @@ def run_unicode_server(port: int) -> None:  # pragma: no cover
     """Run the Unicode test server in a separate process."""
     import uvicorn
 
-    # Need to recreate the server setup in this process
-    server = Server(name="unicode_test_server")
-
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
+    # Define handlers for the server
+    async def list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
         """List tools with Unicode descriptions."""
-        return [
-            Tool(
-                name="echo_unicode",
-                description="🔤 Echo Unicode text - Hello 👋 World 🌍 - Testing 🧪 Unicode ✨",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string", "description": "Text to echo back"},
+        return types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="echo_unicode",
+                    description="🔤 Echo Unicode text - Hello 👋 World 🌍 - Testing 🧪 Unicode ✨",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string", "description": "Text to echo back"},
+                        },
+                        "required": ["text"],
                     },
-                    "required": ["text"],
-                },
-            ),
-        ]
+                ),
+            ]
+        )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
+    async def call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         """Handle tool calls with Unicode content."""
-        if name == "echo_unicode":
-            text = arguments.get("text", "") if arguments else ""
-            return [
-                TextContent(
-                    type="text",
-                    text=f"Echo: {text}",
+        if params.name == "echo_unicode":
+            text = (params.arguments or {}).get("text", "")
+            return types.CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=f"Echo: {text}",
+                    )
+                ]
+            )
+        else:
+            raise ValueError(f"Unknown tool: {params.name}")
+
+    async def list_prompts(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListPromptsResult:
+        """List prompts with Unicode names and descriptions."""
+        return types.ListPromptsResult(
+            prompts=[
+                types.Prompt(
+                    name="unicode_prompt",
+                    description="Unicode prompt - Слой хранилища, где располагаются",
+                    arguments=[],
                 )
             ]
-        else:
-            raise ValueError(f"Unknown tool: {name}")
+        )
 
-    @server.list_prompts()
-    async def list_prompts() -> list[types.Prompt]:
-        """List prompts with Unicode names and descriptions."""
-        return [
-            types.Prompt(
-                name="unicode_prompt",
-                description="Unicode prompt - Слой хранилища, где располагаются",
-                arguments=[],
-            )
-        ]
-
-    @server.get_prompt()
-    async def get_prompt(name: str, arguments: dict[str, Any] | None) -> types.GetPromptResult:
+    async def get_prompt(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.GetPromptRequestParams,
+    ) -> types.GetPromptResult:
         """Get a prompt with Unicode content."""
-        if name == "unicode_prompt":
+        if params.name == "unicode_prompt":
             return types.GetPromptResult(
                 messages=[
                     types.PromptMessage(
@@ -106,7 +120,16 @@ def run_unicode_server(port: int) -> None:  # pragma: no cover
                     )
                 ]
             )
-        raise ValueError(f"Unknown prompt: {name}")
+        raise ValueError(f"Unknown prompt: {params.name}")
+
+    # Create the server with handlers
+    server = Server(
+        name="unicode_test_server",
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+        on_list_prompts=list_prompts,
+        on_get_prompt=get_prompt,
+    )
 
     # Create the session manager
     session_manager = StreamableHTTPSessionManager(

@@ -1,111 +1,99 @@
+from typing import Any
+
 import pytest
 
+import mcp.types as types
+from mcp import Client
 from mcp.server import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.types import (
-    ListPromptsRequest,
     ListPromptsResult,
-    ListResourcesRequest,
     ListResourcesResult,
-    ListToolsRequest,
     ListToolsResult,
     PaginatedRequestParams,
-    ServerResult,
 )
 
 
 @pytest.mark.anyio
 async def test_list_prompts_pagination() -> None:
-    server = Server("test")
     test_cursor = "test-cursor-123"
 
-    # Track what request was received
-    received_request: ListPromptsRequest | None = None
+    # Track what params were received
+    received_params: PaginatedRequestParams | None = None
 
-    @server.list_prompts()
-    async def handle_list_prompts(request: ListPromptsRequest) -> ListPromptsResult:
-        nonlocal received_request
-        received_request = request
+    async def handle_list_prompts(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: PaginatedRequestParams | None,
+    ) -> ListPromptsResult:
+        nonlocal received_params
+        received_params = params
         return ListPromptsResult(prompts=[], next_cursor="next")
 
-    handler = server.request_handlers[ListPromptsRequest]
+    server = Server("test", on_list_prompts=handle_list_prompts)
 
-    # Test: No cursor provided -> handler receives request with None params
-    request = ListPromptsRequest(method="prompts/list", params=None)
-    result = await handler(request)
-    assert received_request is not None
-    assert received_request.params is None
-    assert isinstance(result, ServerResult)
+    async with Client(server) as client:
+        # Test: No cursor provided -> handler receives params with None cursor
+        _ = await client.list_prompts()
+        assert received_params is None or received_params.cursor is None
 
-    # Test: Cursor provided -> handler receives request with cursor in params
-    request_with_cursor = ListPromptsRequest(method="prompts/list", params=PaginatedRequestParams(cursor=test_cursor))
-    result2 = await handler(request_with_cursor)
-    assert received_request is not None
-    assert received_request.params is not None
-    assert received_request.params.cursor == test_cursor
-    assert isinstance(result2, ServerResult)
+        # Test: Cursor provided -> handler receives params with cursor
+        _ = await client.list_prompts(cursor=test_cursor)
+        assert received_params is not None
+        assert received_params.cursor == test_cursor
 
 
 @pytest.mark.anyio
 async def test_list_resources_pagination() -> None:
-    server = Server("test")
     test_cursor = "resource-cursor-456"
 
-    # Track what request was received
-    received_request: ListResourcesRequest | None = None
+    # Track what params were received
+    received_params: PaginatedRequestParams | None = None
 
-    @server.list_resources()
-    async def handle_list_resources(request: ListResourcesRequest) -> ListResourcesResult:
-        nonlocal received_request
-        received_request = request
+    async def handle_list_resources(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: PaginatedRequestParams | None,
+    ) -> ListResourcesResult:
+        nonlocal received_params
+        received_params = params
         return ListResourcesResult(resources=[], next_cursor="next")
 
-    handler = server.request_handlers[ListResourcesRequest]
+    server = Server("test", on_list_resources=handle_list_resources)
 
-    # Test: No cursor provided -> handler receives request with None params
-    request = ListResourcesRequest(method="resources/list", params=None)
-    result = await handler(request)
-    assert received_request is not None
-    assert received_request.params is None
-    assert isinstance(result, ServerResult)
+    async with Client(server) as client:
+        # Test: No cursor provided -> handler receives params with None cursor
+        _ = await client.list_resources()
+        assert received_params is None or received_params.cursor is None
 
-    # Test: Cursor provided -> handler receives request with cursor in params
-    request_with_cursor = ListResourcesRequest(
-        method="resources/list", params=PaginatedRequestParams(cursor=test_cursor)
-    )
-    result2 = await handler(request_with_cursor)
-    assert received_request is not None
-    assert received_request.params is not None
-    assert received_request.params.cursor == test_cursor
-    assert isinstance(result2, ServerResult)
+        # Test: Cursor provided -> handler receives params with cursor
+        _ = await client.list_resources(cursor=test_cursor)
+        assert received_params is not None
+        assert received_params.cursor == test_cursor
 
 
 @pytest.mark.anyio
 async def test_list_tools_pagination() -> None:
-    server = Server("test")
     test_cursor = "tools-cursor-789"
 
-    # Track what request was received
-    received_request: ListToolsRequest | None = None
+    # Track what params were received
+    received_params: types.PaginatedRequestParams | None = None
 
-    @server.list_tools()
-    async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
-        nonlocal received_request
-        received_request = request
+    async def handle_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> ListToolsResult:
+        nonlocal received_params
+        received_params = params
         return ListToolsResult(tools=[], next_cursor="next")
 
-    handler = server.request_handlers[ListToolsRequest]
+    server = Server("test", on_list_tools=handle_list_tools)
 
-    # Test: No cursor provided -> handler receives request with None params
-    request = ListToolsRequest(method="tools/list", params=None)
-    result = await handler(request)
-    assert received_request is not None
-    assert received_request.params is None
-    assert isinstance(result, ServerResult)
+    async with Client(server) as client:
+        # Test: No cursor provided -> handler receives params with None cursor
+        _ = await client.list_tools()
+        assert received_params is None or received_params.cursor is None
 
-    # Test: Cursor provided -> handler receives request with cursor in params
-    request_with_cursor = ListToolsRequest(method="tools/list", params=PaginatedRequestParams(cursor=test_cursor))
-    result2 = await handler(request_with_cursor)
-    assert received_request is not None
-    assert received_request.params is not None
-    assert received_request.params.cursor == test_cursor
-    assert isinstance(result2, ServerResult)
+        # Test: Cursor provided -> handler receives params with cursor
+        _ = await client.list_tools(cursor=test_cursor)
+        assert received_params is not None
+        assert received_params.cursor == test_cursor

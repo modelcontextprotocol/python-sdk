@@ -1,4 +1,10 @@
-"""Test output schema validation for lowlevel server."""
+"""Test output schema validation for lowlevel server.
+
+NOTE: These tests are skipped because server-side output validation was removed
+with the decorator-based API. The constructor-based API delegates validation
+to the handler. The old decorator wrapped raw returns (list[TextContent], dict)
+and validated against output_schema, which is no longer done automatically.
+"""
 
 import json
 from collections.abc import Awaitable, Callable
@@ -7,11 +13,19 @@ from typing import Any
 import anyio
 import pytest
 
+# Skip all tests in this file - output validation was removed with decorator-based API
+pytestmark = pytest.mark.skip(
+    reason="Server-side output validation was removed with the decorator-based API. "
+    "The constructor-based API delegates validation to the handler."
+)
+
+import mcp.types as types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import CallToolResult, ClientResult, ServerNotification, ServerRequest, TextContent, Tool
@@ -32,17 +46,21 @@ async def run_tool_test(
     Returns:
         The result of the tool call
     """
-    server = Server("test")
 
+    async def on_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=tools)
+
+    async def on_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> Any:
+        return await call_tool_handler(params.name, params.arguments or {})
+
+    server = Server("test", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     result = None
-
-    @server.list_tools()
-    async def list_tools():
-        return tools
-
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
-        return await call_tool_handler(name, arguments)
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)

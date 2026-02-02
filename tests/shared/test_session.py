@@ -7,6 +7,8 @@ import mcp.types as types
 from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
+from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
@@ -42,30 +44,39 @@ async def test_request_cancellation():
     ev_cancelled = anyio.Event()
     request_id = None
 
-    # Create a server with a slow tool
-    server = Server(name="TestSessionServer")
-
-    # Register the tool handler
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
+    # Define handlers
+    async def handle_call_tool(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
         nonlocal request_id, ev_tool_called
-        if name == "slow_tool":
-            request_id = server.request_context.request_id
+        if params.name == "slow_tool":
+            request_id = ctx.request_id
             ev_tool_called.set()
             await anyio.sleep(10)  # Long enough to ensure we can cancel
-            return []  # pragma: no cover
-        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+            return types.CallToolResult(content=[])  # pragma: no cover
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
-    # Register the tool so it shows up in list_tools
-    @server.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="slow_tool",
-                description="A slow tool that takes 10 seconds to complete",
-                input_schema={},
-            )
-        ]
+    async def handle_list_tools(
+        ctx: RequestContext[ServerSession, Any, Any],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="slow_tool",
+                    description="A slow tool that takes 10 seconds to complete",
+                    inputSchema={},
+                )
+            ]
+        )
+
+    # Create a server with handlers
+    server = Server(
+        name="TestSessionServer",
+        on_call_tool=handle_call_tool,
+        on_list_tools=handle_list_tools,
+    )
 
     async def make_request(client: Client):
         nonlocal ev_cancelled
