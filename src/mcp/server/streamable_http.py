@@ -496,10 +496,18 @@ class StreamableHTTPServerTransport:
                 )
                 await response(scope, receive, send)
 
-                # Process the message after sending the response
+                # Process the message after sending the response.
+                # Skip if session terminated (e.g., DELETE processed concurrently).
+                if self._terminated:
+                    return
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
-                await writer.send(session_message)
+                try:
+                    await writer.send(session_message)
+                except anyio.ClosedResourceError:
+                    # Session terminated while processing; 202 already sent, do not send again
+                    logger.debug("Writer closed during notification handling (session terminated)")
+                    return
 
                 return
 
@@ -623,6 +631,12 @@ class StreamableHTTPServerTransport:
                     await sse_stream_reader.aclose()
                     await self._clean_up_memory_streams(request_id)
 
+        except anyio.ClosedResourceError as err:  # pragma: no cover
+            # Session terminated (e.g., DELETE processed) while handling POST.
+            # Response may have already been sent (e.g., 202 for notifications).
+            # Do not attempt to send another response to avoid ASGI "after response already completed".
+            logger.debug("Writer closed during POST handling (session terminated): %s", err)
+            return
         except Exception as err:  # pragma: no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
@@ -632,7 +646,10 @@ class StreamableHTTPServerTransport:
             )
             await response(scope, receive, send)
             if writer:
-                await writer.send(Exception(err))
+                try:
+                    await writer.send(Exception(err))
+                except anyio.ClosedResourceError:
+                    logger.debug("Writer already closed, skipping exception propagation")
             return
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:  # pragma: no cover
