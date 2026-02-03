@@ -25,8 +25,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
 
-import mcp.types as types
-from mcp import MCPError
+from mcp import MCPError, types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server

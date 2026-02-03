@@ -3,7 +3,7 @@ from __future__ import annotations
 import anyio
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
 from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage

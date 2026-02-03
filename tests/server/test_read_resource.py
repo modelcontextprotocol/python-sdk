@@ -4,7 +4,7 @@ from tempfile import NamedTemporaryFile
 
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel.server import ReadResourceContents, Server
 
 

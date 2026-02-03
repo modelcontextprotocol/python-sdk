@@ -3,8 +3,7 @@
 import anyio
 import pytest
 
-import mcp.types as types
-from mcp import ClientCapabilities
+from mcp import ClientCapabilities, types
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
 from mcp.shared._context import RequestContext
