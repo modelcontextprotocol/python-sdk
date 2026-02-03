@@ -530,11 +530,7 @@ class Server(Generic[LifespanResultT]):
                         _task_support=task_support,
                     ),
                 )
-                token = request_ctx.set(ctx)
-                try:
-                    await handler(ctx, getattr(notify, "params", None))
-                finally:
-                    request_ctx.reset(token)
+                await handler(ctx, getattr(notify, "params", None))
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
