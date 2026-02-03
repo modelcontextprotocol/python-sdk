@@ -2,8 +2,7 @@ from typing import Any, Literal
 
 import pytest
 
-import mcp.types as types
-from mcp import Client
+from mcp import Client, types
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.session import RequestResponder
 from mcp.types import (

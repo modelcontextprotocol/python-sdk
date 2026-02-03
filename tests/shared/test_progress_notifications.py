@@ -4,8 +4,7 @@ from unittest.mock import patch
 import anyio
 import pytest
 
-import mcp.types as types
-from mcp import Client
+from mcp import Client, types
 from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions

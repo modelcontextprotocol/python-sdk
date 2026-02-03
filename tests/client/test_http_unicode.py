@@ -14,7 +14,7 @@ import pytest
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-import mcp.types as types
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server

@@ -9,7 +9,7 @@ WARNING: These APIs are experimental and may change without notice.
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import mcp.types as types
+from mcp import types
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.experimental.tasks.capabilities import (
     require_task_augmented_elicitation,

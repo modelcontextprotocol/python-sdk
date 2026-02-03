@@ -19,7 +19,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 import mcp.client.sse
-import mcp.types as types
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server

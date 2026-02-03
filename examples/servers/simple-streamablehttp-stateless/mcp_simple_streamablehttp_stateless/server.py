@@ -5,8 +5,8 @@ from typing import Any
 
 import anyio
 import click
-import mcp.types as types
 import uvicorn
+from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette

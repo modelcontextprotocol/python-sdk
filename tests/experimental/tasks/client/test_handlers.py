@@ -19,7 +19,7 @@ from anyio import Event
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
-import mcp.types as types
+from mcp import types
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
 from mcp.shared.context import RequestContext

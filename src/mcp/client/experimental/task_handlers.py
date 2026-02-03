@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import TypeAdapter
 
-import mcp.types as types
+from mcp import types
 from mcp.shared.context import RequestContext
 from mcp.shared.session import RequestResponder
 

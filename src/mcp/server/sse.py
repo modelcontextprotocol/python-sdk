@@ -50,7 +50,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-import mcp.types as types
+from mcp import types
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,

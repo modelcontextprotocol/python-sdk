@@ -2,8 +2,7 @@ from collections.abc import Callable
 
 import pytest
 
-import mcp.types as types
-from mcp import Client
+from mcp import Client, types
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ListToolsRequest, ListToolsResult
