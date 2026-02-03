@@ -6,30 +6,22 @@ used in MCP servers to interact with the client.
 
 Common usage pattern:
 ```
-    server = Server(name)
-
-    @server.call_tool()
-    async def handle_tool_call(ctx: RequestContext, arguments: dict[str, Any]) -> Any:
+    async def handle_call_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
         # Check client capabilities before proceeding
         if ctx.session.check_client_capability(
             types.ClientCapabilities(experimental={"advanced_tools": dict()})
         ):
-            # Perform advanced tool operations
-            result = await perform_advanced_tool_operation(arguments)
+            result = await perform_advanced_tool_operation(params.arguments)
         else:
-            # Fall back to basic tool operations
-            result = await perform_basic_tool_operation(arguments)
-
+            result = await perform_basic_tool_operation(params.arguments)
         return result
 
-    @server.list_prompts()
-    async def handle_list_prompts(ctx: RequestContext) -> list[types.Prompt]:
-        # Access session for any necessary checks or operations
+    async def handle_list_prompts(ctx: RequestContext, params) -> ListPromptsResult:
         if ctx.session.client_params:
-            # Customize prompts based on client initialization parameters
-            return generate_custom_prompts(ctx.session.client_params)
-        else:
-            return default_prompts
+            return ListPromptsResult(prompts=generate_custom_prompts(ctx.session.client_params))
+        return ListPromptsResult(prompts=default_prompts)
+
+    server = Server(name, on_call_tool=handle_call_tool, on_list_prompts=handle_list_prompts)
 ```
 
 The ServerSession class is typically used internally by the Server class and should not
