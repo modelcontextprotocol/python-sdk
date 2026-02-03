@@ -57,10 +57,7 @@ class Experimental:
         return self._client_capabilities.tasks is not None
 
     def validate_task_mode(
-        self,
-        tool_task_mode: TaskExecutionMode | None,
-        *,
-        raise_error: bool = True,
+        self, tool_task_mode: TaskExecutionMode | None, *, raise_error: bool = True
     ) -> ErrorData | None:
         """Validate that the request is compatible with the tool's task execution mode.
 
@@ -95,12 +92,7 @@ class Experimental:
 
         return error
 
-    def validate_for_tool(
-        self,
-        tool: Tool,
-        *,
-        raise_error: bool = True,
-    ) -> ErrorData | None:
+    def validate_for_tool(self, tool: Tool, *, raise_error: bool = True) -> ErrorData | None:
         """Validate that the request is compatible with the given tool.
 
         Convenience wrapper around validate_task_mode that extracts the mode from a Tool.

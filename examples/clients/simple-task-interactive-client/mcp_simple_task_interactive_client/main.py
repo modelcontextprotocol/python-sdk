@@ -7,7 +7,6 @@ This example demonstrates the spec-compliant polling pattern:
 """
 
 import asyncio
-from typing import Any
 
 import click
 from mcp import ClientSession
@@ -24,7 +23,7 @@ from mcp.types import (
 
 
 async def elicitation_callback(
-    context: RequestContext[ClientSession, Any],
+    context: RequestContext[ClientSession],
     params: ElicitRequestParams,
 ) -> ElicitResult:
     """Handle elicitation requests from the server."""
@@ -39,7 +38,7 @@ async def elicitation_callback(
 
 
 async def sampling_callback(
-    context: RequestContext[ClientSession, Any],
+    context: RequestContext[ClientSession],
     params: CreateMessageRequestParams,
 ) -> CreateMessageResult:
     """Handle sampling requests from the server."""

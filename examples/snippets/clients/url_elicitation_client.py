@@ -38,7 +38,7 @@ from mcp.types import URL_ELICITATION_REQUIRED
 
 
 async def handle_elicitation(
-    context: RequestContext[ClientSession, Any],
+    context: RequestContext[ClientSession],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     """Handle elicitation requests from the server.

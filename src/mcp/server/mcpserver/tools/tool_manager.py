@@ -6,12 +6,11 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
+    from mcp.server.context import LifespanContextT, RequestT
     from mcp.server.mcpserver.server import Context
-    from mcp.server.session import ServerSessionT
 
 logger = get_logger(__name__)
 
@@ -82,7 +81,7 @@ class ToolManager:
         self,
         name: str,
         arguments: dict[str, Any],
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        context: Context[LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
     ) -> Any:
         """Call a tool by name with arguments."""

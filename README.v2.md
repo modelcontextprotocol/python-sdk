@@ -229,7 +229,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 
 
 # Mock database class for example
@@ -275,7 +274,7 @@ mcp = MCPServer("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context[ServerSession, AppContext]) -> str:
+def query_db(ctx: Context[AppContext]) -> str:
     """Tool that uses initialized resources."""
     db = ctx.request_context.lifespan_context.db
     return db.query()
@@ -2135,7 +2134,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
+    context: RequestContext[ClientSession], params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(
