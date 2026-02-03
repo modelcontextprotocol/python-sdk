@@ -38,9 +38,9 @@ from mcp.client.auth.extensions.client_credentials import (
     PrivateKeyJWTOAuthProvider,
     SignedJWTParameters,
 )
+from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from mcp.shared.context import RequestContext
 
 # Set up logging to stderr (stdout is for conformance test output)
 logging.basicConfig(
@@ -187,7 +187,7 @@ async def run_sse_retry(server_url: str) -> None:
 
 
 async def default_elicitation_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     """Accept elicitation and apply defaults from the schema (SEP-1034)."""

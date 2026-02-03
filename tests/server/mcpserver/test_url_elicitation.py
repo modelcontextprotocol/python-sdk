@@ -9,7 +9,7 @@ from mcp.client.session import ClientSession
 from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
 

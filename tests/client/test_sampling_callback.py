@@ -3,7 +3,7 @@ import pytest
 from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.mcpserver import MCPServer
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,

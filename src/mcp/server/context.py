@@ -7,7 +7,7 @@ from typing_extensions import TypeVar
 
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import CloseSSEStreamCallback
 
 LifespanContextT = TypeVar("LifespanContextT")

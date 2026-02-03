@@ -10,7 +10,7 @@ from pydantic import TypeAdapter
 import mcp.types as types
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS

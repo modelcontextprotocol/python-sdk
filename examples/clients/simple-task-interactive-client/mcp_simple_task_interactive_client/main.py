@@ -10,8 +10,8 @@ import asyncio
 
 import click
 from mcp import ClientSession
+from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.context import RequestContext
 from mcp.types import (
     CallToolResult,
     CreateMessageRequestParams,
@@ -23,7 +23,7 @@ from mcp.types import (
 
 
 async def elicitation_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: ElicitRequestParams,
 ) -> ElicitResult:
     """Handle elicitation requests from the server."""
@@ -38,7 +38,7 @@ async def elicitation_callback(
 
 
 async def sampling_callback(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: CreateMessageRequestParams,
 ) -> CreateMessageResult:
     """Handle sampling requests from the server."""

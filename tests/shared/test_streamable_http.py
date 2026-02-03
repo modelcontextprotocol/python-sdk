@@ -43,12 +43,12 @@ from mcp.server.streamable_http import (
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._context import RequestContext
 from mcp.shared._httpx_utils import (
     MCP_DEFAULT_SSE_READ_TIMEOUT,
     MCP_DEFAULT_TIMEOUT,
     create_mcp_http_client,
 )
-from mcp.shared.context import RequestContext
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import InitializeResult, JSONRPCRequest, TextContent, TextResourceContents, Tool

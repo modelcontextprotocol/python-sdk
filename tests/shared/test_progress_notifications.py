@@ -11,7 +11,7 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.progress import progress
 from mcp.shared.session import RequestResponder

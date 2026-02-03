@@ -7,7 +7,7 @@ import mcp.types as types
 from mcp import ClientCapabilities
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
