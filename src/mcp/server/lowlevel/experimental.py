@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import Any
 
+from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.task_support import TaskSupport
-from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import cancel_task
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
@@ -18,16 +18,16 @@ from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
     INVALID_PARAMS,
-    CancelTaskRequest,
+    CancelTaskRequestParams,
     CancelTaskResult,
     GetTaskPayloadRequest,
+    GetTaskPayloadRequestParams,
     GetTaskPayloadResult,
-    GetTaskRequest,
+    GetTaskRequestParams,
     GetTaskResult,
-    ListTasksRequest,
     ListTasksResult,
+    PaginatedRequestParams,
     ServerCapabilities,
-    ServerResult,
     ServerTasksCapability,
     ServerTasksRequestsCapability,
     TasksCallCapability,
@@ -35,9 +35,6 @@ from mcp.types import (
     TasksListCapability,
     TasksToolsCapability,
 )
-
-if TYPE_CHECKING:
-    from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +47,13 @@ class ExperimentalHandlers:
 
     def __init__(
         self,
-        server: Server,
-        request_handlers: dict[type, Callable[..., Awaitable[ServerResult]]],
-        notification_handlers: dict[type, Callable[..., Awaitable[None]]],
-    ):
-        self._server = server
-        self._request_handlers = request_handlers
-        self._notification_handlers = notification_handlers
+        add_request_handler: Callable[
+            [str, Callable[[ServerRequestContext[Any, Any], Any], Awaitable[Any]]], None
+        ],
+        has_handler: Callable[[str], bool],
+    ) -> None:
+        self._add_request_handler = add_request_handler
+        self._has_handler = has_handler
         self._task_support: TaskSupport | None = None
 
     @property
@@ -66,16 +63,13 @@ class ExperimentalHandlers:
 
     def update_capabilities(self, capabilities: ServerCapabilities) -> None:
         # Only add tasks capability if handlers are registered
-        if not any(
-            req_type in self._request_handlers
-            for req_type in [GetTaskRequest, ListTasksRequest, CancelTaskRequest, GetTaskPayloadRequest]
-        ):
+        if not any(self._has_handler(method) for method in ["tasks/get", "tasks/list", "tasks/cancel", "tasks/result"]):
             return
 
         capabilities.tasks = ServerTasksCapability()
-        if ListTasksRequest in self._request_handlers:
+        if self._has_handler("tasks/list"):
             capabilities.tasks.list = TasksListCapability()
-        if CancelTaskRequest in self._request_handlers:
+        if self._has_handler("tasks/cancel"):
             capabilities.tasks.cancel = TasksCancelCapability()
 
         capabilities.tasks.requests = ServerTasksRequestsCapability(
@@ -128,13 +122,14 @@ class ExperimentalHandlers:
         assert self._task_support is not None
         support = self._task_support
 
-        # Register get_task handler if not already registered
-        if GetTaskRequest not in self._request_handlers:
+        if not self._has_handler("tasks/get"):
 
-            async def _default_get_task(req: GetTaskRequest) -> ServerResult:
-                task = await support.store.get_task(req.params.task_id)
+            async def _default_get_task(
+                ctx: ServerRequestContext[Any, Any], params: GetTaskRequestParams
+            ) -> GetTaskResult:
+                task = await support.store.get_task(params.task_id)
                 if task is None:
-                    raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {req.params.task_id}")
+                    raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {params.task_id}")
                 return GetTaskResult(
                     task_id=task.task_id,
                     status=task.status,
@@ -145,136 +140,37 @@ class ExperimentalHandlers:
                     poll_interval=task.poll_interval,
                 )
 
-            self._request_handlers[GetTaskRequest] = _default_get_task
+            self._add_request_handler("tasks/get", _default_get_task)
 
-        # Register get_task_result handler if not already registered
-        if GetTaskPayloadRequest not in self._request_handlers:
+        if not self._has_handler("tasks/result"):
 
-            async def _default_get_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-                ctx = self._server.request_context
+            async def _default_get_task_result(
+                ctx: ServerRequestContext[Any, Any], params: GetTaskPayloadRequestParams
+            ) -> GetTaskPayloadResult:
+                assert ctx.request_id is not None
+                req = GetTaskPayloadRequest(params=params)
                 result = await support.handler.handle(req, ctx.session, ctx.request_id)
                 return result
 
-            self._request_handlers[GetTaskPayloadRequest] = _default_get_task_result
+            self._add_request_handler("tasks/result", _default_get_task_result)
 
-        # Register list_tasks handler if not already registered
-        if ListTasksRequest not in self._request_handlers:
+        if not self._has_handler("tasks/list"):
 
-            async def _default_list_tasks(req: ListTasksRequest) -> ListTasksResult:
-                cursor = req.params.cursor if req.params else None
+            async def _default_list_tasks(
+                ctx: ServerRequestContext[Any, Any], params: PaginatedRequestParams | None
+            ) -> ListTasksResult:
+                cursor = params.cursor if params else None
                 tasks, next_cursor = await support.store.list_tasks(cursor)
                 return ListTasksResult(tasks=tasks, next_cursor=next_cursor)
 
-            self._request_handlers[ListTasksRequest] = _default_list_tasks
+            self._add_request_handler("tasks/list", _default_list_tasks)
 
-        # Register cancel_task handler if not already registered
-        if CancelTaskRequest not in self._request_handlers:
+        if not self._has_handler("tasks/cancel"):
 
-            async def _default_cancel_task(req: CancelTaskRequest) -> CancelTaskResult:
-                result = await cancel_task(support.store, req.params.task_id)
+            async def _default_cancel_task(
+                ctx: ServerRequestContext[Any, Any], params: CancelTaskRequestParams
+            ) -> CancelTaskResult:
+                result = await cancel_task(support.store, params.task_id)
                 return result
 
-            self._request_handlers[CancelTaskRequest] = _default_cancel_task
-
-    def list_tasks(
-        self,
-    ) -> Callable[
-        [Callable[[ListTasksRequest], Awaitable[ListTasksResult]]],
-        Callable[[ListTasksRequest], Awaitable[ListTasksResult]],
-    ]:
-        """Register a handler for listing tasks.
-
-        WARNING: This API is experimental and may change without notice.
-        """
-
-        def decorator(
-            func: Callable[[ListTasksRequest], Awaitable[ListTasksResult]],
-        ) -> Callable[[ListTasksRequest], Awaitable[ListTasksResult]]:
-            logger.debug("Registering handler for ListTasksRequest")
-            wrapper = create_call_wrapper(func, ListTasksRequest)
-
-            async def handler(req: ListTasksRequest) -> ListTasksResult:
-                result = await wrapper(req)
-                return result
-
-            self._request_handlers[ListTasksRequest] = handler
-            return func
-
-        return decorator
-
-    def get_task(
-        self,
-    ) -> Callable[
-        [Callable[[GetTaskRequest], Awaitable[GetTaskResult]]], Callable[[GetTaskRequest], Awaitable[GetTaskResult]]
-    ]:
-        """Register a handler for getting task status.
-
-        WARNING: This API is experimental and may change without notice.
-        """
-
-        def decorator(
-            func: Callable[[GetTaskRequest], Awaitable[GetTaskResult]],
-        ) -> Callable[[GetTaskRequest], Awaitable[GetTaskResult]]:
-            logger.debug("Registering handler for GetTaskRequest")
-            wrapper = create_call_wrapper(func, GetTaskRequest)
-
-            async def handler(req: GetTaskRequest) -> GetTaskResult:
-                result = await wrapper(req)
-                return result
-
-            self._request_handlers[GetTaskRequest] = handler
-            return func
-
-        return decorator
-
-    def get_task_result(
-        self,
-    ) -> Callable[
-        [Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]]],
-        Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]],
-    ]:
-        """Register a handler for getting task results/payload.
-
-        WARNING: This API is experimental and may change without notice.
-        """
-
-        def decorator(
-            func: Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]],
-        ) -> Callable[[GetTaskPayloadRequest], Awaitable[GetTaskPayloadResult]]:
-            logger.debug("Registering handler for GetTaskPayloadRequest")
-            wrapper = create_call_wrapper(func, GetTaskPayloadRequest)
-
-            async def handler(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-                result = await wrapper(req)
-                return result
-
-            self._request_handlers[GetTaskPayloadRequest] = handler
-            return func
-
-        return decorator
-
-    def cancel_task(
-        self,
-    ) -> Callable[
-        [Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]]],
-        Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]],
-    ]:
-        """Register a handler for cancelling tasks.
-
-        WARNING: This API is experimental and may change without notice.
-        """
-
-        def decorator(
-            func: Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]],
-        ) -> Callable[[CancelTaskRequest], Awaitable[CancelTaskResult]]:
-            logger.debug("Registering handler for CancelTaskRequest")
-            wrapper = create_call_wrapper(func, CancelTaskRequest)
-
-            async def handler(req: CancelTaskRequest) -> CancelTaskResult:
-                result = await wrapper(req)
-                return result
-
-            self._request_handlers[CancelTaskRequest] = handler
-            return func
-
-        return decorator
+            self._add_request_handler("tasks/cancel", _default_cancel_task)
