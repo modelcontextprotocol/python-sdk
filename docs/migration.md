@@ -387,6 +387,7 @@ The `RequestContext` class has been split to separate shared fields from server-
 **Before (v1):**
 
 ```python
+from mcp.client.session import ClientSession
 from mcp.shared.context import RequestContext, LifespanContextT, RequestT
 from mcp.shared.progress import ProgressContext
 
@@ -400,19 +401,19 @@ progress_ctx: ProgressContext[SendRequestT, SendNotificationT, SendResultT, Rece
 **After (v2):**
 
 ```python
-from mcp.shared.context import RequestContext
+from mcp.client.context import ClientRequestContext
+from mcp.client.session import ClientSession
+from mcp.server.context import ServerRequestContext, LifespanContextT, RequestT
 from mcp.shared.progress import ProgressContext
 
-# RequestContext with 1 type parameter
-ctx: RequestContext[ClientSession]
+# For client-side context (sampling, elicitation, list_roots callbacks)
+ctx: ClientRequestContext
+
+# For server-specific context with lifespan and request types
+server_ctx: ServerRequestContext[LifespanContextT, RequestT]
 
 # ProgressContext with 1 type parameter
 progress_ctx: ProgressContext[ClientSession]
-
-# For server-specific context with lifespan and request types
-from mcp.server.context import ServerRequestContext, LifespanContextT, RequestT
-
-server_ctx: ServerRequestContext[LifespanContextT, RequestT]
 ```
 
 ### Resource URI type changed from `AnyUrl` to `str`

@@ -5,7 +5,7 @@ from typing import Generic
 
 from pydantic import BaseModel
 
-from mcp.shared.context import RequestContext, SessionT
+from mcp.shared._context import RequestContext, SessionT
 from mcp.types import ProgressToken
 
 

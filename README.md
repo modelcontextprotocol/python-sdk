@@ -2120,8 +2120,8 @@ import asyncio
 import os
 
 from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
-from mcp.shared.context import RequestContext
 
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(
@@ -2133,7 +2133,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
+    context: ClientRequestContext, params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(

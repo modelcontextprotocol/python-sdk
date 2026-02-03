@@ -31,14 +31,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from mcp import ClientSession, types
+from mcp.client.context import ClientRequestContext
 from mcp.client.sse import sse_client
-from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED
 
 
 async def handle_elicitation(
-    context: RequestContext[ClientSession],
+    context: ClientRequestContext,
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     """Handle elicitation requests from the server.

@@ -22,7 +22,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 import mcp.types as types
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder

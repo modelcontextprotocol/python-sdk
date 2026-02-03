@@ -5,7 +5,7 @@ from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.server import Context
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.types import ListRootsResult, Root, TextContent
 
 

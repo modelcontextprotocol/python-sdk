@@ -33,7 +33,7 @@ from examples.snippets.servers import (
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientResult,
