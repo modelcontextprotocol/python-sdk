@@ -200,7 +200,7 @@ class StreamableHTTPTransport:
 
                     # Stream ended normally (server closed) - reset attempt counter
                     attempt = 0
-                    
+
             except httpx.HTTPStatusError as exc:  # pragma: lax no cover
                 # Handle HTTP errors that are retryable
                 if exc.response.status_code == 405:
