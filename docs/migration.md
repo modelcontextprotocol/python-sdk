@@ -371,6 +371,50 @@ async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
         await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
 ```
 
+### `RequestContext` and `ProgressContext` type parameters simplified
+
+The `RequestContext` class has been split to separate shared fields from server-specific fields. The shared `RequestContext` now only takes 1 type parameter (the session type) instead of 3.
+
+**`RequestContext` changes:**
+
+- Type parameters reduced from `RequestContext[SessionT, LifespanContextT, RequestT]` to `RequestContext[SessionT]`
+- Server-specific fields (`lifespan_context`, `experimental`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) moved to new `ServerRequestContext` class in `mcp.server.context`
+
+**`ProgressContext` changes:**
+
+- Type parameters reduced from `ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]` to `ProgressContext[SessionT]`
+
+**Before (v1):**
+
+```python
+from mcp.shared.context import RequestContext, LifespanContextT, RequestT
+from mcp.shared.progress import ProgressContext
+
+# RequestContext with 3 type parameters
+ctx: RequestContext[ClientSession, LifespanContextT, RequestT]
+
+# ProgressContext with 5 type parameters
+progress_ctx: ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]
+```
+
+**After (v2):**
+
+```python
+from mcp.shared.context import RequestContext
+from mcp.shared.progress import ProgressContext
+
+# RequestContext with 1 type parameter
+ctx: RequestContext[ClientSession]
+
+# ProgressContext with 1 type parameter
+progress_ctx: ProgressContext[ClientSession]
+
+# For server-specific context with lifespan and request types
+from mcp.server.context import ServerRequestContext, LifespanContextT, RequestT
+
+server_ctx: ServerRequestContext[LifespanContextT, RequestT]
+```
+
 ### Resource URI type changed from `AnyUrl` to `str`
 
 The `uri` field on resource-related types now uses `str` instead of Pydantic's `AnyUrl`. This aligns with the [MCP specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) which defines URIs as plain strings (`uri: string`) without strict URL validation. This change allows relative paths like `users/me` that were previously rejected.

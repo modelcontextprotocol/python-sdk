@@ -5,7 +5,6 @@ from mcp import Client
 from mcp.client.session import ClientSession
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.server import Context
-from mcp.server.session import ServerSession
 from mcp.shared.context import RequestContext
 from mcp.types import ListRootsResult, Root, TextContent
 
@@ -16,14 +15,8 @@ async def test_list_roots_callback():
 
     callback_return = ListRootsResult(
         roots=[
-            Root(
-                uri=FileUrl("file://users/fake/test"),
-                name="Test Root 1",
-            ),
-            Root(
-                uri=FileUrl("file://users/fake/test/2"),
-                name="Test Root 2",
-            ),
+            Root(uri=FileUrl("file://users/fake/test"), name="Test Root 1"),
+            Root(uri=FileUrl("file://users/fake/test/2"), name="Test Root 2"),
         ]
     )
 
@@ -33,7 +26,7 @@ async def test_list_roots_callback():
         return callback_return
 
     @server.tool("test_list_roots")
-    async def test_list_roots(context: Context[ServerSession], message: str):
+    async def test_list_roots(context: Context[None], message: str):
         roots = await context.session.list_roots()
         assert roots == callback_return
         return True
