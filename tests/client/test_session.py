@@ -1,11 +1,11 @@
-from typing import Any
+from __future__ import annotations
 
 import anyio
 import pytest
 
 from mcp import types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -390,7 +390,7 @@ async def test_client_capabilities_with_custom_callbacks():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(
@@ -400,7 +400,7 @@ async def test_client_capabilities_with_custom_callbacks():
         )
 
     async def custom_list_roots_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
     ) -> types.ListRootsResult | types.ErrorData:
         return types.ListRootsResult(roots=[])
 
@@ -474,7 +474,7 @@ async def test_client_capabilities_with_sampling_tools():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(

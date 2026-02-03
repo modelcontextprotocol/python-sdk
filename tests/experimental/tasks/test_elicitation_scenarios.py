@@ -20,7 +20,7 @@ from mcp.client.session import ClientSession
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.lowlevel import NotificationOptions
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.experimental.tasks.helpers import is_terminal
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
@@ -53,7 +53,7 @@ def create_client_task_handlers(
     task_complete_events: dict[str, Event] = {}
 
     async def handle_augmented_elicitation(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: ElicitRequestParams,
         task_metadata: TaskMetadata,
     ) -> CreateTaskResult:
@@ -72,7 +72,7 @@ def create_client_task_handlers(
         return CreateTaskResult(task=task)
 
     async def handle_get_task(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
@@ -89,7 +89,7 @@ def create_client_task_handlers(
         )
 
     async def handle_get_task_result(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
@@ -121,7 +121,7 @@ def create_sampling_task_handlers(
     task_complete_events: dict[str, Event] = {}
 
     async def handle_augmented_sampling(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: CreateMessageRequestParams,
         task_metadata: TaskMetadata,
     ) -> CreateTaskResult:
@@ -140,7 +140,7 @@ def create_sampling_task_handlers(
         return CreateTaskResult(task=task)
 
     async def handle_get_task(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
@@ -157,7 +157,7 @@ def create_sampling_task_handlers(
         )
 
     async def handle_get_task_result(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
@@ -211,7 +211,7 @@ async def test_scenario1_normal_tool_normal_elicitation() -> None:
 
     # Elicitation callback for client
     async def elicitation_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: ElicitRequestParams,
     ) -> ElicitResult:
         elicit_received.set()
@@ -379,7 +379,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
 
     # Elicitation callback for client
     async def elicitation_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: ElicitRequestParams,
     ) -> ElicitResult:
         elicit_received.set()

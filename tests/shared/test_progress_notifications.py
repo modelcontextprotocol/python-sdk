@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any
 from unittest.mock import patch
 
 import anyio
@@ -10,10 +10,10 @@ from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.progress import progress
-from mcp.shared.session import BaseSession, RequestResponder
+from mcp.shared.session import RequestResponder
 
 
 @pytest.mark.anyio
@@ -278,14 +278,10 @@ async def test_progress_context_manager():
             request_id="test-request",
             session=client_session,
             meta={"progress_token": progress_token},
-            lifespan_context=None,
         )
 
-        # cast for type checker
-        typed_context = cast(RequestContext[BaseSession[Any, Any, Any, Any, Any], Any], request_context)
-
         # Utilize progress context manager
-        with progress(typed_context, total=100) as p:
+        with progress(request_context, total=100) as p:
             await p.progress(10, message="Loading configuration...")
             await p.progress(30, message="Connecting to database...")
             await p.progress(40, message="Fetching data...")

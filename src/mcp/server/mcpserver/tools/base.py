@@ -16,9 +16,8 @@ from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
+    from mcp.server.context import LifespanContextT, RequestT
     from mcp.server.mcpserver.server import Context
-    from mcp.server.session import ServerSessionT
-    from mcp.shared.context import LifespanContextT, RequestT
 
 
 class Tool(BaseModel):
@@ -93,7 +92,7 @@ class Tool(BaseModel):
     async def run(
         self,
         arguments: dict[str, Any],
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        context: Context[LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
     ) -> Any:
         """Run the tool with arguments."""

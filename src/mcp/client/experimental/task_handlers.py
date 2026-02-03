@@ -11,13 +11,15 @@ Use cases:
 - Server polls client's task status via tasks/get, tasks/result, etc.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import TypeAdapter
 
 from mcp import types
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.session import RequestResponder
 
 if TYPE_CHECKING:
@@ -32,7 +34,7 @@ class GetTaskHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.GetTaskRequestParams,
     ) -> types.GetTaskResult | types.ErrorData: ...  # pragma: no branch
 
@@ -45,7 +47,7 @@ class GetTaskResultHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.GetTaskPayloadRequestParams,
     ) -> types.GetTaskPayloadResult | types.ErrorData: ...  # pragma: no branch
 
@@ -58,7 +60,7 @@ class ListTasksHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.PaginatedRequestParams | None,
     ) -> types.ListTasksResult | types.ErrorData: ...  # pragma: no branch
 
@@ -71,7 +73,7 @@ class CancelTaskHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.CancelTaskRequestParams,
     ) -> types.CancelTaskResult | types.ErrorData: ...  # pragma: no branch
 
@@ -88,7 +90,7 @@ class TaskAugmentedSamplingFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.CreateMessageRequestParams,
         task_metadata: types.TaskMetadata,
     ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
@@ -106,14 +108,14 @@ class TaskAugmentedElicitationFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.ElicitRequestParams,
         task_metadata: types.TaskMetadata,
     ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
 
 
 async def default_get_task_handler(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.GetTaskRequestParams,
 ) -> types.GetTaskResult | types.ErrorData:
     return types.ErrorData(
@@ -123,7 +125,7 @@ async def default_get_task_handler(
 
 
 async def default_get_task_result_handler(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.GetTaskPayloadRequestParams,
 ) -> types.GetTaskPayloadResult | types.ErrorData:
     return types.ErrorData(
@@ -133,7 +135,7 @@ async def default_get_task_result_handler(
 
 
 async def default_list_tasks_handler(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.PaginatedRequestParams | None,
 ) -> types.ListTasksResult | types.ErrorData:
     return types.ErrorData(
@@ -143,7 +145,7 @@ async def default_list_tasks_handler(
 
 
 async def default_cancel_task_handler(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.CancelTaskRequestParams,
 ) -> types.CancelTaskResult | types.ErrorData:
     return types.ErrorData(
@@ -153,7 +155,7 @@ async def default_cancel_task_handler(
 
 
 async def default_task_augmented_sampling(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.CreateMessageRequestParams,
     task_metadata: types.TaskMetadata,
 ) -> types.CreateTaskResult | types.ErrorData:
@@ -164,7 +166,7 @@ async def default_task_augmented_sampling(
 
 
 async def default_task_augmented_elicitation(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.ElicitRequestParams,
     task_metadata: types.TaskMetadata,
 ) -> types.CreateTaskResult | types.ErrorData:
@@ -248,7 +250,7 @@ class ExperimentalTaskHandlers:
 
     async def handle_request(
         self,
-        ctx: RequestContext["ClientSession", Any],
+        ctx: RequestContext[ClientSession],
         responder: RequestResponder[types.ServerRequest, types.ClientResult],
     ) -> None:
         """Handle a task-related request from the server.

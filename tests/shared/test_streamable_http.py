@@ -42,12 +42,12 @@ from mcp.server.streamable_http import (
 )
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._context import RequestContext
 from mcp.shared._httpx_utils import (
     MCP_DEFAULT_SSE_READ_TIMEOUT,
     MCP_DEFAULT_TIMEOUT,
     create_mcp_http_client,
 )
-from mcp.shared.context import RequestContext
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import InitializeResult, JSONRPCRequest, TextContent, TextResourceContents, Tool
@@ -1343,7 +1343,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
 
     # Define sampling callback that returns a mock response
     async def sampling_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult:
         nonlocal sampling_callback_invoked, captured_message_params

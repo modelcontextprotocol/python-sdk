@@ -6,12 +6,12 @@ from typing import Any, TypedDict
 import pytest
 from pydantic import BaseModel
 
+from mcp.server.context import LifespanContextT, RequestT
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
-from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import TextContent, ToolAnnotations
 
 
@@ -347,9 +347,7 @@ class TestContextHandling:
         tool = manager.add_tool(tool_without_context)
         assert tool.context_kwarg is None
 
-        def tool_with_parametrized_context(
-            x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]
-        ) -> str:  # pragma: no cover
+        def tool_with_parametrized_context(x: int, ctx: Context[LifespanContextT, RequestT]) -> str:  # pragma: no cover
             return str(x)
 
         tool = manager.add_tool(tool_with_parametrized_context)
