@@ -65,7 +65,7 @@ async def test_stdio_elicitation():
     create_ask_user_tool(mcp)
 
     # Create a custom handler for elicitation requests
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
         if params.message == "Tool wants to ask: What is your name?":
             return ElicitResult(action="accept", content={"answer": "Test User"})
         else:  # pragma: no cover
@@ -82,7 +82,7 @@ async def test_stdio_elicitation_decline():
     mcp = MCPServer(name="StdioElicitationDeclineServer")
     create_ask_user_tool(mcp)
 
-    async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
         return ElicitResult(action="decline")
 
     await call_tool_and_assert(
@@ -121,7 +121,7 @@ async def test_elicitation_schema_validation():
 
     # Dummy callback (won't be called due to validation failure)
     async def elicitation_callback(
-        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+        context: RequestContext[ClientSession], params: ElicitRequestParams
     ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
@@ -177,7 +177,7 @@ async def test_elicitation_with_optional_fields():
 
     for content, expected in test_cases:
 
-        async def callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+        async def callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
             return ElicitResult(action="accept", content=content)
 
         await call_tool_and_assert(mcp, callback, "optional_tool", {}, expected)
@@ -196,7 +196,7 @@ async def test_elicitation_with_optional_fields():
             return f"Validation failed: {str(e)}"
 
     async def elicitation_callback(
-        context: RequestContext[ClientSession, None], params: ElicitRequestParams
+        context: RequestContext[ClientSession], params: ElicitRequestParams
     ):  # pragma: no cover
         return ElicitResult(action="accept", content={})
 
@@ -220,7 +220,7 @@ async def test_elicitation_with_optional_fields():
             return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
         return f"User {result.action}"  # pragma: no cover
 
-    async def multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+    async def multiselect_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
         if "Please provide tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
         return ElicitResult(action="decline")  # pragma: no cover
@@ -240,7 +240,7 @@ async def test_elicitation_with_optional_fields():
             return f"Name: {result.data.name}, Tags: {tags_str}"
         return f"User {result.action}"  # pragma: no cover
 
-    async def optional_multiselect_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+    async def optional_multiselect_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
         if "Please provide optional tags" in params.message:
             return ElicitResult(action="accept", content={"name": "Test", "tags": ["tag1", "tag2"]})
         return ElicitResult(action="decline")  # pragma: no cover
@@ -274,7 +274,7 @@ async def test_elicitation_with_default_values():
             return f"User {result.action}"
 
     # First verify that defaults are present in the JSON schema sent to clients
-    async def callback_schema_verify(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def callback_schema_verify(context: RequestContext[ClientSession], params: ElicitRequestParams):
         # Verify the schema includes defaults
         assert isinstance(params, types.ElicitRequestFormParams), "Expected form mode elicitation"
         schema = params.requested_schema
@@ -296,7 +296,7 @@ async def test_elicitation_with_default_values():
     )
 
     # Test overriding defaults
-    async def callback_override(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+    async def callback_override(context: RequestContext[ClientSession], params: ElicitRequestParams):
         return ElicitResult(
             action="accept", content={"email": "john@example.com", "name": "John", "age": 25, "subscribe": False}
         )
@@ -372,7 +372,7 @@ async def test_elicitation_with_enum_titles():
             return f"User: {result.data.user_name}, Color: {result.data.color}"
         return f"User {result.action}"  # pragma: no cover
 
-    async def enum_callback(context: RequestContext[ClientSession, Any], params: ElicitRequestParams):
+    async def enum_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
         if "colors" in params.message and "legacy" not in params.message:
             return ElicitResult(action="accept", content={"user_name": "Bob", "favorite_colors": ["red", "green"]})
         elif "color" in params.message:

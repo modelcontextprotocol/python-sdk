@@ -28,12 +28,12 @@ async def test_list_roots_callback():
     )
 
     async def list_roots_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientSession],
     ) -> ListRootsResult:
         return callback_return
 
     @server.tool("test_list_roots")
-    async def test_list_roots(context: Context[ServerSession, None], message: str):
+    async def test_list_roots(context: Context[ServerSession], message: str):
         roots = await context.session.list_roots()
         assert roots == callback_return
         return True
