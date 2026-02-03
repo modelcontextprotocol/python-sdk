@@ -351,7 +351,6 @@ The nested `RequestParams.Meta` Pydantic model class has been replaced with a to
 - `RequestParams.Meta` (Pydantic model) → `RequestParamsMeta` (TypedDict)
 - Attribute access (`meta.progress_token`) → Dictionary access (`meta.get("progress_token")`)
 - `progress_token` field changed from `ProgressToken | None = None` to `NotRequired[ProgressToken]`
-`
 
 **In request context handlers:**
 
@@ -364,11 +363,12 @@ async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
         await ctx.session.send_progress_notification(ctx.meta.progress_token, 0.5, 100)
 
 # After (v2)
-@server.call_tool()
-async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
-    ctx = server.request_context
+async def handle_call_tool(
+    ctx: RequestContext, params: CallToolRequestParams
+) -> CallToolResult:
     if ctx.meta and "progress_token" in ctx.meta:
         await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
+    ...
 ```
 
 ### `RequestContext` and `ProgressContext` type parameters simplified
@@ -471,6 +471,158 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
+### Lowlevel `Server`: decorator-based handlers replaced with constructor `on_*` params
+
+The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are passed as `on_*` keyword arguments to the constructor.
+
+**Before (v1):**
+
+```python
+from mcp.server.lowlevel.server import Server
+
+server = Server("my-server")
+
+@server.list_tools()
+async def handle_list_tools():
+    return [types.Tool(name="my_tool", description="A tool", inputSchema={})]
+
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict):
+    return [types.TextContent(type="text", text=f"Called {name}")]
+```
+
+**After (v2):**
+
+```python
+from mcp.server.lowlevel import Server
+from mcp.shared.context import RequestContext
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
+
+async def handle_list_tools(
+    ctx: RequestContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(tools=[
+        Tool(name="my_tool", description="A tool", inputSchema={})
+    ])
+
+async def handle_call_tool(
+    ctx: RequestContext, params: CallToolRequestParams
+) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=f"Called {params.name}")],
+        is_error=False,
+    )
+
+server = Server(
+    "my-server",
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
+```
+
+**Key differences:**
+
+- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `RequestContext` with `session`, `lifespan_context`, and `experimental` fields (plus `request_id`, `meta`, etc. for request handlers). `params` is the typed request params object.
+- Handlers return the full result type (e.g. `ListToolsResult`) rather than unwrapped values (e.g. `list[Tool]`).
+- The automatic `jsonschema` input/output validation that the old `call_tool()` decorator performed has been removed. There is no built-in replacement — if you relied on schema validation in the lowlevel server, you will need to validate inputs yourself in your handler.
+
+**Notification handlers:**
+
+```python
+from mcp.server.lowlevel import Server
+from mcp.shared.context import RequestContext
+from mcp.types import ProgressNotificationParams
+
+async def handle_progress(
+    ctx: RequestContext, params: ProgressNotificationParams
+) -> None:
+    print(f"Progress: {params.progress}/{params.total}")
+
+server = Server(
+    "my-server",
+    on_progress=handle_progress,
+)
+```
+
+### Lowlevel `Server`: `request_context` property removed
+
+The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar still exists but should not be needed — use `ctx` directly instead.
+
+**Before (v1):**
+
+```python
+from mcp.server.lowlevel.server import request_ctx
+
+@server.call_tool()
+async def handle_call_tool(name: str, arguments: dict):
+    ctx = server.request_context  # or request_ctx.get()
+    await ctx.session.send_log_message(level="info", data="Processing...")
+    return [types.TextContent(type="text", text="Done")]
+```
+
+**After (v2):**
+
+```python
+from mcp.shared.context import RequestContext
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+
+async def handle_call_tool(
+    ctx: RequestContext, params: CallToolRequestParams
+) -> CallToolResult:
+    await ctx.session.send_log_message(level="info", data="Processing...")
+    return CallToolResult(
+        content=[TextContent(type="text", text="Done")],
+        is_error=False,
+    )
+```
+
+### `RequestContext`: request-specific fields are now optional
+
+The `RequestContext` class now uses optional fields for request-specific data (`request_id`, `meta`, etc.) so it can be used for both request and notification handlers. In notification handlers, these fields are `None`.
+
+```python
+from mcp.shared.context import RequestContext
+
+# request_id, meta, etc. are available in request handlers
+# but None in notification handlers
+```
+
+### Experimental: task handler decorators removed
+
+The experimental decorator methods on `ExperimentalHandlers` (`@server.experimental.list_tasks()`, `@server.experimental.get_task()`, etc.) have been removed.
+
+Default task handlers are still registered automatically via `server.experimental.enable_tasks()`.
+
+**Before (v1):**
+
+```python
+server = Server("my-server")
+server.experimental.enable_tasks(task_store)
+
+@server.experimental.get_task()
+async def custom_get_task(request: GetTaskRequest) -> GetTaskResult:
+    ...
+```
+
+**After (v2):**
+
+```python
+from mcp.server.lowlevel import Server
+from mcp.types import GetTaskRequestParams, GetTaskResult
+
+server = Server("my-server")
+server.experimental.enable_tasks(task_store)
+# Default handlers are registered automatically.
+# Custom task handlers are not yet supported via the constructor.
+```
+
 ## Deprecations
 
 <!-- Add deprecations below -->
@@ -506,16 +658,20 @@ params = CallToolRequestParams(
 The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `MCPServer`. This allows using the streamable HTTP transport without the MCPServer wrapper.
 
 ```python
-from mcp.server.lowlevel.server import Server
+from mcp.server.lowlevel import Server
+from mcp.shared.context import RequestContext
+from mcp.types import ListToolsResult, PaginatedRequestParams
 
-server = Server("my-server")
+async def handle_list_tools(
+    ctx: RequestContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(tools=[...])
 
-# Register handlers...
-@server.list_tools()
-async def list_tools():
-    return [...]
+server = Server(
+    "my-server",
+    on_list_tools=handle_list_tools,
+)
 
-# Create a Starlette app for streamable HTTP
 app = server.streamable_http_app(
     streamable_http_path="/mcp",
     json_response=False,
