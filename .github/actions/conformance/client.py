@@ -187,7 +187,7 @@ async def run_sse_retry(server_url: str) -> None:
 
 
 async def default_elicitation_callback(
-    context: RequestContext[ClientSession, Any],  # noqa: ARG001
+    context: RequestContext[ClientSession],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     """Accept elicitation and apply defaults from the schema (SEP-1034)."""
