@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel.server import Server
 from mcp.server.session import ServerSession
 from mcp.shared.session import RequestResponder

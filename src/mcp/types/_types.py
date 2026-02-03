@@ -28,6 +28,8 @@ https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protoc
 ProgressToken = str | int
 Role = Literal["user", "assistant"]
 
+IconTheme = Literal["light", "dark"]
+
 TaskExecutionMode = Literal["forbidden", "optional", "required"]
 TASK_FORBIDDEN: Final[Literal["forbidden"]] = "forbidden"
 TASK_OPTIONAL: Final[Literal["optional"]] = "optional"
@@ -169,6 +171,15 @@ class Icon(MCPModel):
 
     sizes: list[str] | None = None
     """Optional list of strings specifying icon dimensions (e.g., ["48x48", "96x96"])."""
+
+    theme: IconTheme | None = None
+    """Optional theme specifier.
+    
+    `"light"` indicates the icon is designed for a light background, `"dark"` indicates the icon 
+    is designed for a dark background.
+    
+    See https://modelcontextprotocol.io/specification/2025-11-25/schema#icon for more details.
+    """
 
 
 class Implementation(BaseMetadata):

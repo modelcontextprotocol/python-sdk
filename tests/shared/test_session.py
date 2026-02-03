@@ -3,8 +3,7 @@ from typing import Any
 import anyio
 import pytest
 
-import mcp.types as types
-from mcp import Client
+from mcp import Client, types
 from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import MCPError

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import Any, Protocol
 
@@ -5,10 +7,10 @@ import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import TypeAdapter
 
-import mcp.types as types
+from mcp import types
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -22,7 +24,7 @@ logger = logging.getLogger("client")
 class SamplingFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
@@ -30,22 +32,19 @@ class SamplingFnT(Protocol):
 class ElicitationFnT(Protocol):
     async def __call__(
         self,
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
 class ListRootsFnT(Protocol):
     async def __call__(
-        self, context: RequestContext["ClientSession", Any]
+        self, context: RequestContext[ClientSession]
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
 class LoggingFnT(Protocol):
-    async def __call__(
-        self,
-        params: types.LoggingMessageNotificationParams,
-    ) -> None: ...  # pragma: no branch
+    async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
 
 
 class MessageHandlerFnT(Protocol):
@@ -62,7 +61,7 @@ async def _default_message_handler(
 
 
 async def _default_sampling_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
     return types.ErrorData(
@@ -72,7 +71,7 @@ async def _default_sampling_callback(
 
 
 async def _default_elicitation_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(  # pragma: no cover
@@ -82,7 +81,7 @@ async def _default_elicitation_callback(
 
 
 async def _default_list_roots_callback(
-    context: RequestContext["ClientSession", Any],
+    context: RequestContext[ClientSession],
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
@@ -153,10 +152,7 @@ class ClientSession(
             else None
         )
         elicitation = (
-            types.ElicitationCapability(
-                form=types.FormElicitationCapability(),
-                url=types.UrlElicitationCapability(),
-            )
+            types.ElicitationCapability(form=types.FormElicitationCapability(), url=types.UrlElicitationCapability())
             if self._elicitation_callback is not _default_elicitation_callback
             else None
         )
@@ -414,12 +410,7 @@ class ClientSession(
         await self.send_notification(types.RootsListChangedNotification())
 
     async def _received_request(self, responder: RequestResponder[types.ServerRequest, types.ClientResult]) -> None:
-        ctx = RequestContext[ClientSession, Any](
-            request_id=responder.request_id,
-            meta=responder.request_meta,
-            session=self,
-            lifespan_context=None,
-        )
+        ctx = RequestContext[ClientSession](request_id=responder.request_id, meta=responder.request_meta, session=self)
 
         # Delegate to experimental task handler if applicable
         if self._task_handlers.handles_request(responder.request):

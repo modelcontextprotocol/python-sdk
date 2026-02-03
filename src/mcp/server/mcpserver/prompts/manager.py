@@ -8,9 +8,8 @@ from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
 
 if TYPE_CHECKING:
+    from mcp.server.context import LifespanContextT, RequestT
     from mcp.server.mcpserver.server import Context
-    from mcp.server.session import ServerSessionT
-    from mcp.shared.context import LifespanContextT, RequestT
 
 logger = get_logger(__name__)
 
@@ -50,7 +49,7 @@ class PromptManager:
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        context: Context[LifespanContextT, RequestT] | None = None,
     ) -> list[Message]:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)

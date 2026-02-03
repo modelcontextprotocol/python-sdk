@@ -229,7 +229,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 
 
 # Mock database class for example
@@ -275,7 +274,7 @@ mcp = MCPServer("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context[ServerSession, AppContext]) -> str:
+def query_db(ctx: Context[AppContext]) -> str:
     """Tool that uses initialized resources."""
     db = ctx.request_context.lifespan_context.db
     return db.query()
@@ -684,7 +683,7 @@ The Context object provides the following capabilities:
 - `ctx.session` - Access to the underlying session for advanced communication (see [Session Properties and Methods](#session-properties-and-methods))
 - `ctx.request_context` - Access to request-specific data and lifespan resources (see [Request Context Properties](#request-context-properties))
 - `await ctx.debug(message)` - Send debug log message
-- `await ctx.info(message)` - Send info log message  
+- `await ctx.info(message)` - Send info log message
 - `await ctx.warning(message)` - Send warning log message
 - `await ctx.error(message)` - Send error log message
 - `await ctx.log(level, message, logger_name=None)` - Send log with custom level
@@ -1112,13 +1111,13 @@ The session object accessible via `ctx.session` provides advanced control over c
 async def notify_data_update(resource_uri: str, ctx: Context) -> str:
     """Update data and notify clients of the change."""
     # Perform data update logic here
-    
+
     # Notify clients that this specific resource changed
     await ctx.session.send_resource_updated(AnyUrl(resource_uri))
-    
+
     # If this affects the overall resource list, notify about that too
     await ctx.session.send_resource_list_changed()
-    
+
     return f"Updated {resource_uri} and notified clients"
 ```
 
@@ -1147,11 +1146,11 @@ def query_with_config(query: str, ctx: Context) -> str:
     """Execute a query using shared database and configuration."""
     # Access typed lifespan context
     app_ctx: AppContext = ctx.request_context.lifespan_context
-    
+
     # Use shared resources
     connection = app_ctx.db
     settings = app_ctx.config
-    
+
     # Execute query with configuration
     result = connection.execute(query, timeout=settings.query_timeout)
     return str(result)
@@ -1646,7 +1645,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import mcp.server.stdio
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
@@ -1760,7 +1759,7 @@ uv run examples/snippets/servers/lowlevel/basic.py
 import asyncio
 
 import mcp.server.stdio
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
@@ -1839,7 +1838,7 @@ import asyncio
 from typing import Any
 
 import mcp.server.stdio
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
@@ -1941,7 +1940,7 @@ import asyncio
 from typing import Any
 
 import mcp.server.stdio
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
@@ -2014,7 +2013,7 @@ For servers that need to handle large datasets, the low-level server provides pa
 ```python
 """Example of implementing pagination with MCP server decorators."""
 
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import Server
 
 # Initialize the server
@@ -2122,8 +2121,8 @@ import asyncio
 import os
 
 from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
-from mcp.shared.context import RequestContext
 
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(
@@ -2135,7 +2134,7 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
+    context: ClientRequestContext, params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
     return types.CreateMessageResult(

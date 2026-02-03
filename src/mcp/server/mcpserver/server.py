@@ -25,6 +25,7 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -36,13 +37,11 @@ from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceM
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
-from mcp.server.session import ServerSession, ServerSessionT
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.context import LifespanContextT, RequestContext, RequestT
 from mcp.types import Annotations, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -294,7 +293,7 @@ class MCPServer(Generic[LifespanResultT]):
             for info in tools
         ]
 
-    def get_context(self) -> Context[ServerSession, LifespanResultT, Request]:
+    def get_context(self) -> Context[LifespanResultT, Request]:
         """Returns a Context object. Note that the context will only be valid
         during a request; outside a request, most methods will error.
         """
@@ -972,7 +971,7 @@ class MCPServer(Generic[LifespanResultT]):
             raise ValueError(str(e))
 
 
-class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
+class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -1006,14 +1005,15 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: RequestContext[ServerSessionT, LifespanContextT, RequestT] | None
+    _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
 
     def __init__(
         self,
         *,
-        request_context: (RequestContext[ServerSessionT, LifespanContextT, RequestT] | None) = None,
+        request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
         mcp_server: MCPServer | None = None,
+        # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -1028,9 +1028,7 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
         return self._mcp_server  # pragma: no cover
 
     @property
-    def request_context(
-        self,
-    ) -> RequestContext[ServerSessionT, LifespanContextT, RequestT]:
+    def request_context(self) -> ServerRequestContext[LifespanContextT, RequestT]:
         """Access to the underlying request context."""
         if self._request_context is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")

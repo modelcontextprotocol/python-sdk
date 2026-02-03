@@ -85,12 +85,13 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
-import mcp.types as types
+from mcp import types
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
+from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
@@ -100,7 +101,6 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -117,16 +117,11 @@ UnstructuredContent: TypeAlias = Iterable[types.ContentBlock]
 CombinationContent: TypeAlias = tuple[UnstructuredContent, StructuredContent]
 
 # This will be properly typed in each Server instance's context
-request_ctx: contextvars.ContextVar[RequestContext[ServerSession, Any, Any]] = contextvars.ContextVar("request_ctx")
+request_ctx: contextvars.ContextVar[ServerRequestContext[Any, Any]] = contextvars.ContextVar("request_ctx")
 
 
 class NotificationOptions:
-    def __init__(
-        self,
-        prompts_changed: bool = False,
-        resources_changed: bool = False,
-        tools_changed: bool = False,
-    ):
+    def __init__(self, prompts_changed: bool = False, resources_changed: bool = False, tools_changed: bool = False):
         self.prompts_changed = prompts_changed
         self.resources_changed = resources_changed
         self.tools_changed = tools_changed
@@ -253,9 +248,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         return capabilities
 
     @property
-    def request_context(
-        self,
-    ) -> RequestContext[ServerSession, LifespanResultT, RequestT]:
+    def request_context(self) -> ServerRequestContext[LifespanResultT, RequestT]:
         """If called outside of a request context, this will raise a LookupError."""
         return request_ctx.get()
 
@@ -762,12 +755,12 @@ class Server(Generic[LifespanResultT, RequestT]):
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
                 token = request_ctx.set(
-                    RequestContext(
-                        message.request_id,
-                        message.request_meta,
-                        session,
-                        lifespan_context,
-                        Experimental(
+                    ServerRequestContext(
+                        request_id=message.request_id,
+                        meta=message.request_meta,
+                        session=session,
+                        lifespan_context=lifespan_context,
+                        experimental=Experimental(
                             task_metadata=task_metadata,
                             _client_capabilities=client_capabilities,
                             _session=session,

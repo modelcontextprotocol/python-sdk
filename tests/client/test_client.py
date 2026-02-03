@@ -8,7 +8,7 @@ import anyio
 import pytest
 from inline_snapshot import snapshot
 
-import mcp.types as types
+from mcp import types
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server

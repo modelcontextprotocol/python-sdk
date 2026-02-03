@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 import mcp.server.stdio
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
