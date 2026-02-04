@@ -1,6 +1,12 @@
 .DS_Store
 scratch/
 
+# Local plans and scratch docs (never commit)
+/plans/
+
+# Cursor AI assistant rules (local only)
+/.cursorrules
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
