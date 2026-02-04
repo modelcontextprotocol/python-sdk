@@ -115,14 +115,26 @@ echo "Running Automated DPoP Tests"
 echo "============================================================"
 echo ""
 
-# Test B2: API Key Authentication
-echo "[Test B2] API Key Authentication (DPoP should not affect)"
+# Test B2: API Key Authentication (curl)
+echo "[Test B2] API Key Authentication via curl (DPoP should not affect)"
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$MCP_ENDPOINT" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "X-API-Key: $API_KEY" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"dpop-test","version":"1.0"}}}')
 run_test "API Key auth works with DPoP enabled" "200" "$STATUS"
+
+# Test B3: API Key Authentication via MultiProtocolAuth client
+echo "[Test B3] API Key Authentication via MultiProtocolAuth client"
+cd "$MULTIPROTOCOL_CLIENT"
+if printf "list\ncall get_time {}\nquit\n" | MCP_SERVER_URL="$MCP_ENDPOINT" MCP_API_KEY="$API_KEY" MCP_AUTH_PROTOCOL="api_key" uv run mcp-simple-auth-multiprotocol-client >/dev/null 2>&1; then
+  echo "  PASS: simple-auth-multiprotocol-client (API Key via MultiProtocolAuth)"
+  PASSED=$((PASSED + 1))
+else
+  echo "  FAIL: simple-auth-multiprotocol-client (API Key via MultiProtocolAuth)"
+  FAILED=$((FAILED + 1))
+fi
+cd "$REPO_ROOT"
 
 # Test: No Authentication
 echo "[Test] No Authentication (expect 401)"

@@ -233,10 +233,16 @@ class SimpleAuthMultiprotocolClient:
             protocols.append(oauth_protocol)
             print(f"OAuth protocol enabled (DPoP: {self.dpop_enabled})")
 
-        # Always add API Key and mTLS as fallback
-        api_key = os.getenv("MCP_API_KEY", "demo-api-key-12345")
-        protocols.append(ApiKeyProtocol(api_key=api_key))
-        protocols.append(MutualTlsPlaceholderProtocol())
+        # Add non-OAuth protocols. Allow forcing protocol injection for integration tests.
+        forced = os.getenv("MCP_AUTH_PROTOCOL", os.getenv("MCP_PHASE2_PROTOCOL", "")).strip().lower()
+        if forced in ("mutual_tls", "mtls"):
+            # Force mTLS placeholder to be selectable (do not inject API key fallback).
+            protocols.append(MutualTlsPlaceholderProtocol())
+        else:
+            # Default: API key (from env) plus mTLS placeholder as fallback.
+            api_key = os.getenv("MCP_API_KEY", "demo-api-key-12345")
+            protocols.append(ApiKeyProtocol(api_key=api_key))
+            protocols.append(MutualTlsPlaceholderProtocol())
 
         try:
             # Create http_client first, then pass it to auth provider
