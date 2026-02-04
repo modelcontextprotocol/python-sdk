@@ -20,6 +20,7 @@ TokenStorage 双契约与转换约定
 
 import json
 import logging
+import math
 import time
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, cast
@@ -32,7 +33,6 @@ from pydantic import ValidationError
 from mcp.client.auth._oauth_401_flow import oauth_401_flow_generator
 from mcp.client.auth.oauth2 import OAuthClientProvider, TokenStorage as OAuth2TokenStorage
 from mcp.client.auth.protocol import AuthContext, AuthProtocol, DPoPEnabledProtocol
-from mcp.client.auth.registry import AuthProtocolRegistry
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.client.auth.utils import (
     build_protected_resource_metadata_discovery_urls,
@@ -54,6 +54,9 @@ from mcp.shared.auth import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Protocol preferences: any protocol without an explicit preference should sort last.
+UNSPECIFIED_PROTOCOL_PREFERENCE: float = math.inf
 
 
 class TokenStorage(Protocol):
@@ -248,12 +251,16 @@ class MultiProtocolAuthProvider(httpx.Auth):
         response = yield request
 
         if response.status_code == 401:
+            original_request = request
+            original_401_response = response
             async with self._lock:
                 resource_metadata_url = extract_resource_metadata_from_www_auth(response)
                 auth_protocols_header = extract_auth_protocols_from_www_auth(response)
                 default_protocol = extract_default_protocol_from_www_auth(response)
                 protocol_preferences = extract_protocol_preferences_from_www_auth(response)
                 server_url = str(request.url)
+                attempted_any = False
+                last_auth_error: Exception | None = None
 
                 # Step 1: PRM discovery (yield)
                 prm: ProtectedResourceMetadata | None = None
@@ -286,19 +293,51 @@ class MultiProtocolAuthProvider(httpx.Auth):
                 if not available:
                     logger.debug("No available protocols from discovery or WWW-Authenticate")
                 else:
-                    selected_id = AuthProtocolRegistry.select_protocol(
-                        available, default_protocol, protocol_preferences
-                    )
-                    if selected_id:
-                        protocol = self._get_protocol(selected_id)
-                        if protocol:
-                            protocol_metadata = None
-                            if protocols_metadata:
-                                for m in protocols_metadata:
-                                    if m.protocol_id == selected_id:
-                                        protocol_metadata = m
-                                        break
+                    # Select protocol candidates based on server hints, but only
+                    # attempt protocols that are actually injected as instances.
+                    candidates: list[str] = []
+                    seen: set[str] = set()
 
+                    def _push(pid: str | None) -> None:
+                        if not pid:
+                            return
+                        if pid in seen:
+                            return
+                        seen.add(pid)
+                        candidates.append(pid)
+
+                    # Default protocol first (server recommendation)
+                    _push(default_protocol)
+                    # Then order by preferences if provided
+                    if protocol_preferences:
+                        for pid in sorted(
+                            available,
+                            key=lambda p: protocol_preferences.get(
+                                p, UNSPECIFIED_PROTOCOL_PREFERENCE
+                            ),
+                        ):
+                            _push(pid)
+                    # Then remaining in server-provided order
+                    for pid in available:
+                        _push(pid)
+
+                    for selected_id in candidates:
+                        protocol = self._get_protocol(selected_id)
+                        if protocol is None:
+                            logger.debug(
+                                "Protocol %s not injected as instance; skipping", selected_id
+                            )
+                            continue
+                        attempted_any = True
+
+                        protocol_metadata = None
+                        if protocols_metadata:
+                            for m in protocols_metadata:
+                                if m.protocol_id == selected_id:
+                                    protocol_metadata = m
+                                    break
+
+                        try:
                             if selected_id == "oauth2":
                                 # OAuth: drive shared generator (single client, yield)
                                 oauth_protocol = protocol
@@ -325,7 +364,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
                                     MCP_PROTOCOL_VERSION
                                 )
                                 gen = oauth_401_flow_generator(
-                                    provider, request, response, initial_prm=prm
+                                    provider, original_request, original_401_response, initial_prm=prm
                                 )
                                 auth_req = await gen.__anext__()
                                 while True:
@@ -348,17 +387,35 @@ class MultiProtocolAuthProvider(httpx.Auth):
                                     resource_metadata_url=resource_metadata_url,
                                     protected_resource_metadata=prm,
                                     scope_from_www_auth=extract_scope_from_www_auth(
-                                        response
+                                        original_401_response
                                     ),
                                 )
                                 credentials = await protocol.authenticate(context)
                                 to_store = _credentials_to_storage(credentials)
                                 await self.storage.set_tokens(to_store)
 
+                            # Stop after first successful protocol path that stores credentials
+                            break
+                        except Exception as e:
+                            last_auth_error = e
+                            logger.debug(
+                                "Protocol %s authentication failed: %s", selected_id, e
+                            )
+                            continue
+
                 credentials = await self._get_credentials()
                 if credentials and self._is_credentials_valid(credentials):
                     await self._ensure_dpop_initialized(credentials)
                     self._prepare_request(request, credentials)
                     response = yield request
+                else:
+                    if attempted_any and last_auth_error is not None:
+                        # If we did attempt an injected protocol and it failed, surface the error
+                        # instead of returning a potentially confusing 401.
+                        raise last_auth_error
+                    # Ensure we do not leak discovery responses as the final response:
+                    # retry the original request once without new credentials so the
+                    # caller receives a response corresponding to the original request.
+                    response = yield original_request
         elif response.status_code == 403:
             await self._handle_403_response(response, request)
