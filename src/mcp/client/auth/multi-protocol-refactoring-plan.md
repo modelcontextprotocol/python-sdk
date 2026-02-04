@@ -283,24 +283,21 @@ DPoP作为独立的通用组件，协议可以选择性使用：
    ```python
    async def discover_authorization_servers(
        resource_url: str,
-       http_client: httpx.AsyncClient
+       http_client: httpx.AsyncClient,
+       prm: ProtectedResourceMetadata | None = None,
+       resource_path: str = "",
    ) -> list[AuthProtocolMetadata]:
-       """统一的授权服务器发现流程"""
-       # 1. 首先访问统一的能力发现端点
-       discovery_url = f"{resource_url}/.well-known/authorization_servers"
-       try:
-           response = await http_client.get(discovery_url)
-           if response.status_code == 200:
-               data = response.json()
-               return [
-                   AuthProtocolMetadata(**proto_data)
-                   for proto_data in data.get("protocols", [])
-               ]
-       except Exception:
-           pass
-       
-       # 2. 回退：从PRM中获取协议信息
-       # 3. 回退：使用协议特定的well-known URI
+       """统一的授权服务器/协议发现流程（PRM 优先，再统一发现，最后 OAuth 回退）"""
+       # 1. 若已有 PRM 且含 mcp_auth_protocols，直接使用
+       if prm and getattr(prm, "mcp_auth_protocols", None):
+           return _protocol_metadata_list_from_prm(prm)
+       # 2. 路径相对统一发现：/.well-known/authorization_servers{path}
+       urls = build_authorization_servers_discovery_urls(resource_url, resource_path)
+       for url in urls:
+           # 尝试请求，200 且含 protocols 则解析并返回
+           ...
+       # 3. 若仍无协议列表且 PRM 含 authorization_servers，走 OAuth 回退（由调用方处理）
+       return []
    ```
 
 2. **新增协议特定的元数据发现**
@@ -1365,11 +1362,13 @@ graph TD
 
 **取舍**：mTLS 在 TLS 握手层处理，不解析 HTTP `Authorization` 头；`Mutual TLS` 验证器从 TLS 连接/握手上下文读取客户端证书并校验。
 
-### 11.4 协议发现顺序：统一端点 vs PRM 优先
+### 11.4 协议发现顺序：PRM 优先 vs 统一发现
 
-**取舍**：客户端优先请求 `/.well-known/authorization_servers`（统一发现）；若 404 或空，回退到 PRM 的 `mcp_auth_protocols`。
+**取舍**：客户端协议发现顺序为：（1）PRM 的 `mcp_auth_protocols`（若已取得 PRM）；（2）路径相对统一发现 `/.well-known/authorization_servers{path}`；（3）根路径统一发现 `/.well-known/authorization_servers`；（4）若上述均未得到协议列表且 PRM 含 `authorization_servers`，则 OAuth 回退。
 
-**原因**：统一端点便于多协议声明与扩展；PRM 回退保证仅支持 RFC 9728 的 RS 仍可被多协议客户端发现。
+**原因**：PRM 为 RFC 9728 标准且常与 401 的 `resource_metadata` 一起使用，优先使用可减少往返；统一发现作为补充；OAuth 回退保证仅实现 RFC 9728 的 RS 仍可被多协议客户端使用。
+
+**鉴权发现日志**：发现过程在 `mcp.client.auth` 中输出 DEBUG 级别、英文、带 `[Auth discovery]` 前缀的日志（请求 URL、状态码及 200 时的可读响应体）；客户端设置 `LOG_LEVEL=DEBUG` 可查看。
 
 ### 11.5 授权端点归属：AS 与 RS 的 URL 树
 
@@ -1380,7 +1379,7 @@ graph TD
 | `/.well-known/oauth-protected-resource{path}` | RS | PRM（RFC 9728） |
 | `/.well-known/authorization_servers` | RS | 统一协议发现（MCP 扩展） |
 
-**说明**：AS 与 RS 可能部署在不同主机（如 AS 9000、RS 8002）；客户端先向 RS 获取 PRM/协议列表，再根据 `metadata_url` 向 AS 获取 OAuth 元数据。
+**说明**：AS 与 RS 可能部署在不同主机（如 AS 9000、RS 8002）；客户端按 11.4 所述顺序向 RS 获取协议列表（PRM 优先，再统一发现），再根据 `metadata_url` 向 AS 获取 OAuth 元数据。
 
 ### 11.6 TokenStorage 双契约：OAuthToken vs AuthCredentials
 

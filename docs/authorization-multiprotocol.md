@@ -42,13 +42,20 @@ Discovery answers: *Which auth protocols does this resource support, and where i
 
 1. **WWW-Authenticate on 401** — The resource server may include `resource_metadata` (PRM URL), `auth_protocols`, `default_protocol`, `protocol_preferences` (MCP extensions). See RFC 6750 (Bearer) and RFC 9728 (resource metadata).
 2. **Protected Resource Metadata (PRM)** — RFC 9728 defines `/.well-known/oauth-protected-resource` (optionally with path). PRM JSON includes `authorization_servers`, and the SDK extends it with `mcp_auth_protocols`, `mcp_default_auth_protocol`, `mcp_auth_protocol_preferences`.
-3. **Unified discovery endpoint** — `/.well-known/authorization_servers` returns a list of protocol metadata (MCP-style). Clients try this first; if it fails or returns no protocols, they fall back to PRM’s `mcp_auth_protocols`.
+3. **Unified discovery endpoint** — `/.well-known/authorization_servers` returns a list of protocol metadata (MCP-style). The client tries path-relative first, then root (see protocol discovery order below).
+
+**Protocol discovery order (priority):**
+
+1. **Priority 1: PRM `mcp_auth_protocols`** — If PRM was obtained and contains `mcp_auth_protocols`, use that list.
+2. **Priority 2: Path-relative unified discovery** — `{origin}/.well-known/authorization_servers{resource_path}` (e.g. `http://localhost:8002/.well-known/authorization_servers/mcp`).
+3. **Priority 3: Root unified discovery** — `{origin}/.well-known/authorization_servers`.
+4. **Priority 4: OAuth fallback** — If unified discovery failed and PRM has `authorization_servers`, attempt OAuth protocol discovery.
 
 **Client-side logic (high level):**
 
 - On 401, extract `resource_metadata` from WWW-Authenticate.
 - Build PRM URLs: (1) `resource_metadata` if present, (2) path-based `/.well-known/oauth-protected-resource{path}`, (3) root `/.well-known/oauth-protected-resource`. Request each until PRM is obtained.
-- Request `/.well-known/authorization_servers` (path relative to resource URL). Parse `protocols`; on failure or empty, use `prm.mcp_auth_protocols`.
+- For protocol list: if PRM has `mcp_auth_protocols`, use it (priority 1). Else try path-relative `/.well-known/authorization_servers{path}`, then root `/.well-known/authorization_servers`. If both fail and PRM has `authorization_servers`, use OAuth fallback.
 - Combine protocol list with WWW-Authenticate `auth_protocols` if present, then select one via `AuthProtocolRegistry.select_protocol(available, default_protocol, preferences)`.
 
 **Relationship between authorization URL endpoints**
@@ -66,7 +73,7 @@ There are three distinct URL trees involved:
 **URL tree (example: AS on 9000, RS on 8002)**
 
 ```
-Authorization Server (http://localhost:9000)
+OAuth Authorization Server (http://localhost:9000)
 ├── /.well-known/oauth-authorization-server   ← OAuth AS metadata
 ├── /authorize
 ├── /token
@@ -86,7 +93,9 @@ MCP Resource Server (http://localhost:8002)
 2. If absent, try path-based: `{origin}/.well-known/oauth-protected-resource{resource_path}` (e.g. `http://localhost:8002/.well-known/oauth-protected-resource/mcp`).
 3. If absent, try root: `{origin}/.well-known/oauth-protected-resource`.
 4. PRM includes `authorization_servers` (AS URL) and `mcp_auth_protocols`; for OAuth, the client then fetches `{AS}/.well-known/oauth-authorization-server`.
-5. For protocol list, client tries `{resource_url}/.well-known/authorization_servers` (e.g. `http://localhost:8002/mcp/.well-known/authorization_servers`); many RS mount discovery at origin `{origin}/.well-known/authorization_servers`. If that returns 404 or empty, client uses `prm.mcp_auth_protocols`.
+5. For protocol list (in order): (1) If PRM has `mcp_auth_protocols`, use it. (2) Else try path-relative `{origin}/.well-known/authorization_servers{resource_path}` (e.g. `http://localhost:8002/.well-known/authorization_servers/mcp`). (3) Else try root `{origin}/.well-known/authorization_servers`. (4) If all fail and PRM has `authorization_servers`, use OAuth fallback.
+
+**Auth discovery logging:** When discovery runs, the SDK emits debug-level logs (English, `[Auth discovery]` prefix) for each PRM and unified-discovery request: URL, status code, and (on 200) pretty-printed response body. Set `LOG_LEVEL=DEBUG` on the client to see them. Implemented in `mcp.client.auth.utils` (`format_json_for_logging`, `handle_protected_resource_response`, `discover_authorization_servers`) and `mcp.client.auth.multi_protocol` (`_parse_protocols_from_discovery_response`, `async_auth_flow`).
 
 **References:** RFC 9728 (PRM), RFC 8414 (OAuth AS metadata), SDK `mcp.client.auth.utils` (`build_protected_resource_metadata_discovery_urls`, `discover_authorization_servers`).
 
@@ -101,13 +110,18 @@ flowchart LR
     E --> F[Try path-based well-known]
     F --> G[Try root well-known]
     G --> H[PRM obtained]
-    H --> I[Unified discovery]
-    I --> J[GET /.well-known/authorization_servers]
+    H --> I{PRM.mcp_auth_protocols?}
+    I -->|Yes| N[Select protocol]
+    I -->|No| J[Path-relative unified discovery]
     J --> K{200 + protocols?}
-    K -->|Yes| L[Use protocols list]
-    K -->|No| M[Use PRM.mcp_auth_protocols]
-    L --> N[Select protocol]
-    M --> N
+    K -->|Yes| N
+    K -->|No| L[Root unified discovery]
+    L --> M{200 + protocols?}
+    M -->|Yes| N
+    M -->|No| O{PRM.authorization_servers?}
+    O -->|Yes| P[OAuth fallback]
+    O -->|No| Q[Fail]
+    P --> N
 ```
 
 ### 2.2 MCP client logic

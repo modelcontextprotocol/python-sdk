@@ -315,6 +315,10 @@ flowchart TD
      4. `/.well-known/oauth-authorization-server`
      5. `/.well-known/openid-configuration`
 
+4. **多协议客户端的协议发现顺序**（使用 `MultiProtocolAuthProvider` 时）
+   - 协议列表获取优先级：（1）PRM 的 `mcp_auth_protocols`（若已取得 PRM）；（2）路径相对统一发现 `/.well-known/authorization_servers{path}`；（3）根路径统一发现 `/.well-known/authorization_servers`；（4）若均未得到协议列表且 PRM 含 `authorization_servers`，则 OAuth 回退。
+   - **鉴权发现日志**：发现过程在 `mcp.client.auth` 中输出 DEBUG 级别、英文、带 `[Auth discovery]` 前缀的日志；客户端设置 `LOG_LEVEL=DEBUG` 可查看。
+
 #### 阶段 2: Scope 选择
 
 根据 MCP 规范的 Scope 选择策略，按以下优先级选择 scope：
@@ -914,10 +918,15 @@ provider = PrivateKeyJWTOAuthProvider(
   - 支持非 Bearer 的认证方案
 
 #### 12.1.3 协议发现机制
-- **统一的能力发现端点**（推荐）
-  - 实现 `/.well-known/authorization_servers` 端点
+- **协议发现顺序**（客户端）
+  - 优先级 1：PRM 的 `mcp_auth_protocols`（若已取得 PRM）
+  - 优先级 2：路径相对统一发现 `/.well-known/authorization_servers{path}`
+  - 优先级 3：根路径统一发现 `/.well-known/authorization_servers`
+  - 优先级 4：若上述均未得到协议列表且 PRM 含 `authorization_servers`，则 OAuth 回退
+- **统一的能力发现端点**
+  - 实现 `/.well-known/authorization_servers`（及路径相对版本 `/.well-known/authorization_servers{path}`）
   - 返回服务器支持的所有授权协议列表和能力信息
-  - 客户端首先访问此端点发现可用协议
+- **鉴权发现日志**：发现过程输出 DEBUG 级别、英文、带 `[Auth discovery]` 前缀的日志；客户端设置 `LOG_LEVEL=DEBUG` 可查看。
 
 - **协议特定的元数据发现**
   - 每个协议可以提供自己的元数据发现端点
@@ -1313,15 +1322,18 @@ class AuthProtocol(Protocol):
 **当前函数**: `build_protected_resource_metadata_discovery_urls()`, `build_oauth_authorization_server_metadata_discovery_urls()`
 
 **改造内容**:
-1. **新增统一能力发现端点支持**
+1. **新增统一能力发现端点支持**（发现顺序：PRM 优先，再路径相对/根路径统一发现，最后 OAuth 回退）
    ```python
    async def discover_authorization_servers(
        resource_url: str,
-       http_client: httpx.AsyncClient
+       http_client: httpx.AsyncClient,
+       prm: ProtectedResourceMetadata | None = None,
+       resource_path: str = "",
    ) -> list[AuthProtocolMetadata]:
-       """统一的授权服务器发现流程"""
-       # 1. 首先访问统一的能力发现端点
-       # 2. 根据返回的列表，访问每个协议的元数据端点
+       """协议发现：PRM.mcp_auth_protocols → 路径相对统一发现 → 根路径统一发现 → OAuth 回退"""
+       # 1. 若已有 PRM 且含 mcp_auth_protocols，直接使用
+       # 2. 路径相对 /.well-known/authorization_servers{path}，再根路径
+       # 3. 若仍无协议列表且 PRM 含 authorization_servers，由调用方走 OAuth 回退
    ```
 
 2. **新增协议特定的元数据发现**
