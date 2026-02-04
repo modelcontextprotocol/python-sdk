@@ -120,7 +120,6 @@ async def test_lifespan_cleanup_executed():
 
 
 @pytest.mark.anyio
-@pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
 async def test_stdin_close_triggers_cleanup():
     """Regression test verifying the stdin-based graceful shutdown mechanism.
 
