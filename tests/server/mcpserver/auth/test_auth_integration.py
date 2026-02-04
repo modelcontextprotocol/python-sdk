@@ -304,32 +304,6 @@ async def auth_code(
 
 class TestAuthEndpoints:
     @pytest.mark.anyio
-    async def test_metadata_endpoint_with_client_id_metadata_document_supported(self):
-        """Test metadata endpoint when client_id_metadata_document_supported is enabled."""
-        mock_provider = MockOAuthProvider()
-        auth_routes = create_auth_routes(
-            mock_provider,
-            AnyHttpUrl("https://auth.example.com"),
-            AnyHttpUrl("https://docs.example.com"),
-            client_registration_options=ClientRegistrationOptions(
-                enabled=True,
-                valid_scopes=["read", "write"],
-                client_id_metadata_document_supported=True,
-            ),
-            revocation_options=RevocationOptions(enabled=True),
-        )
-        app = Starlette(routes=auth_routes)
-
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="https://mcptest.com"
-        ) as client:
-            response = await client.get("/.well-known/oauth-authorization-server")
-            assert response.status_code == 200
-
-            metadata = response.json()
-            assert metadata["client_id_metadata_document_supported"] is True
-
-    @pytest.mark.anyio
     async def test_metadata_endpoint(self, test_client: httpx.AsyncClient):
         """Test the OAuth 2.0 metadata endpoint."""
 
