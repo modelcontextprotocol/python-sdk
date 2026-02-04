@@ -172,9 +172,7 @@ def build_metadata(
         op_tos_uri=None,
         introspection_endpoint=None,
         code_challenge_methods_supported=["S256"],
-        client_id_metadata_document_supported=(
-            client_registration_options.client_id_metadata_document_supported
-        ),
+        client_id_metadata_document_supported=client_registration_options.client_id_metadata_document_supported,
     )
 
     # Add registration endpoint if supported
