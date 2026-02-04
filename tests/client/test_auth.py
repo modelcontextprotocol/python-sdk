@@ -1352,7 +1352,33 @@ def test_build_metadata(
             "revocation_endpoint": Is(revocation_endpoint),
             "revocation_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             "code_challenge_methods_supported": ["S256"],
-            "client_id_metadata_document_supported": Is(bool),
+            "client_id_metadata_document_supported": Is(False),
+        }
+    )
+
+    metadata = build_metadata(
+        issuer_url=AnyHttpUrl(issuer_url),
+        service_documentation_url=AnyHttpUrl(service_documentation_url),
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True, valid_scopes=["read", "write", "admin"], client_id_metadata_document_supported=True
+        ),
+        revocation_options=RevocationOptions(enabled=True),
+    )
+
+    assert metadata.model_dump(exclude_defaults=True, mode="json") == snapshot(
+        {
+            "issuer": Is(issuer_url),
+            "authorization_endpoint": Is(authorization_endpoint),
+            "token_endpoint": Is(token_endpoint),
+            "registration_endpoint": Is(registration_endpoint),
+            "scopes_supported": ["read", "write", "admin"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
+            "service_documentation": Is(service_documentation_url),
+            "revocation_endpoint": Is(revocation_endpoint),
+            "revocation_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
+            "code_challenge_methods_supported": ["S256"],
+            "client_id_metadata_document_supported": Is(True),
         }
     )
 
