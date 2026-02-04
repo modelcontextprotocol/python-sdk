@@ -36,7 +36,7 @@ You can run the Resource Server **without** the Authorization Server when using 
 3. At the `mcp>` prompt, run `list`, `call get_time {}`, then `quit`.
 
 **One-command verification** (from repo root):  
-`MCP_PHASE2_PROTOCOL=api_key ./scripts/run_phase2_multiprotocol_integration_test.sh`  
+`MCP_AUTH_PROTOCOL=api_key ./scripts/run_phase2_multiprotocol_integration_test.sh`  
 This starts the RS, then the client with API Key; complete the session with `list`, `call get_time {}`, `quit`.
 
 ## Running with DPoP (OAuth + DPoP)
@@ -66,7 +66,7 @@ Mutual TLS is a **placeholder** in this example: the server accepts the `mutual_
 
 - **Server**: No extra flags; `auth_protocols` already includes `mutual_tls`.
 - **Client** (from repo root):  
-  `MCP_PHASE2_PROTOCOL=mutual_tls ./scripts/run_phase2_multiprotocol_integration_test.sh`  
+  `MCP_AUTH_PROTOCOL=mutual_tls ./scripts/run_phase2_multiprotocol_integration_test.sh`  
   The client will start but mTLS authentication is not implemented in this example.
 
 ## Options

@@ -467,7 +467,7 @@ See `RequireAuthMiddleware` and PRM handler in `mcp.server.auth` for how these a
 
 - Starts the multi-protocol resource server (`simple-auth-multiprotocol-rs`) on port 8002 with `--api-keys=demo-api-key-12345`. For OAuth, also starts the AS (`simple-auth-as`) on port 9000.
 - Waits for PRM: `GET http://localhost:8002/.well-known/oauth-protected-resource/mcp`.
-- Runs the client according to `MCP_PHASE2_PROTOCOL`:
+- Runs the client according to `MCP_AUTH_PROTOCOL`:
   - **api_key** (default): `simple-auth-multiprotocol-client` with `MCP_SERVER_URL=http://localhost:8002/mcp` and `MCP_API_KEY=demo-api-key-12345`. No AS required.
   - **oauth**: `simple-auth-client` against the same RS; user completes OAuth in the browser, then runs `list`, `call get_time {}`, `quit`.
   - **mutual_tls**: same multiprotocol client without API key; mTLS is a placeholder (no real client cert).

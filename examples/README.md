@@ -11,7 +11,7 @@ for real-world servers.
 **API Key**
 
 - Use `MCP_API_KEY` on the client; start RS with `--api-keys=...` (no AS required).
-- One-command test (from repo root): `MCP_PHASE2_PROTOCOL=api_key ./scripts/run_phase2_multiprotocol_integration_test.sh`
+- One-command test (from repo root): `MCP_AUTH_PROTOCOL=api_key ./scripts/run_phase2_multiprotocol_integration_test.sh`
 
 **OAuth + DPoP**
 
@@ -20,6 +20,7 @@ for real-world servers.
 
 **Mutual TLS (placeholder)**
 
-- mTLS is a placeholder (no client cert validation). Script: `MCP_PHASE2_PROTOCOL=mutual_tls ./scripts/run_phase2_multiprotocol_integration_test.sh`
+- mTLS is a placeholder (no client cert validation). Script: `MCP_AUTH_PROTOCOL=mutual_tls ./scripts/run_phase2_multiprotocol_integration_test.sh`
+- mTLS is a placeholder (no client cert validation). Script: `MCP_AUTH_PROTOCOL=mutual_tls ./scripts/run_phase2_multiprotocol_integration_test.sh`
 
 **Client**: [simple-auth-multiprotocol-client](clients/simple-auth-multiprotocol-client/) — supports API Key (`MCP_API_KEY`), OAuth+DPoP (`MCP_USE_OAUTH=1`, `MCP_DPOP_ENABLED=1`), and mTLS placeholder.
