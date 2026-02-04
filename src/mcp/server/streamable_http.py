@@ -427,7 +427,7 @@ class StreamableHTTPServerTransport:
             return False
         return True
 
-    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
+    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:  # noqa: PLR0915
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
@@ -620,8 +620,9 @@ class StreamableHTTPServerTransport:
                 except Exception:
                     logger.exception("SSE response error")
                     await sse_stream_writer.aclose()
-                    await sse_stream_reader.aclose()
                     await self._clean_up_memory_streams(request_id)
+                finally:
+                    await sse_stream_reader.aclose()
 
         except Exception as err:  # pragma: no cover
             logger.exception("Error handling POST request")
@@ -722,9 +723,10 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
         except Exception:
             logger.exception("Error in standalone SSE response")
+            await self._clean_up_memory_streams(GET_STREAM_KEY)
+        finally:
             await sse_stream_writer.aclose()
             await sse_stream_reader.aclose()
-            await self._clean_up_memory_streams(GET_STREAM_KEY)
 
     async def _handle_delete_request(self, request: Request, send: Send) -> None:  # pragma: no cover
         """Handle DELETE requests for explicit session termination."""
