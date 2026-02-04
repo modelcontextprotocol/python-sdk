@@ -4,10 +4,9 @@ dynamic = ["version"]
 description = "Model Context Protocol SDK"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Anthropic, PBC." }]
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 maintainers = [
     { name = "David Soria Parra", email = "davidsp@anthropic.com" },
-    { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
     { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
     { name = "Max Isbey", email = "maxisbey@anthropic.com" },
     { name = "Felix Weinberger", email = "fweinberger@anthropic.com" }

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Demo client for SSE polling with auto-reconnect"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Anthropic, PBC." }]
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 keywords = ["mcp", "sse", "polling", "client"]
 license = { text = "MIT" }
 dependencies = ["click>=8.2.0", "mcp"]
