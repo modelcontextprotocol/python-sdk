@@ -18,7 +18,7 @@ import anyio
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -476,6 +476,15 @@ class OAuthClientProvider(httpx.Auth):
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
 
+    def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
+        """Validate that PRM resource matches the server URL per RFC 8707."""
+        if not prm.resource:
+            return
+        default_resource = resource_url_from_server_url(self.context.server_url)
+        prm_resource = str(prm.resource)
+        if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
+            raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
+
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
         async with self.context.lock:
@@ -517,6 +526,8 @@ class OAuthClientProvider(httpx.Auth):
 
                         prm = await handle_protected_resource_response(discovery_response)
                         if prm:
+                            # Validate PRM resource matches server URL (RFC 8707)
+                            self._validate_resource_match(prm)
                             self.context.protected_resource_metadata = prm
 
                             # todo: try all authorization_servers to find the OASM
@@ -575,9 +586,18 @@ class OAuthClientProvider(httpx.Auth):
                                 self.context.get_authorization_base_url(self.context.server_url),
                             )
                             registration_response = yield registration_request
-                            client_information = await handle_registration_response(registration_response)
-                            self.context.client_info = client_information
-                            await self.context.storage.set_client_info(client_information)
+                            try:
+                                client_information = await handle_registration_response(registration_response)
+                                self.context.client_info = client_information
+                                await self.context.storage.set_client_info(client_information)
+                            except OAuthRegistrationError:
+                                # DCR failed — check for pre-registered client credentials
+                                stored_client_info = await self.context.storage.get_client_info()
+                                if stored_client_info:
+                                    logger.debug("DCR failed, using pre-registered client credentials")
+                                    self.context.client_info = stored_client_info
+                                else:
+                                    raise
 
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
