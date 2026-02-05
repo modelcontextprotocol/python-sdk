@@ -83,6 +83,8 @@ from pydantic import AnyUrl
 from typing_extensions import TypeVar
 
 import mcp.types as types
+from mcp.server.auth.middleware.auth_context import auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
@@ -723,6 +725,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             logger.debug("Dispatching request of type %s", type(req).__name__)
 
             token = None
+            auth_token = None
             try:
                 # Extract request context and close_sse_stream from message metadata
                 request_data = None
@@ -743,6 +746,14 @@ class Server(Generic[LifespanResultT, RequestT]):
                 task_metadata = None
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
+                if request_data is not None:
+                    scope = getattr(request_data, "scope", None)
+                    if isinstance(scope, dict):
+                        scope_dict = cast(dict[str, Any], scope)
+                        user = scope_dict.get("user")
+                        if isinstance(user, AuthenticatedUser):
+                            auth_token = auth_context_var.set(user)
+
                 token = request_ctx.set(
                     RequestContext(
                         message.request_id,
@@ -775,6 +786,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                 response = types.ErrorData(code=0, message=str(err), data=None)
             finally:
                 # Reset the global state after we are done
+                if auth_token is not None:
+                    auth_context_var.reset(auth_token)
                 if token is not None:  # pragma: no branch
                     request_ctx.reset(token)
 
