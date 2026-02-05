@@ -31,6 +31,7 @@ from mcp.client.auth.utils import (
 from mcp.shared.auth import (
     AuthCredentials,
     AuthProtocolMetadata,
+    OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthCredentials,
     OAuthMetadata,
@@ -104,6 +105,7 @@ class OAuth2Protocol:
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
         client_metadata_url: str | None = None,
+        fixed_client_info: OAuthClientInformationFull | None = None,
         dpop_enabled: bool = False,
         dpop_algorithm: DPoPAlgorithm = "ES256",
         dpop_rsa_key_size: int = RSA_KEY_SIZE_DEFAULT,
@@ -113,6 +115,7 @@ class OAuth2Protocol:
         self._callback_handler = callback_handler
         self._timeout = timeout
         self._client_metadata_url = client_metadata_url
+        self._fixed_client_info = fixed_client_info
         self._dpop_enabled = dpop_enabled
         self._dpop_algorithm: DPoPAlgorithm = dpop_algorithm
         self._dpop_rsa_key_size = dpop_rsa_key_size
@@ -133,6 +136,7 @@ class OAuth2Protocol:
             callback_handler=self._callback_handler,
             timeout=self._timeout,
             client_metadata_url=self._client_metadata_url,
+            fixed_client_info=self._fixed_client_info,
         )
         protocol_version: str | None = None
         if context.protocol_metadata is not None:

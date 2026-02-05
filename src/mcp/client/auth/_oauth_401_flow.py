@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import httpx
 
+from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -117,6 +118,10 @@ async def oauth_401_flow_generator(
     )
 
     # Step 4: Register client or use URL-based client ID (CIMD)
+    # For client_credentials, a fixed client_id/client_secret must be provided; do not attempt DCR/CIMD.
+    if "client_credentials" in (ctx.client_metadata.grant_types or []) and not ctx.client_info:
+        raise OAuthFlowError("Missing client_info for client_credentials flow")
+
     if not ctx.client_info:
         if should_use_client_metadata_url(ctx.oauth_metadata, ctx.client_metadata_url):
             logger.debug("Using URL-based client ID (CIMD): %s", ctx.client_metadata_url)

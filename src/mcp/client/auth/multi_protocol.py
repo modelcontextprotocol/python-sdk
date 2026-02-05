@@ -393,22 +393,13 @@ class MultiProtocolAuthProvider(httpx.Auth):
                                         oauth_protocol, "_client_metadata"
                                     ),
                                     storage=cast(OAuth2TokenStorage, self.storage),
-                                    redirect_handler=getattr(
-                                        oauth_protocol, "_redirect_handler", None
-                                    ),
-                                    callback_handler=getattr(
-                                        oauth_protocol, "_callback_handler", None
-                                    ),
-                                    timeout=getattr(
-                                        oauth_protocol, "_timeout", self.timeout
-                                    ),
-                                    client_metadata_url=getattr(
-                                        oauth_protocol, "_client_metadata_url", None
-                                    ),
+                                    redirect_handler=getattr(oauth_protocol, "_redirect_handler", None),
+                                    callback_handler=getattr(oauth_protocol, "_callback_handler", None),
+                                    timeout=getattr(oauth_protocol, "_timeout", self.timeout),
+                                    client_metadata_url=getattr(oauth_protocol, "_client_metadata_url", None),
+                                    fixed_client_info=getattr(oauth_protocol, "_fixed_client_info", None),
                                 )
-                                provider.context.protocol_version = request.headers.get(
-                                    MCP_PROTOCOL_VERSION
-                                )
+                                provider.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
                                 gen = oauth_401_flow_generator(
                                     provider, original_request, original_401_response, initial_prm=prm
                                 )

@@ -228,6 +228,7 @@ class OAuthClientProvider(httpx.Auth):
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
         client_metadata_url: str | None = None,
+        fixed_client_info: OAuthClientInformationFull | None = None,
     ):
         """Initialize OAuth2 authentication.
 
@@ -262,6 +263,11 @@ class OAuthClientProvider(httpx.Auth):
             timeout=timeout,
             client_metadata_url=client_metadata_url,
         )
+        self._fixed_client_info = fixed_client_info
+        if fixed_client_info is not None:
+            # In multi-protocol OAuth flow, we may drive oauth_401_flow_generator directly
+            # without calling _initialize(); ensure client_info is available upfront.
+            self.context.client_info = fixed_client_info
         self._initialized = False
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
@@ -297,6 +303,10 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform the authorization flow."""
+        grant_types = set(self.context.client_metadata.grant_types or [])
+        if "client_credentials" in grant_types:
+            token_request = await self._exchange_token_client_credentials()
+            return token_request
         auth_code, code_verifier = await self._perform_authorization_code_grant()
         token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
         return token_request
@@ -361,6 +371,31 @@ class OAuthClientProvider(httpx.Auth):
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
         return token_url
+
+    async def _exchange_token_client_credentials(self) -> httpx.Request:
+        """Build token exchange request for client_credentials flow."""
+        if not self.context.client_info:
+            raise OAuthFlowError("Missing client info for client_credentials flow")
+
+        token_url = self._get_token_endpoint()
+        token_data: dict[str, str] = {
+            "grant_type": "client_credentials",
+        }
+
+        # Some servers require explicit client_id in the form body (especially for client_secret_post).
+        if self.context.client_info.client_id:
+            token_data["client_id"] = self.context.client_info.client_id
+
+        # Only include resource param if conditions are met
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            token_data["resource"] = self.context.get_resource_url()  # RFC 8707
+
+        if self.context.client_metadata.scope:
+            token_data["scope"] = self.context.client_metadata.scope
+
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        token_data, headers = self.context.prepare_token_auth(token_data, headers)
+        return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
     async def _exchange_token_authorization_code(
         self, auth_code: str, code_verifier: str, *, token_data: dict[str, Any] | None = {}
@@ -543,15 +578,14 @@ class OAuthClientProvider(httpx.Auth):
                 self.context.client_info = client_information
                 await self.context.storage.set_client_info(client_information)
 
-        auth_code, code_verifier = await self._perform_authorization_code_grant()
-        token_request = await self._exchange_token_authorization_code(auth_code, code_verifier)
+        token_request = await self._perform_authorization()
         token_response = await http_client.send(token_request)
         await self._handle_token_response(token_response)
 
     async def _initialize(self) -> None:  # pragma: no cover
         """Load stored tokens and client info."""
         self.context.current_tokens = await self.context.storage.get_tokens()
-        self.context.client_info = await self.context.storage.get_client_info()
+        self.context.client_info = self._fixed_client_info or await self.context.storage.get_client_info()
         self._initialized = True
 
     def _add_auth_header(self, request: httpx.Request) -> None:
