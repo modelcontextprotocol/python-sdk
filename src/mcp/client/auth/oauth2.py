@@ -492,7 +492,7 @@ class OAuthClientProvider(httpx.Auth):
             return
 
         if not prm_resource:
-            return
+            return  # pragma: no cover
         default_resource = resource_url_from_server_url(self.context.server_url)
         # Normalize: Pydantic AnyHttpUrl adds trailing slash to root URLs
         # (e.g. "https://example.com/") while resource_url_from_server_url may not.

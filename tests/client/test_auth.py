@@ -11,6 +11,7 @@ from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
+from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -816,6 +817,88 @@ class TestProtectedResourceMetadata:
         request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
+
+
+class TestResourceValidation:
+    """Test PRM resource validation in OAuthClientProvider."""
+
+    @pytest.mark.anyio
+    async def test_rejects_mismatched_resource(self, client_metadata, mock_storage):
+        """Client must reject PRM resource that doesn't match server URL."""
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+        )
+        provider._initialized = True
+
+        prm = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://evil.example.com/mcp"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        )
+        with pytest.raises(OAuthFlowError, match="does not match expected"):
+            await provider._validate_resource_match(prm)
+
+    @pytest.mark.anyio
+    async def test_accepts_matching_resource(self, client_metadata, mock_storage):
+        """Client must accept PRM resource that matches server URL."""
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+        )
+        provider._initialized = True
+
+        prm = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        )
+        # Should not raise
+        await provider._validate_resource_match(prm)
+
+    @pytest.mark.anyio
+    async def test_custom_validate_resource_url_callback(self, client_metadata, mock_storage):
+        """Custom callback overrides default validation."""
+        callback_called_with: list[tuple[str, str | None]] = []
+
+        async def custom_validate(server_url: str, prm_resource: str | None) -> None:
+            callback_called_with.append((server_url, prm_resource))
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            validate_resource_url=custom_validate,
+        )
+        provider._initialized = True
+
+        # This would normally fail default validation (different origin),
+        # but custom callback accepts it
+        prm = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://evil.example.com/mcp"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        )
+        await provider._validate_resource_match(prm)
+        assert len(callback_called_with) == 1
+        assert callback_called_with[0][0] == "https://api.example.com/v1/mcp"
+        assert callback_called_with[0][1] == "https://evil.example.com/mcp"
+
+    @pytest.mark.anyio
+    async def test_accepts_root_url_with_trailing_slash(self, client_metadata, mock_storage):
+        """Root URLs with trailing slash normalization should match."""
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+        )
+        provider._initialized = True
+
+        prm = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        )
+        # Should not raise despite trailing slash difference
+        await provider._validate_resource_match(prm)
 
 
 class TestRegistrationResponse:
