@@ -73,7 +73,9 @@ provider = OAuthClientProvider(
 
 ### 2.2 Client Credentials Flow（客户端凭证流程）
 
-**实现位置**: [`src/mcp/client/auth/extensions/client_credentials.py`](src/mcp/client/auth/extensions/client_credentials.py)
+**多协议发现场景下的 client_credentials**：在统一鉴权服务发现（MultiProtocolAuthProvider）场景下，Client Credentials 作为 OAuth 2.0 的 **grant type** 集成在 `OAuth2Protocol` 中，而非独立协议。客户端通过 `OAuth2Protocol(grant_types=["client_credentials"], fixed_client_info=...)` 注入预注册的 client_id/client_secret，无需动态注册。授权服务器需在元数据中声明 `grant_types_supported` 包含 `client_credentials`，并在 token 端点处理 `grant_type=client_credentials` 请求。下文的 **ClientCredentialsOAuthProvider** 仍适用于不经过统一发现的独立使用场景。
+
+**实现位置**: [`src/mcp/client/auth/extensions/client_credentials.py`](src/mcp/client/auth/extensions/client_credentials.py)（独立使用）；[`src/mcp/client/auth/oauth2.py`](src/mcp/client/auth/oauth2.py)（MultiProtocolAuthProvider 下通过 OAuth2Protocol + fixed_client_info）。
 
 **提供者类**:
 

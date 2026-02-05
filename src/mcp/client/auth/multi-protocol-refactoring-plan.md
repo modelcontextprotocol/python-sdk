@@ -31,6 +31,8 @@
 - ❌ **Scope模型**（OAuth特定，除非新协议也有类似概念）
 - ❌ **OAuth客户端认证方法**（client_secret_basic等）
 
+**说明**：Client Credentials 作为 OAuth 2.0 的 **grant type** 在现有 OAuth2 流程中实现（`OAuth2Protocol` + `fixed_client_info`），不单独新增协议；AS 需在 token 端点支持 `grant_type=client_credentials` 并在元数据中声明 `grant_types_supported`。
+
 ### 2.2 必须实现的功能（MCP通用）
 以下功能是MCP授权规范要求的，所有协议都必须支持：
 
