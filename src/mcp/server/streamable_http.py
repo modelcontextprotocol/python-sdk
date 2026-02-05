@@ -773,7 +773,11 @@ class StreamableHTTPServerTransport:
         """Terminate the current session, closing all streams.
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
+        Calling this method multiple times is safe (idempotent).
         """
+
+        if self._terminated:
+            return
 
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
