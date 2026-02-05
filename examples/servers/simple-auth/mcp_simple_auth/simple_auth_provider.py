@@ -41,6 +41,10 @@ class SimpleAuthSettings(BaseSettings):
     # MCP OAuth scope
     mcp_scope: str = "user"
 
+    # Demo client for client_credentials grant (optional)
+    demo_cc_client_id: str = "demo-client-id"
+    demo_cc_client_secret: str = "demo-client-secret"
+
 
 class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
     """Simple OAuth provider for demo purposes.
@@ -61,6 +65,17 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         self.state_mapping: dict[str, dict[str, str | None]] = {}
         # Store authenticated user information
         self.user_data: dict[str, dict[str, Any]] = {}
+
+        # Pre-register a demo client_credentials client (for M2M examples/tests).
+        if self.settings.demo_cc_client_id and self.settings.demo_cc_client_secret:
+            self.clients[self.settings.demo_cc_client_id] = OAuthClientInformationFull(
+                redirect_uris=None,
+                client_id=self.settings.demo_cc_client_id,
+                client_secret=self.settings.demo_cc_client_secret,
+                grant_types=["client_credentials"],
+                token_endpoint_auth_method="client_secret_post",
+                scope=self.settings.mcp_scope,
+            )
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         """Get OAuth client information."""
@@ -262,6 +277,37 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
     ) -> OAuthToken:
         """Exchange refresh token - not supported in this example."""
         raise NotImplementedError("Refresh tokens not supported")
+
+    async def exchange_client_credentials(
+        self,
+        client: OAuthClientInformationFull,
+        *,
+        scopes: list[str],
+        resource: str | None = None,
+    ) -> OAuthToken:
+        """Exchange client credentials for an access token (client_credentials grant)."""
+        if not client.client_id:
+            raise TokenError(error="invalid_client", error_description="Missing client_id")
+
+        # Default to MCP scope if none provided
+        effective_scopes = scopes or [self.settings.mcp_scope]
+
+        # Generate MCP access token
+        mcp_token = f"mcp_{secrets.token_hex(32)}"
+        self.tokens[mcp_token] = AccessToken(
+            token=mcp_token,
+            client_id=client.client_id,
+            scopes=effective_scopes,
+            expires_at=int(time.time()) + 3600,
+            resource=resource,
+        )
+
+        return OAuthToken(
+            access_token=mcp_token,
+            token_type="Bearer",
+            expires_in=3600,
+            scope=" ".join(effective_scopes),
+        )
 
     # TODO(Marcelo): The type hint is wrong. We need to fix, and test to check if it works.
     async def revoke_token(self, token: str, token_type_hint: str | None = None) -> None:  # type: ignore
