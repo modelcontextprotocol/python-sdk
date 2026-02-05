@@ -963,7 +963,7 @@ class TestAuthFlow:
         # Send a successful discovery response with minimal protected resource metadata
         discovery_response = httpx.Response(
             200,
-            content=b'{"resource": "https://api.example.com/mcp", "authorization_servers": ["https://auth.example.com"]}',
+            content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=discovery_request,
         )
 
@@ -1116,7 +1116,7 @@ class TestAuthFlow:
         # Send a successful discovery response with minimal protected resource metadata
         discovery_response = httpx.Response(
             200,
-            content=b'{"resource": "https://api.example.com/mcp", "authorization_servers": ["https://auth.example.com"]}',
+            content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=discovery_request,
         )
 
