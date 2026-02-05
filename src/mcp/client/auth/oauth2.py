@@ -18,7 +18,7 @@ import anyio
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
-from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -586,18 +586,9 @@ class OAuthClientProvider(httpx.Auth):
                                 self.context.get_authorization_base_url(self.context.server_url),
                             )
                             registration_response = yield registration_request
-                            try:
-                                client_information = await handle_registration_response(registration_response)
-                                self.context.client_info = client_information
-                                await self.context.storage.set_client_info(client_information)
-                            except OAuthRegistrationError:
-                                # DCR failed — check for pre-registered client credentials
-                                stored_client_info = await self.context.storage.get_client_info()
-                                if stored_client_info:
-                                    logger.debug("DCR failed, using pre-registered client credentials")
-                                    self.context.client_info = stored_client_info
-                                else:
-                                    raise
+                            client_information = await handle_registration_response(registration_response)
+                            self.context.client_info = client_information
+                            await self.context.storage.set_client_info(client_information)
 
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
