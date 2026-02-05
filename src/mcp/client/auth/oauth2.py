@@ -482,6 +482,12 @@ class OAuthClientProvider(httpx.Auth):
             return
         default_resource = resource_url_from_server_url(self.context.server_url)
         prm_resource = str(prm.resource)
+        # Normalize: Pydantic AnyHttpUrl adds trailing slash to root URLs
+        # (e.g. "https://example.com/") while resource_url_from_server_url may not.
+        if not default_resource.endswith("/"):
+            default_resource += "/"
+        if not prm_resource.endswith("/"):
+            prm_resource += "/"
         if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
