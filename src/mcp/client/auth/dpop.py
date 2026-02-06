@@ -1,5 +1,4 @@
-"""
-DPoP (Demonstrating Proof-of-Possession) client implementation.
+"""DPoP (Demonstrating Proof-of-Possession) client implementation.
 
 RFC 9449: OAuth 2.0 Demonstrating Proof of Possession (DPoP).
 Provides DPoPKeyPair, DPoPProofGenerator, DPoPStorage for generating DPoP proof JWTs.
@@ -94,9 +93,7 @@ class DPoPKeyPair:
             key: EllipticCurvePrivateKey | RSAPrivateKey = ec_generate(SECP256R1())
         elif algorithm == "RS256":
             if rsa_key_size < RSA_KEY_SIZE_DEFAULT:
-                raise ValueError(
-                    f"RSA key size must be at least {RSA_KEY_SIZE_DEFAULT} bits, got {rsa_key_size}"
-                )
+                raise ValueError(f"RSA key size must be at least {RSA_KEY_SIZE_DEFAULT} bits, got {rsa_key_size}")
             key = rsa_generate(public_exponent=_RSA_PUBLIC_EXPONENT, key_size=rsa_key_size)
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")

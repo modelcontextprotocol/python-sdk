@@ -46,9 +46,7 @@ def test_dpop_proof_includes_ath_when_credential_provided() -> None:
     gen = DPoPProofGeneratorImpl(pair)
     proof = gen.generate_proof("GET", "https://rs.example/res", credential="my-token")
     decoded = jwt.decode(proof, options={"verify_signature": False})
-    expected_ath = base64.urlsafe_b64encode(
-        hashlib.sha256(b"my-token").digest()
-    ).decode().rstrip("=")
+    expected_ath = base64.urlsafe_b64encode(hashlib.sha256(b"my-token").digest()).decode().rstrip("=")
     assert decoded["ath"] == expected_ath
 
 

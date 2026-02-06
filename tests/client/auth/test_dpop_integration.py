@@ -49,9 +49,7 @@ async def test_oauth2_protocol_initialize_dpop(client_metadata: OAuthClientMetad
 @pytest.mark.anyio
 async def test_oauth2_protocol_initialize_dpop_rs256(client_metadata: OAuthClientMetadata) -> None:
     """initialize_dpop should support RS256 algorithm."""
-    protocol = OAuth2Protocol(
-        client_metadata=client_metadata, dpop_enabled=True, dpop_algorithm="RS256"
-    )
+    protocol = OAuth2Protocol(client_metadata=client_metadata, dpop_enabled=True, dpop_algorithm="RS256")
     await protocol.initialize_dpop()
 
     jwk = protocol.get_dpop_public_key_jwk()
@@ -105,9 +103,7 @@ async def test_dpop_proof_generation(client_metadata: OAuthClientMetadata) -> No
     assert len(proof) > 0
 
     # Proof with access token binding
-    proof_with_ath = generator.generate_proof(
-        "GET", "https://api.example.com/resource", credential="access-token-123"
-    )
+    proof_with_ath = generator.generate_proof("GET", "https://api.example.com/resource", credential="access-token-123")
     assert proof_with_ath is not None
     assert proof_with_ath != proof
 
