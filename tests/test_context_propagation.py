@@ -12,6 +12,19 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import MCPServer
 
+# TODO: remove once https://github.com/modelcontextprotocol/python-sdk/pull/1991 is merged
+pytestmark = pytest.mark.filterwarnings("ignore::ResourceWarning")
+
+
+# TODO: remove once https://github.com/modelcontextprotocol/python-sdk/pull/1991 is merged
+@pytest.fixture(autouse=True)
+def force_gc_after_test_resource_leak():
+    yield
+    import gc
+
+    gc.collect()
+
+
 TEST_CONTEXTVAR = contextvars.ContextVar("test_var", default="initial")
 HOST = "testserver"
 
