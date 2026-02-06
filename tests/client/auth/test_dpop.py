@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+from typing import Any, cast
 
 import jwt
 import pytest
@@ -117,3 +118,13 @@ def test_dpop_key_pair_generate_rs256_custom_key_size() -> None:
 def test_dpop_key_pair_generate_rs256_rejects_small_key_size() -> None:
     with pytest.raises(ValueError, match="RSA key size must be at least 2048"):
         DPoPKeyPair.generate("RS256", rsa_key_size=1024)
+
+
+def test_dpop_key_pair_generate_rejects_unsupported_algorithm() -> None:
+    with pytest.raises(ValueError, match="Unsupported algorithm"):
+        DPoPKeyPair.generate(cast(Any, "HS256"))
+
+
+def test_compute_jwk_thumbprint_rejects_unsupported_key_type() -> None:
+    with pytest.raises(ValueError, match="Unsupported key type"):
+        compute_jwk_thumbprint({"kty": "oct"})

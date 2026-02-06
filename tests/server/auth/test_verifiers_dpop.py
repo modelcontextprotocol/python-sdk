@@ -43,6 +43,11 @@ def _make_request(
     return Request(scope)
 
 
+def test_make_request_accepts_path_without_scheme() -> None:
+    request = _make_request("GET", "/api/resource", {"Authorization": "Bearer t"})
+    assert request.url.path == "/api/resource"
+
+
 @pytest.fixture
 def valid_token() -> AccessToken:
     return AccessToken(

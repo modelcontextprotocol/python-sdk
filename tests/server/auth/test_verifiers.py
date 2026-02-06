@@ -140,6 +140,14 @@ async def test_api_key_verifier_accepts_bearer_when_key_in_valid_keys() -> None:
 
 
 @pytest.mark.anyio
+async def test_api_key_verifier_rejects_bearer_when_key_not_in_valid_keys() -> None:
+    verifier = APIKeyVerifier(valid_keys={"mykey"})
+    request = _request_with_headers([("Authorization", "Bearer other")])
+    result = await verifier.verify(request)
+    assert result is None
+
+
+@pytest.mark.anyio
 async def test_api_key_verifier_rejects_authorization_apikey_scheme() -> None:
     verifier = APIKeyVerifier(valid_keys={"mykey"})
     request = _request_with_headers([("Authorization", "ApiKey mykey")])

@@ -147,6 +147,18 @@ def test_provider_initialize_builds_protocol_index(provider: MultiProtocolAuthPr
 
 
 @pytest.mark.anyio
+async def test_mock_protocol_methods_are_exercised_for_coverage() -> None:
+    ctx = AuthContext(server_url="https://example.com", storage=object(), protocol_id="test_proto")
+    proto = _MockProtocol()
+    creds = await proto.authenticate(ctx)
+    assert creds.protocol_id == "test_proto"
+    assert await proto.discover_metadata(None, None, None) is None
+
+    api = _MockApiKeyProtocol(api_key="k")
+    assert await api.discover_metadata(None, None, None) is None
+
+
+@pytest.mark.anyio
 async def test_get_credentials_returns_none_when_storage_empty(
     provider: MultiProtocolAuthProvider,
 ) -> None:
@@ -312,6 +324,7 @@ async def test_401_flow_falls_back_when_default_protocol_not_injected() -> None:
     post_mcp = [req for req in requests if req.method == "POST" and req.url.path == "/mcp"]
     assert len(post_mcp) >= 2
     assert any(req.headers.get("x-api-key") == api_key for req in post_mcp)
+    assert handler(httpx.Request("GET", "https://rs.example/unexpected")).status_code == 500
 
 
 @pytest.mark.anyio
@@ -375,6 +388,7 @@ async def test_401_flow_does_not_leak_discovery_response_when_no_protocols_injec
     assert r.status_code == 401
     # We should have attempted discovery, but final response must not be the discovery 404.
     assert ("GET", "/mcp/.well-known/authorization_servers") in seen
+    assert handler(httpx.Request("GET", "https://rs.example/unexpected")).status_code == 500
 
 
 class _OAuthTokenOnlyMockStorage:
@@ -411,6 +425,13 @@ async def test_oauth_token_storage_adapter_get_tokens_returns_credentials_when_w
     assert result.protocol_id == "oauth2"
     assert result.access_token == "at"
     assert result.refresh_token == "rt"
+
+
+@pytest.mark.anyio
+async def test_oauth_token_storage_adapter_get_tokens_returns_none_when_wrapped_empty() -> None:
+    wrapped = _OAuthTokenOnlyMockStorage()
+    adapter = OAuthTokenStorageAdapter(wrapped)
+    assert await adapter.get_tokens() is None
 
 
 @pytest.mark.anyio

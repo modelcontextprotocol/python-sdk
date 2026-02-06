@@ -122,6 +122,14 @@ class MockStorage:
 
 
 @pytest.mark.anyio
+async def test_mock_storage_set_tokens_is_exercised_for_coverage() -> None:
+    storage = MockStorage()
+    token = OAuthToken(access_token="at", token_type="Bearer", expires_in=3600)
+    await storage.set_tokens(token)
+    assert await storage.get_tokens() is token
+
+
+@pytest.mark.anyio
 async def test_multi_protocol_provider_dpop_header_injection(
     client_metadata: OAuthClientMetadata,
 ) -> None:

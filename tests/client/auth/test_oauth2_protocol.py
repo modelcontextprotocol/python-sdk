@@ -239,3 +239,236 @@ async def test_authenticate_delegates_to_run_authentication_and_returns_oauth_cr
         assert creds.access_token == "returned-token"
         assert creds.scope == "read"
         assert creds.refresh_token == "rt"
+
+
+def test_oauth_metadata_to_protocol_metadata_includes_optional_endpoints() -> None:
+    from pydantic import AnyHttpUrl
+
+    from mcp.client.auth.protocols.oauth2 import _oauth_metadata_to_protocol_metadata
+    from mcp.shared.auth import OAuthMetadata
+
+    asm = OAuthMetadata.model_validate(
+        {
+            "issuer": "https://as.example",
+            "authorization_endpoint": "https://as.example/authorize",
+            "token_endpoint": "https://as.example/token",
+            "registration_endpoint": "https://as.example/register",
+            "revocation_endpoint": "https://as.example/revoke",
+            "introspection_endpoint": "https://as.example/introspect",
+            "scopes_supported": ["read"],
+            "grant_types_supported": ["client_credentials"],
+            "token_endpoint_auth_methods_supported": ["client_secret_post"],
+        }
+    )
+    meta = _oauth_metadata_to_protocol_metadata(asm)
+    assert meta.protocol_id == "oauth2"
+    assert meta.endpoints is not None
+    assert meta.endpoints["authorization_endpoint"] == AnyHttpUrl("https://as.example/authorize")
+    assert meta.endpoints["token_endpoint"] == AnyHttpUrl("https://as.example/token")
+    assert meta.endpoints["registration_endpoint"] == AnyHttpUrl("https://as.example/register")
+    assert meta.endpoints["revocation_endpoint"] == AnyHttpUrl("https://as.example/revoke")
+    assert meta.endpoints["introspection_endpoint"] == AnyHttpUrl("https://as.example/introspect")
+
+
+def test_token_to_oauth_credentials_sets_expires_at_when_expires_in_present() -> None:
+    from mcp.client.auth.protocols.oauth2 import _token_to_oauth_credentials
+
+    creds = _token_to_oauth_credentials(OAuthToken(access_token="at", token_type="Bearer", expires_in=1))
+    assert creds.access_token == "at"
+    assert creds.expires_at is not None
+
+    creds2 = _token_to_oauth_credentials(OAuthToken(access_token="at", token_type="Bearer", expires_in=None))
+    assert creds2.expires_at is None
+
+
+@pytest.mark.anyio
+async def test_authenticate_reads_protocol_version_and_raises_when_provider_has_no_tokens(
+    oauth2_protocol: OAuth2Protocol,
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from mcp.shared.auth import AuthProtocolMetadata
+
+    mock_storage = MagicMock()
+    mock_storage.get_tokens = AsyncMock(return_value=None)
+    mock_storage.get_client_info = AsyncMock(return_value=None)
+    mock_storage.set_tokens = AsyncMock()
+    mock_storage.set_client_info = AsyncMock()
+
+    mock_provider = MagicMock()
+    mock_provider.context = MagicMock(current_tokens=None)
+    mock_provider.run_authentication = AsyncMock()
+
+    context = AuthContext(
+        server_url="https://example.com",
+        storage=mock_storage,
+        protocol_id="oauth2",
+        protocol_metadata=AuthProtocolMetadata(protocol_id="oauth2", protocol_version="2025-06-18"),
+        current_credentials=None,
+        dpop_storage=None,
+        dpop_enabled=False,
+        http_client=None,
+        protected_resource_metadata=None,
+        scope_from_www_auth=None,
+    )
+
+    with patch("mcp.client.auth.protocols.oauth2.OAuthClientProvider", return_value=mock_provider):
+        with pytest.raises(RuntimeError, match="no tokens"):
+            await oauth2_protocol.authenticate(context)
+
+
+@pytest.mark.anyio
+async def test_discover_metadata_network_path_uses_prm_authorization_server_when_metadata_url_missing(
+    client_metadata: OAuthClientMetadata,
+) -> None:
+    protocol = OAuth2Protocol(client_metadata=client_metadata)
+
+    prm = ProtectedResourceMetadata.model_validate(
+        {
+            "resource": "https://rs.example/mcp",
+            "authorization_servers": ["https://as.example/tenant"],
+            "mcp_auth_protocols": [{"protocol_id": "api_key", "protocol_version": "1.0"}],
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "as.example":
+            return httpx.Response(
+                200,
+                json={
+                    "issuer": "https://as.example",
+                    "authorization_endpoint": "https://as.example/authorize",
+                    "token_endpoint": "https://as.example/token",
+                },
+                request=request,
+            )
+        return httpx.Response(500, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        meta = await protocol.discover_metadata(metadata_url=None, prm=prm, http_client=http_client)
+
+    assert meta is not None
+    assert meta.protocol_id == "oauth2"
+    assert handler(httpx.Request("GET", "https://rs.example/unexpected")).status_code == 500
+
+
+@pytest.mark.anyio
+async def test_initialize_dpop_is_idempotent_when_enabled(client_metadata: OAuthClientMetadata) -> None:
+    protocol = OAuth2Protocol(client_metadata=client_metadata, dpop_enabled=True)
+    assert protocol.get_dpop_public_key_jwk() is None
+    await protocol.initialize_dpop()
+    await protocol.initialize_dpop()
+
+
+@pytest.mark.anyio
+async def test_discover_metadata_prefers_metadata_url_over_prm_authorization_servers(
+    client_metadata: OAuthClientMetadata,
+) -> None:
+    protocol = OAuth2Protocol(client_metadata=client_metadata)
+    prm = ProtectedResourceMetadata.model_validate(
+        {
+            "resource": "https://rs.example/mcp",
+            "authorization_servers": ["https://as.example/tenant"],
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "override.example":
+            return httpx.Response(
+                200,
+                json={
+                    "issuer": "https://override.example",
+                    "authorization_endpoint": "https://override.example/authorize",
+                    "token_endpoint": "https://override.example/token",
+                },
+                request=request,
+            )
+        return httpx.Response(500, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        meta = await protocol.discover_metadata(
+            metadata_url="https://override.example/.well-known/oauth-authorization-server",
+            prm=prm,
+            http_client=http_client,
+        )
+
+    assert meta is not None
+    assert meta.metadata_url is not None
+    assert str(meta.metadata_url).startswith("https://override.example/")
+    assert handler(httpx.Request("GET", "https://rs.example/unexpected")).status_code == 500
+
+
+@pytest.mark.anyio
+async def test_discover_metadata_breaks_on_non_4xx_error(client_metadata: OAuthClientMetadata) -> None:
+    protocol = OAuth2Protocol(client_metadata=client_metadata)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        meta = await protocol.discover_metadata(
+            metadata_url="https://as.example/.well-known/oauth-authorization-server",
+            prm=None,
+            http_client=http_client,
+        )
+
+    assert meta is None
+    assert handler(httpx.Request("GET", "https://unexpected.example/unexpected")).status_code == 500
+
+
+@pytest.mark.anyio
+async def test_discover_metadata_continues_after_validation_error_and_handles_send_exception(
+    client_metadata: OAuthClientMetadata,
+) -> None:
+    protocol = OAuth2Protocol(client_metadata=client_metadata)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url.endswith("/.well-known/oauth-authorization-server/tenant"):
+            return httpx.Response(200, content=b"{bad-json", request=request)
+        if url.endswith("/.well-known/openid-configuration/tenant"):
+            raise RuntimeError("network down")
+        return httpx.Response(
+            200,
+            json={
+                "issuer": "https://as.example",
+                "authorization_endpoint": "https://as.example/authorize",
+                "token_endpoint": "https://as.example/token",
+            },
+            request=request,
+        )
+
+    prm = ProtectedResourceMetadata.model_validate(
+        {"resource": "https://rs.example/mcp", "authorization_servers": ["https://as.example/tenant"]}
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        meta = await protocol.discover_metadata(metadata_url=None, prm=prm, http_client=http_client)
+
+    assert meta is not None
+
+
+@pytest.mark.anyio
+async def test_discover_metadata_returns_none_when_discovery_urls_are_empty(
+    client_metadata: OAuthClientMetadata,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mcp.client.auth.protocols.oauth2 as oauth2_protocol_module
+
+    def build_urls(auth_server_url: str | None, server_url: str) -> list[str]:
+        return []
+
+    monkeypatch.setattr(oauth2_protocol_module, "build_oauth_authorization_server_metadata_discovery_urls", build_urls)
+    protocol = OAuth2Protocol(client_metadata=client_metadata)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        meta = await protocol.discover_metadata(
+            metadata_url="https://as.example/.well-known/oauth-authorization-server",
+            prm=None,
+            http_client=http_client,
+        )
+
+    assert meta is None
+    assert handler(httpx.Request("GET", "https://unexpected.example/unexpected")).status_code == 500

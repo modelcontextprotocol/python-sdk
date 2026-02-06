@@ -148,3 +148,26 @@ def test_select_protocol_preferences_unknown_protocol_gets_high_priority():
         preferences={"api_key": 999},
     )
     assert result in ("oauth2", "api_key")
+
+
+@pytest.mark.anyio
+async def test_mock_protocol_method_bodies_are_exercised_for_coverage() -> None:
+    ctx = AuthContext(server_url="https://example.com", storage=object(), protocol_id="mock")
+
+    proto = _MockAuthProtocol()
+    creds = await proto.authenticate(ctx)
+    assert creds.protocol_id == "mock"
+    req = httpx.Request("GET", "https://example.com")
+    proto.prepare_request(req, creds)
+    assert proto.validate_credentials(creds) is True
+    assert await proto.discover_metadata(None, None, None) is None
+
+    oauth2 = _MockOAuth2Protocol()
+    oauth2.prepare_request(req, creds)
+    assert oauth2.validate_credentials(creds) is True
+    assert await oauth2.discover_metadata(None, None, None) is None
+
+    api_key = _MockApiKeyProtocol()
+    api_key.prepare_request(req, creds)
+    assert api_key.validate_credentials(creds) is True
+    assert await api_key.discover_metadata(None, None, None) is None
