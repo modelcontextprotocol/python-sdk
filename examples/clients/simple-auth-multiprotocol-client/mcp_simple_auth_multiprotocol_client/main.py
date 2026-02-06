@@ -234,7 +234,7 @@ class SimpleAuthMultiprotocolClient:
             print(f"OAuth protocol enabled (DPoP: {self.dpop_enabled})")
 
         # Add non-OAuth protocols. Allow forcing protocol injection for integration tests.
-        forced = os.getenv("MCP_AUTH_PROTOCOL", os.getenv("MCP_PHASE2_PROTOCOL", "")).strip().lower()
+        forced = os.getenv("MCP_AUTH_PROTOCOL", "").strip().lower()
         if forced in ("mutual_tls", "mtls"):
             # Force mTLS placeholder to be selectable (do not inject API key fallback).
             protocols.append(MutualTlsPlaceholderProtocol())

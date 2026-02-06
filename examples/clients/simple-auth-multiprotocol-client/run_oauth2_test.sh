@@ -58,9 +58,9 @@ cd "$REPO_ROOT"
 wait_for_url "http://localhost:$AS_PORT/.well-known/oauth-authorization-server" "Authorization Server"
 wait_for_url "http://localhost:$RS_PORT/.well-known/oauth-protected-resource/mcp" "Resource Server (PRM)"
 
-# Optional: print PRM (Phase 1 backward compat: resource + authorization_servers; mcp_* may appear)
+# Optional: print PRM (backward compat: resource + authorization_servers; mcp_* may appear)
 echo ""
-echo "PRM (RFC 9728 + optional Phase 1 fields):"
+echo "PRM (RFC 9728):"
 curl -sS "http://localhost:$RS_PORT/.well-known/oauth-protected-resource/mcp" | head -c 500
 echo ""
 echo ""

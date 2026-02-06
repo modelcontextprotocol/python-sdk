@@ -29,7 +29,7 @@ SKIP_OAUTH="${MCP_SKIP_OAUTH:-0}"
 
 cd "$REPO_ROOT"
 echo "============================================================"
-echo "Phase 4 DPoP Integration Test"
+echo "DPoP Integration Test"
 echo "============================================================"
 echo "Repo root: $REPO_ROOT"
 echo "AS port: $AS_PORT"
