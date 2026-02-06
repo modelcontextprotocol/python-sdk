@@ -9,8 +9,7 @@ import httpx
 import pytest
 from starlette.types import Message
 
-from mcp import types
-from mcp.client.session import ClientSession
+from mcp import Client, types
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import streamable_http_manager
 from mcp.server.lowlevel import Server
@@ -332,9 +331,7 @@ async def test_e2e_streamable_http_server_cleanup():
     async with (
         mcp_app.router.lifespan_context(mcp_app),
         httpx.ASGITransport(mcp_app) as transport,
-        httpx.AsyncClient(transport=transport) as client,
-        streamable_http_client(f"http://{host}/mcp", http_client=client) as (read_stream, write_stream),
-        ClientSession(read_stream, write_stream) as session,
+        httpx.AsyncClient(transport=transport) as http_client,
+        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
     ):
-        await session.initialize()
-        await session.list_tools()
+        await client.list_tools()
