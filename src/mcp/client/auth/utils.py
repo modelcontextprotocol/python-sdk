@@ -337,7 +337,7 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
             content = await response.aread()
             asm = OAuthMetadata.model_validate_json(content)
             return True, asm
-        except ValidationError:  # pragma: no cover
+        except ValidationError:
             return True, None
     elif response.status_code < 400 or response.status_code >= 500:
         return False, None  # Non-4XX error, stop trying
