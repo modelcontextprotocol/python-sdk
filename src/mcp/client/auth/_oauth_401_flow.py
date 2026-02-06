@@ -35,11 +35,11 @@ class _OAuth401FlowProvider(Protocol):
     """Provider interface for oauth_401_flow_generator (OAuthClientProvider duck type)."""
 
     @property
-    def context(self) -> Any: ...
+    def context(self) -> Any: ...  # pragma: lax no cover
 
-    async def _perform_authorization(self) -> httpx.Request: ...
+    async def _perform_authorization(self) -> httpx.Request: ...  # pragma: lax no cover
 
-    async def _handle_token_response(self, response: httpx.Response) -> None: ...
+    async def _handle_token_response(self, response: httpx.Response) -> None: ...  # pragma: lax no cover
 
 
 logger = logging.getLogger(__name__)

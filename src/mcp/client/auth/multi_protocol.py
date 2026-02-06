@@ -127,9 +127,9 @@ def _credentials_to_storage(credentials: AuthCredentials) -> AuthCredentials | O
 class _OAuthTokenOnlyStorage(Protocol):
     """OAuthToken-only storage contract (wrapped by OAuthTokenStorageAdapter)."""
 
-    async def get_tokens(self) -> OAuthToken | None: ...
+    async def get_tokens(self) -> OAuthToken | None: ...  # pragma: lax no cover
 
-    async def set_tokens(self, tokens: OAuthToken) -> None: ...
+    async def set_tokens(self, tokens: OAuthToken) -> None: ...  # pragma: lax no cover
 
 
 class OAuthTokenStorageAdapter:

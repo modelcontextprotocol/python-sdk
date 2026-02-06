@@ -15,15 +15,23 @@ from mcp.shared.auth import AuthCredentials, AuthProtocolMetadata, ProtectedReso
 class DPoPStorage(Protocol):
     """Storage interface for DPoP key pairs."""
 
-    async def get_key_pair(self, protocol_id: str) -> Any: ...
-    async def set_key_pair(self, protocol_id: str, key_pair: Any) -> None: ...
+    async def get_key_pair(self, protocol_id: str) -> Any: ...  # pragma: lax no cover
+
+    async def set_key_pair(self, protocol_id: str, key_pair: Any) -> None: ...  # pragma: lax no cover
 
 
 class DPoPProofGenerator(Protocol):
     """DPoP proof generator interface."""
 
-    def generate_proof(self, method: str, uri: str, credential: str | None = None, nonce: str | None = None) -> str: ...
-    def get_public_key_jwk(self) -> dict[str, Any]: ...
+    def generate_proof(  # pragma: lax no cover
+        self,
+        method: str,
+        uri: str,
+        credential: str | None = None,
+        nonce: str | None = None,
+    ) -> str: ...
+
+    def get_public_key_jwk(self) -> dict[str, Any]: ...  # pragma: lax no cover
 
 
 class ClientRegistrationResult(Protocol):

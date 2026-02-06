@@ -56,8 +56,9 @@ class JTIReplayStore(Protocol):
 class DPoPNonceStore(Protocol):
     """Protocol for server-managed DPoP nonce (optional feature)."""
 
-    async def generate_nonce(self) -> str: ...
-    async def validate_nonce(self, nonce: str) -> bool: ...
+    async def generate_nonce(self) -> str: ...  # pragma: lax no cover
+
+    async def validate_nonce(self, nonce: str) -> bool: ...  # pragma: lax no cover
 
 
 class InMemoryJTIReplayStore:
