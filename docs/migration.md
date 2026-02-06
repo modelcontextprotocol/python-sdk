@@ -514,11 +514,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestPar
         is_error=False,
     )
 
-server = Server(
-    "my-server",
-    on_list_tools=handle_list_tools,
-    on_call_tool=handle_call_tool,
-)
+server = Server("my-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 ```
 
 **Key differences:**
@@ -537,10 +533,7 @@ from mcp.types import ProgressNotificationParams
 async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
     print(f"Progress: {params.progress}/{params.total}")
 
-server = Server(
-    "my-server",
-    on_progress=handle_progress,
-)
+server = Server("my-server", on_progress=handle_progress)
 ```
 
 ### Lowlevel `Server`: `request_context` property removed
@@ -657,10 +650,7 @@ async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestP
     return ListToolsResult(tools=[...])
 
 
-server = Server(
-    "my-server",
-    on_list_tools=handle_list_tools,
-)
+server = Server("my-server", on_list_tools=handle_list_tools)
 
 app = server.streamable_http_app(
     streamable_http_path="/mcp",
