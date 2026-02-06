@@ -44,9 +44,7 @@ def build_multiprotocol_backend(
         scopes=api_key_scopes or [],
     )
     mtls_verifier: CredentialVerifier = MutualTLSVerifier()
-    backend = MultiProtocolAuthBackend(
-        verifiers=[oauth_verifier, api_key_verifier, mtls_verifier]
-    )
+    backend = MultiProtocolAuthBackend(verifiers=[oauth_verifier, api_key_verifier, mtls_verifier])
 
     dpop_verifier: DPoPProofVerifier | None = None
     if dpop_enabled:
@@ -100,4 +98,3 @@ class MultiProtocolAuthBackendAdapter(AuthenticationBackend):
             AuthCredentials(result.scopes or []),
             AuthenticatedUser(result),
         )
-

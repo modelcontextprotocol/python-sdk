@@ -1,5 +1,4 @@
-"""
-MCP Resource Server with multi-protocol auth (OAuth, API Key, Mutual TLS placeholder).
+"""MCP Resource Server with multi-protocol auth (OAuth, API Key, Mutual TLS placeholder).
 
 Uses MultiProtocolAuthBackend, PRM with auth_protocols, and /.well-known/authorization_servers.
 """

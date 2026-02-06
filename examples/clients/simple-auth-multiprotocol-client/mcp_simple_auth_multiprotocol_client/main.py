@@ -30,7 +30,7 @@ from pydantic import AnyHttpUrl
 
 class InMemoryStorage(TokenStorage):
     """In-memory credential storage supporting both AuthCredentials and OAuthToken.
-    
+
     Also implements get_client_info/set_client_info for OAuth client registration storage.
     """
 
@@ -261,22 +261,18 @@ class SimpleAuthMultiprotocolClient:
                 async with streamable_http_client(
                     url=self.server_url,
                     http_client=http_client,
-                ) as (read_stream, write_stream, get_session_id):
-                    await self._run_session(read_stream, write_stream, get_session_id)
+                ) as (read_stream, write_stream):
+                    await self._run_session(read_stream, write_stream)
         finally:
             if callback_server:
                 callback_server.stop()
 
-    async def _run_session(self, read_stream: Any, write_stream: Any, get_session_id: Any) -> None:
+    async def _run_session(self, read_stream: Any, write_stream: Any) -> None:
         print("Initializing MCP session...")
         async with ClientSession(read_stream, write_stream) as session:
             self.session = session
             await session.initialize()
             print("Session initialized.")
-            if get_session_id:
-                sid = get_session_id()
-                if sid:
-                    print(f"Session ID: {sid}")
             await self._interactive_loop()
 
     async def list_tools(self) -> None:

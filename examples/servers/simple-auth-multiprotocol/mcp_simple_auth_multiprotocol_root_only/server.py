@@ -1,5 +1,4 @@
-"""
-MCP Resource Server with multi-protocol auth (root-only unified discovery variant).
+"""MCP Resource Server with multi-protocol auth (root-only unified discovery variant).
 
 This variant:
 - PRM does NOT include mcp_auth_protocols (only authorization_servers)
@@ -255,4 +254,3 @@ def main(
 
 if __name__ == "__main__":
     main()  # type: ignore[call-arg]
-

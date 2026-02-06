@@ -1,5 +1,4 @@
-"""
-MCP Resource Server with multi-protocol auth (OAuth-fallback discovery variant).
+"""MCP Resource Server with multi-protocol auth (OAuth-fallback discovery variant).
 
 This variant:
 - PRM does NOT include mcp_auth_protocols (only authorization_servers)
@@ -105,7 +104,9 @@ def create_multiprotocol_resource_server(settings: ResourceServerSettings) -> St
 
     fastmcp = FastMCP(
         name="MCP Resource Server (multiprotocol, OAuth-fallback discovery)",
-        instructions="Resource Server with OAuth, API Key, and Mutual TLS (placeholder) auth (OAuth-fallback discovery)",
+        instructions=(
+            "Resource Server with OAuth, API Key, and Mutual TLS (placeholder) auth (OAuth-fallback discovery)"
+        ),
         host=settings.host,
         port=settings.port,
         auth=None,
@@ -247,4 +248,3 @@ def main(
 
 if __name__ == "__main__":
     main()  # type: ignore[call-arg]
-

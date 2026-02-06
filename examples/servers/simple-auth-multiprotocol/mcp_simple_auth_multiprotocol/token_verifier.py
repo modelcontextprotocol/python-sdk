@@ -27,9 +27,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
         """Verify token via introspection endpoint."""
         import httpx
 
-        if not self.introspection_endpoint.startswith(
-            ("https://", "http://localhost", "http://127.0.0.1")
-        ):
+        if not self.introspection_endpoint.startswith(("https://", "http://localhost", "http://127.0.0.1")):
             logger.warning("Rejecting unsafe introspection endpoint")
             return None
 
@@ -75,6 +73,4 @@ class IntrospectionTokenVerifier(TokenVerifier):
     def _is_valid_resource(self, resource: str) -> bool:
         if not self.resource_url:
             return False
-        return check_resource_allowed(
-            requested_resource=self.resource_url, configured_resource=resource
-        )
+        return check_resource_allowed(requested_resource=self.resource_url, configured_resource=resource)

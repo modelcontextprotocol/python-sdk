@@ -1,5 +1,4 @@
-"""
-MCP Resource Server with multi-protocol auth (path-only unified discovery variant).
+"""MCP Resource Server with multi-protocol auth (path-only unified discovery variant).
 
 This variant:
 - PRM does NOT include mcp_auth_protocols (only authorization_servers)
@@ -26,7 +25,6 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import RequireAuthMiddleware
 from mcp.server.auth.routes import (
     build_resource_metadata_url,
-    create_authorization_servers_discovery_routes,
     create_protected_resource_routes,
 )
 from mcp.server.auth.settings import AuthSettings
@@ -260,4 +258,3 @@ def main(
 
 if __name__ == "__main__":
     main()  # type: ignore[call-arg]
-

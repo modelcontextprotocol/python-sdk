@@ -21,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class MutualTLSVerifier:
-    """
-    Placeholder verifier for Mutual TLS.
+    """Placeholder verifier for Mutual TLS.
 
     Does not validate client certificates; returns None. Real mTLS validation
     would inspect the TLS connection for client certificate and verify it.
@@ -59,9 +58,7 @@ def build_multiprotocol_backend(
         scopes=api_key_scopes or [],
     )
     mtls_verifier: CredentialVerifier = MutualTLSVerifier()
-    backend = MultiProtocolAuthBackend(
-        verifiers=[oauth_verifier, api_key_verifier, mtls_verifier]
-    )
+    backend = MultiProtocolAuthBackend(verifiers=[oauth_verifier, api_key_verifier, mtls_verifier])
 
     dpop_verifier: DPoPProofVerifier | None = None
     if dpop_enabled:
@@ -71,8 +68,7 @@ def build_multiprotocol_backend(
 
 
 class MultiProtocolAuthBackendAdapter(AuthenticationBackend):
-    """
-    Starlette AuthenticationBackend that wraps MultiProtocolAuthBackend.
+    """Starlette AuthenticationBackend that wraps MultiProtocolAuthBackend.
 
     Converts AccessToken from backend.verify() into (AuthCredentials, AuthenticatedUser).
     Optionally verifies DPoP proofs when dpop_verifier is provided.

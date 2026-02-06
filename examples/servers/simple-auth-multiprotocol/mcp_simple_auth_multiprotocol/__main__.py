@@ -2,6 +2,6 @@
 
 import sys
 
-from mcp_simple_auth_multiprotocol.server import main
+from .server import main
 
 sys.exit(main())  # type: ignore[call-arg]
