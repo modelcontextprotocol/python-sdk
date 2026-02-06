@@ -1,7 +1,6 @@
 """Logging utilities for MCPServer."""
 
 import logging
-from typing import Literal
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -14,26 +13,3 @@ def get_logger(name: str) -> logging.Logger:
         a configured logger instance
     """
     return logging.getLogger(name)
-
-
-def configure_logging(
-    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
-) -> None:
-    """Configure logging for MCP.
-
-    Args:
-        level: the log level to use
-    """
-    handlers: list[logging.Handler] = []
-    try:
-        from rich.console import Console
-        from rich.logging import RichHandler
-
-        handlers.append(RichHandler(console=Console(stderr=True), rich_tracebacks=True))
-    except ImportError:  # pragma: no cover
-        pass
-
-    if not handlers:  # pragma: no cover
-        handlers.append(logging.StreamHandler())
-
-    logging.basicConfig(level=level, format="%(message)s", handlers=handlers)
