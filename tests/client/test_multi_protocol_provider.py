@@ -242,7 +242,11 @@ async def test_401_flow_falls_back_when_default_protocol_not_injected() -> None:
                 "resource": "https://rs.example/mcp",
                 "authorization_servers": ["https://as.example/"],
                 "mcp_auth_protocols": [
-                    {"protocol_id": "oauth2", "protocol_version": "2.0", "metadata_url": "https://as.example/.well-known/oauth-authorization-server"},
+                    {
+                        "protocol_id": "oauth2",
+                        "protocol_version": "2.0",
+                        "metadata_url": "https://as.example/.well-known/oauth-authorization-server",
+                    },
                     {"protocol_id": "api_key", "protocol_version": "1.0"},
                     {"protocol_id": "mutual_tls", "protocol_version": "1.0"},
                 ],
@@ -256,7 +260,15 @@ async def test_401_flow_falls_back_when_default_protocol_not_injected() -> None:
             if request.headers.get("x-api-key") == api_key:
                 return httpx.Response(
                     200,
-                    json={"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "rs", "version": "1.0"}}},
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "result": {
+                            "protocolVersion": "2024-11-05",
+                            "capabilities": {},
+                            "serverInfo": {"name": "rs", "version": "1.0"},
+                        },
+                    },
                 )
             # 401 with multi-protocol hints
             www = (
@@ -281,7 +293,19 @@ async def test_401_flow_falls_back_when_default_protocol_not_injected() -> None:
             http_client=client,
         )
         client.auth = provider
-        r = await client.post("https://rs.example/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "t", "version": "1.0"}}})
+        r = await client.post(
+            "https://rs.example/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "1.0"},
+                },
+            },
+        )
 
     assert r.status_code == 200
     # Must have retried POST /mcp with X-API-Key
@@ -292,7 +316,7 @@ async def test_401_flow_falls_back_when_default_protocol_not_injected() -> None:
 
 @pytest.mark.anyio
 async def test_401_flow_does_not_leak_discovery_response_when_no_protocols_injected() -> None:
-    """If no protocol instance is available, final response should correspond to original request (401), not discovery 404."""
+    """Final response should match original request (401), not discovery 404."""
     seen: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -302,7 +326,11 @@ async def test_401_flow_does_not_leak_discovery_response_when_no_protocols_injec
                 "resource": "https://rs.example/mcp",
                 "authorization_servers": ["https://as.example/"],
                 "mcp_auth_protocols": [
-                    {"protocol_id": "oauth2", "protocol_version": "2.0", "metadata_url": "https://as.example/.well-known/oauth-authorization-server"},
+                    {
+                        "protocol_id": "oauth2",
+                        "protocol_version": "2.0",
+                        "metadata_url": "https://as.example/.well-known/oauth-authorization-server",
+                    },
                     {"protocol_id": "api_key", "protocol_version": "1.0"},
                 ],
             }
@@ -330,7 +358,19 @@ async def test_401_flow_does_not_leak_discovery_response_when_no_protocols_injec
             http_client=client,
         )
         client.auth = provider
-        r = await client.post("https://rs.example/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "t", "version": "1.0"}}})
+        r = await client.post(
+            "https://rs.example/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "1.0"},
+                },
+            },
+        )
 
     assert r.status_code == 401
     # We should have attempted discovery, but final response must not be the discovery 404.
@@ -396,7 +436,7 @@ async def test_oauth_token_storage_adapter_set_tokens_stores_oauth_token_when_gi
 
 @pytest.mark.anyio
 async def test_get_credentials_returns_oauth_credentials_when_storage_returns_oauth_token() -> None:
-    """MultiProtocolAuthProvider._get_credentials converts OAuthToken from storage to OAuthCredentials (dual contract)."""
+    """_get_credentials converts OAuthToken from storage to OAuthCredentials."""
     raw = OAuthToken(
         access_token="stored_at",
         token_type="Bearer",

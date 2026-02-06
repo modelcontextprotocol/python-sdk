@@ -1,5 +1,4 @@
-"""
-Phase2 integration tests: unified discovery endpoint and 401 WWW-Authenticate auth_protocols extension.
+"""Phase2 integration tests: unified discovery endpoint and 401 WWW-Authenticate auth_protocols extension.
 
 - Client requests /.well-known/authorization_servers and gets protocol list.
 - Server 401 header contains auth_protocols/default_protocol/protocol_preferences and client parses them.
@@ -22,7 +21,7 @@ from mcp.shared.auth import AuthProtocolMetadata
 
 @pytest.mark.anyio
 async def test_client_discovers_protocols_via_unified_endpoint_integration() -> None:
-    """Integration: app serves /.well-known/authorization_servers, client discover_authorization_servers returns protocols."""
+    """Integration: client discovers protocols via unified endpoint."""
     routes = create_authorization_servers_discovery_routes(
         protocols=[
             AuthProtocolMetadata(protocol_id="oauth2", protocol_version="2.0"),
@@ -45,7 +44,7 @@ async def test_client_discovers_protocols_via_unified_endpoint_integration() -> 
 
 @pytest.mark.anyio
 async def test_client_parses_401_www_authenticate_auth_protocols_extension() -> None:
-    """401 WWW-Authenticate with auth_protocols, default_protocol, protocol_preferences; client extractors return correct values."""
+    """401 header extension fields are parsed correctly."""
     www_auth = (
         'Bearer auth_protocols="oauth2 api_key", default_protocol="oauth2", protocol_preferences="oauth2:1,api_key:2"'
     )
@@ -69,7 +68,9 @@ async def test_client_parses_401_without_auth_protocols_extension_returns_none()
     """401 WWW-Authenticate without auth_protocols extension; extractors return None."""
     response = httpx.Response(
         401,
-        headers={"WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'},
+        headers={
+            "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+        },
         request=httpx.Request("GET", "https://api.example.com/test"),
     )
     assert extract_auth_protocols_from_www_auth(response) is None

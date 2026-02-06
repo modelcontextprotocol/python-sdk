@@ -1,4 +1,11 @@
-"""单元测试：OAuth2Protocol 薄适配层（authenticate 委托 run_authentication、prepare_request、validate_credentials、discover_metadata）。"""
+"""Unit tests for OAuth2Protocol thin adapter.
+
+Covers:
+- authenticate delegation to run_authentication
+- prepare_request
+- validate_credentials
+- discover_metadata
+"""
 
 import httpx
 import pytest
@@ -111,7 +118,7 @@ def test_validate_credentials_returns_false_when_no_token(
 async def test_discover_metadata_returns_none_without_http_client(
     oauth2_protocol: OAuth2Protocol,
 ) -> None:
-    """无 http_client 且无 prm 或 prm 无 oauth2 时，不发起网络请求，返回 None。"""
+    """Return None without network when no http_client and no oauth2 entry in PRM."""
     result = await oauth2_protocol.discover_metadata(
         metadata_url="https://example.com/.well-known/oauth-authorization-server",
         prm=None,
@@ -123,7 +130,7 @@ async def test_discover_metadata_returns_none_without_http_client(
 async def test_discover_metadata_from_prm_returns_oauth2_entry(
     oauth2_protocol: OAuth2Protocol,
 ) -> None:
-    """当 prm.mcp_auth_protocols 含 oauth2 时，直接返回该条目，无需 http_client。"""
+    """Return oauth2 entry directly from prm.mcp_auth_protocols without requiring http_client."""
     from pydantic import AnyHttpUrl
 
     oauth2_meta = AuthProtocolMetadata(
@@ -154,7 +161,7 @@ async def test_authenticate_creates_own_http_client(
     client_metadata: OAuthClientMetadata,
 ) -> None:
     """OAuth2Protocol.authenticate creates its own httpx client, so context.http_client can be None.
-    
+
     This tests that the method doesn't crash when http_client is None.
     It will still fail during OAuth discovery (no server running), but that's expected.
     """
@@ -173,6 +180,7 @@ async def test_authenticate_creates_own_http_client(
     # Now authenticate creates its own client, so it won't raise ValueError for http_client=None
     # It will fail during OAuth discovery since there's no server, which is expected
     from mcp.client.auth.exceptions import OAuthFlowError
+
     with pytest.raises(OAuthFlowError, match="Could not discover"):
         await oauth2_protocol.authenticate(context)
 
@@ -182,7 +190,7 @@ async def test_authenticate_delegates_to_run_authentication_and_returns_oauth_cr
     oauth2_protocol: OAuth2Protocol,
     client_metadata: OAuthClientMetadata,
 ) -> None:
-    """authenticate(context) 调用 provider.run_authentication 并从 current_tokens 转为 OAuthCredentials。"""
+    """authenticate(context) delegates to provider.run_authentication and converts current_tokens to OAuthCredentials."""
     from unittest.mock import AsyncMock, MagicMock, patch
 
     mock_storage = MagicMock()
