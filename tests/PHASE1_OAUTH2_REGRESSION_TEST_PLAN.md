@@ -47,7 +47,7 @@ Run existing tests to ensure no regressions. Phase 1 does not change call sites:
 
 - **RequireAuthMiddleware**
   - Instantiate with only `(app, required_scopes, resource_metadata_url)`.
-  - WWW-Authenticate must still start with `Bearer ` and include `error`, `error_description`, and optionally `resource_metadata`; no requirement for `auth_protocols` / `default_protocol` / `protocol_preferences`.
+  - WWW-Authenticate must still start with `Bearer` and include `error`, `error_description`, and optionally `resource_metadata`; no requirement for `auth_protocols` / `default_protocol` / `protocol_preferences`.
 - Existing tests in `tests/server/auth/middleware/test_bearer_auth.py` (e.g. `TestRequireAuthMiddleware`) must pass.
 
 ### 3.4 Commands
@@ -72,12 +72,14 @@ Manual (or script-assisted) run to confirm the full OAuth2 flow still works with
 
 1. **Start Authorization Server (AS)**  
    From `examples/servers/simple-auth`:
+
    ```bash
    uv run mcp-simple-auth-as --port=9000
    ```
 
 2. **Start Resource Server (RS)**  
    In another terminal, from `examples/servers/simple-auth`:
+
    ```bash
    uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --transport=streamable-http
    ```
@@ -90,6 +92,7 @@ Manual (or script-assisted) run to confirm the full OAuth2 flow still works with
 
 4. **Run client**  
    From `examples/clients/simple-auth-client`:
+
    ```bash
    MCP_SERVER_PORT=8001 MCP_TRANSPORT_TYPE=streamable-http uv run mcp-simple-auth-client
    ```

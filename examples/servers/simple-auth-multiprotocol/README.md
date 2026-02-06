@@ -24,11 +24,13 @@ MCP Resource Server example that supports **OAuth 2.0** (introspection), **API K
 You can run the Resource Server **without** the Authorization Server when using API Key authentication:
 
 1. **Start the Resource Server** (from this directory):
+
    ```bash
    uv run mcp-simple-auth-multiprotocol-rs --port=8002 --api-keys=demo-api-key-12345
    ```
 
 2. **Run the client** from `examples/clients/simple-auth-multiprotocol-client`:
+
    ```bash
    MCP_SERVER_URL=http://localhost:8002/mcp MCP_API_KEY=demo-api-key-12345 uv run mcp-simple-auth-multiprotocol-client
    ```
@@ -47,14 +49,17 @@ DPoP (Demonstrating Proof-of-Possession, RFC 9449) binds the access token to a c
    `uv run mcp-simple-auth-as --port=9000`
 
 2. **Start this Resource Server with DPoP enabled** (from this directory):
+
    ```bash
    uv run mcp-simple-auth-multiprotocol-rs --port=8002 --auth-server=http://localhost:9000 --api-keys=demo-api-key-12345 --dpop-enabled
    ```
 
 3. **Run the client** with OAuth and DPoP from `examples/clients/simple-auth-multiprotocol-client`:
+
    ```bash
    MCP_SERVER_URL=http://localhost:8002/mcp MCP_USE_OAUTH=1 MCP_DPOP_ENABLED=1 uv run mcp-simple-auth-multiprotocol-client
    ```
+
    Complete OAuth in the browser, then at `mcp>` run `list`, `call get_time {}`, `quit`. Server logs should show "Authentication successful with DPoP".
 
 **One-command verification** (from repo root):  
@@ -72,7 +77,7 @@ Mutual TLS is a **placeholder** in this example: the server accepts the `mutual_
 ## Options
 
 - `--port`: RS port (default 8002).
-- `--auth-server`: AS URL (default http://localhost:9000).
+- `--auth-server`: AS URL (default <http://localhost:9000>).
 - `--api-keys`: Comma-separated valid API keys (default demo-api-key-12345).
 - `--oauth-strict`: Enable RFC 8707 resource validation.
 - `--dpop-enabled`: Enable DPoP proof verification (RFC 9449); use with OAuth.

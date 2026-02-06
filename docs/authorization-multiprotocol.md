@@ -58,7 +58,7 @@ Discovery answers: *Which auth protocols does this resource support, and where i
 - For the protocol list: if the PRM has `mcp_auth_protocols`, use it (priority 1). Otherwise try path-relative `/.well-known/authorization_servers{path}`, then root `/.well-known/authorization_servers`. If both fail and the PRM has `authorization_servers`, use OAuth fallback.
 - Merge the protocol list with WWW-Authenticate `auth_protocols` if present, then select one via `AuthProtocolRegistry.select_protocol(available, default_protocol, preferences)`.
 
-**Relationship between authorization URL endpoints**
+#### Relationship between authorization URL endpoints
 
 There are three distinct URL trees involved:
 
@@ -70,9 +70,9 @@ There are three distinct URL trees involved:
 | **MCP Resource Server (RS)** | `/.well-known/authorization_servers` | RS | Unified protocol discovery (MCP extension): `protocols`, `default_protocol`, `protocol_preferences` |
 | **MCP Resource Server (RS)** | `/{resource_path}` (e.g. `/mcp`) | RS | Protected MCP endpoint |
 
-**URL tree (example: AS on 9000, RS on 8002)**
+#### URL tree (example: AS on 9000, RS on 8002)
 
-```
+```text
 OAuth Authorization Server (http://localhost:9000)
 ├── /.well-known/oauth-authorization-server   ← OAuth AS metadata
 ├── /authorize
@@ -87,7 +87,7 @@ MCP Resource Server (http://localhost:8002)
 └── /mcp                                      ← Protected MCP endpoint
 ```
 
-**Client discovery order**
+#### Client discovery order
 
 1. On 401, read `resource_metadata` from WWW-Authenticate (e.g. `http://localhost:8002/.well-known/oauth-protected-resource/mcp`).
 2. If absent, try the path-based URL: `{origin}/.well-known/oauth-protected-resource{resource_path}` (e.g. `http://localhost:8002/.well-known/oauth-protected-resource/mcp`).
@@ -184,9 +184,9 @@ The server exposes protected MCP endpoints and declares supported auth methods v
 2. **Unified discovery** — `create_authorization_servers_discovery_routes(protocols, default_protocol, protocol_preferences)` registers `/.well-known/authorization_servers`. The handler returns `{ "protocols": [ AuthProtocolMetadata, ... ] }` plus optional default and preferences.
 3. **401 responses** — Middleware (e.g. RequireAuthMiddleware) returns 401 with WWW-Authenticate including at least Bearer (and optionally `resource_metadata`, `auth_protocols`, `default_protocol`, `protocol_preferences`).
 
-**Configuration and URL tree — requirements by server type**
+#### Configuration and URL tree — requirements by server type
 
-**Authorization Server (AS) — configuration requirements**
+#### Authorization Server (AS) — configuration requirements
 
 | Item | Description |
 |------|-------------|
@@ -198,7 +198,7 @@ The server exposes protected MCP endpoints and declares supported auth methods v
 
 No changes to the AS are required for multi-protocol itself; the AS need only support standard OAuth 2.0 and (optionally) DPoP-bound tokens.
 
-**MCP Resource Server (RS) — configuration requirements**
+#### MCP Resource Server (RS) — configuration requirements
 
 | Item | Description |
 |------|-------------|
@@ -355,6 +355,7 @@ If you use `OAuthClientProvider` or `simple-auth-client` and want to add multi-p
 #### Step 2: Client — switch to MultiProtocolAuthProvider
 
 **Before (OAuth only):**
+
 ```python
 from mcp.client.auth.oauth2 import OAuthClientProvider
 provider = OAuthClientProvider(...)
@@ -362,6 +363,7 @@ client = httpx.AsyncClient(auth=provider)
 ```
 
 **After (multi-protocol):**
+
 ```python
 from mcp.client.auth.multi_protocol import MultiProtocolAuthProvider, TokenStorage
 from mcp.client.auth.registry import AuthProtocolRegistry
@@ -388,6 +390,7 @@ provider._http_client = client
 - Alternatively, use `OAuthTokenStorageAdapter` to wrap storage that supports only OAuthToken.
 
 **If you add API Key:**
+
 ```python
 async def get_tokens(self) -> AuthCredentials | OAuthToken | None:
     return self._creds  # may be OAuthToken or APIKeyCredentials
@@ -399,6 +402,7 @@ async def set_tokens(self, tokens: AuthCredentials | OAuthToken) -> None:
 #### Step 4: Server — add MultiProtocolAuthBackend and PRM extensions
 
 **Before (OAuth only):**
+
 ```python
 # Single OAuth verifier
 token_verifier = TokenVerifier(...)
@@ -407,6 +411,7 @@ oauth_verifier = OAuthTokenVerifier(token_verifier)
 ```
 
 **After (multi-protocol):**
+
 ```python
 from mcp.server.auth.verifiers import (
     MultiProtocolAuthBackend,
