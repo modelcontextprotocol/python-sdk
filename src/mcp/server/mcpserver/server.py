@@ -1052,6 +1052,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             progress=progress,
             total=total,
             message=message,
+            related_request_id=self.request_id,
         )
 
     async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
