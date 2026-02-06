@@ -363,12 +363,12 @@ async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
         await ctx.session.send_progress_notification(ctx.meta.progress_token, 0.5, 100)
 
 # After (v2)
-async def handle_call_tool(
-    ctx: RequestContext, params: CallToolRequestParams
-) -> CallToolResult:
+async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     if ctx.meta and "progress_token" in ctx.meta:
         await ctx.session.send_progress_notification(ctx.meta["progress_token"], 0.5, 100)
     ...
+
+server = Server("my-server", on_call_tool=handle_call_tool)
 ```
 
 ### `RequestContext` and `ProgressContext` type parameters simplified
@@ -493,8 +493,7 @@ async def handle_call_tool(name: str, arguments: dict):
 **After (v2):**
 
 ```python
-from mcp.server.lowlevel import Server
-from mcp.shared.context import RequestContext
+from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -504,16 +503,11 @@ from mcp.types import (
     Tool,
 )
 
-async def handle_list_tools(
-    ctx: RequestContext, params: PaginatedRequestParams | None
-) -> ListToolsResult:
-    return ListToolsResult(tools=[
-        Tool(name="my_tool", description="A tool", inputSchema={})
-    ])
+async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+    return ListToolsResult(tools=[Tool(name="my_tool", description="A tool", inputSchema={})])
 
-async def handle_call_tool(
-    ctx: RequestContext, params: CallToolRequestParams
-) -> CallToolResult:
+
+async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     return CallToolResult(
         content=[TextContent(type="text", text=f"Called {params.name}")],
         is_error=False,
@@ -535,13 +529,11 @@ server = Server(
 **Notification handlers:**
 
 ```python
-from mcp.server.lowlevel import Server
-from mcp.shared.context import RequestContext
+from mcp.server import Server, ServerRequestContext
 from mcp.types import ProgressNotificationParams
 
-async def handle_progress(
-    ctx: RequestContext, params: ProgressNotificationParams
-) -> None:
+
+async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificationParams) -> None:
     print(f"Progress: {params.progress}/{params.total}")
 
 server = Server(
@@ -569,12 +561,11 @@ async def handle_call_tool(name: str, arguments: dict):
 **After (v2):**
 
 ```python
-from mcp.shared.context import RequestContext
+from mcp.server import ServerRequestContext
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
-async def handle_call_tool(
-    ctx: RequestContext, params: CallToolRequestParams
-) -> CallToolResult:
+
+async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     await ctx.session.send_log_message(level="info", data="Processing...")
     return CallToolResult(
         content=[TextContent(type="text", text="Done")],
@@ -587,7 +578,7 @@ async def handle_call_tool(
 The `RequestContext` class now uses optional fields for request-specific data (`request_id`, `meta`, etc.) so it can be used for both request and notification handlers. In notification handlers, these fields are `None`.
 
 ```python
-from mcp.shared.context import RequestContext
+from mcp.server import ServerRequestContext
 
 # request_id, meta, etc. are available in request handlers
 # but None in notification handlers
@@ -657,14 +648,13 @@ params = CallToolRequestParams(
 The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `MCPServer`. This allows using the streamable HTTP transport without the MCPServer wrapper.
 
 ```python
-from mcp.server.lowlevel import Server
-from mcp.shared.context import RequestContext
+from mcp.server import Server, ServerRequestContext
 from mcp.types import ListToolsResult, PaginatedRequestParams
 
-async def handle_list_tools(
-    ctx: RequestContext, params: PaginatedRequestParams | None
-) -> ListToolsResult:
+
+async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
     return ListToolsResult(tools=[...])
+
 
 server = Server(
     "my-server",

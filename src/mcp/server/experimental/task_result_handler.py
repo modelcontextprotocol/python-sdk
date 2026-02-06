@@ -44,15 +44,17 @@ class TaskResultHandler:
     5. Returns the final result
 
     Usage:
-        # Create handler with store and queue
         handler = TaskResultHandler(task_store, message_queue)
 
-        # Register as a handler with the lowlevel server
-        async def handle_task_result(ctx, params):
+        async def handle_task_result(
+            ctx: ServerRequestContext, params: GetTaskPayloadRequestParams
+        ) -> GetTaskPayloadResult:
+            assert ctx.request_id is not None
             return await handler.handle(
                 GetTaskPayloadRequest(params=params), ctx.session, ctx.request_id
             )
-        server = Server(on_call_tool=..., on_list_tools=...)
+
+        server._add_request_handler("tasks/result", handle_task_result)
     """
 
     def __init__(
