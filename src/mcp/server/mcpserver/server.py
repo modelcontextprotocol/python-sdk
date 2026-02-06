@@ -36,7 +36,7 @@ from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
+from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
@@ -166,9 +166,6 @@ class MCPServer(Generic[LifespanResultT]):
 
         # Set up MCP protocol handlers
         self._setup_handlers()
-
-        # Configure logging
-        configure_logging(self.settings.log_level)
 
     @property
     def name(self) -> str:
