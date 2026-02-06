@@ -190,7 +190,10 @@ async def test_authenticate_delegates_to_run_authentication_and_returns_oauth_cr
     oauth2_protocol: OAuth2Protocol,
     client_metadata: OAuthClientMetadata,
 ) -> None:
-    """authenticate(context) delegates to provider.run_authentication and converts current_tokens to OAuthCredentials."""
+    """authenticate(context) delegates to provider.run_authentication.
+
+    Converts current_tokens to OAuthCredentials.
+    """
     from unittest.mock import AsyncMock, MagicMock, patch
 
     mock_storage = MagicMock()
