@@ -1,27 +1,30 @@
-"""
-多协议认证提供者。
+"""Multi-protocol authentication provider.
 
-提供基于协议注册表与发现的统一 HTTP 认证流程，支持 OAuth 2.0、API Key 等协议。
+This module provides a unified HTTP authentication flow based on protocol discovery and an injected protocol registry.
+It supports OAuth 2.0, API keys, and other pluggable auth protocols.
 
-TokenStorage 双契约与转换约定
-----------------------------
-- **oauth2 契约**（OAuthClientProvider 使用）：get_tokens() -> OAuthToken | None，
-  set_tokens(OAuthToken)；另可有 get_client_info/set_client_info。
-- **multi_protocol 契约**（本模块 TokenStorage）：get_tokens() -> AuthCredentials | OAuthToken | None，
-  set_tokens(AuthCredentials | OAuthToken)。
-- **转换约定**：MultiProtocolAuthProvider 在调用方做转换，不扩展协议方法：
-  - 取回时：_get_credentials() 调用 storage.get_tokens()，若得到 OAuthToken 则经
-    _oauth_token_to_credentials 转为 OAuthCredentials。
-  - 写入时：_discover_and_authenticate 得到 AuthCredentials 后经 _credentials_to_storage
-    转为 OAuthToken（仅 OAuthCredentials 转 OAuthToken，其他凭证原样），再调用
-    storage.set_tokens(to_store)。
-- 因此仅实现 get_tokens/set_tokens(OAuthToken) 的旧存储可直接用于 MultiProtocolAuthProvider，
-  无需改存储实现。可选使用 OAuthTokenStorageAdapter 将此类存储包装为满足 multi_protocol 契约。
+Token storage: dual contract and conversion rules
+-------------------------------------------------
+- **oauth2 contract** (used by :class:`~mcp.client.auth.oauth2.OAuthClientProvider`):
+  ``get_tokens() -> OAuthToken | None`` and ``set_tokens(OAuthToken)``; optionally
+  ``get_client_info()/set_client_info()``.
+- **multi_protocol contract** (``TokenStorage`` in this module):
+  ``get_tokens() -> AuthCredentials | OAuthToken | None`` and ``set_tokens(AuthCredentials | OAuthToken)``.
+- **conversion rule**: conversions happen in the provider, without expanding protocol APIs:
+  - Read path: ``_get_credentials()`` calls ``storage.get_tokens()``. If it returns an ``OAuthToken``, it is
+    converted to :class:`~mcp.shared.auth.OAuthCredentials` via ``_oauth_token_to_credentials``.
+  - Write path: credentials produced by discovery/auth are converted via ``_credentials_to_storage`` before
+    calling ``storage.set_tokens()``. Only ``OAuthCredentials`` are converted into ``OAuthToken``; other
+    credential types are stored as-is.
+- As a result, legacy storage implementations that only support ``get_tokens/set_tokens(OAuthToken)`` can be used
+  directly with :class:`~mcp.client.auth.multi_protocol.MultiProtocolAuthProvider` without modification. Optionally,
+  wrap them with :class:`~mcp.client.auth.multi_protocol.OAuthTokenStorageAdapter` to satisfy the multi-protocol
+  contract explicitly.
 """
 
 import json
 import logging
-import math
+import sys
 import time
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, cast
@@ -32,9 +35,9 @@ import httpx
 from pydantic import ValidationError
 
 from mcp.client.auth._oauth_401_flow import oauth_401_flow_generator
-from mcp.client.auth.oauth2 import OAuthClientProvider, TokenStorage as OAuth2TokenStorage
+from mcp.client.auth.oauth2 import OAuthClientProvider
+from mcp.client.auth.oauth2 import TokenStorage as OAuth2TokenStorage
 from mcp.client.auth.protocol import AuthContext, AuthProtocol, DPoPEnabledProtocol
-from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.client.auth.utils import (
     build_protected_resource_metadata_discovery_urls,
     create_oauth_metadata_request,
@@ -46,6 +49,7 @@ from mcp.client.auth.utils import (
     extract_scope_from_www_auth,
     handle_protected_resource_response,
 )
+from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     AuthCredentials,
     AuthProtocolMetadata,
@@ -57,30 +61,32 @@ from mcp.shared.auth import (
 logger = logging.getLogger(__name__)
 
 # Protocol preferences: any protocol without an explicit preference should sort last.
-UNSPECIFIED_PROTOCOL_PREFERENCE: float = math.inf
+UNSPECIFIED_PROTOCOL_PREFERENCE: int = sys.maxsize
 
 
 class TokenStorage(Protocol):
-    """
-    凭证存储协议（multi_protocol 契约）。
+    """Credential storage interface (multi-protocol contract).
 
-    本协议接受 get_tokens() -> AuthCredentials | OAuthToken | None 与
-    set_tokens(AuthCredentials | OAuthToken)。仅支持 OAuthToken 的旧存储亦可使用：
-    MultiProtocolAuthProvider 在 _get_credentials/_discover_and_authenticate 内做
-    OAuthToken <-> OAuthCredentials 转换；或使用 OAuthTokenStorageAdapter 包装。
+    The multi-protocol contract supports:
+    - ``get_tokens() -> AuthCredentials | OAuthToken | None``
+    - ``set_tokens(AuthCredentials | OAuthToken)``
+
+    Legacy storage implementations that only support ``OAuthToken`` are still usable because the provider converts
+    between ``OAuthToken`` and ``OAuthCredentials`` internally. Alternatively, wrap such storage using
+    :class:`~mcp.client.auth.multi_protocol.OAuthTokenStorageAdapter`.
     """
 
     async def get_tokens(self) -> AuthCredentials | OAuthToken | None:
-        """获取已存储的凭证。"""
+        """Return stored credentials, if any."""
         ...
 
     async def set_tokens(self, tokens: AuthCredentials | OAuthToken) -> None:
-        """存储凭证。"""
+        """Store credentials."""
         ...
 
 
 def _oauth_token_to_credentials(token: OAuthToken) -> OAuthCredentials:
-    """将 OAuthToken 转为 OAuthCredentials（用于兼容现有存储）。"""
+    """Convert an OAuthToken into OAuthCredentials (for legacy storage compatibility)."""
     from mcp.shared.auth_utils import calculate_token_expiry
 
     expires_at: int | None = None
@@ -98,9 +104,10 @@ def _oauth_token_to_credentials(token: OAuthToken) -> OAuthCredentials:
 
 
 def _credentials_to_storage(credentials: AuthCredentials) -> AuthCredentials | OAuthToken:
-    """
-    将 AuthCredentials 转为存储可接受格式，便于兼容仅支持 OAuthToken 的旧存储。
-    OAuthCredentials 转为 OAuthToken；其他凭证原样返回。
+    """Convert AuthCredentials to a storage-friendly shape.
+
+    This exists to support legacy storage implementations that only accept OAuthToken:
+    OAuthCredentials are converted into OAuthToken; other credential types are returned as-is.
     """
     if isinstance(credentials, OAuthCredentials):
         expires_in: int | None = None
@@ -118,22 +125,19 @@ def _credentials_to_storage(credentials: AuthCredentials) -> AuthCredentials | O
 
 
 class _OAuthTokenOnlyStorage(Protocol):
-    """仅支持 OAuthToken 的存储契约（供 OAuthTokenStorageAdapter 包装）。"""
+    """OAuthToken-only storage contract (wrapped by OAuthTokenStorageAdapter)."""
 
-    async def get_tokens(self) -> OAuthToken | None:
-        ...
+    async def get_tokens(self) -> OAuthToken | None: ...
 
-    async def set_tokens(self, tokens: OAuthToken) -> None:
-        ...
+    async def set_tokens(self, tokens: OAuthToken) -> None: ...
 
 
 class OAuthTokenStorageAdapter:
-    """
-    将仅支持 OAuthToken 的 storage 包装为满足 multi_protocol TokenStorage。
+    """Adapt an OAuthToken-only storage to the multi-protocol TokenStorage interface.
 
-    取回时把 OAuthToken 转为 OAuthCredentials；写入时把 OAuthCredentials 转为 OAuthToken
-    再调用底层 set_tokens。仅 OAuth 凭证会写入底层存储，非 OAuth 凭证（如 APIKeyCredentials）
-    不写入。
+    - Read path: converts OAuthToken into OAuthCredentials.
+    - Write path: converts OAuthCredentials into OAuthToken before calling the wrapped storage.
+      Only OAuth credentials are persisted; non-OAuth credentials (e.g. APIKeyCredentials) are not written.
     """
 
     def __init__(self, wrapped: _OAuthTokenOnlyStorage) -> None:
@@ -146,20 +150,16 @@ class OAuthTokenStorageAdapter:
         return _oauth_token_to_credentials(raw)
 
     async def set_tokens(self, tokens: AuthCredentials | OAuthToken) -> None:
-        to_store = (
-            _credentials_to_storage(tokens)
-            if isinstance(tokens, AuthCredentials)
-            else tokens
-        )
+        to_store = _credentials_to_storage(tokens) if isinstance(tokens, AuthCredentials) else tokens
         if isinstance(to_store, OAuthToken):
             await self._wrapped.set_tokens(to_store)
 
 
 class MultiProtocolAuthProvider(httpx.Auth):
-    """
-    多协议认证提供者。
+    """Multi-protocol httpx authentication provider.
 
-    与 httpx 集成，在请求前按所选协议准备认证信息，收到 401/403 时触发发现与认证。
+    Integrates with httpx to prepare authentication for requests. On 401/403, it performs discovery and
+    authentication based on the server's hints and the injected protocol instances.
     """
 
     requires_response_body = True
@@ -187,30 +187,29 @@ class MultiProtocolAuthProvider(httpx.Auth):
         self._protocols_by_id: dict[str, AuthProtocol] = {}
 
     def _initialize(self) -> None:
-        """根据 protocols 列表构建按 protocol_id 的索引。"""
+        """Build an index from protocol_id to protocol instances."""
         self._protocols_by_id = {p.protocol_id: p for p in self.protocols}
         self._initialized = True
 
     def _get_protocol(self, protocol_id: str) -> AuthProtocol | None:
-        """按 protocol_id 获取协议实例。"""
+        """Return a protocol instance by protocol_id."""
         return self._protocols_by_id.get(protocol_id)
 
     async def _get_credentials(self) -> AuthCredentials | None:
-        """
-        从存储获取凭证并规范为 AuthCredentials。
+        """Load credentials from storage and normalize to AuthCredentials.
 
-        若存储返回 OAuthToken，则转换为 OAuthCredentials 以保持兼容。
+        If storage returns OAuthToken, convert it to OAuthCredentials for compatibility.
         """
         raw = await self.storage.get_tokens()
         if raw is None:
             return None
         if isinstance(raw, AuthCredentials):
             return raw
-        # raw 此时为 OAuthToken（TokenStorage 返回 AuthCredentials | OAuthToken | None）
+        # raw is OAuthToken here (TokenStorage returns AuthCredentials | OAuthToken | None)
         return _oauth_token_to_credentials(raw)
 
     def _is_credentials_valid(self, credentials: AuthCredentials | None) -> bool:
-        """判断凭证是否有效（未过期等），依赖协议实现。"""
+        """Return True if credentials are valid (e.g. not expired), according to protocol implementation."""
         if credentials is None:
             return False
         protocol = self._get_protocol(credentials.protocol_id)
@@ -228,7 +227,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
                 await protocol.initialize_dpop()
 
     def _prepare_request(self, request: httpx.Request, credentials: AuthCredentials) -> None:
-        """为请求添加协议指定的认证信息，包括 DPoP proof（如启用）。"""
+        """Apply protocol-specific authentication to a request, including DPoP proof if enabled."""
         protocol = self._get_protocol(credentials.protocol_id)
         if protocol is not None:
             protocol.prepare_request(request, credentials)
@@ -252,15 +251,13 @@ class MultiProtocolAuthProvider(httpx.Auth):
     async def _parse_protocols_from_discovery_response(
         self, response: httpx.Response, prm: ProtectedResourceMetadata | None
     ) -> list[AuthProtocolMetadata]:
-        """解析 .well-known/authorization_servers 响应，回退到 PRM。"""
+        """Parse ``/.well-known/authorization_servers`` response; fall back to PRM if needed."""
         if response.status_code == 200:
             try:
                 content = await response.aread()
                 data = json.loads(content.decode())
                 raw = data.get("protocols")
-                protocols_data: list[dict[str, Any]] = (
-                    cast(list[dict[str, Any]], raw) if isinstance(raw, list) else []
-                )
+                protocols_data: list[dict[str, Any]] = cast(list[dict[str, Any]], raw) if isinstance(raw, list) else []
                 if protocols_data:
                     return [AuthProtocolMetadata.model_validate(p) for p in protocols_data]
             except (ValidationError, ValueError, KeyError, TypeError) as e:
@@ -269,26 +266,23 @@ class MultiProtocolAuthProvider(httpx.Auth):
             return list(prm.mcp_auth_protocols)
         return []
 
-    async def _handle_403_response(
-        self, response: httpx.Response, request: httpx.Request
-    ) -> None:
-        """处理 403：解析 error/scope 并记录，骨架不做重试。"""
+    async def _handle_403_response(self, response: httpx.Response, request: httpx.Request) -> None:
+        """Handle 403 by parsing/logging error and scope (no retries)."""
         error = extract_field_from_www_auth(response, "error")
         scope = extract_field_from_www_auth(response, "scope")
         if error or scope:
             logger.debug("403 WWW-Authenticate: error=%s scope=%s", error, scope)
 
-    async def async_auth_flow(
-        self, request: httpx.Request
-    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
-        """HTTPX 认证流程入口：取凭证、校验、准备请求、发送、处理 401/403 并可选重试。"""
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        """Entry point for the HTTPX auth flow: load/validate credentials, send request, handle 401/403."""
         async with self._lock:
             if not self._initialized:
                 self._initialize()
 
             credentials = await self._get_credentials()
             if not credentials or not self._is_credentials_valid(credentials):
-                # 无有效凭证时直接发送请求，依赖 401 响应后再做发现与认证（见下方 401 处理）
+                # Without valid credentials, send the request first and rely on the 401 handler below
+                # for discovery and authentication.
                 pass
             else:
                 await self._ensure_dpop_initialized(credentials)
@@ -310,9 +304,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
 
                 # Step 1: PRM discovery (yield)
                 prm: ProtectedResourceMetadata | None = None
-                prm_urls = build_protected_resource_metadata_discovery_urls(
-                    resource_metadata_url, server_url
-                )
+                prm_urls = build_protected_resource_metadata_discovery_urls(resource_metadata_url, server_url)
                 for url in prm_urls:
                     prm_req = create_oauth_metadata_request(url)
                     prm_resp = yield prm_req
@@ -327,61 +319,48 @@ class MultiProtocolAuthProvider(httpx.Auth):
                 )
                 discovery_req = create_oauth_metadata_request(discovery_url)
                 discovery_resp = yield discovery_req
-                protocols_metadata = await self._parse_protocols_from_discovery_response(
-                    discovery_resp, prm
-                )
+                protocols_metadata = await self._parse_protocols_from_discovery_response(discovery_resp, prm)
 
-                available = (
+                available: list[str] = (
                     [m.protocol_id for m in protocols_metadata]
                     if protocols_metadata
-                    else (auth_protocols_header or [])
+                    else (list(auth_protocols_header) if auth_protocols_header is not None else [])
                 )
+                if not available and prm is not None and prm.authorization_servers:
+                    # OAuth fallback: if PRM indicates OAuth ASes but unified discovery did not
+                    # return protocol metadata (and the server did not hint via WWW-Authenticate),
+                    # still attempt OAuth2 if injected.
+                    available = ["oauth2"]
+                    logger.debug("No protocols discovered; falling back to oauth2 via PRM authorization_servers")
                 if not available:
                     logger.debug("No available protocols from discovery or WWW-Authenticate")
                 else:
                     # Select protocol candidates based on server hints, but only
                     # attempt protocols that are actually injected as instances.
-                    candidates: list[str] = []
-                    seen: set[str] = set()
+                    candidates_raw: list[str | None] = [default_protocol]
+                    preferences = protocol_preferences
+                    if preferences is not None:
 
-                    def _push(pid: str | None) -> None:
-                        if not pid:
-                            return
-                        if pid in seen:
-                            return
-                        seen.add(pid)
-                        candidates.append(pid)
+                        def preference_key(protocol_id: str) -> int:
+                            return preferences.get(protocol_id, UNSPECIFIED_PROTOCOL_PREFERENCE)
 
-                    # Default protocol first (server recommendation)
-                    _push(default_protocol)
-                    # Then order by preferences if provided
-                    if protocol_preferences:
-                        for pid in sorted(
-                            available,
-                            key=lambda p: protocol_preferences.get(
-                                p, UNSPECIFIED_PROTOCOL_PREFERENCE
-                            ),
-                        ):
-                            _push(pid)
-                    # Then remaining in server-provided order
-                    for pid in available:
-                        _push(pid)
+                        candidates_raw.extend(sorted(available, key=preference_key))
+                    candidates_raw.extend(available)
+
+                    # De-duplicate while preserving order.
+                    candidates_str = [pid for pid in candidates_raw if pid is not None]
+                    candidates = list(dict.fromkeys(candidates_str))
+
+                    metadata_by_id = {m.protocol_id: m for m in protocols_metadata} if protocols_metadata else {}
 
                     for selected_id in candidates:
                         protocol = self._get_protocol(selected_id)
                         if protocol is None:
-                            logger.debug(
-                                "Protocol %s not injected as instance; skipping", selected_id
-                            )
+                            logger.debug("Protocol %s not injected as instance; skipping", selected_id)
                             continue
                         attempted_any = True
 
-                        protocol_metadata = None
-                        if protocols_metadata:
-                            for m in protocols_metadata:
-                                if m.protocol_id == selected_id:
-                                    protocol_metadata = m
-                                    break
+                        protocol_metadata = metadata_by_id.get(selected_id)
 
                         try:
                             if selected_id == "oauth2":
@@ -389,9 +368,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
                                 oauth_protocol = protocol
                                 provider = OAuthClientProvider(
                                     server_url=server_url,
-                                    client_metadata=getattr(
-                                        oauth_protocol, "_client_metadata"
-                                    ),
+                                    client_metadata=getattr(oauth_protocol, "_client_metadata"),
                                     storage=cast(OAuth2TokenStorage, self.storage),
                                     redirect_handler=getattr(oauth_protocol, "_redirect_handler", None),
                                     callback_handler=getattr(oauth_protocol, "_callback_handler", None),
@@ -423,9 +400,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
                                     http_client=self._http_client,
                                     resource_metadata_url=resource_metadata_url,
                                     protected_resource_metadata=prm,
-                                    scope_from_www_auth=extract_scope_from_www_auth(
-                                        original_401_response
-                                    ),
+                                    scope_from_www_auth=extract_scope_from_www_auth(original_401_response),
                                 )
                                 credentials = await protocol.authenticate(context)
                                 to_store = _credentials_to_storage(credentials)
@@ -435,9 +410,7 @@ class MultiProtocolAuthProvider(httpx.Auth):
                             break
                         except Exception as e:
                             last_auth_error = e
-                            logger.debug(
-                                "Protocol %s authentication failed: %s", selected_id, e
-                            )
+                            logger.debug("Protocol %s authentication failed: %s", selected_id, e)
                             continue
 
                 credentials = await self._get_credentials()

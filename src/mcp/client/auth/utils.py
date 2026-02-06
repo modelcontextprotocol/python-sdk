@@ -43,7 +43,7 @@ def extract_field_from_www_auth(response: Response, field_name: str, auth_scheme
     # If auth_scheme is specified, extract only from that scheme's parameters
     if auth_scheme:
         # Pattern to match the specified auth scheme and its parameters
-        scheme_pattern = rf'{re.escape(auth_scheme)}\s+([^,]+(?:,\s*[^,]+)*)'
+        scheme_pattern = rf"{re.escape(auth_scheme)}\s+([^,]+(?:,\s*[^,]+)*)"
         scheme_match = re.search(scheme_pattern, www_auth_header, re.IGNORECASE)
         if not scheme_match:
             return None
@@ -86,8 +86,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
 
 
 def extract_auth_protocols_from_www_auth(response: Response) -> list[str] | None:
-    """
-    Extract auth_protocols field from WWW-Authenticate header (MCP extension).
+    """Extract auth_protocols field from WWW-Authenticate header (MCP extension).
 
     Returns:
         List of protocol IDs if found in WWW-Authenticate header, None otherwise
@@ -99,8 +98,7 @@ def extract_auth_protocols_from_www_auth(response: Response) -> list[str] | None
 
 
 def extract_default_protocol_from_www_auth(response: Response) -> str | None:
-    """
-    Extract default_protocol field from WWW-Authenticate header (MCP extension).
+    """Extract default_protocol field from WWW-Authenticate header (MCP extension).
 
     Returns:
         Default protocol ID if found in WWW-Authenticate header, None otherwise
@@ -109,8 +107,7 @@ def extract_default_protocol_from_www_auth(response: Response) -> str | None:
 
 
 def extract_protocol_preferences_from_www_auth(response: Response) -> dict[str, int] | None:
-    """
-    Extract protocol_preferences field from WWW-Authenticate header (MCP extension).
+    """Extract protocol_preferences field from WWW-Authenticate header (MCP extension).
 
     Format: "protocol1:priority1,protocol2:priority2"
 
@@ -168,8 +165,7 @@ async def discover_authorization_servers(
     http_client: AsyncClient,
     prm: ProtectedResourceMetadata | None = None,
 ) -> list[AuthProtocolMetadata]:
-    """
-    Discover supported auth protocols (unified discovery with PRM fallback).
+    """Discover supported auth protocols (unified discovery with PRM fallback).
 
     1. Tries the unified capability discovery endpoint
        `/.well-known/authorization_servers` (path relative to resource_url).

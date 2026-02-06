@@ -1,42 +1,39 @@
-"""
-协议注册表。
+"""Auth protocol registry.
 
-提供多协议授权实现的注册与选择逻辑。
+Provides registration and selection logic for multi-protocol authentication.
 """
 
 from mcp.client.auth.protocol import AuthProtocol
 
 
 class AuthProtocolRegistry:
-    """
-    授权协议注册表。
+    """Registry for auth protocol implementations.
 
-    用于注册和获取协议实现类，并根据服务器声明的可用协议、默认协议及优先级选择协议。
+    Stores protocol implementation classes and selects a protocol based on server-declared availability, defaults,
+    and preferences.
     """
 
     _protocols: dict[str, type[AuthProtocol]] = {}
 
     @classmethod
     def register(cls, protocol_id: str, protocol_class: type[AuthProtocol]) -> None:
-        """
-        注册协议实现。
+        """Register a protocol implementation.
 
         Args:
-            protocol_id: 协议标识（如 oauth2、api_key）
-            protocol_class: 实现 AuthProtocol 的类（非实例）
+            protocol_id: Protocol identifier (e.g. "oauth2", "api_key").
+            protocol_class: Class implementing AuthProtocol (not an instance).
         """
         cls._protocols[protocol_id] = protocol_class
 
     @classmethod
     def get_protocol_class(cls, protocol_id: str) -> type[AuthProtocol] | None:
-        """
-        获取协议实现类。
+        """Return a registered protocol class by protocol_id.
 
         Args:
-            protocol_id: 协议标识
+            protocol_id: Protocol identifier.
 
         Returns:
-            协议类，未注册时返回 None
+            Protocol class, or None if not registered.
         """
         return cls._protocols.get(protocol_id)
 
@@ -47,22 +44,21 @@ class AuthProtocolRegistry:
         default_protocol: str | None = None,
         preferences: dict[str, int] | None = None,
     ) -> str | None:
-        """
-        从服务器声明的可用协议中选出一个客户端支持的协议。
+        """Select one protocol that the client supports from server-declared available protocols.
 
-        选择顺序：
-        1. 过滤出客户端已注册的协议
-        2. 若存在默认协议且客户端支持，则优先返回默认协议
-        3. 若有优先级映射，按优先级数值升序排序后取第一个
-        4. 否则返回第一个支持的协议
+        Selection order:
+        1. Filter protocols to those registered in the client.
+        2. If a default protocol is provided and supported, return it.
+        3. If a preference map is provided, sort by ascending preference value and pick the first.
+        4. Otherwise return the first supported protocol.
 
         Args:
-            available_protocols: 服务器声明的可用协议 ID 列表
-            default_protocol: 服务器推荐的默认协议 ID（可选）
-            preferences: 协议优先级映射，数值越小优先级越高（可选）
+            available_protocols: Server-declared available protocol IDs.
+            default_protocol: Optional server-recommended default protocol ID.
+            preferences: Optional protocol preference mapping (smaller value means higher priority).
 
         Returns:
-            选中的协议 ID，若无交集则返回 None
+            Selected protocol ID, or None if there is no overlap.
         """
         supported = [p for p in available_protocols if p in cls._protocols]
         if not supported:
@@ -78,10 +74,9 @@ class AuthProtocolRegistry:
 
     @classmethod
     def list_registered(cls) -> list[str]:
-        """
-        返回已注册的协议 ID 列表（便于测试或调试）。
+        """Return registered protocol IDs (useful for tests/debugging).
 
         Returns:
-            已注册的 protocol_id 列表
+            List of registered protocol IDs.
         """
         return list(cls._protocols.keys())

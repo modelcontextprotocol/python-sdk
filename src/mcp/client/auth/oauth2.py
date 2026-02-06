@@ -503,9 +503,10 @@ class OAuthClientProvider(httpx.Auth):
         protocol_version: str | None = None,
         protected_resource_metadata: ProtectedResourceMetadata | None = None,
     ) -> None:
-        """
-        使用给定 http_client 执行完整 OAuth 流程（PRM/ASM 发现、scope、注册或 CIMD、授权码+令牌交换），
-        与现有 401 分支行为一致。供多协议路径下 OAuth2Protocol 调用。
+        """Run the full OAuth flow using the provided http_client.
+
+        This mirrors the existing 401-branch behavior (PRM/OASM discovery, scope selection, registration or CIMD,
+        authorization code, and token exchange). Used by OAuth2Protocol in the multi-protocol path.
         """
         self.context.protocol_version = protocol_version
         if protected_resource_metadata is not None:
@@ -558,9 +559,7 @@ class OAuthClientProvider(httpx.Auth):
         )
 
         if not self.context.client_info:
-            if should_use_client_metadata_url(
-                self.context.oauth_metadata, self.context.client_metadata_url
-            ):
+            if should_use_client_metadata_url(self.context.oauth_metadata, self.context.client_metadata_url):
                 client_information = create_client_info_from_metadata_url(
                     self.context.client_metadata_url,  # type: ignore[arg-type]
                     redirect_uris=self.context.client_metadata.redirect_uris,

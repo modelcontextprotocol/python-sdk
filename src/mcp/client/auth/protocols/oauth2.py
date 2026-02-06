@@ -1,10 +1,10 @@
-"""
-OAuth 2.0 协议薄适配层。
+"""OAuth 2.0 protocol thin adapter.
 
-不迁移 OAuth 发现/注册/授权码/令牌交换逻辑到此文件；
-authenticate(context) 构造 OAuthClientProvider、填充上下文后调用
-provider.run_authentication(context.http_client, ...)，返回 OAuthCredentials。
-discover_metadata 在提供 http_client 时执行 RFC 8414 授权服务器元数据发现。
+This module intentionally does not re-implement OAuth discovery/registration/authorization/token exchange.
+``authenticate(context)`` constructs an OAuthClientProvider, populates context, and delegates to
+``provider.run_authentication(context.http_client, ...)``, returning OAuthCredentials.
+
+``discover_metadata`` performs RFC 8414 authorization server metadata discovery when an http_client is provided.
 """
 
 import logging
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 def _oauth_metadata_to_protocol_metadata(asm: OAuthMetadata) -> AuthProtocolMetadata:
-    """将 RFC 8414 OAuth 授权服务器元数据转换为 AuthProtocolMetadata。"""
+    """Convert RFC 8414 OAuth authorization server metadata to AuthProtocolMetadata."""
     endpoints: dict[str, AnyHttpUrl] = {
         "authorization_endpoint": asm.authorization_endpoint,
         "token_endpoint": asm.token_endpoint,
@@ -55,7 +55,7 @@ def _oauth_metadata_to_protocol_metadata(asm: OAuthMetadata) -> AuthProtocolMeta
         endpoints["revocation_endpoint"] = asm.revocation_endpoint
     if asm.introspection_endpoint is not None:
         endpoints["introspection_endpoint"] = asm.introspection_endpoint
-        
+
     return AuthProtocolMetadata(
         protocol_id="oauth2",
         protocol_version="2.0",
@@ -68,7 +68,7 @@ def _oauth_metadata_to_protocol_metadata(asm: OAuthMetadata) -> AuthProtocolMeta
 
 
 def _token_to_oauth_credentials(token: OAuthToken) -> OAuthCredentials:
-    """将 OAuthToken 转为 OAuthCredentials。"""
+    """Convert OAuthToken into OAuthCredentials."""
     from mcp.shared.auth_utils import calculate_token_expiry
 
     expires_at: int | None = None
@@ -88,11 +88,11 @@ def _token_to_oauth_credentials(token: OAuthToken) -> OAuthCredentials:
 
 
 class OAuth2Protocol:
-    """
-    OAuth 2.0 协议薄适配层。
+    """OAuth 2.0 protocol thin adapter.
 
-    实现 AuthProtocol 和 DPoPEnabledProtocol，authenticate 委托 OAuthClientProvider.run_authentication，
-    不重复实现 OAuth 流程。DPoP 支持通过 dpop_enabled 配置启用。
+    Implements AuthProtocol and DPoPEnabledProtocol. ``authenticate`` delegates to
+    OAuthClientProvider.run_authentication instead of duplicating OAuth flow logic. DPoP can be enabled via
+    ``dpop_enabled`` configuration.
     """
 
     protocol_id: str = "oauth2"
@@ -123,8 +123,8 @@ class OAuth2Protocol:
         self._dpop_generator: DPoPProofGeneratorImpl | None = None
 
     async def authenticate(self, context: AuthContext) -> AuthCredentials:
-        """从 AuthContext 组装 OAuth 上下文，委托 OAuthClientProvider.run_authentication，返回 OAuthCredentials。
-        
+        """Assemble OAuth context from AuthContext and delegate to OAuthClientProvider.run_authentication.
+
         Note: Uses a fresh httpx client without auth for OAuth flow to avoid lock
         deadlock when called from within MultiProtocolAuthProvider.async_auth_flow.
         """
@@ -140,9 +140,7 @@ class OAuth2Protocol:
         )
         protocol_version: str | None = None
         if context.protocol_metadata is not None:
-            protocol_version = getattr(
-                context.protocol_metadata, "protocol_version", None
-            )
+            protocol_version = getattr(context.protocol_metadata, "protocol_version", None)
         # Use a fresh client without auth for OAuth discovery/registration/token exchange
         # to avoid lock deadlock when called from async_auth_flow
         async with httpx.AsyncClient(follow_redirects=True) as oauth_client:
@@ -158,12 +156,12 @@ class OAuth2Protocol:
         return _token_to_oauth_credentials(provider.context.current_tokens)
 
     def prepare_request(self, request: httpx.Request, credentials: AuthCredentials) -> None:
-        """为请求添加 Bearer 认证头。"""
+        """Attach Bearer authorization header."""
         if isinstance(credentials, OAuthCredentials) and credentials.access_token:
             request.headers["Authorization"] = f"Bearer {credentials.access_token}"
 
     def validate_credentials(self, credentials: AuthCredentials) -> bool:
-        """验证 OAuth 凭证是否有效（未过期等）。"""
+        """Validate OAuth credentials (e.g. not expired)."""
         if not isinstance(credentials, OAuthCredentials):
             return False
         if not credentials.access_token:
@@ -178,12 +176,11 @@ class OAuth2Protocol:
         prm: ProtectedResourceMetadata | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> AuthProtocolMetadata | None:
-        """
-        发现 OAuth 2.0 协议元数据（RFC 8414）。
+        """Discover OAuth 2.0 protocol metadata (RFC 8414).
 
-        若 prm 中已有 oauth2 的 mcp_auth_protocols 条目则直接返回；
-        若提供 http_client 且存在 metadata_url 或 prm.authorization_servers，
-        则按 RFC 8414 请求授权服务器元数据并转换为 AuthProtocolMetadata。
+        If PRM already contains an oauth2 entry in ``mcp_auth_protocols``, return it directly. Otherwise, when an
+        http_client is provided and we have metadata_url or prm.authorization_servers, request RFC 8414 metadata
+        and convert it into AuthProtocolMetadata.
         """
         if prm is not None and prm.mcp_auth_protocols:
             for m in prm.mcp_auth_protocols:
@@ -233,9 +230,7 @@ class OAuth2Protocol:
         if not self._dpop_enabled:
             return
         if self._dpop_key_pair is None:
-            self._dpop_key_pair = DPoPKeyPair.generate(
-                self._dpop_algorithm, rsa_key_size=self._dpop_rsa_key_size
-            )
+            self._dpop_key_pair = DPoPKeyPair.generate(self._dpop_algorithm, rsa_key_size=self._dpop_rsa_key_size)
             self._dpop_generator = DPoPProofGeneratorImpl(self._dpop_key_pair)
 
     def get_dpop_public_key_jwk(self) -> dict[str, Any] | None:

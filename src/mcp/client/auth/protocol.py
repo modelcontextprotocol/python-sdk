@@ -1,7 +1,6 @@
-"""
-授权协议抽象接口定义。
+"""Auth protocol abstractions.
 
-提供多协议授权支持的统一接口抽象。
+This module defines the shared interfaces used by the multi-protocol authentication system.
 """
 
 from dataclasses import dataclass
@@ -12,23 +11,23 @@ import httpx
 from mcp.shared.auth import AuthCredentials, AuthProtocolMetadata, ProtectedResourceMetadata
 
 
-# DPoP相关类型占位符（阶段4实现）
+# DPoP-related types (implemented as part of the DPoP feature set)
 class DPoPStorage(Protocol):
-    """DPoP密钥对存储接口（阶段4实现）"""
+    """Storage interface for DPoP key pairs."""
 
     async def get_key_pair(self, protocol_id: str) -> Any: ...
     async def set_key_pair(self, protocol_id: str, key_pair: Any) -> None: ...
 
 
 class DPoPProofGenerator(Protocol):
-    """DPoP证明生成器接口（阶段4实现）"""
+    """DPoP proof generator interface."""
 
     def generate_proof(self, method: str, uri: str, credential: str | None = None, nonce: str | None = None) -> str: ...
     def get_public_key_jwk(self) -> dict[str, Any]: ...
 
 
 class ClientRegistrationResult(Protocol):
-    """客户端注册结果接口"""
+    """Client registration result interface."""
 
     client_id: str
     client_secret: str | None = None
@@ -36,16 +35,16 @@ class ClientRegistrationResult(Protocol):
 
 @dataclass
 class AuthContext:
-    """通用认证上下文"""
+    """Generic authentication context."""
 
     server_url: str
-    storage: Any  # TokenStorage协议类型
+    storage: Any  # TokenStorage protocol type
     protocol_id: str
     protocol_metadata: AuthProtocolMetadata | None = None
     current_credentials: AuthCredentials | None = None
     dpop_storage: DPoPStorage | None = None
     dpop_enabled: bool = False
-    # 供 OAuth2Protocol.run_authentication 使用（多协议路径，与 401 分支一致）
+    # Used by OAuth2Protocol.run_authentication (multi-protocol path; mirrors 401-branch behavior)
     http_client: httpx.AsyncClient | None = None
     resource_metadata_url: str | None = None
     protected_resource_metadata: ProtectedResourceMetadata | None = None
@@ -53,39 +52,36 @@ class AuthContext:
 
 
 class AuthProtocol(Protocol):
-    """授权协议基础接口（所有协议必须实现）"""
+    """Base auth protocol interface (all protocols must implement this)."""
 
     protocol_id: str
     protocol_version: str
 
     async def authenticate(self, context: AuthContext) -> AuthCredentials:
-        """
-        执行认证流程，获取凭证。
+        """Perform authentication and return credentials.
 
         Args:
-            context: 认证上下文
+            context: Authentication context.
 
         Returns:
-            认证凭证
+            Authentication credentials.
         """
         ...
 
     def prepare_request(self, request: httpx.Request, credentials: AuthCredentials) -> None:
-        """
-        准备HTTP请求，添加认证信息。
+        """Prepare an HTTP request by attaching authentication information.
 
         Args:
-            request: HTTP请求对象
-            credentials: 认证凭证
+            request: HTTP request object.
+            credentials: Authentication credentials.
         """
         ...
 
     def validate_credentials(self, credentials: AuthCredentials) -> bool:
-        """
-        验证凭证是否有效（未过期等）。
+        """Validate credentials (e.g. ensure they are not expired).
 
         Args:
-            credentials: 待验证的凭证
+            credentials: Credentials to validate.
 
         Returns:
             True if credentials are valid, False otherwise
@@ -98,43 +94,40 @@ class AuthProtocol(Protocol):
         prm: ProtectedResourceMetadata | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> AuthProtocolMetadata | None:
-        """
-        发现协议元数据。
+        """Discover protocol metadata.
 
         Args:
-            metadata_url: 元数据URL（可选）
-            prm: 受保护资源元数据（可选）
-            http_client: 可选 HTTP 客户端，用于执行 RFC 8414 等网络发现
+            metadata_url: Optional metadata URL.
+            prm: Optional protected resource metadata.
+            http_client: Optional HTTP client for network discovery (e.g. RFC 8414).
 
         Returns:
-            协议元数据，如果发现失败则返回None
+            Protocol metadata, or None if discovery fails.
         """
         ...
 
 
 class ClientRegisterableProtocol(AuthProtocol):
-    """支持客户端注册的协议扩展接口"""
+    """Protocol extension for protocols that support client registration."""
 
     async def register_client(self, context: AuthContext) -> ClientRegistrationResult | None:
-        """
-        注册客户端。
+        """Register a client.
 
         Args:
-            context: 认证上下文
+            context: Authentication context.
 
         Returns:
-            客户端注册结果，如果注册失败或不需要注册则返回None
+            Client registration result, or None if registration is not needed or fails.
         """
         ...
 
 
 @runtime_checkable
 class DPoPEnabledProtocol(AuthProtocol, Protocol):
-    """支持DPoP的协议扩展接口（阶段4实现）"""
+    """Protocol extension for DPoP-capable protocols."""
 
     def supports_dpop(self) -> bool:
-        """
-        检查协议是否支持DPoP。
+        """Return True if this protocol instance supports DPoP.
 
         Returns:
             True if protocol supports DPoP, False otherwise
@@ -142,18 +135,13 @@ class DPoPEnabledProtocol(AuthProtocol, Protocol):
         ...
 
     def get_dpop_proof_generator(self) -> DPoPProofGenerator | None:
-        """
-        获取DPoP证明生成器。
+        """Return the DPoP proof generator, if available.
 
         Returns:
-            DPoP证明生成器，如果协议不支持DPoP则返回None
+            A DPoP proof generator, or None if not supported or not initialized.
         """
         ...
 
     async def initialize_dpop(self) -> None:
-        """
-        初始化DPoP（生成密钥对等）。
-
-        仅在协议支持DPoP时调用。
-        """
+        """Initialize DPoP (e.g. generate key pairs)."""
         ...

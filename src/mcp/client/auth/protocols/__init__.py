@@ -1,4 +1,4 @@
-"""协议实现包。"""
+"""Protocol implementations package."""
 
 from mcp.client.auth.protocols.oauth2 import OAuth2Protocol
 

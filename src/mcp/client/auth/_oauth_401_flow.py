@@ -1,8 +1,7 @@
-"""
-共享的 OAuth 401/403 流程 generator。
+"""Shared OAuth 401/403 flow generators.
 
-供 OAuthClientProvider 与 MultiProtocolAuthProvider 复用，通过 yield 发送请求，
-实现单 client、无死锁的 OAuth 发现与认证流程。
+These generators are reused by OAuthClientProvider and MultiProtocolAuthProvider. They yield requests so the caller
+can send them with a single HTTP client, avoiding deadlocks while performing OAuth discovery and authentication.
 """
 
 import logging
@@ -36,14 +35,11 @@ class _OAuth401FlowProvider(Protocol):
     """Provider interface for oauth_401_flow_generator (OAuthClientProvider duck type)."""
 
     @property
-    def context(self) -> Any:
-        ...
+    def context(self) -> Any: ...
 
-    async def _perform_authorization(self) -> httpx.Request:
-        ...
+    async def _perform_authorization(self) -> httpx.Request: ...
 
-    async def _handle_token_response(self, response: httpx.Response) -> None:
-        ...
+    async def _handle_token_response(self, response: httpx.Response) -> None: ...
 
 
 logger = logging.getLogger(__name__)
@@ -56,17 +52,18 @@ async def oauth_401_flow_generator(
     *,
     initial_prm: "ProtectedResourceMetadata | None" = None,
 ) -> AsyncGenerator[httpx.Request, httpx.Response]:
-    """
-    OAuth 401 流程：PRM 发现（可跳过）→ AS 发现 → scope → 注册/CIMD → 授权码 → Token 交换。
+    """OAuth 401 flow: PRM discovery (optional) → AS metadata discovery → scope → registration/CIMD → auth → token.
 
-    通过 yield 发出请求，由调用方负责发送并传回响应。供 OAuthClientProvider 与
-    MultiProtocolAuthProvider 复用，实现单 client、yield 模式的 OAuth 流程。
+    The generator yields requests, and the caller is responsible for sending them and feeding responses back into the
+    generator. This enables a single-client, yield-based OAuth flow usable by both OAuthClientProvider and
+    MultiProtocolAuthProvider.
 
     Args:
-        provider: OAuthClientProvider 实例，需有 context、_perform_authorization、_handle_token_response
-        request: 触发 401 的原始请求
-        response_401: 401 响应
-        initial_prm: 若提供则跳过 PRM 发现（MultiProtocolAuthProvider 已事先完成）
+        provider: Provider instance (OAuthClientProvider duck type). Must provide ``context``,
+            ``_perform_authorization()``, and ``_handle_token_response()``.
+        request: The original request that triggered 401.
+        response_401: The 401 response.
+        initial_prm: If provided, PRM discovery is skipped (MultiProtocolAuthProvider may pre-discover it).
     """
     ctx = provider.context
 
@@ -94,9 +91,7 @@ async def oauth_401_flow_generator(
             logger.debug("Protected resource metadata discovery failed: %s", url)
 
     # Step 2: Discover OAuth Authorization Server Metadata (OASM)
-    asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
-        ctx.auth_server_url, ctx.server_url
-    )
+    asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(ctx.auth_server_url, ctx.server_url)
 
     for url in asm_discovery_urls:
         oauth_metadata_request = create_oauth_metadata_request(url)
@@ -153,9 +148,7 @@ async def oauth_403_flow_generator(
     request: httpx.Request,
     response_403: httpx.Response,
 ) -> AsyncGenerator[httpx.Request, httpx.Response]:
-    """
-    OAuth 403 insufficient_scope 流程：更新 scope → 重新授权 → Token 交换。
-    """
+    """OAuth 403 insufficient_scope flow: update scope → re-authorize → token exchange."""
     ctx = provider.context
     error = extract_field_from_www_auth(response_403, "error")
 
