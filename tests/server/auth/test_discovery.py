@@ -62,9 +62,7 @@ async def test_discovery_response_parseable_by_client() -> None:
         protocols=[AuthProtocolMetadata(protocol_id="oauth2", protocol_version="2.0")],
     )
     app = Starlette(routes=routes)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="https://mcptest.com"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://mcptest.com") as client:
         response = await client.get("/.well-known/authorization_servers")
     assert response.status_code == 200
     data = response.json()
@@ -82,9 +80,7 @@ async def test_discovery_routes_minimal_protocols_only() -> None:
         protocols=[AuthProtocolMetadata(protocol_id="api_key", protocol_version="1")],
     )
     app = Starlette(routes=routes)
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="https://mcptest.com"
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://mcptest.com") as client:
         response = await client.get("/.well-known/authorization_servers")
     assert response.status_code == 200
     data = response.json()

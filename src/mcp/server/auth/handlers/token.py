@@ -50,6 +50,7 @@ class ClientCredentialsRequest(BaseModel):
     # RFC 8707 resource indicator
     resource: str | None = Field(None, description="Resource indicator for the token")
 
+
 TokenRequest = Annotated[
     AuthorizationCodeRequest | RefreshTokenRequest | ClientCredentialsRequest,
     Field(discriminator="grant_type"),
@@ -119,136 +120,138 @@ class TokenHandler:
                 )
             )
 
-        if token_request.grant_type not in client_info.grant_types:  # pragma: no cover
-            return self.response(
-                TokenErrorResponse(
+        response_obj: TokenSuccessResponse | TokenErrorResponse = TokenErrorResponse(
+            error="invalid_request",
+            error_description="Token exchange failed",
+        )
+        tokens: OAuthToken | None = None
+
+        while True:
+            if token_request.grant_type not in client_info.grant_types:  # pragma: no cover
+                response_obj = TokenErrorResponse(
                     error="unsupported_grant_type",
                     error_description=(f"Unsupported grant type (supported grant types are {client_info.grant_types})"),
                 )
-            )
+                break
 
-        tokens: OAuthToken
-
-        match token_request:
-            case AuthorizationCodeRequest():
-                auth_code = await self.provider.load_authorization_code(client_info, token_request.code)
-                if auth_code is None or auth_code.client_id != token_request.client_id:
-                    # if code belongs to different client, pretend it doesn't exist
-                    return self.response(
-                        TokenErrorResponse(
+            match token_request:
+                case AuthorizationCodeRequest():
+                    auth_code = await self.provider.load_authorization_code(client_info, token_request.code)
+                    if auth_code is None or auth_code.client_id != token_request.client_id:
+                        # if code belongs to different client, pretend it doesn't exist
+                        response_obj = TokenErrorResponse(
                             error="invalid_grant",
                             error_description="authorization code does not exist",
                         )
-                    )
+                        break
 
-                # make auth codes expire after a deadline
-                # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.5
-                if auth_code.expires_at < time.time():
-                    return self.response(
-                        TokenErrorResponse(
+                    # make auth codes expire after a deadline
+                    # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.5
+                    if auth_code.expires_at < time.time():
+                        response_obj = TokenErrorResponse(
                             error="invalid_grant",
                             error_description="authorization code has expired",
                         )
+                        break
+
+                    # verify redirect_uri doesn't change between /authorize and /tokens
+                    # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.6
+                    if auth_code.redirect_uri_provided_explicitly:
+                        authorize_request_redirect_uri = auth_code.redirect_uri
+                    else:  # pragma: no cover
+                        authorize_request_redirect_uri = None
+
+                    # Convert both sides to strings for comparison to handle AnyUrl vs string issues
+                    token_redirect_str = (
+                        str(token_request.redirect_uri) if token_request.redirect_uri is not None else None
+                    )
+                    auth_redirect_str = (
+                        str(authorize_request_redirect_uri) if authorize_request_redirect_uri is not None else None
                     )
 
-                # verify redirect_uri doesn't change between /authorize and /tokens
-                # see https://datatracker.ietf.org/doc/html/rfc6749#section-10.6
-                if auth_code.redirect_uri_provided_explicitly:
-                    authorize_request_redirect_uri = auth_code.redirect_uri
-                else:  # pragma: no cover
-                    authorize_request_redirect_uri = None
-
-                # Convert both sides to strings for comparison to handle AnyUrl vs string issues
-                token_redirect_str = str(token_request.redirect_uri) if token_request.redirect_uri is not None else None
-                auth_redirect_str = (
-                    str(authorize_request_redirect_uri) if authorize_request_redirect_uri is not None else None
-                )
-
-                if token_redirect_str != auth_redirect_str:
-                    return self.response(
-                        TokenErrorResponse(
+                    if token_redirect_str != auth_redirect_str:
+                        response_obj = TokenErrorResponse(
                             error="invalid_request",
-                            error_description=("redirect_uri did not match the one used when creating auth code"),
+                            error_description="redirect_uri did not match the one used when creating auth code",
                         )
-                    )
+                        break
 
-                # Verify PKCE code verifier
-                sha256 = hashlib.sha256(token_request.code_verifier.encode()).digest()
-                hashed_code_verifier = base64.urlsafe_b64encode(sha256).decode().rstrip("=")
+                    # Verify PKCE code verifier
+                    sha256 = hashlib.sha256(token_request.code_verifier.encode()).digest()
+                    hashed_code_verifier = base64.urlsafe_b64encode(sha256).decode().rstrip("=")
 
-                if hashed_code_verifier != auth_code.code_challenge:
-                    # see https://datatracker.ietf.org/doc/html/rfc7636#section-4.6
-                    return self.response(
-                        TokenErrorResponse(
+                    if hashed_code_verifier != auth_code.code_challenge:
+                        # see https://datatracker.ietf.org/doc/html/rfc7636#section-4.6
+                        response_obj = TokenErrorResponse(
                             error="invalid_grant",
                             error_description="incorrect code_verifier",
                         )
-                    )
+                        break
 
-                try:
-                    # Exchange authorization code for tokens
-                    tokens = await self.provider.exchange_authorization_code(client_info, auth_code)
-                except TokenError as e:
-                    return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
+                    try:
+                        # Exchange authorization code for tokens
+                        tokens = await self.provider.exchange_authorization_code(client_info, auth_code)
+                    except TokenError as e:
+                        response_obj = TokenErrorResponse(error=e.error, error_description=e.error_description)
+                        break
 
-            case RefreshTokenRequest():  # pragma: no branch
-                refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
-                if refresh_token is None or refresh_token.client_id != token_request.client_id:
-                    # if token belongs to different client, pretend it doesn't exist
-                    return self.response(
-                        TokenErrorResponse(
+                case RefreshTokenRequest():  # pragma: no branch
+                    refresh_token = await self.provider.load_refresh_token(client_info, token_request.refresh_token)
+                    if refresh_token is None or refresh_token.client_id != token_request.client_id:
+                        # if token belongs to different client, pretend it doesn't exist
+                        response_obj = TokenErrorResponse(
                             error="invalid_grant",
                             error_description="refresh token does not exist",
                         )
-                    )
+                        break
 
-                if refresh_token.expires_at and refresh_token.expires_at < time.time():
-                    # if the refresh token has expired, pretend it doesn't exist
-                    return self.response(
-                        TokenErrorResponse(
+                    if refresh_token.expires_at and refresh_token.expires_at < time.time():
+                        # if the refresh token has expired, pretend it doesn't exist
+                        response_obj = TokenErrorResponse(
                             error="invalid_grant",
                             error_description="refresh token has expired",
                         )
-                    )
+                        break
 
-                # Parse scopes if provided
-                scopes = token_request.scope.split(" ") if token_request.scope else refresh_token.scopes
+                    # Parse scopes if provided
+                    scopes = token_request.scope.split(" ") if token_request.scope else refresh_token.scopes
 
-                for scope in scopes:
-                    if scope not in refresh_token.scopes:
-                        return self.response(
-                            TokenErrorResponse(
+                    for scope in scopes:
+                        if scope not in refresh_token.scopes:
+                            response_obj = TokenErrorResponse(
                                 error="invalid_scope",
-                                error_description=(f"cannot request scope `{scope}` not provided by refresh token"),
+                                error_description=f"cannot request scope `{scope}` not provided by refresh token",
                             )
-                        )
+                            break
+                    else:
+                        try:
+                            # Exchange refresh token for new tokens
+                            tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
+                        except TokenError as e:
+                            response_obj = TokenErrorResponse(error=e.error, error_description=e.error_description)
+                            break
 
-                try:
-                    # Exchange refresh token for new tokens
-                    tokens = await self.provider.exchange_refresh_token(client_info, refresh_token, scopes)
-                except TokenError as e:
-                    return self.response(TokenErrorResponse(error=e.error, error_description=e.error_description))
-
-            case ClientCredentialsRequest():
-                # Exchange client credentials for access token
-                scope_str = token_request.scope or getattr(client_info, "scope", None) or ""
-                scopes = scope_str.split(" ") if scope_str else []
-                exchange = getattr(self.provider, "exchange_client_credentials", None)
-                if exchange is None:
-                    return self.response(
-                        TokenErrorResponse(
+                case ClientCredentialsRequest():
+                    # Exchange client credentials for access token
+                    scope_str = token_request.scope or getattr(client_info, "scope", None) or ""
+                    scopes = scope_str.split(" ") if scope_str else []
+                    exchange = getattr(self.provider, "exchange_client_credentials", None)
+                    if exchange is None:
+                        response_obj = TokenErrorResponse(
                             error="unsupported_grant_type",
                             error_description="client_credentials is not supported by this authorization server",
                         )
-                    )
-                try:
-                    tokens = await exchange(client_info, scopes=scopes, resource=token_request.resource)
-                except TokenError as e:
-                    return self.response(
-                        TokenErrorResponse(
-                            error=e.error,
-                            error_description=e.error_description,
-                        )
-                    )
+                        break
+                    try:
+                        tokens = await exchange(client_info, scopes=scopes, resource=token_request.resource)
+                    except TokenError as e:
+                        response_obj = TokenErrorResponse(error=e.error, error_description=e.error_description)
+                        break
 
-        return self.response(tokens)
+            if tokens is None:
+                break
+
+            response_obj = tokens
+            break
+
+        return self.response(response_obj)

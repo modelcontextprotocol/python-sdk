@@ -33,6 +33,7 @@ def _request_with_headers(headers: list[tuple[str, str]]) -> Request:
     scope: dict[str, Any] = {"type": "http", "headers": []}
     if headers:
         from starlette.datastructures import Headers
+
         h = Headers(dict(headers))
         scope["headers"] = h.raw
     return Request(scope)
@@ -167,10 +168,12 @@ async def test_multi_protocol_backend_returns_first_success() -> None:
 
 @pytest.mark.anyio
 async def test_multi_protocol_backend_returns_none_when_all_fail() -> None:
-    backend = MultiProtocolAuthBackend(verifiers=[
-        OAuthTokenVerifier(cast(Any, _MockTokenVerifier())),
-        APIKeyVerifier(valid_keys=set()),
-    ])
+    backend = MultiProtocolAuthBackend(
+        verifiers=[
+            OAuthTokenVerifier(cast(Any, _MockTokenVerifier())),
+            APIKeyVerifier(valid_keys=set()),
+        ]
+    )
     request = _request_with_headers([])
     result = await backend.verify(request)
     assert result is None

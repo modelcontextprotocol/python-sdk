@@ -1,5 +1,4 @@
-"""
-DPoP (Demonstrating Proof-of-Possession) server-side verification.
+"""DPoP (Demonstrating Proof-of-Possession) server-side verification.
 
 RFC 9449: OAuth 2.0 Demonstrating Proof of Possession (DPoP).
 Provides DPoPProofVerifier for validating DPoP proof JWTs and jti replay protection.
@@ -196,22 +195,26 @@ def _compute_thumbprint(jwk: dict[str, Any]) -> str:
     kty = jwk.get("kty")
     if kty == "EC":
         canonical = {
-            "crv": jwk["crv"], 
-            "kty": "EC", 
-            "x": jwk["x"], 
+            "crv": jwk["crv"],
+            "kty": "EC",
+            "x": jwk["x"],
             "y": jwk["y"],
         }
     elif kty == "RSA":
         canonical = {
-            "e": jwk["e"], 
-            "kty": "RSA", 
+            "e": jwk["e"],
+            "kty": "RSA",
             "n": jwk["n"],
         }
     else:
         raise DPoPVerificationError("invalid_dpop_proof", f"Unsupported kty: {kty}")
-    return base64.urlsafe_b64encode(
-        hashlib.sha256(json.dumps(canonical, separators=(",", ":"), sort_keys=True).encode()).digest()
-    ).decode().rstrip("=")
+    return (
+        base64.urlsafe_b64encode(
+            hashlib.sha256(json.dumps(canonical, separators=(",", ":"), sort_keys=True).encode()).digest()
+        )
+        .decode()
+        .rstrip("=")
+    )
 
 
 def extract_dpop_proof(headers: dict[str, str]) -> str | None:

@@ -10,8 +10,7 @@ from mcp.shared.auth import AuthProtocolMetadata
 
 @dataclass
 class AuthorizationServersDiscoveryHandler:
-    """
-    Handler for /.well-known/authorization_servers.
+    """Handler for /.well-known/authorization_servers.
 
     Returns JSON with protocols (list of AuthProtocolMetadata), optional default_protocol,
     and optional protocol_preferences. Clients use "protocols" for discovery.

@@ -1,7 +1,6 @@
-"""
-多协议凭证验证器。
+"""Multi-protocol credential verifiers.
 
-提供 CredentialVerifier 协议及 OAuthTokenVerifier 实现，供 MultiProtocolAuthBackend 按协议尝试校验。
+Defines the CredentialVerifier protocol and concrete implementations used by MultiProtocolAuthBackend.
 """
 
 from typing import Any, Protocol
@@ -17,32 +16,34 @@ APIKEY_HEADER = "x-api-key"  # if found, use it; if not, use Authorization: Bear
 
 
 class CredentialVerifier(Protocol):
-    """凭证验证器协议：按请求校验认证信息，可选 DPoP 校验（阶段4 实现）。"""
+    """Credential verifier interface.
+
+    Verifies request authentication information. Optionally performs DPoP verification when a verifier is provided.
+    """
 
     async def verify(
         self,
         request: Request,
         dpop_verifier: Any = None,
     ) -> AccessToken | None:
-        """
-        校验请求中的凭证。
+        """Verify credentials from an incoming request.
 
         Args:
-            request: 待校验的请求。
-            dpop_verifier: 可选 DPoP 校验器，阶段4 再使用。
+            request: Incoming request.
+            dpop_verifier: Optional DPoP verifier.
 
         Returns:
-            校验成功时返回 AccessToken，否则返回 None。
+            AccessToken if verification succeeds, otherwise None.
         """
         ...
 
 
 class OAuthTokenVerifier:
-    """
-    OAuth Bearer/DPoP 凭证验证器。
+    """OAuth Bearer/DPoP credential verifier.
 
-    支持 Bearer 和 DPoP 两种 token 类型。当提供 dpop_verifier 时，会验证 DPoP proof
-    的签名、htm/htu/iat/ath 等声明。注：cnf.jkt 绑定检查暂未实现（需 AccessToken 扩展）。
+    Supports both Bearer and DPoP-bound access tokens. When a dpop_verifier is provided, it verifies DPoP proof
+    signature and claims (htm/htu/iat/ath). Note: cnf.jkt binding checks are not implemented yet (requires
+    AccessToken extension).
     """
 
     def __init__(self, token_verifier: TokenVerifier) -> None:
@@ -63,10 +64,10 @@ class OAuthTokenVerifier:
 
         if auth_header.lower().startswith(DPOP_PREFIX.lower()):
             # DPoP-bound access token (Authorization: DPoP <token>)
-            token = auth_header[len(DPOP_PREFIX):].strip()
+            token = auth_header[len(DPOP_PREFIX) :].strip()
             is_dpop_bound = True
         elif auth_header.lower().startswith(BEARER_PREFIX.lower()):
-            token = auth_header[len(BEARER_PREFIX):].strip()
+            token = auth_header[len(BEARER_PREFIX) :].strip()
 
         if not token:
             return None
@@ -112,12 +113,12 @@ def _get_header_ignore_case(request: Request, name: str) -> str | None:
 
 
 class APIKeyVerifier:
-    """
-    API Key 凭证验证器。
+    """API key credential verifier.
 
-    优先从 X-API-Key header 读取；可选从 Authorization: Bearer <key> 读取并在 valid_keys 中查找。
-    不解析非标准 ApiKey scheme；DPoP 占位，阶段4 再实现。
-    可选 scopes：校验通过时赋予的 scope 列表，用于满足 RequireAuthMiddleware 的 required_scopes。
+    Prefers reading ``X-API-Key`` header; optionally falls back to ``Authorization: Bearer <key>`` and matches it
+    against valid_keys. This verifier does not parse non-standard ``ApiKey`` schemes.
+
+    Optionally assigns ``scopes`` to the verified token, which can satisfy RequireAuthMiddleware's required_scopes.
     """
 
     def __init__(self, valid_keys: set[str], scopes: list[str] | None = None) -> None:
@@ -147,10 +148,9 @@ class APIKeyVerifier:
 
 
 class MultiProtocolAuthBackend:
-    """
-    多协议认证后端。
+    """Multi-protocol authentication backend.
 
-    按顺序遍历 verifiers，第一个校验成功的返回其 AccessToken，否则返回 None。
+    Iterates over verifiers in order and returns the first successful AccessToken, or None if all fail.
     """
 
     def __init__(self, verifiers: list[CredentialVerifier]) -> None:

@@ -227,7 +227,7 @@ async def multiprotocol_client(multiprotocol_app: Starlette):
 
 @pytest.mark.anyio
 async def test_metadata_includes_mcp_auth_protocols(multiprotocol_client: httpx.AsyncClient) -> None:
-    """PRM endpoint returns mcp_auth_protocols, mcp_default_auth_protocol, mcp_auth_protocol_preferences when provided."""
+    """PRM returns mcp_* fields when explicitly configured."""
     response = await multiprotocol_client.get("/.well-known/oauth-protected-resource/mcp")
     assert response.status_code == 200
     data = response.json()
