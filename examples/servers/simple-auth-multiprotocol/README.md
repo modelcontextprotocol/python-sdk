@@ -38,7 +38,7 @@ You can run the Resource Server **without** the Authorization Server when using 
 3. At the `mcp>` prompt, run `list`, `call get_time {}`, then `quit`.
 
 **One-command verification** (from repo root):  
-`MCP_AUTH_PROTOCOL=api_key ./scripts/run_phase2_multiprotocol_integration_test.sh`  
+`./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh`  
 This starts the RS, then the client with API Key; complete the session with `list`, `call get_time {}`, `quit`.
 
 ## Running with DPoP (OAuth + DPoP)
@@ -63,7 +63,7 @@ DPoP (Demonstrating Proof-of-Possession, RFC 9449) binds the access token to a c
    Complete OAuth in the browser, then at `mcp>` run `list`, `call get_time {}`, `quit`. Server logs should show "Authentication successful with DPoP".
 
 **One-command verification** (from repo root):  
-`./scripts/run_phase4_dpop_integration_test.sh` — starts AS and RS (with `--dpop-enabled`), runs automated DPoP tests, then optionally the OAuth+DPoP client (use `MCP_SKIP_OAUTH=1` to skip the manual OAuth step).
+`./examples/clients/simple-auth-multiprotocol-client/run_dpop_test.sh` — starts AS and RS (with `--dpop-enabled`), runs automated DPoP tests, then optionally the OAuth+DPoP client (use `MCP_SKIP_OAUTH=1` to skip the manual OAuth step).
 
 ## Running with Mutual TLS (placeholder)
 
@@ -71,7 +71,7 @@ Mutual TLS is a **placeholder** in this example: the server accepts the `mutual_
 
 - **Server**: No extra flags; `auth_protocols` already includes `mutual_tls`.
 - **Client** (from repo root):  
-  `MCP_AUTH_PROTOCOL=mutual_tls ./scripts/run_phase2_multiprotocol_integration_test.sh`  
+  `MCP_AUTH_PROTOCOL=mutual_tls ./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh`  
   The client will start but mTLS authentication is not implemented in this example.
 
 ## Options

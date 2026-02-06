@@ -26,7 +26,7 @@ MCP_SERVER_URL=http://localhost:8002/mcp MCP_API_KEY=demo-api-key-12345 uv run m
 ```
 
 **One-command test** from repo root:  
-`MCP_AUTH_PROTOCOL=api_key ./scripts/run_phase2_multiprotocol_integration_test.sh`  
+`./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh`  
 starts the resource server and this client with API Key; at `mcp>` run `list`, `call get_time {}`, `quit`.
 
 ## Running with OAuth + DPoP
@@ -45,16 +45,16 @@ MCP_SERVER_URL=http://localhost:8002/mcp MCP_USE_OAUTH=1 MCP_DPOP_ENABLED=1 uv r
 Complete OAuth in the browser; then at `mcp>` run `list`, `call get_time {}`, `quit`. Server logs should show "Authentication successful with DPoP".
 
 **One-command test** from repo root:  
-`./scripts/run_phase4_dpop_integration_test.sh` — starts AS and RS with DPoP, then runs this client (OAuth+DPoP). Use `MCP_SKIP_OAUTH=1` to run only the automated curl tests and skip the manual client step.
+`./examples/clients/simple-auth-multiprotocol-client/run_dpop_test.sh` — starts AS and RS with DPoP, then runs this client (OAuth+DPoP). Use `MCP_SKIP_OAUTH=1` to run only the automated curl tests and skip the manual client step.
 
 ## Running with Mutual TLS (placeholder)
 
 Mutual TLS is a **placeholder** in this example: the client registers the `mutual_tls` protocol but does **not** perform client certificate authentication. Selecting mTLS will show a "not implemented" style message.
 
-- **`MCP_AUTH_PROTOCOL=mutual_tls`** (with the phase2 script) runs this client in mTLS mode; the client will start but mTLS auth is not implemented.
+- **`MCP_AUTH_PROTOCOL=mutual_tls`** runs this client in mTLS mode; the client will start but mTLS auth is not implemented.
 
 **One-command test** from repo root:  
-`MCP_AUTH_PROTOCOL=mutual_tls ./scripts/run_phase2_multiprotocol_integration_test.sh`
+`MCP_AUTH_PROTOCOL=mutual_tls ./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh`
 
 ## Commands
 

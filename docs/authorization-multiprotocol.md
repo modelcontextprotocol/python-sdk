@@ -465,39 +465,68 @@ See `RequireAuthMiddleware` and PRM handler in `mcp.server.auth` for how these a
 
 ## 4. Integration test examples
 
-### 4.1 Phase 2: Multi-protocol (API Key, OAuth, mTLS placeholder)
+### 4.1 Multi-protocol (API Key, OAuth, mTLS placeholder)
 
-**Script:** `./scripts/run_phase2_multiprotocol_integration_test.sh` (from repo root).
+**Script:** `./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh`
 
-**Behavior:**
+**Quick start (from repo root):**
 
-- Starts the multi-protocol resource server (`simple-auth-multiprotocol-rs`) on port 8002 with `--api-keys=demo-api-key-12345`. For OAuth, also starts the AS (`simple-auth-as`) on port 9000.
-- Waits for PRM: `GET http://localhost:8002/.well-known/oauth-protected-resource/mcp`.
-- Runs the client based on `MCP_AUTH_PROTOCOL`:
-  - **api_key** (default): `simple-auth-multiprotocol-client` with `MCP_SERVER_URL=http://localhost:8002/mcp` and `MCP_API_KEY=demo-api-key-12345`. No AS is required.
-  - **oauth**: `simple-auth-client` against the same RS; the user completes OAuth in the browser, then runs `list`, `call get_time {}`, `quit`.
-  - **mutual_tls**: the same multiprotocol client without an API key; mTLS is a placeholder (no real client certificate validation).
+```bash
+# API Key (non-interactive, default)
+./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh
+
+# OAuth (interactive — complete authorization in browser)
+MCP_AUTH_PROTOCOL=oauth ./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh
+
+# Mutual TLS placeholder (expect "not implemented" error)
+MCP_AUTH_PROTOCOL=mutual_tls ./examples/clients/simple-auth-multiprotocol-client/run_multiprotocol_test.sh
+```
+
+The script starts the multi-protocol RS on port 8002 (and AS on 9000 for OAuth), waits for PRM readiness, then runs the client with the selected protocol. For `api_key` and `mutual_tls`, the script is fully automated and prints PASS/FAIL. For `oauth`, the user completes OAuth in the browser, then runs `list`, `call get_time {}`, `quit`.
+
+**Env variables:** `MCP_RS_PORT` (default 8002), `MCP_AS_PORT` (default 9000), `MCP_AUTH_PROTOCOL` (default `api_key`), `MCP_SKIP_OAUTH=1` (skip manual OAuth test).
 
 **Demonstrates:** PRM and optional unified discovery, protocol selection (API Key vs OAuth), and API Key authentication without an AS.
 
-### 4.2 Phase 4: DPoP integration
+### 4.2 DPoP integration
 
-**Script:** `./scripts/run_phase4_dpop_integration_test.sh` (from repo root).
+**Script:** `./examples/clients/simple-auth-multiprotocol-client/run_dpop_test.sh`
 
-**Behavior:**
+**Quick start (from repo root):**
 
-- Starts AS on 9000 and RS on 8002 with `--dpop-enabled` and an API key.
-- Runs **automated** curl tests:
-  - **B2:** API Key request → 200 (DPoP does not affect API Key).
-  - **A2:** Bearer token without DPoP proof → 401 (RS requires DPoP when token is DPoP-bound).
-  - Negative: fake token, wrong htm/htu, DPoP without Authorization → 401.
-- Optionally runs a **manual** OAuth+DPoP client test: `MCP_USE_OAUTH=1 MCP_DPOP_ENABLED=1` with the multiprotocol client; the user completes OAuth in the browser, then runs `list`, `call get_time {}`, `quit`. Server logs should show "Authentication successful with DPoP".
+```bash
+# Automated tests only (no browser)
+MCP_SKIP_OAUTH=1 ./examples/clients/simple-auth-multiprotocol-client/run_dpop_test.sh
 
-**Env:** `MCP_SKIP_OAUTH=1` skips the manual client step and runs only the automated curl tests.
+# Full test including manual OAuth+DPoP (requires browser)
+./examples/clients/simple-auth-multiprotocol-client/run_dpop_test.sh
+```
+
+The script starts AS on port 9000 and RS on port 8002 with `--dpop-enabled`, then runs automated curl tests:
+
+- API Key request → 200 (DPoP does not affect API Key).
+- Bearer token without DPoP proof → 401 (RS requires DPoP when token is DPoP-bound).
+- Negative: fake token, wrong htm/htu, DPoP without Authorization → 401.
+
+When `MCP_SKIP_OAUTH` is not set, the script also runs a manual OAuth+DPoP client test: the user completes OAuth in the browser, then runs `list`, `call get_time {}`, `quit`. Server logs should show "Authentication successful with DPoP".
+
+**Env variables:** `MCP_RS_PORT` (default 8002), `MCP_AS_PORT` (default 9000), `MCP_SKIP_OAUTH=1` (skip manual OAuth+DPoP test).
 
 **Demonstrates:** DPoP proof verification on the server, rejection of Bearer tokens without a proof when DPoP is required, and a successful OAuth+DPoP flow with the example client.
 
-### 4.3 Test matrix (reference)
+### 4.3 OAuth2 backward compatibility
+
+**Script:** `./examples/clients/simple-auth-multiprotocol-client/run_oauth2_test.sh`
+
+**Quick start (from repo root):**
+
+```bash
+./examples/clients/simple-auth-multiprotocol-client/run_oauth2_test.sh
+```
+
+Starts the `simple-auth` AS and RS (OAuth-only, no multi-protocol), then runs `simple-auth-client`. The user completes OAuth in the browser, then runs `list`, `call get_time {}`, `quit`. Verifies that the existing OAuth-only path still works unchanged.
+
+### 4.4 Test matrix (reference)
 
 | Case | Auth type        | Expected result |
 |------|------------------|-----------------|
