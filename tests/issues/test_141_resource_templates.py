@@ -2,6 +2,7 @@ import pytest
 
 from mcp import Client
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.types import (
     ListResourceTemplatesResult,
     TextResourceContents,
@@ -54,10 +55,10 @@ async def test_resource_template_edge_cases():
     assert result_list[0].mime_type == "text/plain"
 
     # Verify invalid parameters raise error
-    with pytest.raises(ValueError, match="Unknown resource"):
+    with pytest.raises(ResourceError, match="Unknown resource"):
         await mcp.read_resource("resource://users/123/posts")  # Missing post_id
 
-    with pytest.raises(ValueError, match="Unknown resource"):
+    with pytest.raises(ResourceError, match="Unknown resource"):
         await mcp.read_resource("resource://users/123/posts/456/extra")  # Extra path component
 
 

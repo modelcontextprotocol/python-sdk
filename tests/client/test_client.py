@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import anyio
 import pytest
 from inline_snapshot import snapshot
 
-import mcp.types as types
+from mcp import types
+from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
@@ -285,3 +288,21 @@ async def test_complete_with_prompt_reference(simple_server: Server):
         ref = types.PromptReference(type="ref/prompt", name="test_prompt")
         result = await client.complete(ref=ref, argument={"name": "arg", "value": "test"})
         assert result == snapshot(types.CompleteResult(completion=types.Completion(values=[])))
+
+
+def test_client_with_url_initializes_streamable_http_transport():
+    with patch("mcp.client.client.streamable_http_client") as mock:
+        _ = Client("http://localhost:8000/mcp")
+    mock.assert_called_once_with("http://localhost:8000/mcp")
+
+
+async def test_client_uses_transport_directly(app: MCPServer):
+    transport = InMemoryTransport(app)
+    async with Client(transport) as client:
+        result = await client.call_tool("greet", {"name": "Transport"})
+        assert result == snapshot(
+            CallToolResult(
+                content=[TextContent(text="Hello, Transport!")],
+                structured_content={"result": "Hello, Transport!"},
+            )
+        )

@@ -14,7 +14,7 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -223,15 +223,15 @@ class SimpleAuthClient:
                     auth=oauth_auth,
                     timeout=60.0,
                 ) as (read_stream, write_stream):
-                    await self._run_session(read_stream, write_stream, None)
+                    await self._run_session(read_stream, write_stream)
             else:
                 print("📡 Opening StreamableHTTP transport connection with auth...")
                 async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
-                    async with streamable_http_client(
-                        url=self.server_url,
-                        http_client=custom_client,
-                    ) as (read_stream, write_stream, get_session_id):
-                        await self._run_session(read_stream, write_stream, get_session_id)
+                    async with streamable_http_client(url=self.server_url, http_client=custom_client) as (
+                        read_stream,
+                        write_stream,
+                    ):
+                        await self._run_session(read_stream, write_stream)
 
         except Exception as e:
             print(f"❌ Failed to connect: {e}")
@@ -243,7 +243,6 @@ class SimpleAuthClient:
         self,
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
-        get_session_id: Callable[[], str | None] | None = None,
     ):
         """Run the MCP session with the given streams."""
         print("🤝 Initializing MCP session...")
@@ -254,10 +253,6 @@ class SimpleAuthClient:
             print("✨ Session initialization complete!")
 
             print(f"\n✅ Connected to MCP server at {self.server_url}")
-            if get_session_id:
-                session_id = get_session_id()
-                if session_id:
-                    print(f"Session ID: {session_id}")
 
             # Run interactive loop
             await self.interactive_loop()

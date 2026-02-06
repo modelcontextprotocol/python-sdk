@@ -57,10 +57,7 @@ class Experimental:
         return self._client_capabilities.tasks is not None
 
     def validate_task_mode(
-        self,
-        tool_task_mode: TaskExecutionMode | None,
-        *,
-        raise_error: bool = True,
+        self, tool_task_mode: TaskExecutionMode | None, *, raise_error: bool = True
     ) -> ErrorData | None:
         """Validate that the request is compatible with the tool's task execution mode.
 
@@ -91,16 +88,11 @@ class Experimental:
             error = ErrorData(code=METHOD_NOT_FOUND, message="This tool does not support task-augmented invocation")
 
         if error is not None and raise_error:
-            raise MCPError(code=error.code, message=error.message)
+            raise MCPError.from_error_data(error)
 
         return error
 
-    def validate_for_tool(
-        self,
-        tool: Tool,
-        *,
-        raise_error: bool = True,
-    ) -> ErrorData | None:
+    def validate_for_tool(self, tool: Tool, *, raise_error: bool = True) -> ErrorData | None:
         """Validate that the request is compatible with the given tool.
 
         Convenience wrapper around validate_task_mode that extracts the mode from a Tool.

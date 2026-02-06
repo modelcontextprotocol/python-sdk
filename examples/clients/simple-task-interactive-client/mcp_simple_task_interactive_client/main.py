@@ -7,12 +7,11 @@ This example demonstrates the spec-compliant polling pattern:
 """
 
 import asyncio
-from typing import Any
 
 import click
 from mcp import ClientSession
+from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.context import RequestContext
 from mcp.types import (
     CallToolResult,
     CreateMessageRequestParams,
@@ -24,7 +23,7 @@ from mcp.types import (
 
 
 async def elicitation_callback(
-    context: RequestContext[ClientSession, Any],
+    context: ClientRequestContext,
     params: ElicitRequestParams,
 ) -> ElicitResult:
     """Handle elicitation requests from the server."""
@@ -39,7 +38,7 @@ async def elicitation_callback(
 
 
 async def sampling_callback(
-    context: RequestContext[ClientSession, Any],
+    context: ClientRequestContext,
     params: CreateMessageRequestParams,
 ) -> CreateMessageResult:
     """Handle sampling requests from the server."""
@@ -73,7 +72,7 @@ def get_text(result: CallToolResult) -> str:
 
 
 async def run(url: str) -> None:
-    async with streamable_http_client(url) as (read, write, _):
+    async with streamable_http_client(url) as (read, write):
         async with ClientSession(
             read,
             write,

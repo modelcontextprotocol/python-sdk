@@ -13,12 +13,14 @@
 
 </div>
 
+<!-- TODO(v2): Move this content back to README.md when v2 is released -->
+
 > [!IMPORTANT]
-> **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
+> **This documents v2 of the SDK (currently in development, pre-alpha on `main`).**
 >
 > We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
 >
-> For v1 documentation and code, see the [`v1.x` branch](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x).
+> For v1 documentation (the current stable release), see [`README.md`](README.md).
 
 <!-- omit in toc -->
 ## Table of Contents
@@ -227,7 +229,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 
 
 # Mock database class for example
@@ -273,7 +274,7 @@ mcp = MCPServer("My App", lifespan=app_lifespan)
 
 # Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context[ServerSession, AppContext]) -> str:
+def query_db(ctx: Context[AppContext]) -> str:
     """Tool that uses initialized resources."""
     db = ctx.request_context.lifespan_context.db
     return db.query()
@@ -2213,11 +2214,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 async def main():
     # Connect to a streamable HTTP server
-    async with streamable_http_client("http://localhost:8000/mcp") as (
-        read_stream,
-        write_stream,
-        _,
-    ):
+    async with streamable_http_client("http://localhost:8000/mcp") as (read_stream, write_stream):
         # Create a session using the client streams
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
@@ -2395,7 +2392,7 @@ async def main():
     )
 
     async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
-        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write, _):
+        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
 

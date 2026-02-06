@@ -1,6 +1,6 @@
 import anyio
 import click
-import mcp.types as types
+from mcp import types
 from mcp.server.lowlevel import Server
 from starlette.requests import Request
 

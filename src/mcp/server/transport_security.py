@@ -9,37 +9,35 @@ from starlette.responses import Response
 logger = logging.getLogger(__name__)
 
 
+# TODO(Marcelo): We should flatten these settings. To be fair, I don't think we should even have this middleware.
 class TransportSecuritySettings(BaseModel):
     """Settings for MCP transport security features.
 
-    These settings help protect against DNS rebinding attacks by validating
-    incoming request headers.
+    These settings help protect against DNS rebinding attacks by validating incoming request headers.
     """
 
-    enable_dns_rebinding_protection: bool = Field(
-        default=True,
-        description="Enable DNS rebinding protection (recommended for production)",
-    )
+    enable_dns_rebinding_protection: bool = True
+    """Enable DNS rebinding protection (recommended for production)."""
 
-    allowed_hosts: list[str] = Field(
-        default=[],
-        description="List of allowed Host header values. Only applies when "
-        + "enable_dns_rebinding_protection is True.",
-    )
+    allowed_hosts: list[str] = Field(default_factory=list)
+    """List of allowed Host header values.
 
-    allowed_origins: list[str] = Field(
-        default=[],
-        description="List of allowed Origin header values. Only applies when "
-        + "enable_dns_rebinding_protection is True.",
-    )
+    Only applies when `enable_dns_rebinding_protection` is `True`.
+    """
+
+    allowed_origins: list[str] = Field(default_factory=list)
+    """List of allowed Origin header values.
+
+    Only applies when `enable_dns_rebinding_protection` is `True`.
+    """
 
 
+# TODO(Marcelo): This should be a proper ASGI middleware. I'm sad to see this.
 class TransportSecurityMiddleware:
     """Middleware to enforce DNS rebinding protection for MCP transport endpoints."""
 
     def __init__(self, settings: TransportSecuritySettings | None = None):
-        # If not specified, disable DNS rebinding protection by default
-        # for backwards compatibility
+        # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
     def _validate_host(self, host: str | None) -> bool:  # pragma: no cover
@@ -88,16 +86,7 @@ class TransportSecurityMiddleware:
 
     def _validate_content_type(self, content_type: str | None) -> bool:
         """Validate the Content-Type header for POST requests."""
-        if not content_type:  # pragma: lax no cover
-            logger.warning("Missing Content-Type header in POST request")
-            return False
-
-        # Content-Type must start with application/json
-        if not content_type.lower().startswith("application/json"):
-            logger.warning(f"Invalid Content-Type header: {content_type}")
-            return False
-
-        return True
+        return content_type is not None and content_type.lower().startswith("application/json")
 
     async def validate_request(self, request: Request, is_post: bool = False) -> Response | None:
         """Validate request headers for DNS rebinding protection.

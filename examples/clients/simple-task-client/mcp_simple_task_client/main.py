@@ -9,7 +9,7 @@ from mcp.types import CallToolResult, TextContent
 
 
 async def run(url: str) -> None:
-    async with streamable_http_client(url) as (read, write, _):
+    async with streamable_http_client(url) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
 

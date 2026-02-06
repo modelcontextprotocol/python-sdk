@@ -17,7 +17,7 @@ This document contains critical information about working with this codebase. Fo
    - Functions must be focused and small
    - Follow existing patterns exactly
    - Line length: 120 chars maximum
-   - FORBIDDEN: imports inside functions
+   - FORBIDDEN: imports inside functions. THEY SHOULD BE AT THE TOP OF THE FILE.
 
 3. Testing Requirements
    - Framework: `uv run --frozen pytest`

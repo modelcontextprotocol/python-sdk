@@ -24,7 +24,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
-    from mcp.server.lowlevel.server import Server as MCPServer
+    from mcp.server.lowlevel.server import Server
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class StreamableHTTPSessionManager:
 
     def __init__(
         self,
-        app: MCPServer[Any, Any],
+        app: Server[Any, Any],
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
@@ -124,20 +124,10 @@ class StreamableHTTPSessionManager:
                 # Clear any remaining server instances
                 self._server_instances.clear()
 
-    async def handle_request(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
+    async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.
 
         Dispatches to the appropriate handler based on stateless mode.
-
-        Args:
-            scope: ASGI scope
-            receive: ASGI receive function
-            send: ASGI send function
         """
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
@@ -148,19 +138,8 @@ class StreamableHTTPSessionManager:
         else:
             await self._handle_stateful_request(scope, receive, send)
 
-    async def _handle_stateless_request(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        """Process request in stateless mode - creating a new transport for each request.
-
-        Args:
-            scope: ASGI scope
-            receive: ASGI receive function
-            send: ASGI send function
-        """
+    async def _handle_stateless_request(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Process request in stateless mode - creating a new transport for each request."""
         logger.debug("Stateless mode: Creating new transport for this request")
         # No session ID needed in stateless mode
         http_transport = StreamableHTTPServerTransport(
@@ -196,19 +175,8 @@ class StreamableHTTPSessionManager:
         # Terminate the transport after the request is handled
         await http_transport.terminate()
 
-    async def _handle_stateful_request(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        """Process request in stateful mode - maintaining session state between requests.
-
-        Args:
-            scope: ASGI scope
-            receive: ASGI receive function
-            send: ASGI send function
-        """
+    async def _handle_stateful_request(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Process request in stateful mode - maintaining session state between requests."""
         request = Request(scope, receive)
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
@@ -248,11 +216,8 @@ class StreamableHTTPSessionManager:
                                 self.app.create_initialization_options(),
                                 stateless=False,  # Stateful mode
                             )
-                        except Exception as e:
-                            logger.error(
-                                f"Session {http_transport.mcp_session_id} crashed: {e}",
-                                exc_info=True,
-                            )
+                        except Exception:
+                            logger.exception(f"Session {http_transport.mcp_session_id} crashed")
                         finally:
                             # Only remove from instances if not terminated
                             if (  # pragma: no branch
@@ -262,8 +227,7 @@ class StreamableHTTPSessionManager:
                             ):
                                 logger.info(
                                     "Cleaning up crashed session "
-                                    f"{http_transport.mcp_session_id} from "
-                                    "active instances."
+                                    f"{http_transport.mcp_session_id} from active instances."
                                 )
                                 del self._server_instances[http_transport.mcp_session_id]
 

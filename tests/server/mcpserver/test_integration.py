@@ -16,7 +16,6 @@ from collections.abc import Generator
 
 import pytest
 import uvicorn
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from inline_snapshot import snapshot
 
 from examples.snippets.servers import (
@@ -33,9 +32,8 @@ from examples.snippets.servers import (
 )
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import GetSessionIdCallback, streamable_http_client
-from mcp.shared.context import RequestContext
-from mcp.shared.message import SessionMessage
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._context import RequestContext
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientResult,
@@ -185,35 +183,9 @@ def create_client_for_transport(transport: str, server_url: str):
         raise ValueError(f"Invalid transport: {transport}")
 
 
-def unpack_streams(
-    client_streams: tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
-    | tuple[
-        MemoryObjectReceiveStream[SessionMessage | Exception],
-        MemoryObjectSendStream[SessionMessage],
-        GetSessionIdCallback,
-    ],
-):
-    """Unpack client streams handling different return values from SSE vs StreamableHTTP.
-
-    SSE client returns (read_stream, write_stream)
-    StreamableHTTP client returns (read_stream, write_stream, session_id_callback)
-
-    Args:
-        client_streams: Tuple from client context manager
-
-    Returns:
-        Tuple of (read_stream, write_stream)
-    """
-    if len(client_streams) == 2:
-        return client_streams
-    else:
-        read_stream, write_stream, _ = client_streams
-        return read_stream, write_stream
-
-
 # Callback functions for testing
 async def sampling_callback(
-    context: RequestContext[ClientSession, None], params: CreateMessageRequestParams
+    context: RequestContext[ClientSession], params: CreateMessageRequestParams
 ) -> CreateMessageResult:
     """Sampling callback for tests."""
     return CreateMessageResult(
@@ -226,7 +198,7 @@ async def sampling_callback(
     )
 
 
-async def elicitation_callback(context: RequestContext[ClientSession, None], params: ElicitRequestParams):
+async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
     """Elicitation callback for tests."""
     # For restaurant booking test
     if "No tables available" in params.message:
@@ -253,8 +225,7 @@ async def test_basic_tools(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Test initialization
             result = await session.initialize()
@@ -290,8 +261,7 @@ async def test_basic_resources(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Test initialization
             result = await session.initialize()
@@ -331,8 +301,7 @@ async def test_basic_prompts(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Test initialization
             result = await session.initialize()
@@ -391,8 +360,7 @@ async def test_tool_progress(server_transport: str, server_url: str) -> None:
 
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
             # Test initialization
             result = await session.initialize()
@@ -441,8 +409,7 @@ async def test_sampling(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream, sampling_callback=sampling_callback) as session:
             # Test initialization
             result = await session.initialize()
@@ -472,8 +439,7 @@ async def test_elicitation(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream, elicitation_callback=elicitation_callback) as session:
             # Test initialization
             result = await session.initialize()
@@ -529,8 +495,7 @@ async def test_notifications(server_transport: str, server_url: str) -> None:
 
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
             # Test initialization
             result = await session.initialize()
@@ -570,8 +535,7 @@ async def test_completion(server_transport: str, server_url: str) -> None:
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Test initialization
             result = await session.initialize()
@@ -623,8 +587,7 @@ async def test_mcpserver_quickstart(server_transport: str, server_url: str) -> N
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Test initialization
             result = await session.initialize()
@@ -659,8 +622,7 @@ async def test_structured_output(server_transport: str, server_url: str) -> None
     transport = server_transport
     client_cm = create_client_for_transport(transport, server_url)
 
-    async with client_cm as client_streams:
-        read_stream, write_stream = unpack_streams(client_streams)
+    async with client_cm as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Test initialization
             result = await session.initialize()

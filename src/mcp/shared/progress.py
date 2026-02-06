@@ -5,15 +5,7 @@ from typing import Generic
 
 from pydantic import BaseModel
 
-from mcp.shared.context import LifespanContextT, RequestContext
-from mcp.shared.session import (
-    BaseSession,
-    ReceiveNotificationT,
-    ReceiveRequestT,
-    SendNotificationT,
-    SendRequestT,
-    SendResultT,
-)
+from mcp.shared._context import RequestContext, SessionT
 from mcp.types import ProgressToken
 
 
@@ -23,8 +15,8 @@ class Progress(BaseModel):
 
 
 @dataclass
-class ProgressContext(Generic[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]):
-    session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]
+class ProgressContext(Generic[SessionT]):
+    session: SessionT
     progress_token: ProgressToken
     total: float | None
     current: float = field(default=0.0, init=False)
@@ -39,15 +31,9 @@ class ProgressContext(Generic[SendRequestT, SendNotificationT, SendResultT, Rece
 
 @contextmanager
 def progress(
-    ctx: RequestContext[
-        BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
-        LifespanContextT,
-    ],
+    ctx: RequestContext[SessionT],
     total: float | None = None,
-) -> Generator[
-    ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
-    None,
-]:
+) -> Generator[ProgressContext[SessionT], None]:
     progress_token = ctx.meta.get("progress_token") if ctx.meta else None
     if progress_token is None:  # pragma: no cover
         raise ValueError("No progress token provided")
