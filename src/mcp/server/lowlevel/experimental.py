@@ -47,9 +47,7 @@ class ExperimentalHandlers:
 
     def __init__(
         self,
-        add_request_handler: Callable[
-            [str, Callable[[ServerRequestContext[Any, Any], Any], Awaitable[Any]]], None
-        ],
+        add_request_handler: Callable[[str, Callable[[ServerRequestContext[Any, Any], Any], Awaitable[Any]]], None],
         has_handler: Callable[[str], bool],
     ) -> None:
         self._add_request_handler = add_request_handler
