@@ -17,6 +17,7 @@ from typing import Any
 
 import anyio
 import pydantic_core
+from anyio.abc import ObjectReceiveStream, ObjectSendStream
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
@@ -427,6 +428,110 @@ class StreamableHTTPServerTransport:
             return False
         return True
 
+    async def _handle_post_request_json_mode(
+        self,
+        *,
+        scope: Scope,
+        request: Request,
+        receive: Receive,
+        send: Send,
+        writer: ObjectSendStream[SessionMessage],
+        message: JSONRPCRequest,
+        request_id: str,
+        request_stream_reader: ObjectReceiveStream[EventMessage],
+    ) -> None:
+        metadata = ServerMessageMetadata(request_context=request)
+        session_message = SessionMessage(message, metadata=metadata)
+        await writer.send(session_message)
+        try:
+            # Process messages from the request-specific stream.
+            response_message: JSONRPCResponse | JSONRPCError | None = None
+
+            async for event_message in request_stream_reader:  # pragma: no branch
+                if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
+                    response_message = event_message.message
+                    break
+                else:  # pragma: no cover
+                    logger.debug("received: %s", event_message.message.method)
+
+            if response_message:
+                response = self._create_json_response(response_message)
+                await response(scope, receive, send)
+            else:  # pragma: no cover
+                logger.error("No response message received before stream closed")
+                response = self._create_error_response(
+                    "Error processing request: No response received",
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                await response(scope, receive, send)
+        except Exception:  # pragma: no cover
+            logger.exception("Error processing JSON response")
+            response = self._create_error_response(
+                "Error processing request",
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                INTERNAL_ERROR,
+            )
+            await response(scope, receive, send)
+        finally:
+            await self._clean_up_memory_streams(request_id)
+
+    async def _handle_post_request_sse_mode(
+        self,
+        *,
+        scope: Scope,
+        request: Request,
+        receive: Receive,
+        send: Send,
+        writer: ObjectSendStream[SessionMessage],
+        message: JSONRPCRequest,
+        request_id: str,
+        request_stream_reader: ObjectReceiveStream[EventMessage],
+        protocol_version: str,
+    ) -> None:  # pragma: no cover
+        sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
+        self._sse_stream_writers[request_id] = sse_stream_writer
+
+        async def sse_writer() -> None:
+            try:
+                async with sse_stream_writer, request_stream_reader:
+                    await self._maybe_send_priming_event(request_id, sse_stream_writer, protocol_version)
+                    async for event_message in request_stream_reader:
+                        event_data = self._create_event_data(event_message)
+                        await sse_stream_writer.send(event_data)
+                        if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
+                            break
+            except anyio.ClosedResourceError:
+                logger.debug("SSE stream closed by close_sse_stream()")
+            except Exception:
+                logger.exception("Error in SSE writer")
+            finally:
+                logger.debug("Closing SSE writer")
+                self._sse_stream_writers.pop(request_id, None)
+                await self._clean_up_memory_streams(request_id)
+
+        headers = {
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "Content-Type": CONTENT_TYPE_SSE,
+            **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
+        }
+        response = EventSourceResponse(
+            content=sse_stream_reader,
+            data_sender_callable=sse_writer,
+            headers=headers,
+        )
+
+        try:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(response, scope, receive, send)
+                session_message = self._create_session_message(message, request, request_id, protocol_version)
+                await writer.send(session_message)
+        except Exception:
+            logger.exception("SSE response error")
+            await sse_stream_writer.aclose()
+            await sse_stream_reader.aclose()
+            await self._clean_up_memory_streams(request_id)
+
     async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
@@ -527,109 +632,28 @@ class StreamableHTTPServerTransport:
             request_stream_reader = self._request_streams[request_id][1]
 
             if self.is_json_response_enabled:
-                # Process the message
-                metadata = ServerMessageMetadata(request_context=request)
-                session_message = SessionMessage(message, metadata=metadata)
-                await writer.send(session_message)
-                try:
-                    # Process messages from the request-specific stream
-                    # We need to collect all messages until we get a response
-                    response_message = None
-
-                    # Use similar approach to SSE writer for consistency
-                    async for event_message in request_stream_reader:  # pragma: no branch
-                        # If it's a response, this is what we're waiting for
-                        if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
-                            response_message = event_message.message
-                            break
-                        # For notifications and request, keep waiting
-                        else:  # pragma: no cover
-                            logger.debug(f"received: {event_message.message.method}")
-
-                    # At this point we should have a response
-                    if response_message:
-                        # Create JSON response
-                        response = self._create_json_response(response_message)
-                        await response(scope, receive, send)
-                    else:  # pragma: no cover
-                        # This shouldn't happen in normal operation
-                        logger.error("No response message received before stream closed")
-                        response = self._create_error_response(
-                            "Error processing request: No response received",
-                            HTTPStatus.INTERNAL_SERVER_ERROR,
-                        )
-                        await response(scope, receive, send)
-                except Exception:  # pragma: no cover
-                    logger.exception("Error processing JSON response")
-                    response = self._create_error_response(
-                        "Error processing request",
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        INTERNAL_ERROR,
-                    )
-                    await response(scope, receive, send)
-                finally:
-                    await self._clean_up_memory_streams(request_id)
-            else:  # pragma: no cover
-                # Create SSE stream
-                sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
-
-                # Store writer reference so close_sse_stream() can close it
-                self._sse_stream_writers[request_id] = sse_stream_writer
-
-                async def sse_writer():
-                    # Get the request ID from the incoming request message
-                    try:
-                        async with sse_stream_writer, request_stream_reader:
-                            # Send priming event for SSE resumability
-                            await self._maybe_send_priming_event(request_id, sse_stream_writer, protocol_version)
-
-                            # Process messages from the request-specific stream
-                            async for event_message in request_stream_reader:
-                                # Build the event data
-                                event_data = self._create_event_data(event_message)
-                                await sse_stream_writer.send(event_data)
-
-                                # If response, remove from pending streams and close
-                                if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
-                                    break
-                    except anyio.ClosedResourceError:
-                        # Expected when close_sse_stream() is called
-                        logger.debug("SSE stream closed by close_sse_stream()")
-                    except Exception:
-                        logger.exception("Error in SSE writer")
-                    finally:
-                        logger.debug("Closing SSE writer")
-                        self._sse_stream_writers.pop(request_id, None)
-                        await self._clean_up_memory_streams(request_id)
-
-                # Create and start EventSourceResponse
-                # SSE stream mode (original behavior)
-                # Set up headers
-                headers = {
-                    "Cache-Control": "no-cache, no-transform",
-                    "Connection": "keep-alive",
-                    "Content-Type": CONTENT_TYPE_SSE,
-                    **({MCP_SESSION_ID_HEADER: self.mcp_session_id} if self.mcp_session_id else {}),
-                }
-                response = EventSourceResponse(
-                    content=sse_stream_reader,
-                    data_sender_callable=sse_writer,
-                    headers=headers,
+                await self._handle_post_request_json_mode(
+                    scope=scope,
+                    request=request,
+                    receive=receive,
+                    send=send,
+                    writer=writer,
+                    message=message,
+                    request_id=request_id,
+                    request_stream_reader=request_stream_reader,
                 )
-
-                # Start the SSE response (this will send headers immediately)
-                try:
-                    # First send the response to establish the SSE connection
-                    async with anyio.create_task_group() as tg:
-                        tg.start_soon(response, scope, receive, send)
-                        # Then send the message to be processed by the server
-                        session_message = self._create_session_message(message, request, request_id, protocol_version)
-                        await writer.send(session_message)
-                except Exception:
-                    logger.exception("SSE response error")
-                    await sse_stream_writer.aclose()
-                    await sse_stream_reader.aclose()
-                    await self._clean_up_memory_streams(request_id)
+            else:  # pragma: no cover
+                await self._handle_post_request_sse_mode(
+                    scope=scope,
+                    request=request,
+                    receive=receive,
+                    send=send,
+                    writer=writer,
+                    message=message,
+                    request_id=request_id,
+                    request_stream_reader=request_stream_reader,
+                    protocol_version=protocol_version,
+                )
 
         except anyio.ClosedResourceError as err:  # pragma: no cover
             # Session terminated (e.g., DELETE processed) while handling POST.
