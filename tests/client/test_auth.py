@@ -1346,7 +1346,7 @@ def test_build_metadata(
             "token_endpoint": Is(token_endpoint),
             "registration_endpoint": Is(registration_endpoint),
             "scopes_supported": ["read", "write", "admin"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
             "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
             "service_documentation": Is(service_documentation_url),
             "revocation_endpoint": Is(revocation_endpoint),

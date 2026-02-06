@@ -26,9 +26,19 @@ RSA_KEY_SIZE_DEFAULT = 2048
 _RSA_PUBLIC_EXPONENT = 65537
 
 
-def _int_to_base64url(num: int) -> str:
-    """Encode integer to base64url without padding."""
-    size = (num.bit_length() + _BITS_PER_BYTE - 1) // _BITS_PER_BYTE
+def _int_to_base64url(num: int, *, fixed_length: int | None = None) -> str:
+    """Encode integer to base64url without padding.
+
+    Args:
+        num: Non-negative integer to encode.
+        fixed_length: If set, pad the big-endian representation to exactly
+            this many bytes.  Required for EC coordinates where RFC 7518 §6.2.1
+            mandates a fixed octet length (e.g. 32 for P-256).
+    """
+    if fixed_length is not None:
+        size = fixed_length
+    else:
+        size = (num.bit_length() + _BITS_PER_BYTE - 1) // _BITS_PER_BYTE
     data = num.to_bytes(size, "big")
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
@@ -107,11 +117,13 @@ def _key_to_jwk(key: EllipticCurvePrivateKey | RSAPrivateKey) -> dict[str, Any]:
     if isinstance(key, EllipticCurvePrivateKey):
         pub = key.public_key()
         nums = pub.public_numbers()
+        # P-256 coordinates must be exactly 32 bytes per RFC 7518 §6.2.1.2
+        ec_coord_length = 32
         return {
             "kty": "EC",
             "crv": "P-256",
-            "x": _int_to_base64url(nums.x),
-            "y": _int_to_base64url(nums.y),
+            "x": _int_to_base64url(nums.x, fixed_length=ec_coord_length),
+            "y": _int_to_base64url(nums.y, fixed_length=ec_coord_length),
         }
     # key is RSAPrivateKey (union type)
     pub = key.public_key()

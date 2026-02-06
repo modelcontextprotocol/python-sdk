@@ -322,6 +322,7 @@ class TestAuthEndpoints:
         assert metadata["grant_types_supported"] == [
             "authorization_code",
             "refresh_token",
+            "client_credentials",
         ]
         assert metadata["service_documentation"] == "https://docs.example.com/"
 
