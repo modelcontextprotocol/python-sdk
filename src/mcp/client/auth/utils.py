@@ -134,6 +134,35 @@ def extract_protocol_preferences_from_www_auth(response: Response) -> dict[str, 
     return preferences if preferences else None
 
 
+def build_authorization_servers_discovery_urls(resource_url: str) -> list[str]:
+    """Build ordered list of unified discovery URLs.
+
+    Tries a path-relative discovery URL first (if resource_url contains a path),
+    then falls back to the host-root discovery URL.
+    """
+    parsed = urlparse(resource_url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+    urls: list[str] = []
+
+    # Path-relative: https://host/<path>/.well-known/authorization_servers
+    if parsed.path and parsed.path != "/":
+        path = parsed.path.rstrip("/")
+        urls.append(urljoin(base_url, f"{path}/.well-known/authorization_servers"))
+
+    # Root: https://host/.well-known/authorization_servers
+    urls.append(urljoin(base_url, "/.well-known/authorization_servers"))
+
+    # De-duplicate while preserving order.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
 async def discover_authorization_servers(
     resource_url: str,
     http_client: AsyncClient,
@@ -155,21 +184,21 @@ async def discover_authorization_servers(
     Returns:
         List of protocol metadata; empty if discovery fails and no PRM fallback.
     """
-    # 1. Unified discovery endpoint (path-relative to resource_url)
-    discovery_url = urljoin(resource_url.rstrip("/") + "/", ".well-known/authorization_servers")
-    try:
-        response = await http_client.get(discovery_url)
-        if response.status_code == 200:
-            content = await response.aread()
-            data = json.loads(content)
-            raw = data.get("protocols")
-            protocols_data: list[dict[str, Any]] = cast(list[dict[str, Any]], raw) if isinstance(raw, list) else []
-            if protocols_data:
-                return [AuthProtocolMetadata.model_validate(p) for p in protocols_data]
-    except (ValidationError, ValueError, KeyError, TypeError) as e:
-        logger.debug("Unified authorization_servers discovery failed: %s", e)
-    except Exception as e:
-        logger.debug("Unified authorization_servers request failed: %s", e)
+    # 1. Unified discovery endpoint (path-relative first, then root)
+    for discovery_url in build_authorization_servers_discovery_urls(resource_url):
+        try:
+            response = await http_client.get(discovery_url)
+            if response.status_code == 200:
+                content = await response.aread()
+                data = json.loads(content)
+                raw = data.get("protocols")
+                protocols_data: list[dict[str, Any]] = cast(list[dict[str, Any]], raw) if isinstance(raw, list) else []
+                if protocols_data:
+                    return [AuthProtocolMetadata.model_validate(p) for p in protocols_data]
+        except (ValidationError, ValueError, KeyError, TypeError) as e:
+            logger.debug("Unified authorization_servers discovery failed (%s): %s", discovery_url, e)
+        except Exception as e:
+            logger.debug("Unified authorization_servers request failed (%s): %s", discovery_url, e)
 
     # 2. Fallback: use protocol list from PRM
     if prm is not None and prm.mcp_auth_protocols:
