@@ -28,7 +28,6 @@ import sys
 import time
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol, cast
-from urllib.parse import urljoin
 
 import anyio
 import httpx
@@ -39,6 +38,7 @@ from mcp.client.auth.oauth2 import OAuthClientProvider
 from mcp.client.auth.oauth2 import TokenStorage as OAuth2TokenStorage
 from mcp.client.auth.protocol import AuthContext, AuthProtocol, DPoPEnabledProtocol
 from mcp.client.auth.utils import (
+    build_authorization_servers_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
     create_oauth_metadata_request,
     extract_auth_protocols_from_www_auth,
@@ -62,6 +62,33 @@ logger = logging.getLogger(__name__)
 
 # Protocol preferences: any protocol without an explicit preference should sort last.
 UNSPECIFIED_PROTOCOL_PREFERENCE: int = sys.maxsize
+
+
+def _build_protocol_candidates(
+    *,
+    available: list[str],
+    default_protocol: str | None,
+    protocol_preferences: dict[str, int] | None,
+) -> list[str]:
+    """Build an ordered, de-duplicated list of protocol IDs to attempt.
+
+    Priority order:
+    1) default_protocol (if provided)
+    2) available protocols ordered by protocol_preferences (if provided)
+    3) available protocols in original order
+    """
+    candidates_raw: list[str | None] = [default_protocol]
+    if protocol_preferences is not None:
+
+        def preference_key(protocol_id: str) -> int:
+            return protocol_preferences.get(protocol_id, UNSPECIFIED_PROTOCOL_PREFERENCE)
+
+        candidates_raw.extend(sorted(available, key=preference_key))
+    candidates_raw.extend(available)
+
+    # De-duplicate while preserving order.
+    candidates_str = [pid for pid in candidates_raw if pid is not None]
+    return list(dict.fromkeys(candidates_str))
 
 
 class TokenStorage(Protocol):
@@ -252,6 +279,18 @@ class MultiProtocolAuthProvider(httpx.Auth):
         self, response: httpx.Response, prm: ProtectedResourceMetadata | None
     ) -> list[AuthProtocolMetadata]:
         """Parse ``/.well-known/authorization_servers`` response; fall back to PRM if needed."""
+        protocols = await self._parse_protocols_from_discovery_response_without_prm_fallback(response)
+        if protocols:
+            return protocols
+        if prm is not None and prm.mcp_auth_protocols:
+            return list(prm.mcp_auth_protocols)
+        return []
+
+    async def _parse_protocols_from_discovery_response_without_prm_fallback(
+        self,
+        response: httpx.Response,
+    ) -> list[AuthProtocolMetadata]:
+        """Parse ``/.well-known/authorization_servers`` response (no PRM fallback)."""
         if response.status_code == 200:
             try:
                 content = await response.aread()
@@ -262,8 +301,6 @@ class MultiProtocolAuthProvider(httpx.Auth):
                     return [AuthProtocolMetadata.model_validate(p) for p in protocols_data]
             except (ValidationError, ValueError, KeyError, TypeError) as e:
                 logger.debug("Unified authorization_servers parse failed: %s", e)
-        if prm is not None and prm.mcp_auth_protocols:
-            return list(prm.mcp_auth_protocols)
         return []
 
     async def _handle_403_response(self, response: httpx.Response, request: httpx.Request) -> None:
@@ -313,13 +350,17 @@ class MultiProtocolAuthProvider(httpx.Auth):
                         break
 
                 # Step 2: Protocol discovery (yield)
-                discovery_url = urljoin(
-                    server_url.rstrip("/") + "/",
-                    ".well-known/authorization_servers",
-                )
-                discovery_req = create_oauth_metadata_request(discovery_url)
-                discovery_resp = yield discovery_req
-                protocols_metadata = await self._parse_protocols_from_discovery_response(discovery_resp, prm)
+                protocols_metadata: list[AuthProtocolMetadata] = []
+                for discovery_url in build_authorization_servers_discovery_urls(server_url):
+                    discovery_req = create_oauth_metadata_request(discovery_url)
+                    discovery_resp = yield discovery_req
+                    protocols_metadata = await self._parse_protocols_from_discovery_response_without_prm_fallback(
+                        discovery_resp
+                    )
+                    if protocols_metadata:
+                        break
+                if not protocols_metadata and prm is not None and prm.mcp_auth_protocols:
+                    protocols_metadata = list(prm.mcp_auth_protocols)
 
                 available: list[str] = (
                     [m.protocol_id for m in protocols_metadata]
@@ -337,19 +378,11 @@ class MultiProtocolAuthProvider(httpx.Auth):
                 else:
                     # Select protocol candidates based on server hints, but only
                     # attempt protocols that are actually injected as instances.
-                    candidates_raw: list[str | None] = [default_protocol]
-                    preferences = protocol_preferences
-                    if preferences is not None:
-
-                        def preference_key(protocol_id: str) -> int:
-                            return preferences.get(protocol_id, UNSPECIFIED_PROTOCOL_PREFERENCE)
-
-                        candidates_raw.extend(sorted(available, key=preference_key))
-                    candidates_raw.extend(available)
-
-                    # De-duplicate while preserving order.
-                    candidates_str = [pid for pid in candidates_raw if pid is not None]
-                    candidates = list(dict.fromkeys(candidates_str))
+                    candidates = _build_protocol_candidates(
+                        available=available,
+                        default_protocol=default_protocol,
+                        protocol_preferences=protocol_preferences,
+                    )
 
                     metadata_by_id = {m.protocol_id: m for m in protocols_metadata} if protocols_metadata else {}
 

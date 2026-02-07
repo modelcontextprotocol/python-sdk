@@ -142,10 +142,10 @@ def build_authorization_servers_discovery_urls(resource_url: str) -> list[str]:
 
     urls: list[str] = []
 
-    # Path-relative: https://host/<path>/.well-known/authorization_servers
+    # Path-relative: https://host/.well-known/authorization_servers<path>
     if parsed.path and parsed.path != "/":
         path = parsed.path.rstrip("/")
-        urls.append(urljoin(base_url, f"{path}/.well-known/authorization_servers"))
+        urls.append(urljoin(base_url, f"/.well-known/authorization_servers{path}"))
 
     # Root: https://host/.well-known/authorization_servers
     urls.append(urljoin(base_url, "/.well-known/authorization_servers"))
