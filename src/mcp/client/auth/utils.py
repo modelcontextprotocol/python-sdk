@@ -1,12 +1,16 @@
+import json
+import logging
 import re
+from typing import Any, cast
 from urllib.parse import urljoin, urlparse
 
-from httpx import Request, Response
+from httpx import AsyncClient, Request, Response
 from pydantic import AnyUrl, ValidationError
 
 from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
+    AuthProtocolMetadata,
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthMetadata,
@@ -15,9 +19,19 @@ from mcp.shared.auth import (
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
 
+logger = logging.getLogger(__name__)
 
-def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
+
+def extract_field_from_www_auth(response: Response, field_name: str, auth_scheme: str | None = None) -> str | None:
     """Extract field from WWW-Authenticate header.
+
+    Supports multiple authentication schemes (Bearer, ApiKey, MutualTLS, etc.).
+    If auth_scheme is provided, only searches within that scheme's parameters.
+
+    Args:
+        response: HTTP response containing WWW-Authenticate header
+        field_name: Name of the field to extract
+        auth_scheme: Optional authentication scheme to search within (e.g., "Bearer", "ApiKey")
 
     Returns:
         Field value if found in WWW-Authenticate header, None otherwise
@@ -26,9 +40,22 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     if not www_auth_header:
         return None
 
+    # If auth_scheme is specified, extract only from that scheme's parameters
+    if auth_scheme:
+        # Pattern to match the specified auth scheme and its parameters
+        scheme_pattern = rf"{re.escape(auth_scheme)}\s+([^,]+(?:,\s*[^,]+)*)"
+        scheme_match = re.search(scheme_pattern, www_auth_header, re.IGNORECASE)
+        if not scheme_match:
+            return None
+        # Search within the matched scheme's parameters
+        search_text = scheme_match.group(1)
+    else:
+        # Search in the entire header (backward compatible)
+        search_text = www_auth_header
+
     # Pattern matches: field_name="value" or field_name=value (unquoted)
     pattern = rf'{field_name}=(?:"([^"]+)"|([^\s,]+))'
-    match = re.search(pattern, www_auth_header)
+    match = re.search(pattern, search_text)
 
     if match:
         # Return quoted value if present, otherwise unquoted value
@@ -56,6 +83,124 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
         return None  # pragma: no cover
 
     return extract_field_from_www_auth(response, "resource_metadata")
+
+
+def extract_auth_protocols_from_www_auth(response: Response) -> list[str] | None:
+    """Extract auth_protocols field from WWW-Authenticate header (MCP extension).
+
+    Returns:
+        List of protocol IDs if found in WWW-Authenticate header, None otherwise
+    """
+    protocols_str = extract_field_from_www_auth(response, "auth_protocols")
+    if not protocols_str:
+        return None
+    return protocols_str.split()
+
+
+def extract_default_protocol_from_www_auth(response: Response) -> str | None:
+    """Extract default_protocol field from WWW-Authenticate header (MCP extension).
+
+    Returns:
+        Default protocol ID if found in WWW-Authenticate header, None otherwise
+    """
+    return extract_field_from_www_auth(response, "default_protocol")
+
+
+def extract_protocol_preferences_from_www_auth(response: Response) -> dict[str, int] | None:
+    """Extract protocol_preferences field from WWW-Authenticate header (MCP extension).
+
+    Format: "protocol1:priority1,protocol2:priority2"
+
+    Returns:
+        Dictionary mapping protocol IDs to priorities if found, None otherwise
+    """
+    prefs_str = extract_field_from_www_auth(response, "protocol_preferences")
+    if not prefs_str:
+        return None
+    preferences: dict[str, int] = {}
+    for item in prefs_str.split(","):
+        parts = item.split(":")
+        if len(parts) == 2:
+            proto = parts[0].strip()
+            try:
+                priority = int(parts[1].strip())
+                preferences[proto] = priority
+            except ValueError:
+                # Skip invalid entries
+                continue
+    return preferences if preferences else None
+
+
+def build_authorization_servers_discovery_urls(resource_url: str) -> list[str]:
+    """Build ordered list of unified discovery URLs.
+
+    Tries a path-relative discovery URL first (if resource_url contains a path),
+    then falls back to the host-root discovery URL.
+    """
+    parsed = urlparse(resource_url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+    urls: list[str] = []
+
+    # Path-relative: https://host/.well-known/authorization_servers<path>
+    if parsed.path and parsed.path != "/":
+        path = parsed.path.rstrip("/")
+        urls.append(urljoin(base_url, f"/.well-known/authorization_servers{path}"))
+
+    # Root: https://host/.well-known/authorization_servers
+    urls.append(urljoin(base_url, "/.well-known/authorization_servers"))
+
+    # De-duplicate while preserving order.
+    seen: set[str] = set()
+    unique: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
+async def discover_authorization_servers(
+    resource_url: str,
+    http_client: AsyncClient,
+    prm: ProtectedResourceMetadata | None = None,
+) -> list[AuthProtocolMetadata]:
+    """Discover supported auth protocols (unified discovery with PRM fallback).
+
+    1. Tries the unified capability discovery endpoint
+       `/.well-known/authorization_servers` (path relative to resource_url).
+    2. If that fails or returns no protocols, falls back to protocol list from
+       PRM when provided (e.g. from a prior 401 with resource_metadata).
+
+    Args:
+        resource_url: Base URL of the resource (e.g. MCP server URL).
+        http_client: HTTP client for the request.
+        prm: Optional PRM; used as fallback when unified discovery fails.
+
+    Returns:
+        List of protocol metadata; empty if discovery fails and no PRM fallback.
+    """
+    # 1. Unified discovery endpoint (path-relative first, then root)
+    for discovery_url in build_authorization_servers_discovery_urls(resource_url):
+        try:
+            response = await http_client.get(discovery_url)
+            if response.status_code == 200:
+                content = await response.aread()
+                data = json.loads(content)
+                raw = data.get("protocols")
+                protocols_data: list[dict[str, Any]] = cast(list[dict[str, Any]], raw) if isinstance(raw, list) else []
+                if protocols_data:
+                    return [AuthProtocolMetadata.model_validate(p) for p in protocols_data]
+        except (ValidationError, ValueError, KeyError, TypeError) as e:
+            logger.debug("Unified authorization_servers discovery failed (%s): %s", discovery_url, e)
+        except Exception as e:
+            logger.debug("Unified authorization_servers request failed (%s): %s", discovery_url, e)
+
+    # 2. Fallback: use protocol list from PRM
+    if prm is not None and prm.mcp_auth_protocols:
+        return list(prm.mcp_auth_protocols)
+
+    return []
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
@@ -192,7 +337,7 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
             content = await response.aread()
             asm = OAuthMetadata.model_validate_json(content)
             return True, asm
-        except ValidationError:  # pragma: no cover
+        except ValidationError:
             return True, None
     elif response.status_code < 400 or response.status_code >= 500:
         return False, None  # Non-4XX error, stop trying

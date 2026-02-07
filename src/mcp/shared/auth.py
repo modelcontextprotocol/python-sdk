@@ -22,6 +22,32 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
+class AuthCredentials(BaseModel):
+    """Generic authentication credentials for multi-protocol auth."""
+
+    protocol_id: str
+    expires_at: int | None = None
+
+
+class OAuthCredentials(AuthCredentials):
+    """OAuth credentials (multi-protocol wrapper)."""
+
+    protocol_id: str = "oauth2"
+    access_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    refresh_token: str | None = None
+    scope: str | None = None
+    cnf: dict[str, Any] | None = None  # DPoP confirmation / binding
+
+
+class APIKeyCredentials(AuthCredentials):
+    """API key credentials (multi-protocol wrapper)."""
+
+    protocol_id: str = "api_key"
+    api_key: str
+    key_id: str | None = None
+
+
 class InvalidScopeError(Exception):
     def __init__(self, message: str):
         self.message = message
@@ -130,6 +156,24 @@ class OAuthMetadata(BaseModel):
     client_id_metadata_document_supported: bool | None = None
 
 
+class AuthProtocolMetadata(BaseModel):
+    """Metadata for a single auth protocol (MCP extension)."""
+
+    protocol_id: str = Field(..., pattern=r"^[a-z0-9_]+$")
+    protocol_version: str
+    metadata_url: AnyHttpUrl | None = None
+    endpoints: dict[str, AnyHttpUrl] = Field(default_factory=dict)
+    capabilities: list[str] = Field(default_factory=list)
+    # OAuth-specific fields (optional)
+    client_auth_methods: list[str] | None = None
+    grant_types: list[str] | None = None
+    scopes_supported: list[str] | None = None
+    # DPoP support (protocol-agnostic)
+    dpop_signing_alg_values_supported: list[str] | None = None
+    dpop_bound_credentials_required: bool | None = None
+    additional_params: dict[str, Any] = Field(default_factory=dict)
+
+
 class ProtectedResourceMetadata(BaseModel):
     """RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
@@ -151,3 +195,7 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_signing_alg_values_supported: list[str] | None = None
     # dpop_bound_access_tokens_required default is False, but ommited here for clarity
     dpop_bound_access_tokens_required: bool | None = None
+    # MCP extension fields (multi-protocol support)
+    mcp_auth_protocols: list["AuthProtocolMetadata"] | None = None
+    mcp_default_auth_protocol: str | None = None
+    mcp_auth_protocol_preferences: dict[str, int] | None = None
