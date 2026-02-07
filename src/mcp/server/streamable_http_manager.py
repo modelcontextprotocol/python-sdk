@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server.http_body import DEFAULT_MAX_BODY_BYTES
 from mcp.server.streamable_http import (
     MCP_SESSION_ID_HEADER,
     EventStore,
@@ -56,6 +57,8 @@ class StreamableHTTPSessionManager:
         security_settings: Optional transport security settings.
         retry_interval: Retry interval in milliseconds to suggest to clients in SSE
                        retry field. Used for SSE polling behavior.
+        max_body_bytes: Maximum size (in bytes) for JSON POST request bodies. Defaults
+                        to 1_000_000. Set to None to disable this guard.
     """
 
     def __init__(
@@ -66,6 +69,7 @@ class StreamableHTTPSessionManager:
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
     ):
         self.app = app
         self.event_store = event_store
@@ -73,6 +77,7 @@ class StreamableHTTPSessionManager:
         self.stateless = stateless
         self.security_settings = security_settings
         self.retry_interval = retry_interval
+        self.max_body_bytes = max_body_bytes
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -147,6 +152,7 @@ class StreamableHTTPSessionManager:
             is_json_response_enabled=self.json_response,
             event_store=None,  # No event store in stateless mode
             security_settings=self.security_settings,
+            max_body_bytes=self.max_body_bytes,
         )
 
         # Start server in a new task
@@ -198,6 +204,7 @@ class StreamableHTTPSessionManager:
                     event_store=self.event_store,  # May be None (no resumability)
                     security_settings=self.security_settings,
                     retry_interval=self.retry_interval,
+                    max_body_bytes=self.max_body_bytes,
                 )
 
                 assert http_transport.mcp_session_id is not None

@@ -117,6 +117,31 @@ async def test_registration_error_handling(client: httpx.AsyncClient, oauth_prov
 
 
 @pytest.mark.anyio
+async def test_registration_rejects_payload_too_large(oauth_provider: MockOAuthProvider):
+    client_registration_options = ClientRegistrationOptions(enabled=True, max_body_bytes=10)
+    revocation_options = RevocationOptions(enabled=False)
+
+    auth_routes = create_auth_routes(
+        oauth_provider,
+        issuer_url=AnyHttpUrl("http://localhost"),
+        client_registration_options=client_registration_options,
+        revocation_options=revocation_options,
+    )
+    app = Starlette(routes=auth_routes)
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        body = b'{"a":"' + (b"x" * 20) + b'"}'
+        response = await client.post(
+            "/register",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 413, response.content
+        assert response.text == "Payload too large"
+
+
+@pytest.mark.anyio
 async def test_authorize_error_handling(
     client: httpx.AsyncClient,
     oauth_provider: MockOAuthProvider,

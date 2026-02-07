@@ -93,6 +93,7 @@ from mcp.server.auth.routes import build_resource_metadata_url, create_auth_rout
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
+from mcp.server.http_body import DEFAULT_MAX_BODY_BYTES
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.lowlevel.func_inspection import create_call_wrapper
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -810,6 +811,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         transport_security: TransportSecuritySettings | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
         token_verifier: TokenVerifier | None = None,
@@ -817,7 +819,12 @@ class Server(Generic[LifespanResultT, RequestT]):
         custom_starlette_routes: list[Route] | None = None,
         debug: bool = False,
     ) -> Starlette:
-        """Return an instance of the StreamableHTTP server app."""
+        """Return an instance of the StreamableHTTP server app.
+
+        Args:
+            max_body_bytes: Maximum size (in bytes) for JSON POST request bodies. Defaults
+                            to 1_000_000. Set to None to disable this guard.
+        """
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(
@@ -833,6 +840,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             json_response=json_response,
             stateless=stateless_http,
             security_settings=transport_security,
+            max_body_bytes=max_body_bytes,
         )
         self._session_manager = session_manager
 

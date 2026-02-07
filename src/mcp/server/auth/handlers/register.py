@@ -12,6 +12,7 @@ from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
+from mcp.server.http_body import BodyTooLargeError, read_request_body
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 
 # this alias is a no-op; it's just to separate out the types exposed to the
@@ -32,10 +33,12 @@ class RegistrationHandler:
     async def handle(self, request: Request) -> Response:
         # Implements dynamic client registration as defined in https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
         try:
-            body = await request.body()
+            body = await read_request_body(request, max_body_bytes=self.options.max_body_bytes)
             client_metadata = OAuthClientMetadata.model_validate_json(body)
 
             # Scope validation is handled below
+        except BodyTooLargeError:
+            return Response("Payload too large", status_code=413, headers={"Connection": "close"})
         except ValidationError as validation_error:
             return PydanticJSONResponse(
                 content=RegistrationErrorResponse(

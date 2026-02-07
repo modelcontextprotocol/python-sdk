@@ -313,3 +313,48 @@ async def test_unknown_session_id_returns_404():
         assert error_data["id"] == "server-error"
         assert error_data["error"]["code"] == INVALID_REQUEST
         assert error_data["error"]["message"] == "Session not found"
+
+
+@pytest.mark.anyio
+async def test_max_body_bytes_rejects_large_request():
+    app = Server("test-max-body-bytes")
+    manager = StreamableHTTPSessionManager(app=app, max_body_bytes=10)
+
+    async with manager.run():
+        app.run = AsyncMock(return_value=None)
+
+        sent_messages: list[Message] = []
+        response_body = b""
+
+        async def mock_send(message: Message):
+            nonlocal response_body
+            sent_messages.append(message)
+            if message["type"] == "http.response.body":
+                response_body += message.get("body", b"")
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"accept", b"application/json, text/event-stream"),
+            ],
+        }
+
+        body = b'{"a":"' + (b"x" * 20) + b'"}'
+
+        async def mock_receive():
+            return {"type": "http.request", "body": body, "more_body": False}  # pragma: no cover
+
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        response_start = next(
+            (msg for msg in sent_messages if msg["type"] == "http.response.start"),
+            None,
+        )
+        assert response_start is not None, "Should have sent a response"
+        assert response_start["status"] == 413
+
+        error_data = json.loads(response_body)
+        assert "Payload too large" in error_data["error"]["message"]
