@@ -6,6 +6,7 @@ class ClientRegistrationOptions(BaseModel):
     client_secret_expiry_seconds: int | None = None
     valid_scopes: list[str] | None = None
     default_scopes: list[str] | None = None
+    client_id_metadata_document_supported: bool = False
 
 
 class RevocationOptions(BaseModel):

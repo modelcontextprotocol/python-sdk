@@ -318,6 +318,7 @@ class TestAuthEndpoints:
         assert metadata["revocation_endpoint"] == "https://auth.example.com/revoke"
         assert metadata["response_types_supported"] == ["code"]
         assert metadata["code_challenge_methods_supported"] == ["S256"]
+        assert metadata["client_id_metadata_document_supported"] is False
         assert metadata["token_endpoint_auth_methods_supported"] == ["client_secret_post", "client_secret_basic"]
         assert metadata["grant_types_supported"] == [
             "authorization_code",
