@@ -275,6 +275,27 @@ async def run_client_credentials_basic(server_url: str) -> None:
 async def run_auth_code_client(server_url: str) -> None:
     """Authorization code flow (default for auth/* scenarios)."""
     callback_handler = ConformanceOAuthCallbackHandler()
+    storage = InMemoryTokenStorage()
+
+    # Check for pre-registered client credentials from context
+    context_json = os.environ.get("MCP_CONFORMANCE_CONTEXT")
+    if context_json:
+        try:
+            context = json.loads(context_json)
+            client_id = context.get("client_id")
+            client_secret = context.get("client_secret")
+            if client_id:
+                await storage.set_client_info(
+                    OAuthClientInformationFull(
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+                        token_endpoint_auth_method="client_secret_basic" if client_secret else "none",
+                    )
+                )
+                logger.debug(f"Pre-loaded client credentials: client_id={client_id}")
+        except json.JSONDecodeError:
+            pass
 
     oauth_auth = OAuthClientProvider(
         server_url=server_url,
@@ -284,7 +305,7 @@ async def run_auth_code_client(server_url: str) -> None:
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
         ),
-        storage=InMemoryTokenStorage(),
+        storage=storage,
         redirect_handler=callback_handler.handle_redirect,
         callback_handler=callback_handler.handle_callback,
         client_metadata_url="https://conformance-test.local/client-metadata.json",
