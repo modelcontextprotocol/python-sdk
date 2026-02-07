@@ -88,13 +88,13 @@ async def test_non_compliant_notification_response() -> None:
         if isinstance(message, Exception):
             returned_exception = message
 
-    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_non_sdk_server_app()))
-    async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
-            await session.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_non_sdk_server_app())) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+                await session.initialize()
 
-            # The test server returns a 204 instead of the expected 202
-            await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
+                # The test server returns a 204 instead of the expected 202
+                await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
 
     if returned_exception:  # pragma: no cover
         pytest.fail(f"Server encountered an exception: {returned_exception}")
@@ -107,13 +107,13 @@ async def test_unexpected_content_type_sends_jsonrpc_error() -> None:
     the client should send a JSONRPCError so the pending request resolves immediately
     instead of hanging until timeout.
     """
-    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_unexpected_content_type_app()))
-    async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_unexpected_content_type_app())) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
 
-            with pytest.raises(MCPError, match="Unexpected content type: text/plain"):
-                await session.list_tools()
+                with pytest.raises(MCPError, match="Unexpected content type: text/plain"):
+                    await session.list_tools()
 
 
 def _create_invalid_json_response_app() -> Starlette:
@@ -142,10 +142,10 @@ async def test_invalid_json_response_sends_jsonrpc_error() -> None:
     should send a JSONRPCError so the pending request resolves immediately
     instead of hanging until timeout.
     """
-    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_invalid_json_response_app()))
-    async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_invalid_json_response_app())) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
 
-            with pytest.raises(MCPError, match="Failed to parse JSON response"):
-                await session.list_tools()
+                with pytest.raises(MCPError, match="Failed to parse JSON response"):
+                    await session.list_tools()
