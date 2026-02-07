@@ -44,7 +44,7 @@ def get_profile(user_id: str) -> str:
     return json.dumps(load_profile(user_id))
 ```
 
-See [Resources](server/resources.md) for full documentation.
+<!-- TODO: See [Resources](server/resources.md) for full documentation. -->
 
 ### Tools
 
@@ -59,7 +59,8 @@ def send_email(to: str, subject: str, body: str) -> str:
     return f"Email sent to {to}"
 ```
 
-Tools support structured output, progress reporting, and more. See [Tools](server/tools.md) for full documentation.
+Tools support structured output, progress reporting, and more.
+<!-- TODO: See [Tools](server/tools.md) for full documentation. -->
 
 ### Prompts
 
@@ -72,7 +73,7 @@ def review_code(code: str, language: str = "python") -> str:
     return f"Review this {language} code:\n\n```{language}\n{code}\n```"
 ```
 
-See [Prompts](server/prompts.md) for full documentation.
+<!-- TODO: See [Prompts](server/prompts.md) for full documentation. -->
 
 ## Transports
 
@@ -84,7 +85,7 @@ MCP supports multiple transport mechanisms for client-server communication:
 | **stdio** | Local processes, CLI tools | Communication over stdin/stdout |
 | **SSE** | Legacy remote servers | Server-Sent Events over HTTP (deprecated in favor of Streamable HTTP) |
 
-See [Running Your Server](server/running.md) for transport configuration.
+<!-- TODO: See [Running Your Server](server/running.md) for transport configuration. -->
 
 ## Context
 
@@ -103,8 +104,8 @@ async def long_task(ctx: Context) -> str:
     return "Done"
 ```
 
-Context enables [logging](server/logging.md), [elicitation](server/elicitation.md),
-[sampling](server/sampling.md), and more. See [Context](server/context.md) for details.
+Context enables logging, elicitation, sampling, and more.
+<!-- TODO: link to server/context.md, server/logging.md, server/elicitation.md, server/sampling.md -->
 
 ## Server lifecycle
 
@@ -125,12 +126,11 @@ async def app_lifespan(server):
 mcp = MCPServer("My App", lifespan=app_lifespan)
 ```
 
-See [Server](server/index.md) for more on lifecycle management.
+<!-- TODO: See [Server](server/index.md) for more on lifecycle management. -->
 
 ## Next steps
 
 - **[Quickstart](quickstart.md)** — build your first server
-- **[Server](server/index.md)** — `MCPServer` configuration and lifecycle
-- **[Tools](server/tools.md)**, **[Resources](server/resources.md)**, **[Prompts](server/prompts.md)** — dive into each primitive
-- **[Client](client/index.md)** — writing MCP clients
+- **[Testing](testing.md)** — test your server with the `Client` class
 - **[Authorization](authorization.md)** — securing your servers with OAuth 2.1
+- **[API Reference](api.md)** — full API documentation

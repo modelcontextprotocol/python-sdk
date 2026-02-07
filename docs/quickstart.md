@@ -90,7 +90,5 @@ The server starts on `http://localhost:8000/mcp` using Streamable HTTP transport
 ## Next steps
 
 - **[Concepts](concepts.md)** — understand the protocol architecture and primitives
-- **[Server](server/index.md)** — learn about `MCPServer` configuration and lifecycle
-- **[Tools](server/tools.md)**, **[Resources](server/resources.md)**, **[Prompts](server/prompts.md)** — dive into each primitive
-- **[Running Your Server](server/running.md)** — transport options and deployment
 - **[Testing](testing.md)** — test your server with the `Client` class
+- **[API Reference](api.md)** — full API documentation

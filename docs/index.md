@@ -35,44 +35,6 @@ uv run --with mcp server.py
 2. **[Quickstart](quickstart.md)** — build your first MCP server
 3. **[Concepts](concepts.md)** — understand the protocol architecture and primitives
 
-## Documentation
-
-<div class="grid cards" markdown>
-
-- **Server**
-
-    ---
-
-    Build MCP servers with tools, resources, and prompts.
-
-    [:octicons-arrow-right-24: Server guide](server/index.md)
-
-- **Client**
-
-    ---
-
-    Connect to MCP servers and invoke tools.
-
-    [:octicons-arrow-right-24: Client guide](client/index.md)
-
-- **Authorization**
-
-    ---
-
-    Secure your servers with OAuth 2.1.
-
-    [:octicons-arrow-right-24: Authorization](authorization.md)
-
-- **Testing**
-
-    ---
-
-    Test your servers with the in-memory `Client`.
-
-    [:octicons-arrow-right-24: Testing](testing.md)
-
-</div>
-
 ## Links
 
 - [MCP specification](https://modelcontextprotocol.io)
