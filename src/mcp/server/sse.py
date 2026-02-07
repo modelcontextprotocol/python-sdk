@@ -51,6 +51,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp import types
+from mcp.server.http_body import DEFAULT_MAX_BODY_BYTES, BodyTooLargeError, read_request_body
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
@@ -75,7 +76,12 @@ class SseServerTransport:
     _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
     _security: TransportSecurityMiddleware
 
-    def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        security_settings: TransportSecuritySettings | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
+    ) -> None:
         """Creates a new SSE server transport, which will direct the client to POST
         messages to the relative path given.
 
@@ -83,6 +89,8 @@ class SseServerTransport:
             endpoint: A relative path where messages should be posted
                     (e.g., "/messages/").
             security_settings: Optional security settings for DNS rebinding protection.
+            max_body_bytes: Maximum size (in bytes) for JSON POST request bodies. Defaults
+                            to 1_000_000. Set to None to disable this guard.
 
         Note:
             We use relative paths instead of full URLs for several reasons:
@@ -98,6 +106,8 @@ class SseServerTransport:
         """
 
         super().__init__()
+        if max_body_bytes is not None and max_body_bytes <= 0:
+            raise ValueError("max_body_bytes must be positive or None")
 
         # Validate that endpoint is a relative path and not a full URL
         if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
@@ -113,6 +123,7 @@ class SseServerTransport:
         self._endpoint = endpoint
         self._read_stream_writers = {}
         self._security = TransportSecurityMiddleware(security_settings)
+        self._max_body_bytes = max_body_bytes
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
@@ -223,7 +234,12 @@ class SseServerTransport:
             response = Response("Could not find session", status_code=404)
             return await response(scope, receive, send)
 
-        body = await request.body()
+        try:
+            body = await read_request_body(request, max_body_bytes=self._max_body_bytes)
+        except BodyTooLargeError as e:
+            response = Response("Payload too large", status_code=413, headers={"Connection": "close"})
+            logger.warning(f"Received payload too large: {e}")
+            return await response(scope, receive, send)
         logger.debug(f"Received JSON: {body}")
 
         try:

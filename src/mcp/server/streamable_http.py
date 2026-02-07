@@ -24,6 +24,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.server.http_body import DEFAULT_MAX_BODY_BYTES, BodyTooLargeError, read_request_body
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -132,6 +133,7 @@ class StreamableHTTPServerTransport:
         event_store: EventStore | None = None,
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
     ) -> None:
         """Initialize a new StreamableHTTP server transport.
 
@@ -148,18 +150,23 @@ class StreamableHTTPServerTransport:
                            retry field. When set, the server will send a retry field in
                            SSE priming events to control client reconnection timing for
                            polling behavior. Only used when event_store is provided.
+            max_body_bytes: Maximum size (in bytes) for JSON POST request bodies. Defaults
+                           to 1_000_000. Set to None to disable this guard.
 
         Raises:
             ValueError: If the session ID contains invalid characters.
         """
         if mcp_session_id is not None and not SESSION_ID_PATTERN.fullmatch(mcp_session_id):
             raise ValueError("Session ID must only contain visible ASCII characters (0x21-0x7E)")
+        if max_body_bytes is not None and max_body_bytes <= 0:
+            raise ValueError("max_body_bytes must be positive or None")
 
         self.mcp_session_id = mcp_session_id
         self.is_json_response_enabled = is_json_response_enabled
         self._event_store = event_store
         self._security = TransportSecurityMiddleware(security_settings)
         self._retry_interval = retry_interval
+        self._max_body_bytes = max_body_bytes
         self._request_streams: dict[
             RequestId,
             tuple[
@@ -427,6 +434,43 @@ class StreamableHTTPServerTransport:
             return False
         return True
 
+    async def _parse_jsonrpc_message(
+        self,
+        request: Request,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> JSONRPCMessage | None:
+        """Read + parse a JSON-RPC message from an HTTP request body."""
+        try:
+            body = await read_request_body(request, max_body_bytes=self._max_body_bytes)
+        except BodyTooLargeError as e:
+            response = self._create_error_response(
+                f"Payload too large: {e}",
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                headers={"Connection": "close"},
+            )
+            await response(scope, receive, send)
+            return None
+
+        try:
+            raw_message = pydantic_core.from_json(body)
+        except ValueError as e:
+            response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
+            await response(scope, receive, send)
+            return None
+
+        try:
+            return jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
+        except ValidationError as e:  # pragma: no cover
+            response = self._create_error_response(
+                f"Validation error: {str(e)}",
+                HTTPStatus.BAD_REQUEST,
+                INVALID_PARAMS,
+            )
+            await response(scope, receive, send)
+            return None
+
     async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
@@ -446,25 +490,8 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
                 return
 
-            # Parse the body - only read it once
-            body = await request.body()
-
-            try:
-                raw_message = pydantic_core.from_json(body)
-            except ValueError as e:
-                response = self._create_error_response(f"Parse error: {str(e)}", HTTPStatus.BAD_REQUEST, PARSE_ERROR)
-                await response(scope, receive, send)
-                return
-
-            try:
-                message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
-            except ValidationError as e:  # pragma: no cover
-                response = self._create_error_response(
-                    f"Validation error: {str(e)}",
-                    HTTPStatus.BAD_REQUEST,
-                    INVALID_PARAMS,
-                )
-                await response(scope, receive, send)
+            message = await self._parse_jsonrpc_message(request, scope, receive, send)
+            if message is None:
                 return
 
             # Check if this is an initialization request

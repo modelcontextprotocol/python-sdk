@@ -77,6 +77,23 @@ class TestServer:
         assert sse_routes[0].path == "/sse"
         assert mount_routes[0].path == "/messages"
 
+    async def test_sse_app_passes_max_body_bytes(self):
+        mcp = MCPServer("test")
+        app = mcp.sse_app(host="0.0.0.0", max_body_bytes=123)
+
+        mount_routes = [r for r in app.routes if isinstance(r, Mount)]
+        assert len(mount_routes) == 1
+
+        message_app = mount_routes[0].app
+        assert hasattr(message_app, "__self__"), "Expected a bound method for message handler"
+        sse_transport = message_app.__self__
+        assert getattr(sse_transport, "_max_body_bytes") == 123
+
+    async def test_streamable_http_app_passes_max_body_bytes(self):
+        mcp = MCPServer("test")
+        mcp.streamable_http_app(host="0.0.0.0", max_body_bytes=123)
+        assert mcp.session_manager.max_body_bytes == 123
+
     async def test_non_ascii_description(self):
         """Test that MCPServer handles non-ASCII characters in descriptions correctly"""
         mcp = MCPServer()

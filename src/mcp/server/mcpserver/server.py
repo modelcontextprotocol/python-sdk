@@ -28,6 +28,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
+from mcp.server.http_body import DEFAULT_MAX_BODY_BYTES
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
@@ -223,6 +224,7 @@ class MCPServer(Generic[LifespanResultT]):
         sse_path: str = ...,
         message_path: str = ...,
         transport_security: TransportSecuritySettings | None = ...,
+        max_body_bytes: int | None = ...,
     ) -> None: ...
 
     @overload
@@ -238,6 +240,7 @@ class MCPServer(Generic[LifespanResultT]):
         event_store: EventStore | None = ...,
         retry_interval: int | None = ...,
         transport_security: TransportSecuritySettings | None = ...,
+        max_body_bytes: int | None = ...,
     ) -> None: ...
 
     def run(
@@ -725,6 +728,7 @@ class MCPServer(Generic[LifespanResultT]):
         sse_path: str = "/sse",
         message_path: str = "/messages/",
         transport_security: TransportSecuritySettings | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
     ) -> None:
         """Run the server using SSE transport."""
         import uvicorn
@@ -734,6 +738,7 @@ class MCPServer(Generic[LifespanResultT]):
             message_path=message_path,
             transport_security=transport_security,
             host=host,
+            max_body_bytes=max_body_bytes,
         )
 
         config = uvicorn.Config(
@@ -756,6 +761,7 @@ class MCPServer(Generic[LifespanResultT]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         transport_security: TransportSecuritySettings | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
     ) -> None:
         """Run the server using StreamableHTTP transport."""
         import uvicorn
@@ -768,6 +774,7 @@ class MCPServer(Generic[LifespanResultT]):
             retry_interval=retry_interval,
             transport_security=transport_security,
             host=host,
+            max_body_bytes=max_body_bytes,
         )
 
         config = uvicorn.Config(
@@ -785,6 +792,7 @@ class MCPServer(Generic[LifespanResultT]):
         sse_path: str = "/sse",
         message_path: str = "/messages/",
         transport_security: TransportSecuritySettings | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Return an instance of the SSE server app."""
@@ -796,7 +804,11 @@ class MCPServer(Generic[LifespanResultT]):
                 allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
             )
 
-        sse = SseServerTransport(message_path, security_settings=transport_security)
+        sse = SseServerTransport(
+            message_path,
+            security_settings=transport_security,
+            max_body_bytes=max_body_bytes,
+        )
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
             # Add client ID from auth context into request context if available
@@ -914,6 +926,7 @@ class MCPServer(Generic[LifespanResultT]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
         transport_security: TransportSecuritySettings | None = None,
+        max_body_bytes: int | None = DEFAULT_MAX_BODY_BYTES,
         host: str = "127.0.0.1",
     ) -> Starlette:
         """Return an instance of the StreamableHTTP server app."""
@@ -924,6 +937,7 @@ class MCPServer(Generic[LifespanResultT]):
             event_store=event_store,
             retry_interval=retry_interval,
             transport_security=transport_security,
+            max_body_bytes=max_body_bytes,
             host=host,
             auth=self.settings.auth,
             token_verifier=self._token_verifier,
