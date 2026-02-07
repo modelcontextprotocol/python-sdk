@@ -427,7 +427,7 @@ class StreamableHTTPServerTransport:
             return False
         return True
 
-    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:  # noqa: PLR0915
+    async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
         if writer is None:  # pragma: no cover
@@ -1006,10 +1006,7 @@ class StreamableHTTPServerTransport:
                             try:
                                 # Send both the message and the event ID
                                 await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
-                            except (
-                                anyio.BrokenResourceError,
-                                anyio.ClosedResourceError,
-                            ):  # pragma: no cover
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
                                 # Stream might be closed, remove from registry
                                 self._request_streams.pop(request_stream_id, None)
                         else:  # pragma: no cover
