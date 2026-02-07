@@ -45,7 +45,7 @@ def _create_non_sdk_server_app() -> Starlette:
         if "id" not in data:
             return Response(status_code=204, headers={"Content-Type": "application/json"})
 
-        return JSONResponse(
+        return JSONResponse(  # pragma: no cover
             {"jsonrpc": "2.0", "id": data.get("id"), "error": {"code": -32601, "message": "Method not found"}}
         )
 

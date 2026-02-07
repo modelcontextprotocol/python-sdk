@@ -470,8 +470,8 @@ class StreamableHTTPTransport:
                     else:
                         await handle_request_async()
 
-        except Exception:
-            logger.exception("Error in post_writer")  # pragma: no cover
+        except Exception:  # pragma: no cover
+            logger.exception("Error in post_writer")
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
