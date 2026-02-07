@@ -265,7 +265,7 @@ async def test_401_flow_falls_back_when_default_protocol_not_injected() -> None:
             }
             return httpx.Response(200, json=prm)
 
-        if request.method == "GET" and path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.method == "GET" and path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(404, text="not found")
 
         if request.method == "POST" and path == "/mcp":
@@ -348,7 +348,7 @@ async def test_401_flow_does_not_leak_discovery_response_when_no_protocols_injec
                 ],
             }
             return httpx.Response(200, json=prm)
-        if request.method == "GET" and request.url.path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.method == "GET" and request.url.path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(404, text="not found")
         if request.method == "POST" and request.url.path == "/mcp":
             www = (
@@ -387,7 +387,7 @@ async def test_401_flow_does_not_leak_discovery_response_when_no_protocols_injec
 
     assert r.status_code == 401
     # We should have attempted discovery, but final response must not be the discovery 404.
-    assert ("GET", "/mcp/.well-known/authorization_servers") in seen
+    assert ("GET", "/.well-known/authorization_servers/mcp") in seen
     assert handler(httpx.Request("GET", "https://rs.example/unexpected")).status_code == 500
 
 

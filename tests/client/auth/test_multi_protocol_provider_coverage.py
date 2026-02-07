@@ -13,6 +13,7 @@ from mcp.client.auth.multi_protocol import (
     MultiProtocolAuthProvider,
     OAuthTokenStorageAdapter,
     TokenStorage,
+    _build_protocol_candidates,
     _credentials_to_storage,
     _oauth_token_to_credentials,
 )
@@ -82,6 +83,24 @@ def test_oauth_token_to_credentials_leaves_expires_at_none_when_expires_in_missi
     assert credentials.expires_at is None
 
 
+def test_build_protocol_candidates_without_preferences_includes_default_then_available() -> None:
+    candidates = _build_protocol_candidates(
+        available=["api_key", "oauth2"],
+        default_protocol="oauth2",
+        protocol_preferences=None,
+    )
+    assert candidates == ["oauth2", "api_key"]
+
+
+def test_build_protocol_candidates_with_preferences_orders_and_deduplicates() -> None:
+    candidates = _build_protocol_candidates(
+        available=["api_key", "oauth2", "api_key"],
+        default_protocol=None,
+        protocol_preferences={"api_key": 1, "oauth2": 10},
+    )
+    assert candidates == ["api_key", "oauth2"]
+
+
 @pytest.mark.anyio
 async def test_helper_types_are_exercised_for_test_coverage() -> None:
     storage = _InMemoryDualStorage()
@@ -144,6 +163,20 @@ async def test_parse_protocols_from_discovery_response_falls_back_to_prm_on_inva
 
 
 @pytest.mark.anyio
+async def test_parse_protocols_from_discovery_response_returns_protocols_when_present() -> None:
+    storage = _InMemoryDualStorage()
+    provider = MultiProtocolAuthProvider(server_url="https://rs.example/mcp", storage=storage, protocols=[])
+
+    response = httpx.Response(
+        200,
+        json={"protocols": [{"protocol_id": "api_key", "protocol_version": "1.0"}]},
+        request=httpx.Request("GET", "https://rs.example/.well-known/authorization_servers/mcp"),
+    )
+    protocols = await provider._parse_protocols_from_discovery_response(response, prm=None)
+    assert [p.protocol_id for p in protocols] == ["api_key"]
+
+
+@pytest.mark.anyio
 async def test_parse_protocols_from_discovery_response_falls_back_to_prm_when_protocols_list_empty() -> None:
     storage = _InMemoryDualStorage()
     provider = MultiProtocolAuthProvider(server_url="https://rs.example/mcp", storage=storage, protocols=[])
@@ -159,10 +192,23 @@ async def test_parse_protocols_from_discovery_response_falls_back_to_prm_when_pr
     response = httpx.Response(
         200,
         json={"protocols": []},
-        request=httpx.Request("GET", "https://rs/mcp/.well-known/authorization_servers"),
+        request=httpx.Request("GET", "https://rs/.well-known/authorization_servers/mcp"),
     )
     protocols = await provider._parse_protocols_from_discovery_response(response, prm_validated)
     assert [p.protocol_id for p in protocols] == ["api_key"]
+
+
+@pytest.mark.anyio
+async def test_parse_protocols_from_discovery_response_returns_empty_when_no_protocols_and_no_prm() -> None:
+    storage = _InMemoryDualStorage()
+    provider = MultiProtocolAuthProvider(server_url="https://rs.example/mcp", storage=storage, protocols=[])
+
+    response = httpx.Response(
+        404,
+        request=httpx.Request("GET", "https://rs.example/.well-known/authorization_servers/mcp"),
+    )
+    protocols = await provider._parse_protocols_from_discovery_response(response, prm=None)
+    assert protocols == []
 
 
 @pytest.mark.anyio
@@ -386,7 +432,7 @@ async def test_401_flow_api_key_success_with_preferences_and_default_skips_uninj
                 json={"resource": "https://rs.example/mcp", "authorization_servers": ["https://as.example/"]},
                 request=request,
             )
-        if request.method == "GET" and request.url.path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.method == "GET" and request.url.path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(
                 200,
                 json={"protocols": [{"protocol_id": "api_key", "protocol_version": "1.0"}]},
@@ -434,7 +480,7 @@ async def test_401_flow_api_key_failure_surfaces_last_auth_error() -> None:
                 json={"resource": "https://rs.example/mcp", "authorization_servers": ["https://as.example/"]},
                 request=request,
             )
-        if request.method == "GET" and request.url.path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.method == "GET" and request.url.path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(
                 200,
                 json={"protocols": [{"protocol_id": "api_key", "protocol_version": "1.0"}]},
@@ -494,7 +540,7 @@ async def test_401_flow_oauth2_fallback_via_prm_authorization_servers_client_cre
                 json={"resource": "https://rs.example/mcp", "authorization_servers": ["https://as.example/"]},
                 request=request,
             )
-        if request.method == "GET" and request.url.path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.method == "GET" and request.url.path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(404, request=request)
         if request.method == "GET" and request.url.path == "/.well-known/oauth-authorization-server":
             return httpx.Response(
@@ -567,7 +613,7 @@ async def test_401_flow_no_hints_no_prm_no_protocols_retries_original_request() 
             return httpx.Response(200, json={"ok": True}, request=request)
         if request.method == "GET" and "oauth-protected-resource" in request.url.path:
             return httpx.Response(404, request=request)
-        if request.method == "GET" and request.url.path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.method == "GET" and request.url.path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(200, json={"protocols": []}, request=request)
         return httpx.Response(404, request=request)
 
@@ -599,9 +645,12 @@ async def test_401_flow_skips_prm_discovery_when_prm_urls_empty(monkeypatch: pyt
     discovery_request = await flow.asend(
         httpx.Response(401, headers={"WWW-Authenticate": 'Bearer error="invalid_token"'}, request=request)
     )
-    assert discovery_request.url.path.endswith("/mcp/.well-known/authorization_servers")
+    assert discovery_request.url.path == "/.well-known/authorization_servers/mcp"
 
-    retry_request = await flow.asend(httpx.Response(200, json={"protocols": []}, request=discovery_request))
+    root_discovery_request = await flow.asend(httpx.Response(200, json={"protocols": []}, request=discovery_request))
+    assert root_discovery_request.url.path == "/.well-known/authorization_servers"
+
+    retry_request = await flow.asend(httpx.Response(200, json={"protocols": []}, request=root_discovery_request))
     assert retry_request is request
     with pytest.raises(StopAsyncIteration):
         await flow.asend(httpx.Response(200, json={"ok": True}, request=request))

@@ -46,7 +46,7 @@ def test_build_authorization_servers_discovery_urls_deduplicates() -> None:
 @pytest.mark.anyio
 async def test_discover_authorization_servers_handles_parse_error_and_recovers() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.url.path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(200, content=b"{not-json", request=request)
         if request.url.path == "/.well-known/authorization_servers":
             return httpx.Response(
@@ -70,7 +70,7 @@ async def test_discover_authorization_servers_handles_parse_error_and_recovers()
 @pytest.mark.anyio
 async def test_discover_authorization_servers_returns_empty_when_no_protocols_and_no_prm() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/mcp/.well-known/authorization_servers"):
+        if request.url.path == "/.well-known/authorization_servers/mcp":
             return httpx.Response(200, json={"protocols": []}, request=request)
         if request.url.path == "/.well-known/authorization_servers":
             return httpx.Response(200, json={"protocols": []}, request=request)
