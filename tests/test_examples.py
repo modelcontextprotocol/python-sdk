@@ -7,6 +7,7 @@
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
@@ -96,20 +97,52 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
             assert "/fake/path/file2.txt" in content.text
 
 
+SKIP_RUN_TAGS = ["skip", "skip-run"]
+SKIP_LINT_TAGS = ["skip", "skip-lint"]
+
+# Files with code examples that are both linted and run
+DOCS_FILES = ["docs/quickstart.md", "docs/concepts.md"]
+
+
+def _set_eval_config(eval_example: EvalExample) -> None:
+    eval_example.set_config(
+        ruff_ignore=["F841", "I001", "F821"],
+        target_version="py310",
+        line_length=120,
+    )
+
+
 # TODO(v2): Change back to README.md when v2 is released
 @pytest.mark.parametrize(
     "example",
-    find_examples("README.v2.md", "docs/quickstart.md", "docs/concepts.md"),
+    find_examples("README.v2.md", *DOCS_FILES),
     ids=str,
 )
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
-    ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
+    if any(example.prefix_settings().get(key) == "true" for key in SKIP_LINT_TAGS):
+        pytest.skip("skip-lint")
 
-    # Use project's actual line length of 120
-    eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=120)
+    _set_eval_config(eval_example)
 
-    # Use Ruff for both formatting and linting (skip Black)
     if eval_example.update_examples:  # pragma: no cover
         eval_example.format_ruff(example)
     else:
         eval_example.lint_ruff(example)
+
+
+def _get_runnable_docs_examples() -> list[CodeExample]:
+    examples = find_examples(*DOCS_FILES)
+    return [ex for ex in examples if not any(ex.prefix_settings().get(key) == "true" for key in SKIP_RUN_TAGS)]
+
+
+@pytest.mark.parametrize("example", _get_runnable_docs_examples(), ids=str)
+def test_docs_examples_run(example: CodeExample, eval_example: EvalExample):
+    _set_eval_config(eval_example)
+
+    # Prevent `if __name__ == "__main__"` blocks from starting servers
+    globals: dict[str, Any] = {"__name__": "__docs_test__"}
+
+    if eval_example.update_examples:  # pragma: no cover
+        eval_example.run_print_update(example, module_globals=globals)
+    else:
+        eval_example.run_print_check(example, module_globals=globals)

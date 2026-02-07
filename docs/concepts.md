@@ -21,27 +21,33 @@ Host (e.g. Claude Desktop)
 
 ## Primitives
 
-MCP servers expose three core primitives:
+MCP servers expose three core primitives: **resources**, **tools**, and **prompts**.
 
 ### Resources
 
 Resources provide data to LLMs — similar to GET endpoints in a REST API. They load information into the
 LLM's context without performing computation or causing side effects.
 
+Resources can be static (fixed URI) or use URI templates for dynamic content:
+
 ```python
+import json
+
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo")
+
+
 @mcp.resource("config://app")
 def get_config() -> str:
     """Expose application configuration."""
     return json.dumps({"theme": "dark", "version": "2.0"})
-```
 
-Resources can be static (fixed URI) or use URI templates for dynamic content:
 
-```python
 @mcp.resource("users://{user_id}/profile")
 def get_profile(user_id: str) -> str:
     """Get a user profile by ID."""
-    return json.dumps(load_profile(user_id))
+    return json.dumps({"user_id": user_id, "name": "Alice"})
 ```
 
 <!-- TODO: See [Resources](server/resources.md) for full documentation. -->
@@ -49,13 +55,17 @@ def get_profile(user_id: str) -> str:
 ### Tools
 
 Tools let LLMs take actions — similar to POST endpoints. They perform computation, call external APIs,
-or produce side effects.
+or produce side effects:
 
 ```python
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo")
+
+
 @mcp.tool()
 def send_email(to: str, subject: str, body: str) -> str:
     """Send an email to the given recipient."""
-    # ... send email logic ...
     return f"Email sent to {to}"
 ```
 
@@ -67,6 +77,11 @@ Tools support structured output, progress reporting, and more.
 Prompts are reusable templates for LLM interactions. They help standardize common workflows:
 
 ```python
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer("Demo")
+
+
 @mcp.prompt()
 def review_code(code: str, language: str = "python") -> str:
     """Generate a code review prompt."""
@@ -93,7 +108,10 @@ When handling requests, your functions can access a **context object** that prov
 like logging, progress reporting, and access to the current session:
 
 ```python
-from mcp.server.mcpserver import Context
+from mcp.server.mcpserver import Context, MCPServer
+
+mcp = MCPServer("Demo")
+
 
 @mcp.tool()
 async def long_task(ctx: Context) -> str:
@@ -113,15 +131,28 @@ Servers support a **lifespan** pattern for managing startup and shutdown logic �
 initializing a database connection pool on startup and closing it on shutdown:
 
 ```python
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+
+from mcp.server.mcpserver import MCPServer
+
+
+@dataclass
+class AppContext:
+    db_url: str
+
 
 @asynccontextmanager
-async def app_lifespan(server):
-    db = await Database.connect()
+async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
+    # Initialize on startup
+    ctx = AppContext(db_url="postgresql://localhost/mydb")
     try:
-        yield {"db": db}
+        yield ctx
     finally:
-        await db.disconnect()
+        # Cleanup on shutdown
+        pass
+
 
 mcp = MCPServer("My App", lifespan=app_lifespan)
 ```
