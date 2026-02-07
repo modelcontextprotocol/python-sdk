@@ -3,6 +3,7 @@
 import importlib.metadata
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -44,13 +45,10 @@ def _get_npx_command():
     if sys.platform == "win32":
         # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
-            try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
+            if shutil.which(cmd):
                 return cmd
-            except subprocess.CalledProcessError:
-                continue
         return None
-    return "npx"  # On Unix-like systems, just use npx
+    return shutil.which("npx")
 
 
 def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
