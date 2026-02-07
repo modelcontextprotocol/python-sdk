@@ -37,13 +37,13 @@ mcp = MCPServer("Demo")
 
 
 @mcp.resource("config://app")
-def get_config() -> dict:
+def get_config() -> dict[str, str]:
     """Expose application configuration."""
     return {"theme": "dark", "version": "2.0"}
 
 
 @mcp.resource("users://{user_id}/profile")
-def get_profile(user_id: str) -> dict:
+def get_profile(user_id: str) -> dict[str, str]:
     """Get a user profile by ID."""
     return {"user_id": user_id, "name": "Alice"}
 ```
