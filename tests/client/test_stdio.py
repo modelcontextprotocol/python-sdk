@@ -275,6 +275,13 @@ class TestChildProcessCleanup:
             parent_marker = f.name
 
         try:
+            # Before starting any processes, the file should not grow. This also
+            # exercises the timeout/loop paths in _wait_for_file_growth for branch
+            # coverage.
+            initial_size = os.path.getsize(marker_file)
+            size_no_growth = await self._wait_for_file_growth(marker_file, initial_size, timeout_seconds=0.15)
+            assert size_no_growth == initial_size
+
             # Parent script that spawns a child process
             parent_script = textwrap.dedent(
                 f"""
