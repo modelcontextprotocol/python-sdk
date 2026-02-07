@@ -50,6 +50,8 @@ if __name__ == "__main__":
 
 ## Run the server
 
+Start the server with uv:
+
 ```bash
 uv run --with mcp server.py
 ```
@@ -57,6 +59,8 @@ uv run --with mcp server.py
 The server starts on `http://localhost:8000/mcp` using Streamable HTTP transport.
 
 ## Connect a client
+
+You can connect to your running server using any MCP client:
 
 === "Claude Code"
 
@@ -77,6 +81,8 @@ The server starts on `http://localhost:8000/mcp` using Streamable HTTP transport
     In the inspector UI, connect to `http://localhost:8000/mcp`.
 
 ## Next steps
+
+Now that you have a running server, explore these topics:
 
 - **[Concepts](concepts.md)** — understand the protocol architecture and primitives
 - **[Testing](testing.md)** — test your server with the `Client` class

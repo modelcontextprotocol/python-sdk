@@ -159,6 +159,8 @@ mcp = MCPServer("My App", lifespan=app_lifespan)
 
 ## Next steps
 
+Continue learning about MCP:
+
 - **[Quickstart](quickstart.md)** — build your first server
 - **[Testing](testing.md)** — test your server with the `Client` class
 - **[Authorization](authorization.md)** — securing your servers with OAuth 2.1
