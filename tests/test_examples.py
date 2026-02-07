@@ -100,8 +100,8 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
 SKIP_RUN_TAGS = ["skip", "skip-run"]
 SKIP_LINT_TAGS = ["skip", "skip-lint"]
 
-# Files with code examples that are both linted and run
-DOCS_FILES = ["docs/quickstart.md", "docs/concepts.md"]
+# TODO(v2): Change "README.v2.md" back to "README.md" when v2 is released
+_ALL_EXAMPLES = list(find_examples("README.v2.md", "docs/"))
 
 
 def _set_eval_config(eval_example: EvalExample) -> None:
@@ -112,16 +112,12 @@ def _set_eval_config(eval_example: EvalExample) -> None:
     )
 
 
-# TODO(v2): Change back to README.md when v2 is released
 @pytest.mark.parametrize(
     "example",
-    find_examples("README.v2.md", *DOCS_FILES),
+    [ex for ex in _ALL_EXAMPLES if not any(ex.prefix_settings().get(key) == "true" for key in SKIP_LINT_TAGS)],
     ids=str,
 )
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
-    if any(example.prefix_settings().get(key) == "true" for key in SKIP_LINT_TAGS):
-        pytest.skip("skip-lint")
-
     _set_eval_config(eval_example)
 
     if eval_example.update_examples:  # pragma: no cover
@@ -130,19 +126,18 @@ def test_docs_examples(example: CodeExample, eval_example: EvalExample):
         eval_example.lint_ruff(example)
 
 
-def _get_runnable_docs_examples() -> list[CodeExample]:
-    examples = find_examples(*DOCS_FILES)
-    return [ex for ex in examples if not any(ex.prefix_settings().get(key) == "true" for key in SKIP_RUN_TAGS)]
-
-
-@pytest.mark.parametrize("example", _get_runnable_docs_examples(), ids=str)
+@pytest.mark.parametrize(
+    "example",
+    [ex for ex in _ALL_EXAMPLES if not any(ex.prefix_settings().get(key) == "true" for key in SKIP_RUN_TAGS)],
+    ids=str,
+)
 def test_docs_examples_run(example: CodeExample, eval_example: EvalExample):
     _set_eval_config(eval_example)
 
     # Prevent `if __name__ == "__main__"` blocks from starting servers
-    globals: dict[str, Any] = {"__name__": "__docs_test__"}
+    module_globals: dict[str, Any] = {"__name__": "__docs_test__"}
 
     if eval_example.update_examples:  # pragma: no cover
-        eval_example.run_print_update(example, module_globals=globals)
+        eval_example.run_print_update(example, module_globals=module_globals)
     else:
-        eval_example.run_print_check(example, module_globals=globals)
+        eval_example.run_print_check(example, module_globals=module_globals)

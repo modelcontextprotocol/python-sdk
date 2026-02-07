@@ -10,7 +10,7 @@ This guide covers calling task-augmented tools from clients, handling the `input
 
 Call a tool as a task and poll for the result:
 
-```python
+```python skip="true"
 from mcp.client.session import ClientSession
 from mcp.types import CallToolResult
 
@@ -38,7 +38,7 @@ async with ClientSession(read, write) as session:
 
 Use `call_tool_as_task()` to invoke a tool with task augmentation:
 
-```python
+```python skip="true"
 result = await session.experimental.call_tool_as_task(
     "my_tool",           # Tool name
     {"arg": "value"},    # Arguments
@@ -62,7 +62,7 @@ The response is a `CreateTaskResult` containing:
 
 The `poll_task()` async iterator polls until the task reaches a terminal state:
 
-```python
+```python skip="true"
 async for status in session.experimental.poll_task(task_id):
     print(f"Status: {status.status}")
     if status.statusMessage:
@@ -79,7 +79,7 @@ It automatically:
 
 When a task needs user input (elicitation), it transitions to `input_required`. You must call `get_task_result()` to receive and respond to the elicitation:
 
-```python
+```python skip="true"
 async for status in session.experimental.poll_task(task_id):
     print(f"Status: {status.status}")
 
@@ -95,7 +95,7 @@ The elicitation callback (set during session creation) handles the actual user i
 
 To handle elicitation requests from the server, provide a callback when creating the session:
 
-```python
+```python skip="true"
 from mcp.types import ElicitRequestParams, ElicitResult
 
 async def handle_elicitation(context, params: ElicitRequestParams) -> ElicitResult:
@@ -124,7 +124,7 @@ async with ClientSession(
 
 Similarly, handle sampling requests with a callback:
 
-```python
+```python skip="true"
 from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
 
 async def handle_sampling(context, params: CreateMessageRequestParams) -> CreateMessageResult:
@@ -150,7 +150,7 @@ async with ClientSession(
 
 Once a task completes, retrieve the result:
 
-```python
+```python skip="true"
 if status.status == "completed":
     result = await session.experimental.get_task_result(task_id, CallToolResult)
     for content in result.content:
@@ -174,7 +174,7 @@ The result type matches the original request:
 
 Cancel a running task:
 
-```python
+```python skip="true"
 cancel_result = await session.experimental.cancel_task(task_id)
 print(f"Cancelled, status: {cancel_result.status}")
 ```
@@ -185,7 +185,7 @@ Note: Cancellation is cooperative—the server must check for and handle cancell
 
 View all tasks on the server:
 
-```python
+```python skip="true"
 result = await session.experimental.list_tasks()
 for task in result.tasks:
     print(f"{task.taskId}: {task.status}")
@@ -205,7 +205,7 @@ Servers can send task-augmented requests to clients. This is useful when the ser
 
 Register task handlers to declare what task-augmented requests your client accepts:
 
-```python
+```python skip="true"
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.types import (
     CreateTaskResult, GetTaskResult, GetTaskPayloadResult,
@@ -279,7 +279,7 @@ This enables flows where:
 
 A client that handles all task scenarios:
 
-```python
+```python skip="true"
 import anyio
 from mcp.client.session import ClientSession
 from mcp.client.stdio import stdio_client
@@ -336,7 +336,7 @@ if __name__ == "__main__":
 
 Handle task errors gracefully:
 
-```python
+```python skip="true"
 from mcp.shared.exceptions import MCPError
 
 try:

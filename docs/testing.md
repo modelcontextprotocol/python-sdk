@@ -7,7 +7,7 @@ This makes it easy to write tests without network overhead.
 
 Let's assume you have a simple server with a single tool:
 
-```python title="server.py"
+```python title="server.py" skip-run="true"
 from mcp.server import MCPServer
 
 app = MCPServer("Calculator")
@@ -40,7 +40,7 @@ To run the below test, you'll need to install the following dependencies:
     you to take snapshots of the output of your tests. Which makes it easier to create tests for your
     server - you don't need to use it, but we are spreading the word for best practices.
 
-```python title="test_server.py"
+```python title="test_server.py" skip-run="true"
 import pytest
 from inline_snapshot import snapshot
 from mcp import Client

@@ -101,7 +101,7 @@ Server                              Client
 
 When augmenting a request with task execution, include `TaskMetadata`:
 
-```python
+```python skip="true"
 from mcp.types import TaskMetadata
 
 task = TaskMetadata(ttl=60000)  # TTL in milliseconds
@@ -113,7 +113,7 @@ The `ttl` (time-to-live) specifies how long the task and result are retained aft
 
 Servers persist task state in a `TaskStore`. The SDK provides `InMemoryTaskStore` for development:
 
-```python
+```python skip="true"
 from mcp.shared.experimental.tasks import InMemoryTaskStore
 
 store = InMemoryTaskStore()
@@ -140,7 +140,7 @@ The SDK manages these automatically when you enable task support.
 
 **Server** (simplified API):
 
-```python
+```python skip="true"
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.types import CallToolResult, TextContent, TASK_REQUIRED
@@ -163,7 +163,7 @@ async def handle_tool(name: str, arguments: dict):
 
 **Client:**
 
-```python
+```python skip="true"
 from mcp.client.session import ClientSession
 from mcp.types import CallToolResult
 
