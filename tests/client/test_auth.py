@@ -819,135 +819,134 @@ class TestProtectedResourceMetadata:
         assert "resource=" in content
 
 
-class TestResourceValidation:
-    """Test PRM resource validation in OAuthClientProvider."""
+@pytest.mark.anyio
+async def test_validate_resource_rejects_mismatched_resource(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client must reject PRM resource that doesn't match server URL."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
 
-    @pytest.mark.anyio
-    async def test_rejects_mismatched_resource(
-        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
-    ) -> None:
-        """Client must reject PRM resource that doesn't match server URL."""
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-        )
-        provider._initialized = True
-
-        prm = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://evil.example.com/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
-        with pytest.raises(OAuthFlowError, match="does not match expected"):
-            await provider._validate_resource_match(prm)
-
-    @pytest.mark.anyio
-    async def test_accepts_matching_resource(
-        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
-    ) -> None:
-        """Client must accept PRM resource that matches server URL."""
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-        )
-        provider._initialized = True
-
-        prm = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
-        # Should not raise
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://evil.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    with pytest.raises(OAuthFlowError, match="does not match expected"):
         await provider._validate_resource_match(prm)
 
-    @pytest.mark.anyio
-    async def test_custom_validate_resource_url_callback(
-        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
-    ) -> None:
-        """Custom callback overrides default validation."""
-        callback_called_with: list[tuple[str, str | None]] = []
 
-        async def custom_validate(server_url: str, prm_resource: str | None) -> None:
-            callback_called_with.append((server_url, prm_resource))
+@pytest.mark.anyio
+async def test_validate_resource_accepts_matching_resource(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client must accept PRM resource that matches server URL."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
 
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-            validate_resource_url=custom_validate,
-        )
-        provider._initialized = True
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise
+    await provider._validate_resource_match(prm)
 
-        # This would normally fail default validation (different origin),
-        # but custom callback accepts it
-        prm = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://evil.example.com/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
-        await provider._validate_resource_match(prm)
-        assert len(callback_called_with) == 1
-        assert callback_called_with[0][0] == "https://api.example.com/v1/mcp"
-        assert callback_called_with[0][1] == "https://evil.example.com/mcp"
 
-    @pytest.mark.anyio
-    async def test_accepts_root_url_with_trailing_slash(
-        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
-    ) -> None:
-        """Root URLs with trailing slash normalization should match."""
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-        )
-        provider._initialized = True
+@pytest.mark.anyio
+async def test_validate_resource_custom_callback(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Custom callback overrides default validation."""
+    callback_called_with: list[tuple[str, str | None]] = []
 
-        prm = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://api.example.com/"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
-        # Should not raise despite trailing slash difference
-        await provider._validate_resource_match(prm)
+    async def custom_validate(server_url: str, prm_resource: str | None) -> None:
+        callback_called_with.append((server_url, prm_resource))
 
-    @pytest.mark.anyio
-    async def test_accepts_server_url_with_trailing_slash(
-        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
-    ) -> None:
-        """Server URL with trailing slash should match PRM resource."""
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp/",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-        )
-        provider._initialized = True
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        validate_resource_url=custom_validate,
+    )
+    provider._initialized = True
 
-        prm = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
-        # Should not raise - both normalize to the same URL with trailing slash
-        await provider._validate_resource_match(prm)
+    # This would normally fail default validation (different origin),
+    # but custom callback accepts it
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://evil.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    await provider._validate_resource_match(prm)
+    assert callback_called_with == snapshot([("https://api.example.com/v1/mcp", "https://evil.example.com/mcp")])
 
-    @pytest.mark.anyio
-    async def test_get_resource_url_uses_canonical_when_prm_mismatches(
-        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
-    ) -> None:
-        """get_resource_url falls back to canonical URL when PRM resource doesn't match."""
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-        )
-        provider._initialized = True
 
-        # Set PRM with a resource that is NOT a parent of the server URL
-        provider.context.protected_resource_metadata = ProtectedResourceMetadata(
-            resource=AnyHttpUrl("https://other.example.com/mcp"),
-            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
-        )
+@pytest.mark.anyio
+async def test_validate_resource_accepts_root_url_with_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Root URLs with trailing slash normalization should match."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
 
-        # get_resource_url should return the canonical server URL, not the PRM resource
-        resource = provider.context.get_resource_url()
-        assert resource == "https://api.example.com/v1/mcp"
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise despite trailing slash difference
+    await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_validate_resource_accepts_server_url_with_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Server URL with trailing slash should match PRM resource."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp/",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise - both normalize to the same URL with trailing slash
+    await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_get_resource_url_uses_canonical_when_prm_mismatches(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """get_resource_url falls back to canonical URL when PRM resource doesn't match."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    # Set PRM with a resource that is NOT a parent of the server URL
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://other.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    # get_resource_url should return the canonical server URL, not the PRM resource
+    assert provider.context.get_resource_url() == snapshot("https://api.example.com/v1/mcp")
 
 
 class TestRegistrationResponse:
