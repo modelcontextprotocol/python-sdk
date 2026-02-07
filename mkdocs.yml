@@ -13,12 +13,28 @@ site_url: https://modelcontextprotocol.github.io/python-sdk
 nav:
   - Introduction: index.md
   - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Concepts: concepts.md
+  - Server:
+      - Overview: server/index.md
+      - Resources: server/resources.md
+      - Tools: server/tools.md
+      - Prompts: server/prompts.md
+      - Context: server/context.md
+      - Completions: server/completions.md
+      - Elicitation: server/elicitation.md
+      - Sampling: server/sampling.md
+      - Logging: server/logging.md
+      - Running Your Server: server/running.md
+      - Low-Level Server: server/low-level.md
+      - Pagination: server/pagination.md
+  - Client:
+      - Writing Clients: client/index.md
+      - Display Utilities: client/display-utilities.md
+      - Parsing Results: client/parsing-results.md
+  - Authorization: authorization.md
+  - Testing: testing.md
   - Migration Guide: migration.md
-  - Documentation:
-      - Concepts: concepts.md
-      - Low-Level Server: low-level-server.md
-      - Authorization: authorization.md
-      - Testing: testing.md
   - Experimental:
       - Overview: experimental/index.md
       - Tasks:
