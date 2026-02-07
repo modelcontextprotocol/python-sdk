@@ -31,23 +31,21 @@ LLM's context without performing computation or causing side effects.
 Resources can be static (fixed URI) or use URI templates for dynamic content:
 
 ```python
-import json
-
 from mcp.server.mcpserver import MCPServer
 
 mcp = MCPServer("Demo")
 
 
 @mcp.resource("config://app")
-def get_config() -> str:
+def get_config() -> dict:
     """Expose application configuration."""
-    return json.dumps({"theme": "dark", "version": "2.0"})
+    return {"theme": "dark", "version": "2.0"}
 
 
 @mcp.resource("users://{user_id}/profile")
-def get_profile(user_id: str) -> str:
+def get_profile(user_id: str) -> dict:
     """Get a user profile by ID."""
-    return json.dumps({"user_id": user_id, "name": "Alice"})
+    return {"user_id": user_id, "name": "Alice"}
 ```
 
 <!-- TODO: See [Resources](server/resources.md) for full documentation. -->
