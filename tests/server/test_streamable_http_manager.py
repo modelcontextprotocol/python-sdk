@@ -5,9 +5,12 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import anyio
+import httpx
 import pytest
 from starlette.types import Message
 
+from mcp import Client, types
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import streamable_http_manager
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
@@ -313,3 +316,22 @@ async def test_unknown_session_id_returns_404():
         assert error_data["id"] == "server-error"
         assert error_data["error"]["code"] == INVALID_REQUEST
         assert error_data["error"]["message"] == "Session not found"
+
+
+@pytest.mark.anyio
+async def test_e2e_streamable_http_server_cleanup():
+    host = "testserver"
+    app = Server("test-server")
+
+    @app.list_tools()
+    async def list_tools(req: types.ListToolsRequest) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[])
+
+    mcp_app = app.streamable_http_app(host=host)
+    async with (
+        mcp_app.router.lifespan_context(mcp_app),
+        httpx.ASGITransport(mcp_app) as transport,
+        httpx.AsyncClient(transport=transport) as http_client,
+        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
+    ):
+        await client.list_tools()
