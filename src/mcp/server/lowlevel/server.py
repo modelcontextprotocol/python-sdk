@@ -683,7 +683,14 @@ class Server(Generic[LifespanResultT, RequestT]):
                 async for message in session.incoming_messages:
                     logger.debug("Received message: %s", message)
 
-                    tg.start_soon(
+                    if isinstance(message, RequestResponder) and message.context is not None:
+                        logger.debug("Got a context to propagate, %s", message.context)
+                        context = message.context
+                    else:
+                        context = contextvars.copy_context()
+
+                    context.run(
+                        tg.start_soon,
                         self._handle_message,
                         message,
                         session,
