@@ -29,6 +29,9 @@ This document contains critical information about working with this codebase. Fo
    - IMPORTANT: The `tests/client/test_client.py` is the most well designed test file. Follow its patterns.
    - IMPORTANT: Be minimal, and focus on E2E tests: Use the `mcp.client.Client` whenever possible.
 
+Test files mirror the source tree: `src/mcp/client/streamable_http.py` → `tests/client/test_streamable_http.py`
+Add tests to the existing file for that module.
+
 - For commits fixing bugs or adding features based on user reports add:
 
   ```bash
