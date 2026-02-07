@@ -69,6 +69,11 @@ When making breaking changes, document them in `docs/migration.md`. Include:
 Search for related sections in the migration guide and group related changes together
 rather than adding new standalone sections.
 
+## Documentation
+
+- After a heading, always add an introductory paragraph before any code block, list, table, or
+  other content. Never go directly from a heading to non-paragraph content.
+
 ## Python Tools
 
 ## Code Formatting

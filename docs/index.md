@@ -1,67 +1,48 @@
 # MCP Python SDK
 
-The **Model Context Protocol (MCP)** allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction.
+The **Model Context Protocol (MCP)** allows applications to provide context for LLMs in a standardized way,
+separating the concerns of providing context from the actual LLM interaction.
 
 This Python SDK implements the full MCP specification, making it easy to:
 
 - **Build MCP servers** that expose resources, prompts, and tools
-- **Create MCP clients** that can connect to any MCP server
+- **Create MCP clients** that connect to any MCP server
 - **Use standard transports** like stdio, SSE, and Streamable HTTP
 
-If you want to read more about the specification, please visit the [MCP documentation](https://modelcontextprotocol.io).
+## Quick example
 
-## Quick Example
+A minimal MCP server with a single tool:
 
-Here's a simple MCP server that exposes a tool, resource, and prompt:
-
-```python title="server.py"
+```python
 from mcp.server.mcpserver import MCPServer
 
-mcp = MCPServer("Test Server", json_response=True)
-
+mcp = MCPServer("Demo")
 
 @mcp.tool()
 def add(a: int, b: int) -> int:
-    """Add two numbers"""
+    """Add two numbers."""
     return a + b
-
-
-@mcp.resource("greeting://{name}")
-def get_greeting(name: str) -> str:
-    """Get a personalized greeting"""
-    return f"Hello, {name}!"
-
-
-@mcp.prompt()
-def greet_user(name: str, style: str = "friendly") -> str:
-    """Generate a greeting prompt"""
-    return f"Write a {style} greeting for someone named {name}."
-
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
 ```
 
-Run the server:
-
 ```bash
 uv run --with mcp server.py
 ```
 
-Then open the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) and connect to `http://localhost:8000/mcp`:
+## Getting started
 
-```bash
-npx -y @modelcontextprotocol/inspector
-```
+Follow these steps to start building with MCP:
 
-## Getting Started
+1. **[Install](installation.md)** the SDK
+2. **[Quickstart](quickstart.md)** — build your first MCP server
+3. **[Concepts](concepts.md)** — understand the protocol architecture and primitives
 
-<!-- TODO(Marcelo): automatically generate the follow references with a header on each of those files. -->
-1. **[Install](installation.md)** the MCP SDK
-2. **[Learn concepts](concepts.md)** - understand the three primitives and architecture
-3. **[Explore authorization](authorization.md)** - add security to your servers
-4. **[Use low-level APIs](low-level-server.md)** - for advanced customization
+## Links
 
-## API Reference
+Useful references for working with MCP:
 
-Full API documentation is available in the [API Reference](api.md).
+- [MCP specification](https://modelcontextprotocol.io)
+- [API Reference](api.md)
+- [Migration guide](migration.md) (v1 → v2)

@@ -26,7 +26,7 @@ Tasks are useful for:
 
 Experimental features are accessed via the `.experimental` property:
 
-```python
+```python skip="true"
 # Server-side
 @server.experimental.get_task()
 async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:

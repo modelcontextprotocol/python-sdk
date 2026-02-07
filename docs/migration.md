@@ -14,7 +14,7 @@ The deprecated `streamablehttp_client` function has been removed. Use `streamabl
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.client.streamable_http import streamablehttp_client
 
 async with streamablehttp_client(
@@ -29,7 +29,7 @@ async with streamablehttp_client(
 
 **After (v2):**
 
-```python
+```python skip="true"
 import httpx
 from mcp.client.streamable_http import streamable_http_client
 
@@ -56,7 +56,7 @@ If you need to capture the session ID (e.g., for session resumption testing), yo
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.client.streamable_http import streamable_http_client
 
 async with streamable_http_client(url) as (read_stream, write_stream, get_session_id):
@@ -67,7 +67,7 @@ async with streamable_http_client(url) as (read_stream, write_stream, get_sessio
 
 **After (v2):**
 
-```python
+```python skip="true"
 import httpx
 from mcp.client.streamable_http import streamable_http_client
 
@@ -115,13 +115,13 @@ The following deprecated type aliases and classes have been removed from `mcp.ty
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.types import Content, ResourceReference, Cursor
 ```
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.types import ContentBlock, ResourceTemplateReference
 # Use `str` instead of `Cursor` for pagination cursors
 ```
@@ -132,13 +132,13 @@ The deprecated `args` parameter has been removed from `ClientSessionGroup.call_t
 
 **Before (v1):**
 
-```python
+```python skip="true"
 result = await session_group.call_tool("my_tool", args={"key": "value"})
 ```
 
 **After (v2):**
 
-```python
+```python skip="true"
 result = await session_group.call_tool("my_tool", arguments={"key": "value"})
 ```
 
@@ -155,14 +155,14 @@ Use `params=PaginatedRequestParams(cursor=...)` instead.
 
 **Before (v1):**
 
-```python
+```python skip="true"
 result = await session.list_resources(cursor="next_page_token")
 result = await session.list_tools(cursor="next_page_token")
 ```
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.types import PaginatedRequestParams
 
 result = await session.list_resources(params=PaginatedRequestParams(cursor="next_page_token"))
@@ -175,7 +175,7 @@ The `McpError` exception class has been renamed to `MCPError` for consistent nam
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.shared.exceptions import McpError
 
 try:
@@ -186,7 +186,7 @@ except McpError as e:
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.shared.exceptions import MCPError
 
 try:
@@ -197,7 +197,7 @@ except MCPError as e:
 
 `MCPError` is also exported from the top-level `mcp` package:
 
-```python
+```python skip="true"
 from mcp import MCPError
 ```
 
@@ -207,7 +207,7 @@ The `FastMCP` class has been renamed to `MCPServer` to better reflect its role a
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("Demo")
@@ -215,7 +215,7 @@ mcp = FastMCP("Demo")
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.server.mcpserver import MCPServer
 
 mcp = MCPServer("Demo")
@@ -242,7 +242,7 @@ Transport-specific parameters have been moved from the `MCPServer` constructor t
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.server.fastmcp import FastMCP
 
 # Transport params in constructor
@@ -256,7 +256,7 @@ mcp.run(transport="sse")
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.server.mcpserver import MCPServer
 
 # Transport params passed to run()
@@ -272,7 +272,7 @@ mcp.run(transport="sse", host="0.0.0.0", port=9000, sse_path="/events")
 
 When mounting in a Starlette app, pass transport params to the app methods:
 
-```python
+```python skip="true"
 # Before (v1)
 from mcp.server.fastmcp import FastMCP
 
@@ -304,7 +304,7 @@ This means you can no longer access `.root` on these types or use `model_validat
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.types import ClientRequest, ServerNotification
 
 # Using RootModel.model_validate()
@@ -317,7 +317,7 @@ actual_notification = notification.root
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.types import client_request_adapter, server_notification_adapter
 
 # Using TypeAdapter.validate_python()
@@ -355,7 +355,7 @@ The nested `RequestParams.Meta` Pydantic model class has been replaced with a to
 
 **In request context handlers:**
 
-```python
+```python skip="true"
 # Before (v1)
 @server.call_tool()
 async def handle_tool(name: str, arguments: dict) -> list[TextContent]:
@@ -386,7 +386,7 @@ The `RequestContext` class has been split to separate shared fields from server-
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from mcp.client.session import ClientSession
 from mcp.shared.context import RequestContext, LifespanContextT, RequestT
 from mcp.shared.progress import ProgressContext
@@ -400,7 +400,7 @@ progress_ctx: ProgressContext[SendRequestT, SendNotificationT, SendResultT, Rece
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.client.context import ClientRequestContext
 from mcp.client.session import ClientSession
 from mcp.server.context import ServerRequestContext, LifespanContextT, RequestT
@@ -422,7 +422,7 @@ The `uri` field on resource-related types now uses `str` instead of Pydantic's `
 
 **Before (v1):**
 
-```python
+```python skip="true"
 from pydantic import AnyUrl
 from mcp.types import Resource
 
@@ -432,7 +432,7 @@ resource = Resource(name="test", uri=AnyUrl("users/me"))  # Would fail validatio
 
 **After (v2):**
 
-```python
+```python skip="true"
 from mcp.types import Resource
 
 # Plain strings accepted
@@ -443,7 +443,7 @@ resource = Resource(name="test", uri="https://example.com")  # Works
 
 If your code passes `AnyUrl` objects to URI fields, convert them to strings:
 
-```python
+```python skip="true"
 # If you have an AnyUrl from elsewhere
 uri = str(my_any_url)  # Convert to string
 ```
@@ -459,7 +459,7 @@ Affected types:
 
 The `Client` and `ClientSession` methods `read_resource()`, `subscribe_resource()`, and `unsubscribe_resource()` now only accept `str` for the `uri` parameter. If you were passing `AnyUrl` objects, convert them to strings:
 
-```python
+```python skip="true"
 # Before (v1)
 from pydantic import AnyUrl
 
@@ -481,7 +481,7 @@ await client.read_resource(str(my_any_url))
 
 MCP protocol types no longer accept arbitrary extra fields at the top level. This matches the MCP specification which only allows extra fields within `_meta` objects, not on the types themselves.
 
-```python
+```python skip="true"
 # This will now raise a validation error
 from mcp.types import CallToolRequestParams
 
@@ -505,7 +505,7 @@ params = CallToolRequestParams(
 
 The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `MCPServer`. This allows using the streamable HTTP transport without the MCPServer wrapper.
 
-```python
+```python skip="true"
 from mcp.server.lowlevel.server import Server
 
 server = Server("my-server")
