@@ -245,6 +245,21 @@ class TestChildProcessCleanup:
     This is a fundamental difference between Windows and Unix process termination.
     """
 
+    async def _wait_for_file_growth(self, file_path: str, initial_size: int, timeout_seconds: float = 2.0) -> int:
+        """Wait until a file grows beyond initial_size.
+
+        These tests can be a bit timing-sensitive on Windows runners under load,
+        so prefer polling with a short timeout over a single fixed sleep.
+        """
+        deadline = time.monotonic() + timeout_seconds
+        size = initial_size
+        while time.monotonic() < deadline:
+            await anyio.sleep(0.1)
+            size = os.path.getsize(file_path)
+            if size > initial_size:
+                break
+        return size
+
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_basic_child_process_cleanup(self):
@@ -305,8 +320,7 @@ class TestChildProcessCleanup:
             # Verify child is writing
             if os.path.exists(marker_file):  # pragma: no branch
                 initial_size = os.path.getsize(marker_file)
-                await anyio.sleep(0.3)
-                size_after_wait = os.path.getsize(marker_file)
+                size_after_wait = await self._wait_for_file_growth(marker_file, initial_size)
                 assert size_after_wait > initial_size, "Child process should be writing"
                 print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
 
@@ -405,8 +419,7 @@ class TestChildProcessCleanup:
             for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
                 if os.path.exists(file_path):  # pragma: no branch
                     initial_size = os.path.getsize(file_path)
-                    await anyio.sleep(0.3)
-                    new_size = os.path.getsize(file_path)
+                    new_size = await self._wait_for_file_growth(file_path, initial_size)
                     assert new_size > initial_size, f"{name} process should be writing"
 
             # Terminate the whole tree
@@ -483,8 +496,7 @@ class TestChildProcessCleanup:
             # Verify child is writing
             if os.path.exists(marker_file):  # pragma: no branch
                 size1 = os.path.getsize(marker_file)
-                await anyio.sleep(0.3)
-                size2 = os.path.getsize(marker_file)
+                size2 = await self._wait_for_file_growth(marker_file, size1)
                 assert size2 > size1, "Child should be writing"
 
             # Terminate - this will kill the process group even if parent exits first
