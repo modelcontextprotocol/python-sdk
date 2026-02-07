@@ -24,8 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
-import sys
 import webbrowser
 from typing import Any
 from urllib.parse import urlparse
@@ -124,12 +122,9 @@ def extract_domain(url: str) -> str:
 def open_browser(url: str) -> None:
     """Open URL in the default browser."""
     try:
-        if sys.platform == "darwin":
-            subprocess.run(["open", url], check=False)
-        elif sys.platform == "win32":
-            subprocess.run(["start", url], shell=True, check=False)
-        else:
-            webbrowser.open(url)
+        if not webbrowser.open(url, new=2):
+            print("Could not open browser automatically.")
+            print(f"Please manually open: {url}")
     except Exception as e:
         print(f"Failed to open browser: {e}")
         print(f"Please manually open: {url}")
