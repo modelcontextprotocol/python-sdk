@@ -55,4 +55,3 @@ async def read_request_body(request: Request, *, max_body_bytes: int | None = DE
         body.extend(chunk)
 
     return bytes(body)
-
