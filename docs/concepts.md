@@ -70,7 +70,7 @@ Prompts are reusable templates for LLM interactions. They help standardize commo
 @mcp.prompt()
 def review_code(code: str, language: str = "python") -> str:
     """Generate a code review prompt."""
-    return f"Review this {language} code:\n\n```{language}\n{code}\n```"
+    return f"Please review the following {language} code:\n\n{code}"
 ```
 
 <!-- TODO: See [Prompts](server/prompts.md) for full documentation. -->
