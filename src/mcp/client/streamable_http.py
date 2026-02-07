@@ -13,6 +13,7 @@ import httpx
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
+from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
 from mcp.shared._httpx_utils import create_mcp_http_client
@@ -311,7 +312,7 @@ class StreamableHTTPTransport:
 
             session_message = SessionMessage(message)
             await read_stream_writer.send(session_message)
-        except Exception as exc:
+        except (httpx.StreamError, ValidationError) as exc:
             logger.exception("Error parsing JSON response")
             error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse JSON response: {exc}")
             error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data))
