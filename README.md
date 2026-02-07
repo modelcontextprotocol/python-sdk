@@ -1429,6 +1429,8 @@ app = Starlette(
 )
 ```
 
+Security note: StreamableHTTP enforces a default `max_body_bytes=1_000_000` limit for incoming `application/json` POST bodies (413 on oversized payloads). Override via `mcp.streamable_http_app(max_body_bytes=...)` or `mcp.run("streamable-http", ..., max_body_bytes=...)`. Set to `None` to disable (not recommended).
+
 _Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_basic_mounting.py)_
 <!-- /snippet-source -->
 
@@ -1600,6 +1602,8 @@ app = Starlette(
 # or dynamically mount as host
 app.router.routes.append(Host('mcp.acme.corp', app=mcp.sse_app()))
 ```
+
+Security note: SSE message endpoints enforce a default `max_body_bytes=1_000_000` limit for incoming `application/json` POST bodies (413 on oversized payloads). Override via `mcp.sse_app(max_body_bytes=...)` or `mcp.run("sse", ..., max_body_bytes=...)`. Set to `None` to disable (not recommended).
 
 You can also mount multiple MCP servers at different sub-paths. The SSE transport automatically detects the mount path via ASGI's `root_path` mechanism, so message endpoints are correctly routed:
 
