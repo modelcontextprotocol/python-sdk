@@ -3,6 +3,8 @@
 import logging
 from typing import Any, cast
 
+import httpx
+
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
 
@@ -25,8 +27,6 @@ class IntrospectionTokenVerifier(TokenVerifier):
 
     async def verify_token(self, token: str) -> AccessToken | None:
         """Verify token via introspection endpoint."""
-        import httpx
-
         if not self.introspection_endpoint.startswith(("https://", "http://localhost", "http://127.0.0.1")):
             logger.warning("Rejecting unsafe introspection endpoint")
             return None
