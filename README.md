@@ -35,7 +35,9 @@
     - [Resources](#resources)
     - [Tools](#tools)
       - [Structured Output](#structured-output)
+        - [Advanced: Direct CallToolResult](#advanced-direct-calltoolresult)
     - [Prompts](#prompts)
+    - [Icons](#icons)
     - [Images](#images)
     - [Context](#context)
       - [Getting Context in Functions](#getting-context-in-functions)
@@ -64,7 +66,11 @@
   - [Advanced Usage](#advanced-usage)
     - [Low-Level Server](#low-level-server)
       - [Structured Output Support](#structured-output-support)
+        - [Returning CallToolResult Directly](#returning-calltoolresult-directly)
     - [Pagination (Advanced)](#pagination-advanced)
+      - [Server-side Implementation](#server-side-implementation)
+      - [Client-side Consumption](#client-side-consumption)
+      - [Key Points](#key-points)
     - [Writing MCP Clients](#writing-mcp-clients)
     - [Client Display Utilities](#client-display-utilities)
     - [OAuth Authentication for Clients](#oauth-authentication-for-clients)
@@ -113,13 +119,13 @@ If you haven't created a uv-managed project yet, create one:
    Then add MCP to your project dependencies:
 
    ```bash
-   uv add "mcp[cli]"
+   uv add "mcp"
    ```
 
 Alternatively, for projects using pip for dependencies:
 
 ```bash
-pip install "mcp[cli]"
+pip install "mcp"
 ```
 
 ### Running the standalone MCP development tools
