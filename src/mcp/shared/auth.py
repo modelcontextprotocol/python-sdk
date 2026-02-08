@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_serializer, field_validator
 
 
 class OAuthToken(BaseModel):
@@ -128,6 +128,18 @@ class OAuthMetadata(BaseModel):
     code_challenge_methods_supported: list[str] | None = None
     client_id_metadata_document_supported: bool | None = None
 
+    @field_serializer("issuer")
+    def serialize_issuer_without_trailing_slash(self, v: AnyHttpUrl) -> str:
+        """Strip trailing slash from issuer URL during serialization.
+
+        RFC 8414 examples show issuer URLs without trailing slashes, and some
+        OAuth clients (Google ADK, IBM MCP Context Forge) require exact match
+        between discovery URL and returned issuer per RFC 8414 Section 3.3.
+        Pydantic's AnyHttpUrl automatically adds a trailing slash, which breaks
+        these clients. See: https://github.com/modelcontextprotocol/python-sdk/issues/1919
+        """
+        return str(v).rstrip("/")
+
 
 class ProtectedResourceMetadata(BaseModel):
     """RFC 9728 OAuth 2.0 Protected Resource Metadata.
@@ -150,3 +162,17 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_signing_alg_values_supported: list[str] | None = None
     # dpop_bound_access_tokens_required default is False, but omitted here for clarity
     dpop_bound_access_tokens_required: bool | None = None
+
+    @field_serializer("resource")
+    def serialize_resource_without_trailing_slash(self, v: AnyHttpUrl) -> str:
+        """Strip trailing slash from resource URL during serialization.
+
+        Same rationale as OAuthMetadata.issuer - RFC specs show URLs without
+        trailing slashes, and clients may require exact URL matching.
+        """
+        return str(v).rstrip("/")
+
+    @field_serializer("authorization_servers")
+    def serialize_auth_servers_without_trailing_slash(self, v: list[AnyHttpUrl]) -> list[str]:
+        """Strip trailing slashes from authorization server URLs during serialization."""
+        return [str(url).rstrip("/") for url in v]
