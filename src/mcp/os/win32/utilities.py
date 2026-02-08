@@ -75,10 +75,11 @@ class FallbackProcess:
         self.popen: subprocess.Popen[bytes] = popen_obj
         self.stdin_raw = popen_obj.stdin  # type: ignore[assignment]
         self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
-        self.stderr = popen_obj.stderr  # type: ignore[assignment]
+        self.stderr_raw = popen_obj.stderr  # type: ignore[assignment]
 
         self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
         self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
+        self.stderr = FileReadStream(cast(BinaryIO, self.stderr_raw)) if self.stderr_raw else None
 
     async def __aenter__(self):
         """Support async context manager entry."""
@@ -99,12 +100,14 @@ class FallbackProcess:
             await self.stdin.aclose()
         if self.stdout:
             await self.stdout.aclose()
+        if self.stderr:
+            await self.stderr.aclose()
         if self.stdin_raw:
             self.stdin_raw.close()
         if self.stdout_raw:
             self.stdout_raw.close()
-        if self.stderr:
-            self.stderr.close()
+        if self.stderr_raw:
+            self.stderr_raw.close()
 
     async def wait(self):
         """Async wait for process completion."""

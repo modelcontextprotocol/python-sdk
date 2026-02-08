@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import logging
 import os
 import sys
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal, TextIO
@@ -20,8 +23,8 @@ from mcp.os.win32.utilities import (
     get_windows_executable_command,
     terminate_windows_process_tree,
 )
-from mcp.shared.message import SessionMessage
 from mcp.shared.jupyter import is_jupyter
+from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +126,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         # because sys.stderr redirection might not be reliable for subprocesses.
         actual_errlog = errlog
         if is_jupyter():
-            actual_errlog = anyio.lowlevel.PIPE
+            actual_errlog = subprocess.PIPE
 
         # Open process with stderr piped for capture
         process = await _create_platform_compatible_process(
