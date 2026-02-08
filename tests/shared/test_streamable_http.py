@@ -125,7 +125,7 @@ class SimpleEventStore(EventStore):
 
 
 # Test server implementation that follows MCP protocol
-class ServerTest(Server):
+class ServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__(SERVER_NAME)
         self._lock = None  # Will be initialized in async context
@@ -383,11 +383,11 @@ class ServerTest(Server):
             return [TextContent(type="text", text=f"Called {name}")]
 
 
-def create_app(
+def create_app(  # pragma: no cover
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
-) -> Starlette:  # pragma: no cover
+) -> Starlette:
     """Create a Starlette application for testing using the session manager.
 
     Args:
@@ -422,12 +422,12 @@ def create_app(
     return app
 
 
-def run_server(
+def run_server(  # pragma: no cover
     port: int,
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
-) -> None:  # pragma: no cover
+) -> None:
     """Run the test server.
 
     Args:
@@ -957,8 +957,6 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     assert "Not Acceptable" in response.text
 
 
-
-
 @pytest.fixture
 async def initialized_client_session(basic_server: None, basic_server_url: str):
     """Create initialized StreamableHTTP client session."""
@@ -1379,7 +1377,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
 
 
 # Context-aware server implementation for testing request context propagation
-class ContextAwareServerTest(Server):
+class ContextAwareServerTest(Server):  # pragma: no cover
     def __init__(self):
         super().__init__("ContextAwareServer")
 
@@ -1439,7 +1437,7 @@ class ContextAwareServerTest(Server):
 
 
 # Server runner for context-aware testing
-def run_context_aware_server(port: int):
+def run_context_aware_server(port: int):  # pragma: no cover
     """Run the context-aware test server."""
     server = ContextAwareServerTest()
 
