@@ -1385,7 +1385,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
 
 
 # Context-aware server implementation for testing request context propagation
-class ContextAwareServerTest(Server):  # pragma: no cover
+class ContextAwareServerTest(Server):
     def __init__(self):
         super().__init__("ContextAwareServer")
 
@@ -1445,7 +1445,7 @@ class ContextAwareServerTest(Server):  # pragma: no cover
 
 
 # Server runner for context-aware testing
-def run_context_aware_server(port: int):  # pragma: no cover
+def run_context_aware_server(port: int):
     """Run the context-aware test server."""
     server = ContextAwareServerTest()
 
