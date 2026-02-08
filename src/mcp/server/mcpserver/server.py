@@ -805,7 +805,6 @@ class MCPServer(Generic[LifespanResultT]):
                 await self._lowlevel_server.run(
                     streams[0], streams[1], self._lowlevel_server.create_initialization_options()
                 )
-            return Response()
 
         # Create routes
         routes: list[Route | Mount] = []
@@ -869,15 +868,18 @@ class MCPServer(Generic[LifespanResultT]):
             )
         else:
             # Auth is disabled, no need for RequireAuthMiddleware
-            # Since handle_sse is an ASGI app, we need to create a compatible endpoint
-            async def sse_endpoint(request: Request) -> Response:  # pragma: no cover
-                # Convert the Starlette request to ASGI parameters
-                return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
+
+
+            # Use an ASGI-compatible wrapper to avoid Starlette's high-level route wrapping
+            # which expects a Response object and causes double-sending.
+            class HandleSseAsgi:
+                async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+                    await handle_sse(scope, receive, send)
 
             routes.append(
                 Route(
                     sse_path,
-                    endpoint=sse_endpoint,
+                    endpoint=HandleSseAsgi(),
                     methods=["GET"],
                 )
             )

@@ -21,6 +21,7 @@ from mcp.os.win32.utilities import (
     terminate_windows_process_tree,
 )
 from mcp.shared.message import SessionMessage
+from mcp.shared.jupyter import is_jupyter
 
 logger = logging.getLogger(__name__)
 
@@ -118,12 +119,18 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     try:
         command = _get_executable_command(server.command)
 
+        # In Jupyter, we pipe stderr to read it in the main process
+        # because sys.stderr redirection might not be reliable for subprocesses.
+        actual_errlog = errlog
+        if is_jupyter():
+            actual_errlog = anyio.lowlevel.PIPE
+
         # Open process with stderr piped for capture
         process = await _create_platform_compatible_process(
             command=command,
             args=server.args,
             env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
-            errlog=errlog,
+            errlog=actual_errlog,
             cwd=server.cwd,
         )
     except OSError:
@@ -177,9 +184,29 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
+    async def stderr_reader():
+        if not process.stderr:
+            return
+
+        try:
+            async for chunk in TextReceiveStream(
+                process.stderr,
+                encoding=server.encoding,
+                errors=server.encoding_error_handler,
+            ):
+                if is_jupyter():
+                    # In Jupyter, we use print() for better output handling
+                    # Red text for stderr
+                    print(f"\033[91m{chunk}\033[0m", end="", flush=True)
+                else:
+                    print(chunk, file=sys.stderr, end="", flush=True)
+        except anyio.ClosedResourceError:
+            await anyio.lowlevel.checkpoint()
+
     async with anyio.create_task_group() as tg, process:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
