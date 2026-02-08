@@ -5,7 +5,15 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, BinaryIO, TextIO, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    BinaryIO,
+    Protocol,
+    TextIO,
+    cast,
+    runtime_checkable,
+)
 
 import anyio
 from anyio import to_thread
@@ -15,16 +23,53 @@ from typing_extensions import deprecated
 
 logger = logging.getLogger("client.stdio.win32")
 
+
+@runtime_checkable
+class Win32ApiModule(Protocol):
+    def CloseHandle(self, handle: int) -> None: ...
+    def OpenProcess(self, access: int, inherit: bool, pid: int) -> int: ...
+
+
+@runtime_checkable
+class Win32JobModule(Protocol):
+    JobObjectExtendedLimitInformation: int
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: int
+
+    def CreateJobObject(self, security_attributes: None, name: str) -> int: ...
+    def QueryInformationJobObject(self, job: int, info_class: int) -> dict[str, Any]: ...
+    def SetInformationJobObject(self, job: int, info_class: int, info: dict[str, Any]) -> None: ...
+    def TerminateJobObject(self, job: int, exit_code: int) -> None: ...
+    def AssignProcessToJobObject(self, job: int, process_handle: int) -> None: ...
+
+
+@runtime_checkable
+class Win32ConModule(Protocol):
+    PROCESS_SET_QUOTA: int
+    PROCESS_TERMINATE: int
+
+
 # Windows-specific imports for Job Objects
-if sys.platform == "win32":
-    import win32api  # type: ignore
-    import win32con  # type: ignore
-    import win32job  # type: ignore
+if TYPE_CHECKING:
+    import win32api as win32api_mod
+    import win32con as win32con_mod
+    import win32job as win32job_mod
+
+    win32api: Win32ApiModule | None = win32api_mod  # type: ignore
+    win32con: Win32ConModule | None = win32con_mod  # type: ignore
+    win32job: Win32JobModule | None = win32job_mod  # type: ignore
+elif sys.platform == "win32":
+    try:
+        import win32api
+        import win32con
+        import win32job
+    except ImportError:
+        win32api = None
+        win32con = None
+        win32job = None
 else:
-    # Type stubs for non-Windows platforms
-    win32api = None  # type: ignore
-    win32con = None  # type: ignore
-    win32job = None  # type: ignore
+    win32api = None
+    win32con = None
+    win32job = None
 
 JobHandle = int
 
@@ -234,15 +279,13 @@ def _create_job_object() -> int | None:
         return None
 
     try:
-        # Cast to any to avoid type errors on non-Windows platforms
-        wj: Any = win32job
-        job = wj.CreateJobObject(None, "")
-        extended_info = wj.QueryInformationJobObject(job, wj.JobObjectExtendedLimitInformation)
+        job = win32job.CreateJobObject(None, "")
+        extended_info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
 
         if isinstance(extended_info, dict):
-            extended_info["BasicLimitInformation"]["LimitFlags"] |= wj.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            wj.SetInformationJobObject(job, wj.JobObjectExtendedLimitInformation, extended_info)
-        return cast(int, job)
+            extended_info["BasicLimitInformation"]["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, extended_info)
+        return job
     except Exception as e:
         logger.warning(f"Failed to create Job Object for process tree management: {e}")
         return None
@@ -292,8 +335,7 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess, tim
     job = getattr(process, "_job_object", None)
     if job and win32job:
         try:
-            wj: Any = win32job
-            wj.TerminateJobObject(job, 1)
+            win32job.TerminateJobObject(job, 1)
         except Exception:
             # Job might already be terminated
             pass

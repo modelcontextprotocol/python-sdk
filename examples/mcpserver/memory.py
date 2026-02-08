@@ -15,19 +15,51 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast, runtime_checkable
 
 # External dependencies - these may not be installed
 # pyright: reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false
 import asyncpg  # type: ignore[import-untyped]
-import numpy as np  # type: ignore[import-untyped]
 from openai import AsyncOpenAI  # type: ignore[import-untyped]
 from pgvector.asyncpg import register_vector  # type: ignore[import-untyped]
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent  # type: ignore[import-untyped]
 
 from mcp.server.mcpserver import MCPServer
+
+
+@runtime_checkable
+class PGRecord(Protocol):
+    def __getitem__(self, key: str) -> Any: ...
+
+
+@runtime_checkable
+class PGConnection(Protocol):
+    async def execute(self, query: str, *args: Any) -> str: ...
+    async def fetch(self, query: str, *args: Any) -> list[PGRecord]: ...
+
+
+@runtime_checkable
+class OpenAIEmbeddings(Protocol):
+    async def create(self, **kwargs: Any) -> Any: ...
+
+
+@runtime_checkable
+class OpenAIClient(Protocol):
+    embeddings: OpenAIEmbeddings
+
+
+@runtime_checkable
+class PGPool(Protocol):
+    def acquire(self) -> Any: ...  # Returns an async context manager
+    async def close(self) -> None: ...
+
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI  # type: ignore
+else:
+    AsyncOpenAI = Any
 
 MAX_DEPTH = 5
 SIMILARITY_THRESHOLD = 0.7
@@ -47,40 +79,44 @@ PROFILE_DIR = (Path.home() / ".mcp" / os.environ.get("USER", "anon") / "memory")
 PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def cosine_similarity(a: list[float], b: list[float]) -> float:  # type: ignore[return]
-    a_array = np.array(a, dtype=np.float64)  # type: ignore[no-untyped-call]
-    b_array = np.array(b, dtype=np.float64)  # type: ignore[no-untyped-call]
-    return np.dot(a_array, b_array) / (np.linalg.norm(a_array) * np.linalg.norm(b_array))  # type: ignore[no-untyped-call, return-value]
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Calculate cosine similarity between two vectors using math module."""
+    dot_product = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot_product / (norm_a * norm_b)
+
+
+@dataclass
+class Deps:
+    openai: OpenAIClient
+    pool: PGPool
+
+
+async def get_db_pool() -> PGPool:
+    async def init(conn: PGConnection) -> None:
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        await register_vector(conn)  # type: ignore
+
+    pool = await asyncpg.create_pool(DB_DSN, init=init)  # type: ignore
+    return cast(PGPool, pool)
 
 
 async def do_ai(
     user_prompt: str,
     system_prompt: str,
-    result_type: type[T] | Annotated[Any, Any],
-    deps: Any = None,
+    result_type: type[T],
+    deps: Deps | None = None,
 ) -> T:
-    agent = Agent(
+    agent: Agent[Deps, T] = Agent(
         DEFAULT_LLM_MODEL,
         system_prompt=system_prompt,
         result_type=result_type,
     )
     result = await agent.run(user_prompt, deps=deps)
-    return result.data
-
-
-@dataclass
-class Deps:
-    openai: Any
-    pool: Any
-
-
-async def get_db_pool() -> Any:
-    async def init(conn: Any) -> None:
-        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-        await register_vector(conn)
-
-    pool = await asyncpg.create_pool(DB_DSN, init=init)
-    return pool
+    return cast(T, result.data)
 
 
 class MemoryNode(BaseModel):
@@ -194,13 +230,13 @@ async def find_similar_memories(embedding: list[float], deps: Deps) -> list[Memo
         )
     memories = [
         MemoryNode(
-            id=row["id"],
-            content=row["content"],
-            summary=row["summary"],
-            importance=row["importance"],
-            access_count=row["access_count"],
-            timestamp=row["timestamp"],
-            embedding=row["embedding"],
+            id=cast(int, row["id"]),
+            content=cast(str, row["content"]),
+            summary=cast(str, row["summary"]),
+            importance=cast(float, row["importance"]),
+            access_count=cast(int, row["access_count"]),
+            timestamp=cast(float, row["timestamp"]),
+            embedding=cast(list[float], row["embedding"]),
         )
         for row in rows
     ]
@@ -209,16 +245,17 @@ async def find_similar_memories(embedding: list[float], deps: Deps) -> list[Memo
 
 async def update_importance(user_embedding: list[float], deps: Deps):
     async with deps.pool.acquire() as conn:
-        rows = await conn.fetch("SELECT id, importance, access_count, embedding FROM memories")
+        conn = cast(PGConnection, conn)
+        rows: list[PGRecord] = await conn.fetch("SELECT id, importance, access_count, embedding FROM memories")
         for row in rows:
-            memory_embedding = row["embedding"]
+            memory_embedding = cast(list[float], row["embedding"])
             similarity = cosine_similarity(user_embedding, memory_embedding)
             if similarity > SIMILARITY_THRESHOLD:
-                new_importance = row["importance"] * REINFORCEMENT_FACTOR
-                new_access_count = row["access_count"] + 1
+                new_importance = cast(float, row["importance"]) * REINFORCEMENT_FACTOR
+                new_access_count = cast(int, row["access_count"]) + 1
             else:
-                new_importance = row["importance"] * DECAY_FACTOR
-                new_access_count = row["access_count"]
+                new_importance = cast(float, row["importance"]) * DECAY_FACTOR
+                new_access_count = cast(int, row["access_count"])
             await conn.execute(
                 """
                 UPDATE memories
@@ -233,7 +270,8 @@ async def update_importance(user_embedding: list[float], deps: Deps):
 
 async def prune_memories(deps: Deps):
     async with deps.pool.acquire() as conn:
-        rows = await conn.fetch(
+        conn = cast(PGConnection, conn)
+        rows: list[PGRecord] = await conn.fetch(
             """
             SELECT id, importance, access_count
             FROM memories
@@ -248,7 +286,8 @@ async def prune_memories(deps: Deps):
 
 async def display_memory_tree(deps: Deps) -> str:
     async with deps.pool.acquire() as conn:
-        rows = await conn.fetch(
+        conn = cast(PGConnection, conn)
+        rows: list[PGRecord] = await conn.fetch(
             """
             SELECT content, summary, importance, access_count
             FROM memories
@@ -259,8 +298,10 @@ async def display_memory_tree(deps: Deps) -> str:
         )
     result = ""
     for row in rows:
-        effective_importance = row["importance"] * (1 + math.log(row["access_count"] + 1))
-        summary = row["summary"] or row["content"]
+        importance = cast(float, row["importance"])
+        access_count = cast(int, row["access_count"])
+        effective_importance = importance * (1 + math.log(access_count + 1))
+        summary = cast(str, row["summary"] or row["content"])
         result += f"- {summary} (Importance: {effective_importance:.2f})\n"
     return result
 
@@ -269,7 +310,10 @@ async def display_memory_tree(deps: Deps) -> str:
 async def remember(
     contents: list[str] = Field(description="List of observations or memories to store"),
 ):
-    deps = Deps(openai=AsyncOpenAI(), pool=await get_db_pool())
+    deps = Deps(
+        openai=cast(OpenAIClient, AsyncOpenAI()),
+        pool=await get_db_pool(),
+    )
     try:
         return "\n".join(await asyncio.gather(*[add_memory(content, deps) for content in contents]))
     finally:
@@ -278,7 +322,10 @@ async def remember(
 
 @mcp.tool()
 async def read_profile() -> str:
-    deps = Deps(openai=AsyncOpenAI(), pool=await get_db_pool())
+    deps = Deps(
+        openai=cast(OpenAIClient, AsyncOpenAI()),
+        pool=await get_db_pool(),
+    )
     profile = await display_memory_tree(deps)
     await deps.pool.close()
     return profile

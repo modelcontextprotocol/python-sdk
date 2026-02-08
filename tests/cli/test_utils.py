@@ -17,7 +17,7 @@ from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  #
 )
 def test_parse_file_path_accepts_valid_specs(tmp_path: Path, spec: str, expected_obj: str | None):
     """Should accept valid file specs."""
-    file = tmp_path / spec.split(":")[0]
+    file = tmp_path / spec.split(":", 1)[0]
     file.write_text("x = 1")
     path, obj = _parse_file_path(f"{file}:{expected_obj}" if ":" in spec else str(file))
     assert path == file.resolve()
