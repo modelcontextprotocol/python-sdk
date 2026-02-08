@@ -350,6 +350,7 @@ class TestChildProcessCleanup:
         with tempfile.NamedTemporaryFile(mode="w", delete=False) as f3:
             grandchild_file = f3.name
 
+        proc = None
         try:
             # Simple nested process tree test
             # We create parent -> child -> grandchild, each writing to a file
@@ -405,9 +406,16 @@ class TestChildProcessCleanup:
             for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
                 if os.path.exists(file_path):  # pragma: no branch
                     initial_size = os.path.getsize(file_path)
-                    await anyio.sleep(0.3)
-                    new_size = os.path.getsize(file_path)
-                    assert new_size > initial_size, f"{name} process should be writing"
+                    # Under high load (e.g. CI + xdist), short fixed sleeps can be flaky on Windows.
+                    # Poll for growth within a small deadline rather than asserting after a single sleep.
+                    deadline = time.monotonic() + 3.0
+                    while time.monotonic() < deadline:
+                        await anyio.sleep(0.1)
+                        new_size = os.path.getsize(file_path)
+                        if new_size > initial_size:  # pragma: no branch
+                            break
+                    else:  # pragma: no cover
+                        raise AssertionError(f"{name} process should be writing")
 
             # Terminate the whole tree
             await _terminate_process_tree(proc)
@@ -424,6 +432,14 @@ class TestChildProcessCleanup:
             print("SUCCESS: All processes in tree terminated")
 
         finally:
+            # If the "is writing" assertions fail, ensure we still terminate the process tree to
+            # avoid leaking subprocesses (which can cause cascading failures on Windows).
+            if proc is not None:  # pragma: no branch
+                try:
+                    await _terminate_process_tree(proc)
+                except (OSError, RuntimeError, ProcessLookupError):  # pragma: no cover
+                    pass
+
             # Clean up all marker files
             for f in [parent_file, child_file, grandchild_file]:
                 try:
