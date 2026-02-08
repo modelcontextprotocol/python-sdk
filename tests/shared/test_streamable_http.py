@@ -1481,8 +1481,8 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
 
     proc.kill()
     proc.join(timeout=2)
-    if proc.is_alive():  # pragma: no cover
-        print("Context-aware server process failed to terminate")
+    if proc.is_alive():
+        print("Context-aware server process failed to terminate")  # pragma: no cover
 
 
 @pytest.mark.anyio
