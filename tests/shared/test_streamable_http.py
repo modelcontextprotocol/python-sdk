@@ -125,7 +125,7 @@ class SimpleEventStore(EventStore):
 
 
 # Test server implementation that follows MCP protocol
-class ServerTest(Server):  # pragma: no cover
+class ServerTest(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
         self._lock = None  # Will be initialized in async context
@@ -957,12 +957,6 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     assert "Not Acceptable" in response.text
 
 
-# Client-specific fixtures
-@pytest.fixture
-async def http_client(basic_server: None, basic_server_url: str):  # pragma: no cover
-    """Create test client matching the SSE test pattern."""
-    async with httpx.AsyncClient(base_url=basic_server_url) as client:
-        yield client
 
 
 @pytest.fixture
