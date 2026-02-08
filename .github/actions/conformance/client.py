@@ -295,7 +295,7 @@ async def run_auth_code_client(server_url: str) -> None:
                 )
                 logger.debug(f"Pre-loaded client credentials: client_id={client_id}")
         except json.JSONDecodeError:
-            pass
+            logger.exception("Failed to parse MCP_CONFORMANCE_CONTEXT")
 
     oauth_auth = OAuthClientProvider(
         server_url=server_url,
