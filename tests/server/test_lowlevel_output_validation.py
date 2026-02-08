@@ -21,6 +21,7 @@ async def run_tool_test(
     tools: list[Tool],
     call_tool_handler: Callable[[str, dict[str, Any]], Awaitable[Any]],
     test_callback: Callable[[ClientSession], Awaitable[CallToolResult]],
+    validate_output: bool = True,
 ) -> CallToolResult | None:
     """Helper to run a tool test with minimal boilerplate.
 
@@ -28,6 +29,7 @@ async def run_tool_test(
         tools: List of tools to register
         call_tool_handler: Handler function for tool calls
         test_callback: Async function that performs the test using the client session
+        validate_output: Whether to enable output validation (default: True)
 
     Returns:
         The result of the tool call
@@ -40,7 +42,7 @@ async def run_tool_test(
     async def list_tools():
         return tools
 
-    @server.call_tool()
+    @server.call_tool(validate_output=validate_output)
     async def call_tool(name: str, arguments: dict[str, Any]):
         return await call_tool_handler(name, arguments)
 
@@ -474,3 +476,149 @@ async def test_output_schema_type_validation():
     assert result.content[0].type == "text"
     assert "Output validation error:" in result.content[0].text
     assert "'five' is not of type 'integer'" in result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_validate_output_false_returns_invalid_schema():
+    """Test that when validate_output=False, server returns invalid output without error."""
+    tools = [
+        Tool(
+            name="tool_with_schema",
+            description="Tool with output schema",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "required_field": {"type": "string"},
+                },
+                "required": ["required_field"],
+            },
+        )
+    ]
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "tool_with_schema":
+            # Missing required field, but server validation is disabled
+            return {"other_field": "value"}
+        else:  # pragma: no cover
+            raise ValueError(f"Unknown tool: {name}")
+
+    async def test_callback(client_session: ClientSession) -> CallToolResult:
+        # Note: Even though server validation is disabled, client validation will still fail
+        # This test verifies that the server doesn't return an error response
+        try:
+            return await client_session.call_tool("tool_with_schema", {})
+        except RuntimeError as e:
+            # Client validation failed, but that's expected
+            # The important thing is that the server didn't return an error response
+            # We can verify this by checking the error message
+            assert "Invalid structured content" in str(e)
+            # Return a mock result to indicate server didn't error
+            return CallToolResult(
+                content=[TextContent(type="text", text="Server returned result")],
+                structuredContent={"other_field": "value"},
+                isError=False,
+            )
+
+    result = await run_tool_test(tools, call_tool_handler, test_callback, validate_output=False)
+
+    # Verify server didn't return an error - it returned the invalid output
+    assert result is not None
+    assert not result.isError
+    assert result.structuredContent == {"other_field": "value"}
+
+
+@pytest.mark.anyio
+async def test_validate_output_false_returns_no_structured_output():
+    """Test that when validate_output=False, server returns without structured output without error."""
+    tools = [
+        Tool(
+            name="tool_with_schema",
+            description="Tool with output schema",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"},
+                },
+                "required": ["result"],
+            },
+        )
+    ]
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+        if name == "tool_with_schema":
+            # Returns only content, no structured output, but server validation is disabled
+            return [TextContent(type="text", text="No structured output")]
+        else:  # pragma: no cover
+            raise ValueError(f"Unknown tool: {name}")
+
+    async def test_callback(client_session: ClientSession) -> CallToolResult:
+        # Note: Even though server validation is disabled, client validation will still fail
+        # This test verifies that the server doesn't return an error response
+        try:
+            return await client_session.call_tool("tool_with_schema", {})
+        except RuntimeError as e:
+            # Client validation failed, but that's expected
+            # The important thing is that the server didn't return an error response
+            assert "has an output schema but did not return structured content" in str(e)
+            # Return a mock result to indicate server didn't error
+            return CallToolResult(
+                content=[TextContent(type="text", text="No structured output")], structuredContent=None, isError=False
+            )
+
+    result = await run_tool_test(tools, call_tool_handler, test_callback, validate_output=False)
+
+    # Verify server didn't return an error - it returned content without structured output
+    assert result is not None
+    assert not result.isError
+    assert len(result.content) == 1
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "No structured output"
+    assert result.structuredContent is None
+
+
+@pytest.mark.anyio
+async def test_validate_output_true_with_invalid_schema():
+    """Test that when validate_output=True (default), invalid output schema is validated."""
+    tools = [
+        Tool(
+            name="tool_with_schema",
+            description="Tool with output schema",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "required_field": {"type": "string"},
+                },
+                "required": ["required_field"],
+            },
+        )
+    ]
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "tool_with_schema":
+            # Missing required field, validation is enabled (default)
+            return {"other_field": "value"}
+        else:  # pragma: no cover
+            raise ValueError(f"Unknown tool: {name}")
+
+    async def test_callback(client_session: ClientSession) -> CallToolResult:
+        return await client_session.call_tool("tool_with_schema", {})
+
+    result = await run_tool_test(tools, call_tool_handler, test_callback)
+
+    # Verify error - output validation is enabled by default
+    assert result is not None
+    assert result.isError
+    assert isinstance(result.content[0], TextContent)
+    assert "Output validation error:" in result.content[0].text

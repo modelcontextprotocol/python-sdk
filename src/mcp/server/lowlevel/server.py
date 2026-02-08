@@ -489,11 +489,12 @@ class Server(Generic[LifespanResultT, RequestT]):
 
         return tool
 
-    def call_tool(self, *, validate_input: bool = True):
+    def call_tool(self, *, validate_input: bool = True, validate_output: bool = True):
         """Register a tool call handler.
 
         Args:
             validate_input: If True, validates input against inputSchema. Default is True.
+            validate_output: If True, validates output against outputSchema. Default is True.
 
         The handler validates input against inputSchema (if validate_input=True), calls the tool function,
         and builds a CallToolResult with the results:
@@ -501,7 +502,7 @@ class Server(Generic[LifespanResultT, RequestT]):
         - Structured content (dict): returned in structuredContent, serialized JSON text returned in content
         - Both: returned in content and structuredContent
 
-        If outputSchema is defined, validates structuredContent or errors if missing.
+        If validate_output is True and outputSchema is defined, validates structuredContent or errors if missing.
         """
 
         def decorator(
@@ -522,7 +523,11 @@ class Server(Generic[LifespanResultT, RequestT]):
                 try:
                     tool_name = req.params.name
                     arguments = req.params.arguments or {}
-                    tool = await self._get_cached_tool_definition(tool_name)
+
+                    if validate_input or validate_output:
+                        tool = await self._get_cached_tool_definition(tool_name)
+                    else:
+                        tool = None
 
                     # input validation
                     if validate_input and tool:
@@ -557,7 +562,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
 
                     # output validation
-                    if tool and tool.outputSchema is not None:
+                    if validate_output and tool and tool.outputSchema is not None:
                         if maybe_structured_content is None:
                             return self._make_error_result(
                                 "Output validation error: outputSchema defined but no structured output returned"

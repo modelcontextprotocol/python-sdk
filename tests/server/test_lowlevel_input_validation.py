@@ -19,8 +19,10 @@ from mcp.types import CallToolResult, ClientResult, ServerNotification, ServerRe
 
 async def run_tool_test(
     tools: list[Tool],
-    call_tool_handler: Callable[[str, dict[str, Any]], Awaitable[list[TextContent]]],
+    call_tool_handler: Callable[[str, dict[str, Any]], Awaitable[Any]],
     test_callback: Callable[[ClientSession], Awaitable[CallToolResult]],
+    validate_input: bool = True,
+    validate_output: bool = True,
 ) -> CallToolResult | None:
     """Helper to run a tool test with minimal boilerplate.
 
@@ -28,6 +30,8 @@ async def run_tool_test(
         tools: List of tools to register
         call_tool_handler: Handler function for tool calls
         test_callback: Async function that performs the test using the client session
+        validate_input: Whether to enable input validation (default: True)
+        validate_output: Whether to enable output validation (default: True)
 
     Returns:
         The result of the tool call
@@ -39,7 +43,7 @@ async def run_tool_test(
     async def list_tools():
         return tools
 
-    @server.call_tool()
+    @server.call_tool(validate_input=validate_input, validate_output=validate_output)
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return await call_tool_handler(name, arguments)
 
@@ -309,3 +313,138 @@ async def test_tool_not_in_list_logs_warning(caplog: pytest.LogCaptureFixture):
     assert any(
         "Tool 'unknown_tool' not listed, no validation will be performed" in record.message for record in caplog.records
     )
+
+
+@pytest.mark.anyio
+async def test_validate_input_false_with_invalid_input():
+    """Test that when validate_input=False, invalid input is not validated."""
+    tools = [
+        Tool(
+            name="add",
+            description="Add two numbers",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "a": {"type": "number"},
+                    "b": {"type": "number"},
+                },
+                "required": ["a", "b"],
+            },
+        )
+    ]
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+        if name == "add":
+            # Even with invalid input (string instead of number), this should execute
+            # because validation is disabled
+            a = arguments.get("a", 0)
+            b = arguments.get("b", 0)
+            return [TextContent(type="text", text=f"Result: {a} + {b}")]
+        else:  # pragma: no cover
+            raise ValueError(f"Unknown tool: {name}")
+
+    async def test_callback(client_session: ClientSession) -> CallToolResult:
+        # Call with invalid input (string instead of number)
+        # With validate_input=False, this should succeed
+        return await client_session.call_tool("add", {"a": "five", "b": "three"})
+
+    result = await run_tool_test(tools, call_tool_handler, test_callback, validate_input=False)
+
+    # Verify results - should succeed because validation is disabled
+    assert result is not None
+    assert not result.isError
+    assert len(result.content) == 1
+    assert result.content[0].type == "text"
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "Result: five + three"
+
+
+@pytest.mark.anyio
+async def test_validate_input_true_with_invalid_input():
+    """Test that when validate_input=True (default), invalid input is validated."""
+    tools = [
+        Tool(
+            name="add",
+            description="Add two numbers",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "a": {"type": "number"},
+                    "b": {"type": "number"},
+                },
+                "required": ["a", "b"],
+            },
+        )
+    ]
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+        # This should not be reached because validation will fail
+        return [TextContent(type="text", text="This should not be reached")]  # pragma: no cover
+
+    async def test_callback(client_session: ClientSession) -> CallToolResult:
+        # Call with invalid input (string instead of number)
+        # With validate_input=True (default), this should fail validation
+        return await client_session.call_tool("add", {"a": "five", "b": "three"})
+
+    result = await run_tool_test(tools, call_tool_handler, test_callback)
+
+    # Verify error - input validation is enabled by default
+    assert result is not None
+    assert result.isError
+    assert len(result.content) == 1
+    assert result.content[0].type == "text"
+    assert "Input validation error" in result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_validate_both_false():
+    """Test that when both validate_input and validate_output are False, no validation occurs."""
+    tools = [
+        Tool(
+            name="process",
+            description="Process data",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "value": {"type": "number"},
+                },
+                "required": ["value"],
+            },
+            outputSchema={
+                "type": "object",
+                "properties": {
+                    "result": {"type": "number"},
+                },
+                "required": ["result"],
+            },
+        )
+    ]
+
+    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "process":
+            # Invalid input (string) and invalid output (string), but no validation
+            value = arguments.get("value", 0)
+            return {"result": f"processed_{value}"}
+        else:  # pragma: no cover
+            raise ValueError(f"Unknown tool: {name}")
+
+    async def test_callback(client_session: ClientSession) -> CallToolResult:
+        # Call with invalid input, and handler returns invalid output
+        # With both validations disabled, server should not return error
+        try:
+            return await client_session.call_tool("process", {"value": "invalid"})
+        except RuntimeError as e:
+            # Client validation will fail, but server validation was disabled
+            assert "Invalid structured content" in str(e)
+            return CallToolResult(
+                content=[TextContent(type="text", text="Server returned result")],
+                structuredContent={"result": "processed_invalid"},
+                isError=False,
+            )
+
+    result = await run_tool_test(tools, call_tool_handler, test_callback, validate_input=False, validate_output=False)
+
+    # Verify server didn't return an error
+    assert result is not None
+    assert not result.isError
+    assert result.structuredContent == {"result": "processed_invalid"}
