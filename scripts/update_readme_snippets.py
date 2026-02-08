@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Update README.md with live code snippets from example files.
 
 This script finds specially marked code blocks in README.md and updates them
@@ -8,6 +7,8 @@ Usage:
     python scripts/update_readme_snippets.py
     python scripts/update_readme_snippets.py --check  # Check mode for CI
 """
+
+from __future__ import annotations
 
 import argparse
 import re

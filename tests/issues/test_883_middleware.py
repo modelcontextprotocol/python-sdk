@@ -44,11 +44,10 @@ def test_883_middleware_post_accepted():
     client = TestClient(app)
 
     # POST to /messages/ (with invalid session, but should not AssertionError)
-    response = client.post("/messages/?session_id=00000000000000000000000000000000", json={
-        "jsonrpc": "2.0",
-        "method": "notifications/initialized",
-        "params": {}
-    })
+    response = client.post(
+        "/messages/?session_id=00000000000000000000000000000000",
+        json={"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+    )
 
     # 404 is expected here as we didn't establish a real session
     assert response.status_code == 404

@@ -869,7 +869,6 @@ class MCPServer(Generic[LifespanResultT]):
         else:
             # Auth is disabled, no need for RequireAuthMiddleware
 
-
             # Use an ASGI-compatible wrapper to avoid Starlette's high-level route wrapping
             # which expects a Response object and causes double-sending.
             class HandleSseAsgi:
