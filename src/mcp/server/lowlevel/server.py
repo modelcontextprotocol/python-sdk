@@ -277,7 +277,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                 "Session manager can only be accessed after calling streamable_http_app(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
-        return self._session_manager  # pragma: no cover
+        return self._session_manager
 
     def list_prompts(self):
         def decorator(

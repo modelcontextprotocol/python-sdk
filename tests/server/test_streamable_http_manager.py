@@ -345,7 +345,7 @@ async def test_max_body_bytes_rejects_large_request():
         body = b'{"a":"' + (b"x" * 20) + b'"}'
 
         async def mock_receive():
-            return {"type": "http.request", "body": body, "more_body": False}  # pragma: no cover
+            return {"type": "http.request", "body": body, "more_body": False}
 
         await manager.handle_request(scope, mock_receive, mock_send)
 

@@ -296,7 +296,7 @@ class StreamableHTTPServerTransport:
     ) -> Response:
         """Create an error response with a simple string message."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
-        if headers:  # pragma: no cover
+        if headers:
             response_headers.update(headers)
 
         if self.mcp_session_id:

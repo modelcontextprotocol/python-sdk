@@ -205,7 +205,7 @@ class SseServerTransport:
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
 
-    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
 
