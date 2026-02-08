@@ -1444,7 +1444,6 @@ class ContextAwareServerTest(Server):  # pragma: no cover
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
-
 # Server runner for context-aware testing
 def run_context_aware_server(port: int):  # pragma: no cover
     """Run the context-aware test server."""
