@@ -78,7 +78,11 @@ def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
     import shutil
 
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(shutil, "which", lambda name: "C:\\bin\\npx.exe" if name == "npx.exe" else None)
+
+    def fake_which(name: str) -> str | None:
+        return "C:\\bin\\npx.exe" if name == "npx.exe" else None
+
+    monkeypatch.setattr(shutil, "which", fake_which)
     assert _get_npx_command() == ["C:\\bin\\npx.exe"]
 
 
@@ -88,7 +92,11 @@ def test_get_npx_windows_cmd_wrapper(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("COMSPEC", "cmd.exe")
-    monkeypatch.setattr(shutil, "which", lambda name: "C:\\bin\\npx.cmd" if name == "npx.cmd" else None)
+
+    def fake_which(name: str) -> str | None:
+        return "C:\\bin\\npx.cmd" if name == "npx.cmd" else None
+
+    monkeypatch.setattr(shutil, "which", fake_which)
 
     assert _get_npx_command() == ["cmd.exe", "/c", "C:\\bin\\npx.cmd"]
 
@@ -98,5 +106,8 @@ def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
     import shutil
 
-    monkeypatch.setattr(shutil, "which", lambda name: None)
+    def fake_which(name: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(shutil, "which", fake_which)
     assert _get_npx_command() is None
