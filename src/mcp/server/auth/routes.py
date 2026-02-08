@@ -20,6 +20,8 @@ from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOption
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
+DEFAULT_AUTH_CORS_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$"
+
 
 def validate_issuer_url(url: AnyHttpUrl):
     """Validate that the issuer URL meets OAuth 2.0 requirements.
@@ -55,10 +57,17 @@ REVOCATION_PATH = "/revoke"
 def cors_middleware(
     handler: Callable[[Request], Response | Awaitable[Response]],
     allow_methods: list[str],
+    *,
+    allow_origin_regex: str | None = None,
 ) -> ASGIApp:
+    # Default: allow loopback browser clients (e.g., MCP Inspector) without allowing arbitrary sites.
+    if allow_origin_regex is None:
+        allow_origin_regex = DEFAULT_AUTH_CORS_ORIGIN_REGEX
+
     cors_app = CORSMiddleware(
         app=request_response(handler),
-        allow_origins="*",
+        allow_origins=[],
+        allow_origin_regex=allow_origin_regex,
         allow_methods=allow_methods,
         allow_headers=[MCP_PROTOCOL_VERSION_HEADER],
     )
@@ -71,6 +80,7 @@ def create_auth_routes(
     service_documentation_url: AnyHttpUrl | None = None,
     client_registration_options: ClientRegistrationOptions | None = None,
     revocation_options: RevocationOptions | None = None,
+    cors_origin_regex: str | None = None,
 ) -> list[Route]:
     validate_issuer_url(issuer_url)
 
@@ -94,6 +104,7 @@ def create_auth_routes(
             endpoint=cors_middleware(
                 MetadataHandler(metadata).handle,
                 ["GET", "OPTIONS"],
+                allow_origin_regex=cors_origin_regex,
             ),
             methods=["GET", "OPTIONS"],
         ),
@@ -109,6 +120,7 @@ def create_auth_routes(
             endpoint=cors_middleware(
                 TokenHandler(provider, client_authenticator).handle,
                 ["POST", "OPTIONS"],
+                allow_origin_regex=cors_origin_regex,
             ),
             methods=["POST", "OPTIONS"],
         ),
@@ -125,6 +137,7 @@ def create_auth_routes(
                 endpoint=cors_middleware(
                     registration_handler.handle,
                     ["POST", "OPTIONS"],
+                    allow_origin_regex=cors_origin_regex,
                 ),
                 methods=["POST", "OPTIONS"],
             )
@@ -138,6 +151,7 @@ def create_auth_routes(
                 endpoint=cors_middleware(
                     revocation_handler.handle,
                     ["POST", "OPTIONS"],
+                    allow_origin_regex=cors_origin_regex,
                 ),
                 methods=["POST", "OPTIONS"],
             )

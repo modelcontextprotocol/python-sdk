@@ -867,6 +867,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         service_documentation_url=auth.service_documentation_url,
                         client_registration_options=auth.client_registration_options,
                         revocation_options=auth.revocation_options,
+                        cors_origin_regex=auth.cors_origin_regex,
                     )
                 )
 

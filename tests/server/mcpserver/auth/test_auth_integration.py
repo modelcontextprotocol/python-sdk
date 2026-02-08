@@ -22,6 +22,7 @@ from mcp.server.auth.provider import (
     construct_redirect_uri,
 )
 from mcp.server.auth.routes import ClientRegistrationOptions, RevocationOptions, create_auth_routes
+from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 
@@ -324,6 +325,40 @@ class TestAuthEndpoints:
             "refresh_token",
         ]
         assert metadata["service_documentation"] == "https://docs.example.com/"
+
+    @pytest.mark.anyio
+    async def test_cors_allows_loopback_origin_by_default(self, test_client: httpx.AsyncClient):
+        origin = "http://localhost:5173"
+        response = await test_client.get(
+            "/.well-known/oauth-authorization-server",
+            headers={"Origin": origin},
+        )
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == origin
+
+    @pytest.mark.anyio
+    async def test_cors_blocks_non_loopback_origin_by_default(self, test_client: httpx.AsyncClient):
+        origin = "https://evil.example"
+        response = await test_client.get(
+            "/.well-known/oauth-authorization-server",
+            headers={"Origin": origin},
+        )
+        assert response.status_code == 200
+        assert "access-control-allow-origin" not in response.headers
+
+    @pytest.mark.anyio
+    async def test_cors_preflight_allows_loopback_origin_by_default(self, test_client: httpx.AsyncClient):
+        origin = "http://127.0.0.1:3000"
+        response = await test_client.options(
+            "/token",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": MCP_PROTOCOL_VERSION_HEADER,
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers.get("access-control-allow-origin") == origin
 
     @pytest.mark.anyio
     async def test_token_validation_error(self, test_client: httpx.AsyncClient):

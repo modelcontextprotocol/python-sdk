@@ -21,6 +21,14 @@ class AuthSettings(BaseModel):
     client_registration_options: ClientRegistrationOptions | None = None
     revocation_options: RevocationOptions | None = None
     required_scopes: list[str] | None = None
+    cors_origin_regex: str | None = Field(
+        default=None,
+        description=(
+            "Regex for allowed browser Origin values on the authorization server endpoints "
+            "(/token, /register, /.well-known/oauth-authorization-server, etc). "
+            "If unset, a safe default allows only loopback origins (localhost/127.0.0.1/[::1])."
+        ),
+    )
 
     # Resource Server settings (when operating as RS only)
     resource_server_url: AnyHttpUrl | None = Field(
