@@ -361,6 +361,40 @@ class TestAuthEndpoints:
         assert response.headers.get("access-control-allow-origin") == origin
 
     @pytest.mark.anyio
+    async def test_cors_origin_regex_override(self, mock_oauth_provider: MockOAuthProvider):
+        auth_routes = create_auth_routes(
+            mock_oauth_provider,
+            AnyHttpUrl("https://auth.example.com"),
+            AnyHttpUrl("https://docs.example.com"),
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True,
+                valid_scopes=["read", "write", "profile"],
+                default_scopes=["read", "write"],
+            ),
+            revocation_options=RevocationOptions(enabled=True),
+            cors_origin_regex=r"^https://allowed\.example$",
+        )
+        app = Starlette(routes=auth_routes)
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://mcptest.com") as client:
+            allowed = "https://allowed.example"
+            blocked = "http://localhost:5173"
+
+            response = await client.get(
+                "/.well-known/oauth-authorization-server",
+                headers={"Origin": allowed},
+            )
+            assert response.status_code == 200
+            assert response.headers.get("access-control-allow-origin") == allowed
+
+            response = await client.get(
+                "/.well-known/oauth-authorization-server",
+                headers={"Origin": blocked},
+            )
+            assert response.status_code == 200
+            assert "access-control-allow-origin" not in response.headers
+
+    @pytest.mark.anyio
     async def test_token_validation_error(self, test_client: httpx.AsyncClient):
         """Test token endpoint error - validation error."""
         # Missing required fields
