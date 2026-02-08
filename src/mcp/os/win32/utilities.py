@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import BinaryIO, TextIO, cast
+from typing import Any, BinaryIO, TextIO, cast
 
 import anyio
 from anyio import to_thread
@@ -17,16 +17,14 @@ logger = logging.getLogger("client.stdio.win32")
 
 # Windows-specific imports for Job Objects
 if sys.platform == "win32":
-    import pywintypes
-    import win32api
-    import win32con
-    import win32job
+    import win32api  # type: ignore
+    import win32con  # type: ignore
+    import win32job  # type: ignore
 else:
     # Type stubs for non-Windows platforms
-    win32api = None
-    win32con = None
-    win32job = None
-    pywintypes = None
+    win32api = None  # type: ignore
+    win32con = None  # type: ignore
+    win32job = None  # type: ignore
 
 JobHandle = int
 
@@ -80,6 +78,8 @@ class FallbackProcess:
         self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
         self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
         self.stderr = FileReadStream(cast(BinaryIO, self.stderr_raw)) if self.stderr_raw else None
+        self._job_object: int | None = None
+        self.returncode: int | None = None
 
     async def __aenter__(self):
         """Support async context manager entry."""
@@ -111,7 +111,8 @@ class FallbackProcess:
 
     async def wait(self):
         """Async wait for process completion."""
-        return await to_thread.run_sync(self.popen.wait)
+        self.returncode = await to_thread.run_sync(self.popen.wait)
+        return self.returncode
 
     def terminate(self):
         """Terminate the subprocess immediately."""
@@ -136,7 +137,7 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
     """Creates a subprocess in a Windows-compatible way with Job Object support.
@@ -194,7 +195,7 @@ async def _create_windows_fallback_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
     """Create a subprocess using subprocess.Popen as a fallback when anyio fails.
@@ -233,12 +234,15 @@ def _create_job_object() -> int | None:
         return None
 
     try:
-        job = win32job.CreateJobObject(None, "")
-        extended_info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
+        # Cast to any to avoid type errors on non-Windows platforms
+        wj: Any = win32job
+        job = wj.CreateJobObject(None, "")
+        extended_info = wj.QueryInformationJobObject(job, wj.JobObjectExtendedLimitInformation)
 
-        extended_info["BasicLimitInformation"]["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, extended_info)
-        return job
+        if isinstance(extended_info, dict):
+            extended_info["BasicLimitInformation"]["LimitFlags"] |= wj.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            wj.SetInformationJobObject(job, wj.JobObjectExtendedLimitInformation, extended_info)
+        return cast(int, job)
     except Exception as e:
         logger.warning(f"Failed to create Job Object for process tree management: {e}")
         return None
@@ -263,7 +267,7 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: JobHan
 
         try:
             win32job.AssignProcessToJobObject(job, process_handle)
-            process._job_object = job
+            setattr(process, "_job_object", job)
         finally:
             win32api.CloseHandle(process_handle)
     except Exception as e:
@@ -288,7 +292,8 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess, tim
     job = getattr(process, "_job_object", None)
     if job and win32job:
         try:
-            win32job.TerminateJobObject(job, 1)
+            wj: Any = win32job
+            wj.TerminateJobObject(job, 1)
         except Exception:
             # Job might already be terminated
             pass

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import subprocess
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal, TextIO
@@ -260,7 +260,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ):
     """Creates a subprocess in a platform-compatible way.

@@ -1,5 +1,4 @@
 
-import sys
 
 def is_jupyter() -> bool:
     """Check if we are running in a Jupyter notebook environment."""

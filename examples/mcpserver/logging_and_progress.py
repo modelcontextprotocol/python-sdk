@@ -1,6 +1,7 @@
 """MCPServer Echo Server that sends log messages and progress updates to the client"""
 
 import asyncio
+from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
 
@@ -9,7 +10,7 @@ mcp = MCPServer("Echo Server with logging and progress updates")
 
 
 @mcp.tool()
-async def echo(text: str, ctx: Context) -> str:
+async def echo(text: str, ctx: Context[Any, Any]) -> str:
     """Echo the input text sending log messages and progress updates during processing."""
     await ctx.report_progress(progress=0, total=100)
     await ctx.info("Starting to process echo for input: " + text)

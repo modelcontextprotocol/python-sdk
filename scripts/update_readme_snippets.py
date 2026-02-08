@@ -69,7 +69,7 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
             if existing_content is not None:
                 existing_lines = existing_content.strip().split("\n")
                 # Find code between ```python and ```
-                code_lines = []
+                code_lines: list[str] = []
                 in_code = False
                 for line in existing_lines:
                     if line.strip() == "```python":
