@@ -1418,7 +1418,7 @@ class ContextAwareServerTest(Server):  # pragma: no cover
                 # Access the request object from context
                 headers_info = {}
                 if ctx.request and isinstance(ctx.request, Request):
-                    headers_info = dict(ctx.request.headers)
+                    headers_info = dict(ctx.request.headers)  # type: ignore[reportUnknownMemberType]
                 return [TextContent(type="text", text=json.dumps(headers_info))]
 
             elif name == "echo_context":
@@ -1430,8 +1430,8 @@ class ContextAwareServerTest(Server):  # pragma: no cover
                     "path": None,
                 }
                 if ctx.request and isinstance(ctx.request, Request):
-                    request = ctx.request
-                    context_data["headers"] = dict(request.headers)
+                    request: Request[Any] = ctx.request  # type: ignore[reportUnknownVariableType]
+                    context_data["headers"] = dict(request.headers)  # type: ignore[reportUnknownMemberType]
                     context_data["method"] = request.method
                     context_data["path"] = request.url.path
                 return [
@@ -1442,6 +1442,7 @@ class ContextAwareServerTest(Server):  # pragma: no cover
                 ]
 
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
 
 
 # Server runner for context-aware testing
