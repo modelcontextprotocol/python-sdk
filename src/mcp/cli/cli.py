@@ -3,6 +3,7 @@
 import importlib.metadata
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,18 +40,29 @@ app = typer.Typer(
 )
 
 
-def _get_npx_command():
-    """Get the correct npx command for the current platform."""
-    if sys.platform == "win32":
-        # Try both npx.cmd and npx.exe on Windows
-        for cmd in ["npx.cmd", "npx.exe", "npx"]:
-            try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
-                return cmd
-            except subprocess.CalledProcessError:
-                continue
-        return None
-    return "npx"  # On Unix-like systems, just use npx
+def _get_npx_command() -> list[str] | None:
+    """Get the correct npx command for the current platform.
+
+    Returns a subprocess-compatible command prefix. This avoids shell=True, and
+    on Windows it can wrap a .cmd/.bat shim via cmd.exe (COMSPEC) safely.
+    """
+    if sys.platform != "win32":
+        return ["npx"]  # On Unix-like systems, just use npx
+
+    # Prefer an executable if present, but fall back to the .cmd shim.
+    for cmd in ["npx.exe", "npx.cmd", "npx"]:
+        resolved = shutil.which(cmd)
+        if not resolved:
+            continue
+
+        # .cmd/.bat shims must be invoked via cmd.exe without using shell=True.
+        if resolved.lower().endswith((".cmd", ".bat")):
+            comspec = os.environ.get("COMSPEC") or "cmd.exe"
+            return [comspec, "/c", resolved]
+
+        return [resolved]
+
+    return None
 
 
 def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
@@ -271,13 +283,10 @@ def dev(
             )
             sys.exit(1)
 
-        # Run the MCP Inspector command with shell=True on Windows
-        shell = sys.platform == "win32"
         process = subprocess.run(
-            [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
+            npx_cmd + ["@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
-            shell=shell,
-            env=dict(os.environ.items()),  # Convert to list of tuples for env update
+            env=os.environ.copy(),
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:

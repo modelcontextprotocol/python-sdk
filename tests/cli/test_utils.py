@@ -1,7 +1,5 @@
-import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -72,30 +70,33 @@ def test_build_uv_command_adds_editable_and_packages():
 def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch):
     """Should return "npx" on unix-like systems."""
     monkeypatch.setattr(sys, "platform", "linux")
-    assert _get_npx_command() == "npx"
+    assert _get_npx_command() == ["npx"]
 
 
 def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
-    """Should return one of the npx candidates on Windows."""
-    candidates = ["npx.cmd", "npx.exe", "npx"]
-
-    def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[bytes]:
-        if cmd[0] in candidates:
-            return subprocess.CompletedProcess(cmd, 0)
-        else:  # pragma: no cover
-            raise subprocess.CalledProcessError(1, cmd[0])
+    """Should return a subprocess-friendly command prefix on Windows."""
+    import shutil
 
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    assert _get_npx_command() in candidates
+    monkeypatch.setattr(shutil, "which", lambda name: "C:\\bin\\npx.exe" if name == "npx.exe" else None)
+    assert _get_npx_command() == ["C:\\bin\\npx.exe"]
+
+
+def test_get_npx_windows_cmd_wrapper(monkeypatch: pytest.MonkeyPatch):
+    """Should wrap .cmd/.bat shims via COMSPEC on Windows."""
+    import shutil
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("COMSPEC", "cmd.exe")
+    monkeypatch.setattr(shutil, "which", lambda name: "C:\\bin\\npx.cmd" if name == "npx.cmd" else None)
+
+    assert _get_npx_command() == ["cmd.exe", "/c", "C:\\bin\\npx.cmd"]
 
 
 def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
     """Should give None if every candidate fails."""
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
+    import shutil
 
-    def always_fail(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
-        raise subprocess.CalledProcessError(1, args[0])
-
-    monkeypatch.setattr(subprocess, "run", always_fail)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
     assert _get_npx_command() is None
