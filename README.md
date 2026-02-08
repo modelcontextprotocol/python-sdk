@@ -1363,7 +1363,9 @@ starlette_app = Starlette(routes=[...])
 # Then wrap it with CORS middleware
 starlette_app = CORSMiddleware(
     starlette_app,
-    allow_origins=["*"],  # Configure appropriately for production
+    # Allow browser-based clients (ChatGPT + local dev). For production, prefer
+    # a strict allowlist of known UI origins.
+    allow_origin_regex=r"^https://(chatgpt\.com|chat\.openai\.com)$|^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
     expose_headers=["Mcp-Session-Id"],
 )
