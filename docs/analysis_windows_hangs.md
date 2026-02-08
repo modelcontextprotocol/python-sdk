@@ -4,6 +4,7 @@ Following up on the great context provided by @L0rdS474n, I've completed a full 
 
 **Findings:**
 The following plugins are confirmed to be missing `"async": true` for their command-based hooks, which is the direct cause of the Windows startup hang:
+
 1. `plugins/hookify/hooks/hooks.json`
 2. `plugins/security-guidance/hooks/hooks.json`
 3. `plugins/explanatory-output-style/hooks/hooks.json`
@@ -15,6 +16,7 @@ On Windows, synchronous subprocess calls (especially during the `SessionStart` o
 
 **Next Steps for Maintainers:**
 Since PR #354 was auto-closed due to policy, I recommend that a team member cherry-pick the following changes to restore Windows stability:
+
 - **Add `"async": true`** to every hook entry of type `"command"` or `"shell"` in the 5 files listed above.
 - **Investigate the Trivago connector**: As noted by the community, this connector might be inheriting or triggering similar blocking behavior when proxied to Claude Code. If it uses hooks, it likely also needs `async: true`.
 
