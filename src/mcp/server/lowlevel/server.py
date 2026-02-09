@@ -204,39 +204,41 @@ class Server(Generic[LifespanResultT]):
         logger.debug("Initializing server %r", name)
 
         # Populate internal handler dicts from on_* kwargs
-        _request_handler_map: list[
-            tuple[str, Callable[[ServerRequestContext[LifespanResultT, Any], Any], Awaitable[Any]] | None]
-        ] = [
-            ("ping", on_ping),
-            ("prompts/list", on_list_prompts),
-            ("prompts/get", on_get_prompt),
-            ("resources/list", on_list_resources),
-            ("resources/templates/list", on_list_resource_templates),
-            ("resources/read", on_read_resource),
-            ("resources/subscribe", on_subscribe_resource),
-            ("resources/unsubscribe", on_unsubscribe_resource),
-            ("tools/list", on_list_tools),
-            ("tools/call", on_call_tool),
-            ("logging/setLevel", on_set_logging_level),
-            ("completion/complete", on_completion),
-        ]
-        for method, handler in _request_handler_map:
-            if handler is not None:
-                self._request_handlers[method] = handler
+        self._request_handlers.update(
+            {
+                method: handler
+                for method, handler in {
+                    "ping": on_ping,
+                    "prompts/list": on_list_prompts,
+                    "prompts/get": on_get_prompt,
+                    "resources/list": on_list_resources,
+                    "resources/templates/list": on_list_resource_templates,
+                    "resources/read": on_read_resource,
+                    "resources/subscribe": on_subscribe_resource,
+                    "resources/unsubscribe": on_unsubscribe_resource,
+                    "tools/list": on_list_tools,
+                    "tools/call": on_call_tool,
+                    "logging/setLevel": on_set_logging_level,
+                    "completion/complete": on_completion,
+                }.items()
+                if handler is not None
+            }
+        )
 
         # Default ping handler if not provided
         if "ping" not in self._request_handlers:
             self._request_handlers["ping"] = _ping_handler
 
-        _notification_handler_map: list[
-            tuple[str, Callable[[ServerRequestContext[LifespanResultT, Any], Any], Awaitable[None]] | None]
-        ] = [
-            ("notifications/roots/list_changed", on_roots_list_changed),
-            ("notifications/progress", on_progress),
-        ]
-        for method, handler in _notification_handler_map:
-            if handler is not None:
-                self._notification_handlers[method] = handler
+        self._notification_handlers.update(
+            {
+                method: handler
+                for method, handler in {
+                    "notifications/roots/list_changed": on_roots_list_changed,
+                    "notifications/progress": on_progress,
+                }.items()
+                if handler is not None
+            }
+        )
 
     def _add_request_handler(
         self,
