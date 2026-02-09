@@ -51,6 +51,9 @@ class _DummyProvider:
         self.context = ctx
         self._token_request = httpx.Request("POST", "https://as.example/token")
 
+    async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
+        return None
+
     async def _perform_authorization(self) -> httpx.Request:
         return self._token_request
 
