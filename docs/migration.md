@@ -594,7 +594,7 @@ from mcp.server import ServerRequestContext
 
 The experimental decorator methods on `ExperimentalHandlers` (`@server.experimental.list_tasks()`, `@server.experimental.get_task()`, etc.) have been removed.
 
-Default task handlers are still registered automatically via `server.experimental.enable_tasks()`.
+Default task handlers are still registered automatically via `server.experimental.enable_tasks()`. Custom handlers can be passed as `on_*` kwargs to override specific defaults.
 
 **Before (v1):**
 
@@ -610,13 +610,16 @@ async def custom_get_task(request: GetTaskRequest) -> GetTaskResult:
 **After (v2):**
 
 ```python
-from mcp.server.lowlevel import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.types import GetTaskRequestParams, GetTaskResult
 
+
+async def custom_get_task(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
+    ...
+
+
 server = Server("my-server")
-server.experimental.enable_tasks(task_store)
-# Default handlers are registered automatically.
-# Custom task handlers are not yet supported via the constructor.
+server.experimental.enable_tasks(on_get_task=custom_get_task)
 ```
 
 ## Deprecations
