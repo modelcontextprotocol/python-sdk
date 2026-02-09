@@ -59,12 +59,11 @@ class StreamableHTTPSessionManager:
         session_idle_timeout: Optional idle timeout in seconds for stateful sessions.
                             If set, sessions that receive no HTTP requests for this
                             duration will be automatically terminated and removed.
-                            When retry_interval is also set, the effective idle
-                            threshold is at least ``retry_interval / 1000 * 3`` to
-                            avoid prematurely reaping sessions that are simply
-                            waiting for SSE polling reconnections. Default is None
-                            (no timeout). A value of 1800 (30 minutes) is
-                            recommended for most deployments.
+                            When retry_interval is also configured, ensure the idle
+                            timeout comfortably exceeds the retry interval to avoid
+                            reaping sessions during normal SSE polling gaps.
+                            Default is None (no timeout). A value of 1800
+                            (30 minutes) is recommended for most deployments.
     """
 
     def __init__(
@@ -237,8 +236,8 @@ class StreamableHTTPSessionManager:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
             # Push back idle deadline on activity
-            if transport.idle_scope is not None:
-                transport.idle_scope.deadline = anyio.current_time() + self._effective_idle_timeout()
+            if transport.idle_scope is not None and self.session_idle_timeout is not None:
+                transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
             await transport.handle_request(scope, receive, send)
             return
 
@@ -271,8 +270,7 @@ class StreamableHTTPSessionManager:
                             # Incoming requests push the deadline forward.
                             idle_scope = anyio.CancelScope()
                             if self.session_idle_timeout is not None:
-                                timeout = self._effective_idle_timeout()
-                                idle_scope.deadline = anyio.current_time() + timeout
+                                idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
                                 http_transport.idle_scope = idle_scope
 
                             with idle_scope:
@@ -332,19 +330,3 @@ class StreamableHTTPSessionManager:
                 media_type="application/json",
             )
             await response(scope, receive, send)
-
-    def _effective_idle_timeout(self) -> float:
-        """Compute the effective idle timeout, accounting for retry_interval.
-
-        When SSE retry_interval is configured, clients periodically reconnect
-        to resume the event stream.  A gap of up to ``retry_interval`` between
-        connections is normal, not a sign of idleness.  We use a 3x multiplier
-        to tolerate up to two consecutive missed polls (network jitter, slow
-        client) before considering the session idle.
-        """
-        assert self.session_idle_timeout is not None
-        timeout = self.session_idle_timeout
-        if self.retry_interval is not None:
-            retry_seconds = self.retry_interval / 1000.0
-            timeout = max(timeout, retry_seconds * 3)
-        return timeout

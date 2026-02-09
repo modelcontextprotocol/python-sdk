@@ -156,25 +156,6 @@ async def test_terminate_idempotency():
 
 
 @pytest.mark.anyio
-async def test_idle_timeout_with_retry_interval():
-    """When retry_interval is set, effective timeout should account for polling gaps."""
-    app = Server("test-retry-interval")
-
-    # retry_interval = 5000ms = 5s -> retry_seconds * 3 = 15s
-    # session_idle_timeout = 1s -> effective = max(1, 15) = 15
-    manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=1.0, retry_interval=5000)
-    assert manager._effective_idle_timeout() == 15.0
-
-    # When retry_interval is small, session_idle_timeout should dominate
-    manager2 = StreamableHTTPSessionManager(app=app, session_idle_timeout=10.0, retry_interval=100)
-    assert manager2._effective_idle_timeout() == 10.0
-
-    # No retry_interval -> raw timeout
-    manager3 = StreamableHTTPSessionManager(app=app, session_idle_timeout=5.0)
-    assert manager3._effective_idle_timeout() == 5.0
-
-
-@pytest.mark.anyio
 async def test_no_idle_timeout_sessions_persist():
     """When session_idle_timeout is None (default), sessions persist indefinitely."""
     app = Server("test-no-timeout")
