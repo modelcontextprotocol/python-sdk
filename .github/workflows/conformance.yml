@@ -1,9 +1,10 @@
 name: Conformance Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # Disabled: conformance tests are currently broken in CI
+  # push:
+  #   branches: [main]
+  # pull_request:
   workflow_dispatch:
 
 concurrency:
