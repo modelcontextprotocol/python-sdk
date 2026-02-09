@@ -163,7 +163,13 @@ class MCPServer(Generic[LifespanResultT]):
             website_url=website_url,
             icons=icons,
             version=version,
-            **self._create_handler_kwargs(),
+            on_list_tools=self._handle_list_tools,
+            on_call_tool=self._handle_call_tool,
+            on_list_resources=self._handle_list_resources,
+            on_read_resource=self._handle_read_resource,
+            on_list_resource_templates=self._handle_list_resource_templates,
+            on_list_prompts=self._handle_list_prompts,
+            on_get_prompt=self._handle_get_prompt,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -281,81 +287,66 @@ class MCPServer(Generic[LifespanResultT]):
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
-    def _create_handler_kwargs(
-        self,
-    ) -> dict[str, Callable[[ServerRequestContext[Any, Any], Any], Awaitable[Any]]]:
-        """Create on_* kwargs for the lowlevel Server constructor."""
+    async def _handle_list_tools(self, ctx: Any, params: Any) -> ListToolsResult:
+        return ListToolsResult(tools=await self.list_tools())
 
-        async def handle_list_tools(ctx: Any, params: Any) -> ListToolsResult:
-            return ListToolsResult(tools=await self.list_tools())
+    async def _handle_call_tool(self, ctx: Any, params: Any) -> CallToolResult:
+        try:
+            result = await self.call_tool(params.name, params.arguments or {})
+        except MCPError:
+            raise
+        except Exception as e:
+            return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        if isinstance(result, CallToolResult):
+            return result
+        if isinstance(result, tuple) and len(result) == 2:
+            unstructured_content, structured_content = result
+            return CallToolResult(
+                content=list(unstructured_content),  # type: ignore[arg-type]
+                structured_content=structured_content,  # type: ignore[arg-type]
+            )
+        if isinstance(result, dict):
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
+                structured_content=result,
+            )
+        return CallToolResult(content=list(result))
 
-        async def handle_call_tool(ctx: Any, params: Any) -> CallToolResult:
-            try:
-                result = await self.call_tool(params.name, params.arguments or {})
-            except MCPError:
-                raise
-            except Exception as e:
-                return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-            if isinstance(result, CallToolResult):
-                return result
-            if isinstance(result, tuple) and len(result) == 2:
-                unstructured_content, structured_content = result
-                return CallToolResult(
-                    content=list(unstructured_content),  # type: ignore[arg-type]
-                    structured_content=structured_content,  # type: ignore[arg-type]
-                )
-            if isinstance(result, dict):
-                return CallToolResult(
-                    content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                    structured_content=result,
-                )
-            return CallToolResult(content=list(result))
+    async def _handle_list_resources(self, ctx: Any, params: Any) -> ListResourcesResult:
+        return ListResourcesResult(resources=await self.list_resources())
 
-        async def handle_list_resources(ctx: Any, params: Any) -> ListResourcesResult:
-            return ListResourcesResult(resources=await self.list_resources())
-
-        async def handle_read_resource(ctx: Any, params: Any) -> ReadResourceResult:
-            results = await self.read_resource(params.uri)
-            contents: list[TextResourceContents | BlobResourceContents] = []
-            for item in results:
-                if isinstance(item.content, bytes):
-                    contents.append(
-                        BlobResourceContents(
-                            uri=params.uri,
-                            blob=base64.b64encode(item.content).decode(),
-                            mime_type=item.mime_type or "application/octet-stream",
-                            _meta=item.meta,
-                        )
+    async def _handle_read_resource(self, ctx: Any, params: Any) -> ReadResourceResult:
+        results = await self.read_resource(params.uri)
+        contents: list[TextResourceContents | BlobResourceContents] = []
+        for item in results:
+            if isinstance(item.content, bytes):
+                contents.append(
+                    BlobResourceContents(
+                        uri=params.uri,
+                        blob=base64.b64encode(item.content).decode(),
+                        mime_type=item.mime_type or "application/octet-stream",
+                        _meta=item.meta,
                     )
-                else:
-                    contents.append(
-                        TextResourceContents(
-                            uri=params.uri,
-                            text=item.content,
-                            mime_type=item.mime_type or "text/plain",
-                            _meta=item.meta,
-                        )
+                )
+            else:
+                contents.append(
+                    TextResourceContents(
+                        uri=params.uri,
+                        text=item.content,
+                        mime_type=item.mime_type or "text/plain",
+                        _meta=item.meta,
                     )
-            return ReadResourceResult(contents=contents)
+                )
+        return ReadResourceResult(contents=contents)
 
-        async def handle_list_resource_templates(ctx: Any, params: Any) -> ListResourceTemplatesResult:
-            return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
+    async def _handle_list_resource_templates(self, ctx: Any, params: Any) -> ListResourceTemplatesResult:
+        return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
 
-        async def handle_list_prompts(ctx: Any, params: Any) -> ListPromptsResult:
-            return ListPromptsResult(prompts=await self.list_prompts())
+    async def _handle_list_prompts(self, ctx: Any, params: Any) -> ListPromptsResult:
+        return ListPromptsResult(prompts=await self.list_prompts())
 
-        async def handle_get_prompt(ctx: Any, params: Any) -> GetPromptResult:
-            return await self.get_prompt(params.name, params.arguments)
-
-        return {
-            "on_list_tools": handle_list_tools,
-            "on_call_tool": handle_call_tool,
-            "on_list_resources": handle_list_resources,
-            "on_read_resource": handle_read_resource,
-            "on_list_resource_templates": handle_list_resource_templates,
-            "on_list_prompts": handle_list_prompts,
-            "on_get_prompt": handle_get_prompt,
-        }
+    async def _handle_get_prompt(self, ctx: Any, params: Any) -> GetPromptResult:
+        return await self.get_prompt(params.name, params.arguments)
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
