@@ -441,7 +441,9 @@ class OAuthClientProvider(httpx.Auth):
         if response.status_code not in {200, 201}:
             body = await response.aread()  # pragma: no cover
             body_text = body.decode("utf-8")  # pragma: no cover
-            raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
+            raise OAuthTokenError(  # pragma: no cover
+                f"Token exchange failed ({response.status_code}): {body_text}"
+            )
 
         # Parse and validate response with scope validation
         token_response = await handle_token_response_scopes(response)
