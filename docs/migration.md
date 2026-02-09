@@ -471,6 +471,18 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
+### Lowlevel `Server`: constructor parameters are now keyword-only
+
+All parameters after `name` are now keyword-only. If you were passing `version` or other parameters positionally, use keyword arguments instead:
+
+```python
+# Before (v1)
+server = Server("my-server", "1.0")
+
+# After (v2)
+server = Server("my-server", version="1.0")
+```
+
 ### Lowlevel `Server`: decorator-based handlers replaced with constructor `on_*` params
 
 The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are passed as `on_*` keyword arguments to the constructor.
