@@ -11,9 +11,11 @@ SIMPLE_AUTH_SERVER="${REPO_ROOT}/examples/servers/simple-auth"
 SIMPLE_AUTH_CLIENT="${REPO_ROOT}/examples/clients/simple-auth-client"
 AS_PORT=9000
 RS_PORT=8001
+SKIP_OAUTH="${MCP_SKIP_OAUTH:-0}"
 
 cd "$REPO_ROOT"
 echo "Repo root: $REPO_ROOT"
+echo "Skip OAuth: $SKIP_OAUTH"
 
 # Ensure deps (simple-auth and simple-auth-client are workspace examples)
 uv sync --quiet 2>/dev/null || true
@@ -64,6 +66,12 @@ echo "PRM (RFC 9728):"
 curl -sS "http://localhost:$RS_PORT/.well-known/oauth-protected-resource/mcp" | head -c 500
 echo ""
 echo ""
+
+# Optional: skip launching the interactive client (for CI / automation).
+if [ "$SKIP_OAUTH" = "1" ]; then
+  echo "Skipping OAuth manual test (MCP_SKIP_OAUTH=1)"
+  exit 0
+fi
 
 # Run client (foreground); user completes OAuth in browser and runs list / call get_time / quit
 echo "Starting simple-auth-client. Complete OAuth in the browser, then run: list, call get_time {}, quit"
