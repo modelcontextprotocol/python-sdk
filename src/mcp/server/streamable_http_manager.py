@@ -131,7 +131,6 @@ class StreamableHTTPSessionManager:
             # Store the task group for later use
             self._task_group = tg
             logger.info("StreamableHTTP session manager started")
-
             try:
                 yield  # Let the application run
             finally:
@@ -335,7 +334,14 @@ class StreamableHTTPSessionManager:
             await response(scope, receive, send)
 
     def _effective_idle_timeout(self) -> float:
-        """Compute the effective idle timeout, accounting for retry_interval."""
+        """Compute the effective idle timeout, accounting for retry_interval.
+
+        When SSE retry_interval is configured, clients periodically reconnect
+        to resume the event stream.  A gap of up to ``retry_interval`` between
+        connections is normal, not a sign of idleness.  We use a 3x multiplier
+        to tolerate up to two consecutive missed polls (network jitter, slow
+        client) before considering the session idle.
+        """
         assert self.session_idle_timeout is not None
         timeout = self.session_idle_timeout
         if self.retry_interval is not None:
