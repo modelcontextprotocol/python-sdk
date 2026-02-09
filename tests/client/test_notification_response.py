@@ -109,10 +109,10 @@ async def test_unexpected_content_type_sends_jsonrpc_error() -> None:
     """
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_unexpected_content_type_app())) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
-                with pytest.raises(MCPError, match="Unexpected content type: text/plain"):
+                with pytest.raises(MCPError, match="Unexpected content type: text/plain"):  # pragma: no branch
                     await session.list_tools()
 
 
@@ -144,8 +144,8 @@ async def test_invalid_json_response_sends_jsonrpc_error() -> None:
     """
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_invalid_json_response_app())) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
-                with pytest.raises(MCPError, match="Failed to parse JSON response"):
+                with pytest.raises(MCPError, match="Failed to parse JSON response"):  # pragma: no branch
                     await session.list_tools()
