@@ -1197,11 +1197,11 @@ class TestAuthFlow:
             await auth_flow.asend(response)  # extra request
             request_yields += 1  # pragma: no cover
             # If we reach here, the bug is present
-            pytest.fail(
+            pytest.fail(  # pragma: no cover
                 f"Unnecessary retry detected! Request was yielded {request_yields} times. "
                 f"This indicates the retry logic bug that caused 2x performance degradation. "
                 f"The request should only be yielded once for successful responses."
-            )  # pragma: no cover
+            )
         except StopAsyncIteration:
             # This is the expected behavior - no unnecessary retry
             pass

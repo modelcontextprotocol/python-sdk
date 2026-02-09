@@ -81,12 +81,12 @@ async def test_non_compliant_notification_response() -> None:
     """
     returned_exception = None
 
-    async def message_handler(  # pragma: no cover
+    async def message_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         nonlocal returned_exception
-        if isinstance(message, Exception):
-            returned_exception = message
+        if isinstance(message, Exception):  # pragma: no cover
+            returned_exception = message  # pragma: no cover
 
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_non_sdk_server_app())) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
@@ -97,7 +97,7 @@ async def test_non_compliant_notification_response() -> None:
                 await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
 
     if returned_exception:  # pragma: no cover
-        pytest.fail(f"Server encountered an exception: {returned_exception}")
+        pytest.fail(f"Server encountered an exception: {returned_exception}")  # pragma: no cover
 
 
 async def test_unexpected_content_type_sends_jsonrpc_error() -> None:
