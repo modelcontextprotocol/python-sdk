@@ -1,9 +1,10 @@
 import logging
 import os
+import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import Callable, Literal, TextIO
 
 import anyio
 import anyio.lowlevel
@@ -23,6 +24,32 @@ from mcp.os.win32.utilities import (
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
+
+
+def _is_jupyter_environment() -> bool:
+    """Detect if code is running in a Jupyter notebook environment.
+
+    In Jupyter environments, sys.stderr doesn't work as expected when passed
+    to subprocess, so we need to handle stderr differently.
+
+    Returns:
+        bool: True if running in Jupyter/IPython notebook environment
+    """
+    try:
+        # Check for IPython kernel
+        from IPython import get_ipython
+
+        ipython = get_ipython()
+        if ipython is not None:
+            # Check if it's a notebook kernel (not just IPython terminal)
+            if "IPKernelApp" in ipython.config:
+                return True
+            # Also check for ZMQInteractiveShell which indicates notebook
+            if ipython.__class__.__name__ == "ZMQInteractiveShell":
+                return True
+    except (ImportError, AttributeError):
+        pass
+    return False
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -105,6 +132,12 @@ class StdioServerParameters(BaseModel):
 async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
     """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
+
+    Args:
+        server: Parameters for the server process
+        errlog: TextIO stream for stderr output. In Jupyter environments,
+                stderr is captured and printed to work around Jupyter's
+                limitations with subprocess stderr handling.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -115,16 +148,20 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
+    # Detect Jupyter environment for stderr handling
+    is_jupyter = _is_jupyter_environment()
+
     try:
         command = _get_executable_command(server.command)
 
-        # Open process with stderr piped for capture
+        # Open process with stderr handling based on environment
         process = await _create_platform_compatible_process(
             command=command,
             args=server.args,
             env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
             errlog=errlog,
             cwd=server.cwd,
+            capture_stderr=is_jupyter,
         )
     except OSError:
         # Clean up streams if process creation fails
@@ -177,9 +214,41 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
+    async def stderr_reader():
+        """Read stderr from the process and output it appropriately.
+
+        In Jupyter environments, stderr is captured as a pipe and printed
+        to make it visible in the notebook output. In normal environments,
+        stderr is passed directly to sys.stderr.
+
+        See: https://github.com/modelcontextprotocol/python-sdk/issues/156
+        """
+        if not process.stderr:
+            return
+
+        try:
+            async for chunk in TextReceiveStream(
+                process.stderr,
+                encoding=server.encoding,
+                errors=server.encoding_error_handler,
+            ):
+                # In Jupyter, print to stdout with red color for visibility
+                # In normal environments, write to the provided errlog
+                if is_jupyter:
+                    # Use ANSI red color for stderr in Jupyter
+                    print(f"\033[91m{chunk}\033[0m", end="", flush=True)
+                else:
+                    errlog.write(chunk)
+                    errlog.flush()
+        except anyio.ClosedResourceError:
+            await anyio.lowlevel.checkpoint()
+
     async with anyio.create_task_group() as tg, process:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        # Only start stderr reader if we're capturing stderr (Jupyter mode)
+        if is_jupyter and process.stderr:
+            tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -232,19 +301,36 @@ async def _create_platform_compatible_process(
     env: dict[str, str] | None = None,
     errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
+    capture_stderr: bool = False,
 ):
     """Creates a subprocess in a platform-compatible way.
 
     Unix: Creates process in a new session/process group for killpg support
     Windows: Creates process in a Job Object for reliable child termination
+
+    Args:
+        command: The executable command to run
+        args: Command line arguments
+        env: Environment variables for the process
+        errlog: TextIO stream for stderr (used when capture_stderr=False)
+        cwd: Working directory for the process
+        capture_stderr: If True, stderr is captured as a pipe for async reading.
+                       This is needed for Jupyter environments where passing
+                       sys.stderr directly doesn't work properly.
+
+    Returns:
+        Process with stdin, stdout, and optionally stderr streams
     """
+    # Determine stderr handling: PIPE for capture, or redirect to errlog
+    stderr_target = subprocess.PIPE if capture_stderr else errlog
+
     if sys.platform == "win32":  # pragma: no cover
-        process = await create_windows_process(command, args, env, errlog, cwd)
+        process = await create_windows_process(command, args, env, stderr_target, cwd)
     else:  # pragma: lax no cover
         process = await anyio.open_process(
             [command, *args],
             env=env,
-            stderr=errlog,
+            stderr=stderr_target,
             cwd=cwd,
             start_new_session=True,
         )

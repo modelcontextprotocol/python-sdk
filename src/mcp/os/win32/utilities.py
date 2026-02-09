@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import BinaryIO, TextIO, cast
+from typing import BinaryIO, TextIO, Union, cast
 
 import anyio
 from anyio import to_thread
@@ -66,7 +66,7 @@ class FallbackProcess:
     """A fallback process wrapper for Windows to handle async I/O
     when using subprocess.Popen, which provides sync-only FileIO objects.
 
-    This wraps stdin and stdout into async-compatible
+    This wraps stdin, stdout, and optionally stderr into async-compatible
     streams (FileReadStream, FileWriteStream),
     so that MCP clients expecting async streams can work properly.
     """
@@ -75,10 +75,12 @@ class FallbackProcess:
         self.popen: subprocess.Popen[bytes] = popen_obj
         self.stdin_raw = popen_obj.stdin  # type: ignore[assignment]
         self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
-        self.stderr = popen_obj.stderr  # type: ignore[assignment]
+        self.stderr_raw = popen_obj.stderr  # type: ignore[assignment]
 
         self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
         self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
+        # Wrap stderr as async stream if it was captured as PIPE
+        self.stderr = FileReadStream(cast(BinaryIO, self.stderr_raw)) if self.stderr_raw else None
 
     async def __aenter__(self):
         """Support async context manager entry."""
@@ -99,12 +101,14 @@ class FallbackProcess:
             await self.stdin.aclose()
         if self.stdout:
             await self.stdout.aclose()
+        if self.stderr:
+            await self.stderr.aclose()
         if self.stdin_raw:
             self.stdin_raw.close()
         if self.stdout_raw:
             self.stdout_raw.close()
-        if self.stderr:
-            self.stderr.close()
+        if self.stderr_raw:
+            self.stderr_raw.close()
 
     async def wait(self):
         """Async wait for process completion."""
@@ -133,7 +137,7 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: Union[TextIO, int, None] = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
     """Creates a subprocess in a Windows-compatible way with Job Object support.
@@ -150,7 +154,8 @@ async def create_windows_process(
         command (str): The executable to run
         args (list[str]): List of command line arguments
         env (dict[str, str] | None): Environment variables
-        errlog (TextIO | None): Where to send stderr output (defaults to sys.stderr)
+        errlog: Where to send stderr output. Can be a TextIO stream (like sys.stderr),
+                subprocess.PIPE (-1) for capturing stderr, or None.
         cwd (Path | str | None): Working directory for the subprocess
 
     Returns:
@@ -191,7 +196,7 @@ async def _create_windows_fallback_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: Union[TextIO, int, None] = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
     """Create a subprocess using subprocess.Popen as a fallback when anyio fails.
