@@ -169,6 +169,8 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[dict[str, str]]] = {}
         self._terminated = False
+        # Idle timeout cancel scope; managed by the session manager.
+        self.idle_scope: anyio.CancelScope | None = None
 
     @property
     def is_terminated(self) -> bool:
