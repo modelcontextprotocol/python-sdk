@@ -148,9 +148,9 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
     # Give other tasks a chance to run. This is important for the finally block.
     await anyio.sleep(0.01)
 
-    assert session_id not in manager._server_instances, (
-        "Session ID should be removed from _server_instances after graceful exit"
-    )
+    assert (
+        session_id not in manager._server_instances
+    ), "Session ID should be removed from _server_instances after graceful exit"
     assert not manager._server_instances, "No sessions should be tracked after the only session exits gracefully"
 
 
@@ -201,9 +201,9 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
     # Give other tasks a chance to run to ensure the finally block executes
     await anyio.sleep(0.01)
 
-    assert session_id not in manager._server_instances, (
-        "Session ID should be removed from _server_instances after an exception"
-    )
+    assert (
+        session_id not in manager._server_instances
+    ), "Session ID should be removed from _server_instances after an exception"
     assert not manager._server_instances, "No sessions should be tracked after the only session crashes"
 
 
@@ -318,8 +318,21 @@ async def test_unknown_session_id_returns_404():
         assert error_data["error"]["message"] == "Session not found"
 
 
+@pytest.fixture
+def reset_sse_app_status():
+    # Needed for tests with sse-starlette < 3
+    # https://github.com/sysid/sse-starlette/issues/59
+    # https://github.com/sysid/sse-starlette/blob/v3.2.0/README.md#testing
+
+    from sse_starlette.sse import AppStatus
+
+    AppStatus.should_exit_event = None
+    yield
+    AppStatus.should_exit_event = None
+
+
 @pytest.mark.anyio
-async def test_e2e_streamable_http_server_cleanup():
+async def test_e2e_streamable_http_server_cleanup(reset_sse_app_status: None):
     host = "testserver"
     app = Server("test-server")
 
