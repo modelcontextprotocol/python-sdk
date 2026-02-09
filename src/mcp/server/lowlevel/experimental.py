@@ -78,15 +78,35 @@ class ExperimentalHandlers:
         self,
         store: TaskStore | None = None,
         queue: TaskMessageQueue | None = None,
+        *,
+        on_get_task: Callable[[ServerRequestContext[Any, Any], GetTaskRequestParams], Awaitable[GetTaskResult]]
+        | None = None,
+        on_task_result: Callable[
+            [ServerRequestContext[Any, Any], GetTaskPayloadRequestParams], Awaitable[GetTaskPayloadResult]
+        ]
+        | None = None,
+        on_list_tasks: Callable[
+            [ServerRequestContext[Any, Any], PaginatedRequestParams | None], Awaitable[ListTasksResult]
+        ]
+        | None = None,
+        on_cancel_task: Callable[
+            [ServerRequestContext[Any, Any], CancelTaskRequestParams], Awaitable[CancelTaskResult]
+        ]
+        | None = None,
     ) -> TaskSupport:
         """Enable experimental task support.
 
-        This sets up the task infrastructure and auto-registers default handlers
-        for tasks/get, tasks/result, tasks/list, and tasks/cancel.
+        This sets up the task infrastructure and registers handlers for
+        tasks/get, tasks/result, tasks/list, and tasks/cancel. Custom handlers
+        can be provided via the on_* kwargs; any not provided will use defaults.
 
         Args:
             store: Custom TaskStore implementation (defaults to InMemoryTaskStore)
             queue: Custom TaskMessageQueue implementation (defaults to InMemoryTaskMessageQueue)
+            on_get_task: Custom handler for tasks/get
+            on_task_result: Custom handler for tasks/result
+            on_list_tasks: Custom handler for tasks/list
+            on_cancel_task: Custom handler for tasks/cancel
 
         Returns:
             The TaskSupport configuration object
@@ -110,6 +130,17 @@ class ExperimentalHandlers:
 
         self._task_support = TaskSupport(store=store, queue=queue)
 
+        # Register user-provided handlers
+        if on_get_task is not None:
+            self._add_request_handler("tasks/get", on_get_task)
+        if on_task_result is not None:
+            self._add_request_handler("tasks/result", on_task_result)
+        if on_list_tasks is not None:
+            self._add_request_handler("tasks/list", on_list_tasks)
+        if on_cancel_task is not None:
+            self._add_request_handler("tasks/cancel", on_cancel_task)
+
+        # Fill in defaults for any not provided
         if not self._has_handler("tasks/get"):
 
             async def _default_get_task(
