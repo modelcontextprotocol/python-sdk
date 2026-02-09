@@ -180,6 +180,8 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[dict[str, str]]] = {}
         self._terminated = False
+        # Idle timeout cancel scope; managed by the session manager.
+        self.idle_scope: anyio.CancelScope | None = None
 
     @property
     def is_terminated(self) -> bool:
@@ -773,7 +775,11 @@ class StreamableHTTPServerTransport:
         """Terminate the current session, closing all streams.
 
         Once terminated, all requests with this session ID will receive 404 Not Found.
+        Calling this method multiple times is safe (idempotent).
         """
+
+        if self._terminated:
+            return
 
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")

@@ -38,6 +38,7 @@ class StreamableHTTPSessionManager:
     2. Resumability via an optional event store
     3. Connection management and lifecycle
     4. Request handling and transport setup
+    5. Idle session cleanup via optional timeout
 
     Important: Only one StreamableHTTPSessionManager instance should be created
     per application. The instance cannot be reused after its run() context has
@@ -55,6 +56,15 @@ class StreamableHTTPSessionManager:
         security_settings: Optional transport security settings.
         retry_interval: Retry interval in milliseconds to suggest to clients in SSE
                        retry field. Used for SSE polling behavior.
+        session_idle_timeout: Optional idle timeout in seconds for stateful sessions.
+                            If set, sessions that receive no HTTP requests for this
+                            duration will be automatically terminated and removed.
+                            When retry_interval is also set, the effective idle
+                            threshold is at least ``retry_interval / 1000 * 3`` to
+                            avoid prematurely reaping sessions that are simply
+                            waiting for SSE polling reconnections. Default is None
+                            (no timeout). A value of 1800 (30 minutes) is
+                            recommended for most deployments.
     """
 
     def __init__(
@@ -65,13 +75,20 @@ class StreamableHTTPSessionManager:
         stateless: bool = False,
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
+        session_idle_timeout: float | None = None,
     ):
+        if session_idle_timeout is not None and session_idle_timeout <= 0:
+            raise ValueError("session_idle_timeout must be a positive number of seconds")
+        if stateless and session_idle_timeout is not None:
+            raise ValueError("session_idle_timeout is not supported in stateless mode")
+
         self.app = app
         self.event_store = event_store
         self.json_response = json_response
         self.stateless = stateless
         self.security_settings = security_settings
         self.retry_interval = retry_interval
+        self.session_idle_timeout = session_idle_timeout
 
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
@@ -114,6 +131,7 @@ class StreamableHTTPSessionManager:
             # Store the task group for later use
             self._task_group = tg
             logger.info("StreamableHTTP session manager started")
+
             try:
                 yield  # Let the application run
             finally:
@@ -219,6 +237,9 @@ class StreamableHTTPSessionManager:
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:  # pragma: no cover
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
+            # Push back idle deadline on activity
+            if transport.idle_scope is not None:
+                transport.idle_scope.deadline = anyio.current_time() + self._effective_idle_timeout()
             await transport.handle_request(scope, receive, send)
             return
 
@@ -245,19 +266,36 @@ class StreamableHTTPSessionManager:
                         read_stream, write_stream = streams
                         task_status.started()
                         try:
-                            await self.app.run(
-                                read_stream,
-                                write_stream,
-                                self.app.create_initialization_options(),
-                                stateless=False,  # Stateful mode
-                            )
+                            # Use a cancel scope for idle timeout — when the
+                            # deadline passes the scope cancels app.run() and
+                            # execution continues after the ``with`` block.
+                            # Incoming requests push the deadline forward.
+                            idle_scope = anyio.CancelScope()
+                            if self.session_idle_timeout is not None:
+                                timeout = self._effective_idle_timeout()
+                                idle_scope.deadline = anyio.current_time() + timeout
+                                http_transport.idle_scope = idle_scope
+
+                            with idle_scope:
+                                await self.app.run(
+                                    read_stream,
+                                    write_stream,
+                                    self.app.create_initialization_options(),
+                                    stateless=False,
+                                )
+
+                            if idle_scope.cancelled_caught:
+                                session_id = http_transport.mcp_session_id
+                                logger.info(f"Session {session_id} idle timeout")
+                                if session_id is not None:  # pragma: no branch
+                                    self._server_instances.pop(session_id, None)
+                                await http_transport.terminate()
                         except Exception as e:
                             logger.error(
                                 f"Session {http_transport.mcp_session_id} crashed: {e}",
                                 exc_info=True,
                             )
                         finally:
-                            # Only remove from instances if not terminated
                             if (  # pragma: no branch
                                 http_transport.mcp_session_id
                                 and http_transport.mcp_session_id in self._server_instances
@@ -295,3 +333,12 @@ class StreamableHTTPSessionManager:
                 media_type="application/json",
             )
             await response(scope, receive, send)
+
+    def _effective_idle_timeout(self) -> float:
+        """Compute the effective idle timeout, accounting for retry_interval."""
+        assert self.session_idle_timeout is not None
+        timeout = self.session_idle_timeout
+        if self.retry_interval is not None:
+            retry_seconds = self.retry_interval / 1000.0
+            timeout = max(timeout, retry_seconds * 3)
+        return timeout
