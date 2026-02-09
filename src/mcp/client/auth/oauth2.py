@@ -229,6 +229,7 @@ class OAuthClientProvider(httpx.Auth):
         timeout: float = 300.0,
         client_metadata_url: str | None = None,
         fixed_client_info: OAuthClientInformationFull | None = None,
+        validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
     ):
         """Initialize OAuth2 authentication.
 
@@ -243,6 +244,12 @@ class OAuthClientProvider(httpx.Auth):
                 advertises client_id_metadata_document_supported=true, this URL will be
                 used as the client_id instead of performing dynamic client registration.
                 Must be a valid HTTPS URL with a non-root pathname.
+            fixed_client_info: If provided, use these client credentials (client_id/client_secret) instead of dynamic
+                client registration or URL-based client ID. Required for client_credentials flow.
+            validate_resource_url: Optional callback to override resource URL validation.
+                Called with (server_url, prm_resource) where prm_resource is the resource
+                from Protected Resource Metadata (or None if not present). If not provided,
+                default validation rejects mismatched resources per RFC 8707.
 
         Raises:
             ValueError: If client_metadata_url is provided but not a valid HTTPS URL
@@ -264,6 +271,7 @@ class OAuthClientProvider(httpx.Auth):
             client_metadata_url=client_metadata_url,
         )
         self._fixed_client_info = fixed_client_info
+        self._validate_resource_url_callback = validate_resource_url
         if fixed_client_info is not None:
             # In multi-protocol OAuth flow, we may drive oauth_401_flow_generator directly
             # without calling _initialize(); ensure client_info is available upfront.
@@ -510,6 +518,7 @@ class OAuthClientProvider(httpx.Auth):
         """
         self.context.protocol_version = protocol_version
         if protected_resource_metadata is not None:
+            await self._validate_resource_match(protected_resource_metadata)
             self.context.protected_resource_metadata = protected_resource_metadata
             if protected_resource_metadata.authorization_servers:
                 self.context.auth_server_url = str(protected_resource_metadata.authorization_servers[0])
@@ -524,6 +533,7 @@ class OAuthClientProvider(httpx.Auth):
                     discovery_response = await http_client.send(discovery_request)
                     prm = await handle_protected_resource_response(discovery_response)
                     if prm:
+                        await self._validate_resource_match(prm)
                         self.context.protected_resource_metadata = prm
                         if prm.authorization_servers:
                             self.context.auth_server_url = str(prm.authorization_servers[0])
@@ -596,6 +606,26 @@ class OAuthClientProvider(httpx.Auth):
         content = await response.aread()
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
+
+    async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
+        """Validate that PRM resource matches the server URL per RFC 8707."""
+        prm_resource = str(prm.resource) if prm.resource else None
+
+        if self._validate_resource_url_callback is not None:
+            await self._validate_resource_url_callback(self.context.server_url, prm_resource)
+            return
+
+        if not prm_resource:
+            return  # pragma: no cover
+        default_resource = resource_url_from_server_url(self.context.server_url)
+        # Normalize: Pydantic AnyHttpUrl adds trailing slash to root URLs
+        # (e.g. "https://example.com/") while resource_url_from_server_url may not.
+        if not default_resource.endswith("/"):
+            default_resource += "/"
+        if not prm_resource.endswith("/"):
+            prm_resource += "/"
+        if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
+            raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""

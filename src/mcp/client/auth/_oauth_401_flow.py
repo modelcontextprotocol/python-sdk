@@ -37,6 +37,8 @@ class _OAuth401FlowProvider(Protocol):
     @property
     def context(self) -> Any: ...  # pragma: lax no cover
 
+    async def _validate_resource_match(self, prm: "ProtectedResourceMetadata") -> None: ...  # pragma: lax no cover
+
     async def _perform_authorization(self) -> httpx.Request: ...  # pragma: lax no cover
 
     async def _handle_token_response(self, response: httpx.Response) -> None: ...  # pragma: lax no cover
@@ -68,6 +70,7 @@ async def oauth_401_flow_generator(
     ctx = provider.context
 
     if initial_prm is not None:
+        await provider._validate_resource_match(initial_prm)  # type: ignore[reportPrivateUsage]
         ctx.protected_resource_metadata = initial_prm
         if initial_prm.authorization_servers:
             ctx.auth_server_url = str(initial_prm.authorization_servers[0])
@@ -84,6 +87,7 @@ async def oauth_401_flow_generator(
 
             prm = await handle_protected_resource_response(discovery_response)
             if prm:
+                await provider._validate_resource_match(prm)  # type: ignore[reportPrivateUsage]
                 ctx.protected_resource_metadata = prm
                 assert len(prm.authorization_servers) > 0
                 ctx.auth_server_url = str(prm.authorization_servers[0])
