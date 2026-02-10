@@ -311,7 +311,8 @@ class Server(Generic[LifespanResultT]):
         # Set resource capabilities if handler exists
         if "resources/list" in self._request_handlers:
             resources_capability = types.ResourcesCapability(
-                subscribe=False, list_changed=notification_options.resources_changed
+                subscribe="resources/subscribe" in self._request_handlers,
+                list_changed=notification_options.resources_changed,
             )
 
         # Set tool capabilities if handler exists
