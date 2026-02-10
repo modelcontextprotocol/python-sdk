@@ -1,8 +1,7 @@
-"""Phase2 integration tests: unified discovery endpoint and 401 WWW-Authenticate auth_protocols extension.
+"""Integration tests: unified auth protocol discovery and 401 WWW-Authenticate extensions.
 
 - Client requests /.well-known/authorization_servers and gets protocol list.
 - Server 401 header contains auth_protocols/default_protocol/protocol_preferences and client parses them.
-- Phase1 regression: run ./scripts/run_phase1_oauth2_integration_test.sh (see plan).
 """
 
 import httpx

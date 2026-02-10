@@ -1291,7 +1291,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 assert isinstance(captured_notifications[0], types.LoggingMessageNotification)  # pragma: lax no cover
                 assert captured_notifications[0].params.data == "First notification before lock"  # pragma: lax no cover
 
-    # Clear notifications and set up headers for phase 2 (between connections,
+    # Clear notifications and set up headers for the second connection (between connections,
     # not tracked by coverage on Python 3.11 due to cancel scope + sys.settrace bug)
     captured_notifications = []  # pragma: lax no cover
     assert captured_session_id is not None  # pragma: lax no cover
