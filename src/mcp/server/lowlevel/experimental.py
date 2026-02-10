@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Generic
+
+from typing_extensions import TypeVar
 
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.task_support import TaskSupport
@@ -38,8 +40,10 @@ from mcp.types import (
 
 logger = logging.getLogger(__name__)
 
+LifespanResultT = TypeVar("LifespanResultT", default=Any)
 
-class ExperimentalHandlers:
+
+class ExperimentalHandlers(Generic[LifespanResultT]):
     """Experimental request/notification handlers.
 
     WARNING: These APIs are experimental and may change without notice.
@@ -47,7 +51,7 @@ class ExperimentalHandlers:
 
     def __init__(
         self,
-        add_request_handler: Callable[[str, Callable[[ServerRequestContext[Any], Any], Awaitable[Any]]], None],
+        add_request_handler: Callable[[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]], None],
         has_handler: Callable[[str], bool],
     ) -> None:
         self._add_request_handler = add_request_handler
@@ -79,15 +83,15 @@ class ExperimentalHandlers:
         store: TaskStore | None = None,
         queue: TaskMessageQueue | None = None,
         *,
-        on_get_task: Callable[[ServerRequestContext[Any], GetTaskRequestParams], Awaitable[GetTaskResult]]
+        on_get_task: Callable[[ServerRequestContext[LifespanResultT], GetTaskRequestParams], Awaitable[GetTaskResult]]
         | None = None,
         on_task_result: Callable[
-            [ServerRequestContext[Any], GetTaskPayloadRequestParams], Awaitable[GetTaskPayloadResult]
+            [ServerRequestContext[LifespanResultT], GetTaskPayloadRequestParams], Awaitable[GetTaskPayloadResult]
         ]
         | None = None,
-        on_list_tasks: Callable[[ServerRequestContext[Any], PaginatedRequestParams | None], Awaitable[ListTasksResult]]
+        on_list_tasks: Callable[[ServerRequestContext[LifespanResultT], PaginatedRequestParams | None], Awaitable[ListTasksResult]]
         | None = None,
-        on_cancel_task: Callable[[ServerRequestContext[Any], CancelTaskRequestParams], Awaitable[CancelTaskResult]]
+        on_cancel_task: Callable[[ServerRequestContext[LifespanResultT], CancelTaskRequestParams], Awaitable[CancelTaskResult]]
         | None = None,
     ) -> TaskSupport:
         """Enable experimental task support.
@@ -139,7 +143,7 @@ class ExperimentalHandlers:
         # Fill in defaults for any not provided
         if not self._has_handler("tasks/get"):
 
-            async def _default_get_task(ctx: ServerRequestContext[Any], params: GetTaskRequestParams) -> GetTaskResult:
+            async def _default_get_task(ctx: ServerRequestContext[LifespanResultT], params: GetTaskRequestParams) -> GetTaskResult:
                 task = await self._task_support.store.get_task(params.task_id)
                 if task is None:
                     raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {params.task_id}")
@@ -158,7 +162,7 @@ class ExperimentalHandlers:
         if not self._has_handler("tasks/result"):
 
             async def _default_get_task_result(
-                ctx: ServerRequestContext[Any], params: GetTaskPayloadRequestParams
+                ctx: ServerRequestContext[LifespanResultT], params: GetTaskPayloadRequestParams
             ) -> GetTaskPayloadResult:
                 assert ctx.request_id is not None
                 req = GetTaskPayloadRequest(params=params)
@@ -170,7 +174,7 @@ class ExperimentalHandlers:
         if not self._has_handler("tasks/list"):
 
             async def _default_list_tasks(
-                ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None
+                ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
             ) -> ListTasksResult:
                 cursor = params.cursor if params else None
                 tasks, next_cursor = await self._task_support.store.list_tasks(cursor)
@@ -181,7 +185,7 @@ class ExperimentalHandlers:
         if not self._has_handler("tasks/cancel"):
 
             async def _default_cancel_task(
-                ctx: ServerRequestContext[Any], params: CancelTaskRequestParams
+                ctx: ServerRequestContext[LifespanResultT], params: CancelTaskRequestParams
             ) -> CancelTaskResult:
                 result = await cancel_task(self._task_support.store, params.task_id)
                 return result
