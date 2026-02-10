@@ -9,7 +9,7 @@ maintainers = [
     { name = "David Soria Parra", email = "davidsp@anthropic.com" },
     { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
     { name = "Max Isbey", email = "maxisbey@anthropic.com" },
-    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" }
+    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
 ]
 keywords = ["git", "mcp", "llm", "automation"]
 license = { text = "MIT" }
@@ -32,7 +32,7 @@ dependencies = [
     "starlette>=0.48.0; python_version >= '3.14'",
     "starlette>=0.27; python_version < '3.14'",
     "python-multipart>=0.0.9",
-    "sse-starlette>=1.6.1",
+    "sse-starlette>=3.0.0",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",

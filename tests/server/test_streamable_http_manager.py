@@ -318,21 +318,8 @@ async def test_unknown_session_id_returns_404():
         assert error_data["error"]["message"] == "Session not found"
 
 
-@pytest.fixture
-def reset_sse_app_status():
-    # Needed for tests with sse-starlette < 3
-    # https://github.com/sysid/sse-starlette/issues/59
-    # https://github.com/sysid/sse-starlette/blob/v3.2.0/README.md#testing
-
-    from sse_starlette.sse import AppStatus
-
-    AppStatus.should_exit_event = None  # pyright: ignore[reportAttributeAccessIssue]
-    yield
-    AppStatus.should_exit_event = None  # pyright: ignore[reportAttributeAccessIssue]
-
-
 @pytest.mark.anyio
-async def test_e2e_streamable_http_server_cleanup(reset_sse_app_status: None):
+async def test_e2e_streamable_http_server_cleanup():
     host = "testserver"
     app = Server("test-server")
 
