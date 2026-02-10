@@ -19,6 +19,7 @@ from mcp.client._transport import TransportStreams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    CONNECTION_CLOSED,
     INVALID_REQUEST,
     PARSE_ERROR,
     ErrorData,
@@ -357,12 +358,24 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception:
-            logger.debug("SSE stream ended", exc_info=True)  # pragma: no cover
+            logger.debug("SSE stream ended", exc_info=True)
 
-        # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        # Stream ended without response - reconnect if we have an event ID,
+        # otherwise notify the session that the connection is dead (#1811)
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+        else:
+            logger.warning("SSE stream closed without response or event ID, cannot reconnect")
+            error = JSONRPCError(
+                jsonrpc="2.0",
+                id=original_request_id,
+                error=ErrorData(
+                    code=CONNECTION_CLOSED,
+                    message="SSE stream closed without response",
+                ),
+            )
+            await ctx.read_stream_writer.send(SessionMessage(error))
 
     async def _handle_reconnection(
         self,

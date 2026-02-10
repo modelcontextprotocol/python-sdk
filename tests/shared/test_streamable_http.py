@@ -50,7 +50,15 @@ from mcp.shared._httpx_utils import (
 )
 from mcp.shared.message import ClientMessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import InitializeResult, JSONRPCRequest, TextContent, TextResourceContents, Tool
+from mcp.types import (
+    CONNECTION_CLOSED,
+    InitializeResult,
+    JSONRPCError,
+    JSONRPCRequest,
+    TextContent,
+    TextResourceContents,
+    Tool,
+)
 from tests.test_helpers import wait_for_server
 
 # Test constants
@@ -2239,3 +2247,43 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_handle_sse_response_sends_error_when_stream_closes_without_event_id():
+    """SSE stream closing without event ID sends CONNECTION_CLOSED error (#1811)."""
+    from mcp.client.streamable_http import RequestContext as _TransportRequestContext
+
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    ctx = _TransportRequestContext(
+        client=MagicMock(),
+        session_id=None,
+        session_message=SessionMessage(message=request),
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+    # Mock response whose SSE stream yields zero events (simulates abrupt close)
+    mock_response = MagicMock()
+
+    async def _empty_aiter_lines():  # pragma: no cover
+        return
+        yield
+
+    mock_response.aiter_lines = _empty_aiter_lines
+
+    try:
+        await transport._handle_sse_response(mock_response, ctx)
+
+        result = await read_stream.receive()
+        assert isinstance(result, SessionMessage)
+        assert isinstance(result.message, JSONRPCError)
+        assert result.message.error.code == CONNECTION_CLOSED
+        assert "SSE stream closed without response" in result.message.error.message
+        assert result.message.id == 1
+    finally:
+        await write_stream.aclose()
+        await read_stream.aclose()
