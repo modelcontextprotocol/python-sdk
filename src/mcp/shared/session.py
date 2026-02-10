@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
@@ -154,8 +155,78 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
-class BaseSession(
+class CommonBaseSession(
+    ABC,
     Generic[
+        SendRequestT,
+        SendNotificationT,
+        SendResultT,
+        ReceiveRequestT,
+        ReceiveNotificationT,
+    ],
+):
+    """Common base class for sessions agnostic to message types.
+
+    The class optionally takes in read and write streams, to provide flexibility without streams for transports that
+    don't require them.
+
+    Sessions that do require read-write streams can inherit from this class, and impose the mandatory streams in their
+    respective constructors.
+    """
+
+    def __init__(
+        self,
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None,
+        write_stream: MemoryObjectSendStream[SessionMessage] | None = None,
+        # If none, reading will never time out
+        read_timeout_seconds: float | None = None,
+    ) -> None:
+        self._read_stream = read_stream
+        self._write_stream = write_stream
+        self._session_read_timeout_seconds = read_timeout_seconds
+        self._response_streams = {}
+
+    @abstractmethod
+    async def send_request(
+        self,
+        request: SendRequestT,
+        result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: float | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ReceiveResultT:
+        """Sends a request and wait for a response.
+
+        Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
+        precedence over the session read timeout.
+
+        Do not use this method to emit notifications! Use send_notification() instead.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def send_notification(
+        self,
+        notification: SendNotificationT,
+        related_request_id: RequestId | None = None,
+    ) -> None:
+        """Emits a notification, which is a one-way message that does not expect a response."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def send_progress_notification(
+        self,
+        progress_token: ProgressToken,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+    ) -> None:
+        """Sends a progress notification for a request that is currently being processed."""
+        raise NotImplementedError
+
+
+class BaseSession(
+    CommonBaseSession[
         SendRequestT,
         SendNotificationT,
         SendResultT,
@@ -170,6 +241,8 @@ class BaseSession(
     messages when entered.
     """
 
+    _read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
+    _write_stream: MemoryObjectSendStream[SessionMessage]
     _response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]]
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
@@ -183,11 +256,9 @@ class BaseSession(
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
     ) -> None:
-        self._read_stream = read_stream
-        self._write_stream = write_stream
+        super().__init__(read_stream, write_stream, read_timeout_seconds)
         self._response_streams = {}
         self._request_id = 0
-        self._session_read_timeout_seconds = read_timeout_seconds
         self._in_flight = {}
         self._progress_callbacks = {}
         self._response_routers = []

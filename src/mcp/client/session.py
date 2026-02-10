@@ -8,6 +8,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import TypeAdapter
 
 from mcp import types
+from mcp.client.base_client_session import BaseClientSession
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
@@ -105,7 +106,8 @@ class ClientSession(
         types.ClientResult,
         types.ServerRequest,
         types.ServerNotification,
-    ]
+    ],
+    BaseClientSession,
 ):
     def __init__(
         self,
