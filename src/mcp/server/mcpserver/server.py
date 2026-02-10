@@ -48,16 +48,21 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import (
     Annotations,
     BlobResourceContents,
+    CallToolRequestParams,
     CallToolResult,
+    CompleteRequestParams,
     CompleteResult,
     Completion,
     ContentBlock,
+    GetPromptRequestParams,
     GetPromptResult,
     Icon,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
     ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
     ReadResourceResult,
     TextContent,
     TextResourceContents,
@@ -287,10 +292,14 @@ class MCPServer(Generic[LifespanResultT]):
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
-    async def _handle_list_tools(self, ctx: Any, params: Any) -> ListToolsResult:
+    async def _handle_list_tools(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
         return ListToolsResult(tools=await self.list_tools())
 
-    async def _handle_call_tool(self, ctx: Any, params: Any) -> CallToolResult:
+    async def _handle_call_tool(
+        self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
+    ) -> CallToolResult:
         try:
             result = await self.call_tool(params.name, params.arguments or {})
         except MCPError:
@@ -312,10 +321,14 @@ class MCPServer(Generic[LifespanResultT]):
             )
         return CallToolResult(content=list(result))
 
-    async def _handle_list_resources(self, ctx: Any, params: Any) -> ListResourcesResult:
+    async def _handle_list_resources(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
         return ListResourcesResult(resources=await self.list_resources())
 
-    async def _handle_read_resource(self, ctx: Any, params: Any) -> ReadResourceResult:
+    async def _handle_read_resource(
+        self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
+    ) -> ReadResourceResult:
         results = await self.read_resource(params.uri)
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
@@ -339,13 +352,19 @@ class MCPServer(Generic[LifespanResultT]):
                 )
         return ReadResourceResult(contents=contents)
 
-    async def _handle_list_resource_templates(self, ctx: Any, params: Any) -> ListResourceTemplatesResult:
+    async def _handle_list_resource_templates(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
         return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
 
-    async def _handle_list_prompts(self, ctx: Any, params: Any) -> ListPromptsResult:
+    async def _handle_list_prompts(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListPromptsResult:
         return ListPromptsResult(prompts=await self.list_prompts())
 
-    async def _handle_get_prompt(self, ctx: Any, params: Any) -> GetPromptResult:
+    async def _handle_get_prompt(
+        self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
+    ) -> GetPromptResult:
         return await self.get_prompt(params.name, params.arguments)
 
     async def list_tools(self) -> list[MCPTool]:
@@ -560,7 +579,9 @@ class MCPServer(Generic[LifespanResultT]):
         """
 
         def decorator(func: _CallableT) -> _CallableT:
-            async def handler(ctx: Any, params: Any) -> CompleteResult:
+            async def handler(
+                ctx: ServerRequestContext[LifespanResultT], params: CompleteRequestParams
+            ) -> CompleteResult:
                 result = await func(params.ref, params.argument, params.context)
                 return CompleteResult(
                     completion=result if result is not None else Completion(values=[], total=None, has_more=None),
