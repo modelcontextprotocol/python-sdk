@@ -51,7 +51,9 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
 
     def __init__(
         self,
-        add_request_handler: Callable[[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]], None],
+        add_request_handler: Callable[
+            [str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]], None
+        ],
         has_handler: Callable[[str], bool],
     ) -> None:
         self._add_request_handler = add_request_handler
@@ -89,9 +91,13 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
             [ServerRequestContext[LifespanResultT], GetTaskPayloadRequestParams], Awaitable[GetTaskPayloadResult]
         ]
         | None = None,
-        on_list_tasks: Callable[[ServerRequestContext[LifespanResultT], PaginatedRequestParams | None], Awaitable[ListTasksResult]]
+        on_list_tasks: Callable[
+            [ServerRequestContext[LifespanResultT], PaginatedRequestParams | None], Awaitable[ListTasksResult]
+        ]
         | None = None,
-        on_cancel_task: Callable[[ServerRequestContext[LifespanResultT], CancelTaskRequestParams], Awaitable[CancelTaskResult]]
+        on_cancel_task: Callable[
+            [ServerRequestContext[LifespanResultT], CancelTaskRequestParams], Awaitable[CancelTaskResult]
+        ]
         | None = None,
     ) -> TaskSupport:
         """Enable experimental task support.
@@ -144,7 +150,9 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
         # Fill in defaults for any not provided
         if not self._has_handler("tasks/get"):
 
-            async def _default_get_task(ctx: ServerRequestContext[LifespanResultT], params: GetTaskRequestParams) -> GetTaskResult:
+            async def _default_get_task(
+                ctx: ServerRequestContext[LifespanResultT], params: GetTaskRequestParams
+            ) -> GetTaskResult:
                 task = await task_support.store.get_task(params.task_id)
                 if task is None:
                     raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {params.task_id}")
