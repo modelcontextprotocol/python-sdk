@@ -197,7 +197,7 @@ class Server(Generic[LifespanResultT]):
         self._notification_handlers: dict[
             str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
         ] = {}
-        self._experimental_handlers: ExperimentalHandlers | None = None
+        self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
 
@@ -339,7 +339,7 @@ class Server(Generic[LifespanResultT]):
         return capabilities
 
     @property
-    def experimental(self) -> ExperimentalHandlers:
+    def experimental(self) -> ExperimentalHandlers[LifespanResultT]:
         """Experimental APIs for tasks and other features.
 
         WARNING: These APIs are experimental and may change without notice.
