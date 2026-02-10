@@ -508,7 +508,7 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_notification(
         self,
-        notify: Any,
+        notify: types.ClientNotification,
         session: ServerSession,
         lifespan_context: LifespanResultT,
     ) -> None:
@@ -528,7 +528,7 @@ class Server(Generic[LifespanResultT]):
                         _task_support=task_support,
                     ),
                 )
-                await handler(ctx, getattr(notify, "params", None))
+                await handler(ctx, notify.params)
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
