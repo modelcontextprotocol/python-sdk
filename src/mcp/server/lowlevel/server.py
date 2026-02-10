@@ -74,7 +74,7 @@ logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 
-request_ctx: contextvars.ContextVar[ServerRequestContext[Any, Any]] = contextvars.ContextVar("request_ctx")
+request_ctx: contextvars.ContextVar[ServerRequestContext[Any]] = contextvars.ContextVar("request_ctx")
 
 
 class NotificationOptions:
@@ -114,73 +114,73 @@ class Server(Generic[LifespanResultT]):
         ] = lifespan,
         # Request handlers
         on_list_tools: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.PaginatedRequestParams | None],
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListToolsResult],
         ]
         | None = None,
         on_call_tool: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.CallToolRequestParams],
+            [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
             Awaitable[types.CallToolResult],
         ]
         | None = None,
         on_list_resources: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.PaginatedRequestParams | None],
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListResourcesResult],
         ]
         | None = None,
         on_list_resource_templates: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.PaginatedRequestParams | None],
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListResourceTemplatesResult],
         ]
         | None = None,
         on_read_resource: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.ReadResourceRequestParams],
+            [ServerRequestContext[LifespanResultT], types.ReadResourceRequestParams],
             Awaitable[types.ReadResourceResult],
         ]
         | None = None,
         on_subscribe_resource: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.SubscribeRequestParams],
+            [ServerRequestContext[LifespanResultT], types.SubscribeRequestParams],
             Awaitable[types.EmptyResult],
         ]
         | None = None,
         on_unsubscribe_resource: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.UnsubscribeRequestParams],
+            [ServerRequestContext[LifespanResultT], types.UnsubscribeRequestParams],
             Awaitable[types.EmptyResult],
         ]
         | None = None,
         on_list_prompts: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.PaginatedRequestParams | None],
+            [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
             Awaitable[types.ListPromptsResult],
         ]
         | None = None,
         on_get_prompt: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.GetPromptRequestParams],
+            [ServerRequestContext[LifespanResultT], types.GetPromptRequestParams],
             Awaitable[types.GetPromptResult],
         ]
         | None = None,
         on_completion: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.CompleteRequestParams],
+            [ServerRequestContext[LifespanResultT], types.CompleteRequestParams],
             Awaitable[types.CompleteResult],
         ]
         | None = None,
         on_set_logging_level: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.SetLevelRequestParams],
+            [ServerRequestContext[LifespanResultT], types.SetLevelRequestParams],
             Awaitable[types.EmptyResult],
         ]
         | None = None,
         on_ping: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.RequestParams | None],
+            [ServerRequestContext[LifespanResultT], types.RequestParams | None],
             Awaitable[types.EmptyResult],
         ]
         | None = None,
         # Notification handlers
         on_roots_list_changed: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.NotificationParams | None],
+            [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
             Awaitable[None],
         ]
         | None = None,
         on_progress: Callable[
-            [ServerRequestContext[LifespanResultT, Any], types.ProgressNotificationParams],
+            [ServerRequestContext[LifespanResultT], types.ProgressNotificationParams],
             Awaitable[None],
         ]
         | None = None,
@@ -193,11 +193,9 @@ class Server(Generic[LifespanResultT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
-        self._request_handlers: dict[
-            str, Callable[[ServerRequestContext[LifespanResultT, Any], Any], Awaitable[Any]]
-        ] = {}
+        self._request_handlers: dict[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]] = {}
         self._notification_handlers: dict[
-            str, Callable[[ServerRequestContext[LifespanResultT, Any], Any], Awaitable[None]]
+            str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
         ] = {}
         self._experimental_handlers: ExperimentalHandlers | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
@@ -243,7 +241,7 @@ class Server(Generic[LifespanResultT]):
     def _add_request_handler(
         self,
         method: str,
-        handler: Callable[[ServerRequestContext[LifespanResultT, Any], Any], Awaitable[Any]],
+        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]],
     ) -> None:
         """Add a request handler, silently replacing any existing handler for the same method."""
         self._request_handlers[method] = handler
@@ -251,7 +249,7 @@ class Server(Generic[LifespanResultT]):
     def _add_notification_handler(
         self,
         method: str,
-        handler: Callable[[ServerRequestContext[LifespanResultT, Any], Any], Awaitable[None]],
+        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]],
     ) -> None:
         """Add a notification handler, silently replacing any existing handler for the same method."""
         self._notification_handlers[method] = handler
@@ -649,5 +647,5 @@ class Server(Generic[LifespanResultT]):
         )
 
 
-async def _ping_handler(ctx: Any, params: Any) -> types.EmptyResult:
+async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestParams | None) -> types.EmptyResult:
     return types.EmptyResult()

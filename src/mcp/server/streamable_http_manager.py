@@ -60,7 +60,7 @@ class StreamableHTTPSessionManager:
 
     def __init__(
         self,
-        app: Server[Any, Any],
+        app: Server[Any],
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
