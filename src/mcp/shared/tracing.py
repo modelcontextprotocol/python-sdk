@@ -50,6 +50,24 @@ def start_client_span(method: str, params: dict[str, Any] | None) -> trace.Span 
     return span
 
 
+def start_server_span(method: str, params: dict[str, Any] | None) -> trace.Span | None:
+    """Start a SERVER span for an incoming MCP request.
+
+    Returns None if the method is excluded from tracing.
+    """
+    if method in _EXCLUDED_METHODS:
+        return None
+
+    target = _extract_target(method, params)
+    span_name = f"{method} {target}" if target else method
+    span = _tracer.start_span(
+        span_name,
+        kind=trace.SpanKind.SERVER,
+        attributes={ATTR_MCP_METHOD_NAME: method},
+    )
+    return span
+
+
 def end_span_ok(span: trace.Span) -> None:
     """Mark a span as successful and end it."""
     span.set_status(StatusCode.OK)
