@@ -97,6 +97,10 @@ async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
     yield {}
 
 
+async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestParams | None) -> types.EmptyResult:
+    return types.EmptyResult()
+
+
 class Server(Generic[LifespanResultT]):
     def __init__(
         self,
@@ -171,8 +175,7 @@ class Server(Generic[LifespanResultT]):
         on_ping: Callable[
             [ServerRequestContext[LifespanResultT], types.RequestParams | None],
             Awaitable[types.EmptyResult],
-        ]
-        | None = None,
+        ] = _ping_handler,
         # Notification handlers
         on_roots_list_changed: Callable[
             [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
@@ -222,10 +225,6 @@ class Server(Generic[LifespanResultT]):
                 if handler is not None
             }
         )
-
-        # Default ping handler if not provided
-        if "ping" not in self._request_handlers:
-            self._request_handlers["ping"] = _ping_handler
 
         self._notification_handlers.update(
             {
@@ -646,5 +645,3 @@ class Server(Generic[LifespanResultT]):
         )
 
 
-async def _ping_handler(ctx: ServerRequestContext[Any], params: types.RequestParams | None) -> types.EmptyResult:
-    return types.EmptyResult()
