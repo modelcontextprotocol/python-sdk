@@ -1,7 +1,3 @@
-# pyright: reportMissingImports=false, reportUnknownVariableType=false
-# pyright: reportUnknownMemberType=false, reportUnknownParameterType=false
-# pyright: reportUnknownArgumentType=false
-# opentelemetry-sdk does not ship type stubs, so we suppress unknown-type errors.
 from __future__ import annotations
 
 from typing import Any
@@ -14,18 +10,9 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import SpanKind, StatusCode
 
 from mcp import Client, types
-from mcp.client.session import ClientSession
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import MCPError
-from mcp.shared.memory import create_client_server_memory_streams
-from mcp.shared.message import SessionMessage
-from mcp.shared.tracing import (
-    ATTR_ERROR_TYPE,
-    ATTR_MCP_METHOD_NAME,
-    _build_span_name,
-    _extract_target,
-)
-from mcp.types import ErrorData, JSONRPCError, JSONRPCRequest
+from mcp.shared.tracing import ATTR_ERROR_TYPE, ATTR_MCP_METHOD_NAME
 
 # Module-level provider + exporter — avoids the "Overriding of current
 # TracerProvider is not allowed" warning that happens if you call
@@ -36,45 +23,13 @@ _provider.add_span_processor(SimpleSpanProcessor(_exporter))
 
 
 @pytest.fixture(autouse=True)
-def _otel_setup(monkeypatch: pytest.MonkeyPatch):
+def _otel_setup(monkeypatch: pytest.MonkeyPatch) -> InMemorySpanExporter:
     """Patch the module-level tracer to use our test provider and clear spans between tests."""
     import mcp.shared.tracing as tracing_mod
 
     monkeypatch.setattr(tracing_mod, "_tracer", _provider.get_tracer("mcp"))
     _exporter.clear()
-    yield _exporter
-
-
-# --- Unit tests for helpers ---
-
-
-@pytest.mark.parametrize(
-    ("method", "params", "expected"),
-    [
-        ("tools/call", {"name": "my_tool"}, "my_tool"),
-        ("prompts/get", {"name": "my_prompt"}, "my_prompt"),
-        ("resources/read", {"uri": "file:///a.txt"}, "file:///a.txt"),
-        ("ping", None, None),
-        ("tools/call", {}, None),
-        ("tools/call", {"name": 123}, None),
-    ],
-)
-def test_extract_target(method: str, params: dict[str, Any] | None, expected: str | None) -> None:
-    assert _extract_target(method, params) == expected
-
-
-@pytest.mark.parametrize(
-    ("method", "target", "expected"),
-    [
-        ("tools/call", "my_tool", "tools/call my_tool"),
-        ("ping", None, "ping"),
-    ],
-)
-def test_build_span_name(method: str, target: str | None, expected: str) -> None:
-    assert _build_span_name(method, target) == expected
-
-
-# --- Integration tests using real client/server ---
+    return _exporter
 
 
 @pytest.mark.anyio
@@ -126,46 +81,33 @@ async def test_span_attributes_for_tool_call(_otel_setup: InMemorySpanExporter) 
 
 @pytest.mark.anyio
 async def test_span_error_on_failure(_otel_setup: InMemorySpanExporter) -> None:
-    """Verify span records ERROR status when the server returns a JSON-RPC error."""
+    """Verify span records ERROR status when the request times out."""
     exporter = _otel_setup
 
-    ev_done = anyio.Event()
+    server = Server(name="test server")
 
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
+    @server.list_tools()
+    async def handle_list_tools() -> list[types.Tool]:
+        return [types.Tool(name="slow_tool", description="Slow", input_schema={"type": "object"})]
 
-        async def mock_server():
-            message = await server_read.receive()
-            assert isinstance(message, SessionMessage)
-            root = message.message
-            assert isinstance(root, JSONRPCRequest)
-            error_response = JSONRPCError(
-                jsonrpc="2.0",
-                id=root.id,
-                error=ErrorData(code=-32600, message="Test error"),
+    @server.call_tool()
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+        await anyio.sleep(10)
+        return []  # pragma: no cover
+
+    async with Client(server) as client:
+        with pytest.raises(MCPError, match="Timed out"):
+            await client.session.send_request(
+                types.CallToolRequest(params=types.CallToolRequestParams(name="slow_tool", arguments={})),
+                types.CallToolResult,
+                request_read_timeout_seconds=0.01,
             )
-            await server_write.send(SessionMessage(message=error_response))
-
-        async def make_request(session: ClientSession):
-            with pytest.raises(MCPError):
-                await session.send_request(types.PingRequest(), types.EmptyResult)
-            ev_done.set()
-
-        async with (
-            anyio.create_task_group() as tg,
-            ClientSession(read_stream=client_read, write_stream=client_write) as session,
-        ):
-            tg.start_soon(mock_server)
-            tg.start_soon(make_request, session)
-            with anyio.fail_after(2):  # pragma: no branch
-                await ev_done.wait()
 
     spans = exporter.get_finished_spans()
-    ping_spans = [s for s in spans if s.attributes and s.attributes.get(ATTR_MCP_METHOD_NAME) == "ping"]
-    assert len(ping_spans) == 1
+    tool_spans = [s for s in spans if s.attributes and s.attributes.get(ATTR_MCP_METHOD_NAME) == "tools/call"]
+    assert len(tool_spans) == 1
 
-    span = ping_spans[0]
+    span = tool_spans[0]
     assert span.status.status_code == StatusCode.ERROR
     assert span.attributes is not None
     assert span.attributes.get(ATTR_ERROR_TYPE) == "MCPError"

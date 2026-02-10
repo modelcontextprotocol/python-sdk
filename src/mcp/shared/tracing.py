@@ -32,13 +32,6 @@ def _extract_target(method: str, params: dict[str, Any] | None) -> str | None:
     return None
 
 
-def _build_span_name(method: str, target: str | None) -> str:
-    """Build a span name like 'tools/call my_tool' or just 'ping'."""
-    if target:
-        return f"{method} {target}"
-    return method
-
-
 def start_client_span(method: str, params: dict[str, Any] | None) -> trace.Span | None:
     """Start a CLIENT span for an outgoing MCP request.
 
@@ -48,7 +41,7 @@ def start_client_span(method: str, params: dict[str, Any] | None) -> trace.Span 
         return None
 
     target = _extract_target(method, params)
-    span_name = _build_span_name(method, target)
+    span_name = f"{method} {target}" if target else method
     span = _tracer.start_span(
         span_name,
         kind=trace.SpanKind.CLIENT,

@@ -261,7 +261,7 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
-        method = request_data.get("method", "")
+        method: str = request_data["method"]
         span = start_client_span(method, request_data.get("params"))
 
         try:
