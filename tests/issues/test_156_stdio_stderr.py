@@ -14,7 +14,6 @@ import pytest
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-
 # A minimal MCP-like server that writes to stderr and then exits.
 SERVER_SCRIPT = textwrap.dedent("""\
     import sys
@@ -75,4 +74,3 @@ async def test_stderr_is_printed_with_color_in_jupyter(capsys: pytest.CaptureFix
     captured = capsys.readouterr()
     # print() goes to stdout by default
     assert "\033[91mhello from stderr" in captured.out
-
