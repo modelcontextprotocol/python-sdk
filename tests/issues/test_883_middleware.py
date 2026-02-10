@@ -11,7 +11,6 @@ body wrapping.
 
 import multiprocessing
 import socket
-import time
 from collections.abc import Generator
 
 import anyio
@@ -54,9 +53,7 @@ def run_server_with_middleware(server_port: int) -> None:  # pragma: no cover
     app = Starlette(middleware=[Middleware(PassthroughMiddleware)])
     app.mount("/", sse_app)
 
-    server = uvicorn.Server(
-        config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error")
-    )
+    server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     server.run()
 
 
@@ -75,9 +72,7 @@ def middleware_server(server_port: int) -> Generator[None, None, None]:
 
 
 @pytest.mark.anyio
-async def test_sse_with_middleware_no_assertion_error(
-    middleware_server: None, server_port: int
-) -> None:
+async def test_sse_with_middleware_no_assertion_error(middleware_server: None, server_port: int) -> None:
     """Verify SSE endpoint works when Starlette BaseHTTPMiddleware is applied.
 
     Before the fix, this would raise:
