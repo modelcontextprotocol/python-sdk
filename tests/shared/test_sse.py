@@ -203,8 +203,8 @@ async def test_sse_client_on_session_created(server: None, server_url: str) -> N
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
 
-    assert captured_session_id is not None
-    assert len(captured_session_id) > 0
+    assert captured_session_id is not None  # pragma: lax no cover
+    assert len(captured_session_id) > 0  # pragma: lax no cover
 
 
 @pytest.mark.parametrize(
@@ -238,7 +238,7 @@ async def test_sse_client_on_session_created_not_called_when_no_session_id(
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
 
-    callback_mock.assert_not_called()
+    callback_mock.assert_not_called()  # pragma: lax no cover
 
 
 @pytest.fixture
