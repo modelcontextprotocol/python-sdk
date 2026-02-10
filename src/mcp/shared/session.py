@@ -185,6 +185,7 @@ class CommonBaseSession(
         self._write_stream = write_stream
         self._session_read_timeout_seconds = read_timeout_seconds
         self._response_streams = {}
+        self._task_group = anyio.create_task_group()
 
     @abstractmethod
     async def send_request(

@@ -2,12 +2,20 @@ from abc import abstractmethod
 from typing import Any
 
 from mcp import types
-from mcp.shared.session import ProgressFnT
+from mcp.shared.session import CommonBaseSession, ProgressFnT
 from mcp.types._types import RequestParamsMeta
 
 # from mcp.shared.session import CommonBaseSession
 
-class BaseClientSession:
+class BaseClientSession(
+    CommonBaseSession[
+        types.ClientRequest,
+        types.ClientNotification,
+        types.ClientResult,
+        types.ServerRequest,
+        types.ServerNotification,
+    ]
+):
     """Base class for client transport sessions.
 
     The class provides all the methods that a client session should implement,
@@ -22,17 +30,6 @@ class BaseClientSession:
     @abstractmethod
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
-        raise NotImplementedError
-
-    @abstractmethod
-    async def send_progress_notification(
-        self,
-        progress_token: types.ProgressToken,
-        progress: float,
-        total: float | None = None,
-        message: str | None = None,
-    ) -> None:
-        """Sends a progress notification for a request that is currently being processed."""
         raise NotImplementedError
 
     @abstractmethod
