@@ -274,7 +274,7 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
-        method: str = request_data["method"]
+        method = request_data["method"]
         span = start_client_span(method, request_data.get("params"))
 
         try:
@@ -365,10 +365,7 @@ class BaseSession(
                                 by_name=False,
                             )
                             request_data = message.message.model_dump(by_alias=True, mode="json", exclude_none=True)
-                            server_span = start_server_span(
-                                request_data.get("method", ""),
-                                request_data.get("params"),
-                            )
+                            server_span = start_server_span(request_data["method"], request_data.get("params"))
                             responder = RequestResponder(
                                 request_id=message.message.id,
                                 request_meta=validated_request.params.meta if validated_request.params else None,
