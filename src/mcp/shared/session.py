@@ -14,6 +14,7 @@ from typing_extensions import Self
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
+from mcp.shared.tracing import end_span_error, end_span_ok, start_client_span
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
@@ -260,6 +261,9 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
+        method = request_data.get("method", "")
+        span = start_client_span(method, request_data.get("params"))
+
         try:
             jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
             await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
@@ -278,7 +282,15 @@ class BaseSession(
             if isinstance(response_or_error, JSONRPCError):
                 raise MCPError.from_jsonrpc_error(response_or_error)
             else:
-                return result_type.model_validate(response_or_error.result, by_name=False)
+                result = result_type.model_validate(response_or_error.result, by_name=False)
+                if span is not None:
+                    end_span_ok(span)
+                return result
+
+        except BaseException as exc:
+            if span is not None:
+                end_span_error(span, exc)
+            raise
 
         finally:
             self._response_streams.pop(request_id, None)

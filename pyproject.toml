@@ -40,6 +40,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
+    "opentelemetry-api>=1.28.0",
 ]
 
 [project.optional-dependencies]
@@ -71,6 +72,7 @@ dev = [
     "coverage[toml]>=7.10.7,<=7.13",
     "pillow>=12.0",
     "strict-no-cover",
+    "opentelemetry-sdk>=1.28.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
