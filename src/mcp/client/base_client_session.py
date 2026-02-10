@@ -10,6 +10,7 @@ ClientSessionT_contra = TypeVar("ClientSessionT_contra", bound="BaseClientSessio
 
 class BaseClientSession(
     CommonBaseSession[
+        Any,
         types.ClientRequest,
         types.ClientNotification,
         types.ClientResult,

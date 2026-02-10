@@ -13,7 +13,7 @@ from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
 from mcp.shared.exceptions import MCPError
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage, WireMessageT
 from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
@@ -158,6 +158,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 class CommonBaseSession(
     ABC,
     Generic[
+        WireMessageT,
         SendRequestT,
         SendNotificationT,
         SendResultT,
@@ -176,8 +177,8 @@ class CommonBaseSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None,
-        write_stream: MemoryObjectSendStream[SessionMessage] | None = None,
+        read_stream: MemoryObjectReceiveStream[WireMessageT | Exception] | None = None,
+        write_stream: MemoryObjectSendStream[WireMessageT] | None = None,
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
     ) -> None:
@@ -228,6 +229,7 @@ class CommonBaseSession(
 
 class BaseSession(
     CommonBaseSession[
+        SessionMessage,
         SendRequestT,
         SendNotificationT,
         SendResultT,
