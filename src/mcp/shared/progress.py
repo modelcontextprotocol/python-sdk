@@ -5,7 +5,7 @@ from typing import Generic
 
 from pydantic import BaseModel
 
-from mcp.shared._context import RequestContext, SessionT
+from mcp.shared._context import RequestContext, SessionT_co
 from mcp.types import ProgressToken
 
 
@@ -15,8 +15,8 @@ class Progress(BaseModel):
 
 
 @dataclass
-class ProgressContext(Generic[SessionT]):
-    session: SessionT
+class ProgressContext(Generic[SessionT_co]):
+    session: SessionT_co
     progress_token: ProgressToken
     total: float | None
     current: float = field(default=0.0, init=False)
@@ -31,9 +31,9 @@ class ProgressContext(Generic[SessionT]):
 
 @contextmanager
 def progress(
-    ctx: RequestContext[SessionT],
+    ctx: RequestContext[SessionT_co],
     total: float | None = None,
-) -> Generator[ProgressContext[SessionT], None]:
+) -> Generator[ProgressContext[SessionT_co], None]:
     progress_token = ctx.meta.get("progress_token") if ctx.meta else None
     if progress_token is None:  # pragma: no cover
         raise ValueError("No progress token provided")

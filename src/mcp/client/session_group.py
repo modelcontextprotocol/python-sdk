@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, TypeAlias
+from typing import Any, Generic, TypeAlias
 
 import anyio
 import httpx
@@ -20,7 +20,8 @@ from typing_extensions import Self
 
 import mcp
 from mcp import types
-from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.base_client_session import ClientSessionT_contra
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
@@ -70,13 +71,13 @@ ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | Stre
 # Use dataclass instead of pydantic BaseModel
 # because pydantic BaseModel cannot handle Protocol fields.
 @dataclass
-class ClientSessionParameters:
+class ClientSessionParameters(Generic[ClientSessionT_contra]):
     """Parameters for establishing a client session to an MCP server."""
 
     read_timeout_seconds: float | None = None
-    sampling_callback: SamplingFnT | None = None
-    elicitation_callback: ElicitationFnT | None = None
-    list_roots_callback: ListRootsFnT | None = None
+    sampling_callback: SamplingFnT[ClientSessionT_contra] | None = None
+    elicitation_callback: ElicitationFnT[ClientSessionT_contra] | None = None
+    list_roots_callback: ListRootsFnT[ClientSessionT_contra] | None = None
     logging_callback: LoggingFnT | None = None
     message_handler: MessageHandlerFnT | None = None
     client_info: types.Implementation | None = None
@@ -254,7 +255,7 @@ class ClientSessionGroup:
     async def connect_to_server(
         self,
         server_params: ServerParameters,
-        session_params: ClientSessionParameters | None = None,
+        session_params: ClientSessionParameters[ClientSession] | None = None,
     ) -> mcp.ClientSession:
         """Connects to a single MCP server."""
         server_info, session = await self._establish_session(server_params, session_params or ClientSessionParameters())
@@ -263,7 +264,7 @@ class ClientSessionGroup:
     async def _establish_session(
         self,
         server_params: ServerParameters,
-        session_params: ClientSessionParameters,
+        session_params: ClientSessionParameters[ClientSession],
     ) -> tuple[types.Implementation, mcp.ClientSession]:
         """Establish a client session to an MCP server."""
 

@@ -14,19 +14,17 @@ Use cases:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import Generic, Protocol
 
 from pydantic import TypeAdapter
 
 from mcp import types
+from mcp.client.base_client_session import BaseClientSession, ClientSessionT_contra
 from mcp.shared._context import RequestContext
 from mcp.shared.session import RequestResponder
 
-if TYPE_CHECKING:
-    from mcp.client.session import ClientSession
 
-
-class GetTaskHandlerFnT(Protocol):
+class GetTaskHandlerFnT(Protocol[ClientSessionT_contra]):
     """Handler for tasks/get requests from server.
 
     WARNING: This is experimental and may change without notice.
@@ -34,12 +32,12 @@ class GetTaskHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.GetTaskRequestParams,
     ) -> types.GetTaskResult | types.ErrorData: ...  # pragma: no branch
 
 
-class GetTaskResultHandlerFnT(Protocol):
+class GetTaskResultHandlerFnT(Protocol[ClientSessionT_contra]):
     """Handler for tasks/result requests from server.
 
     WARNING: This is experimental and may change without notice.
@@ -47,12 +45,12 @@ class GetTaskResultHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.GetTaskPayloadRequestParams,
     ) -> types.GetTaskPayloadResult | types.ErrorData: ...  # pragma: no branch
 
 
-class ListTasksHandlerFnT(Protocol):
+class ListTasksHandlerFnT(Protocol[ClientSessionT_contra]):
     """Handler for tasks/list requests from server.
 
     WARNING: This is experimental and may change without notice.
@@ -60,12 +58,12 @@ class ListTasksHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.PaginatedRequestParams | None,
     ) -> types.ListTasksResult | types.ErrorData: ...  # pragma: no branch
 
 
-class CancelTaskHandlerFnT(Protocol):
+class CancelTaskHandlerFnT(Protocol[ClientSessionT_contra]):
     """Handler for tasks/cancel requests from server.
 
     WARNING: This is experimental and may change without notice.
@@ -73,12 +71,12 @@ class CancelTaskHandlerFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.CancelTaskRequestParams,
     ) -> types.CancelTaskResult | types.ErrorData: ...  # pragma: no branch
 
 
-class TaskAugmentedSamplingFnT(Protocol):
+class TaskAugmentedSamplingFnT(Protocol[ClientSessionT_contra]):
     """Handler for task-augmented sampling/createMessage requests from server.
 
     When server sends a CreateMessageRequest with task field, this callback
@@ -90,13 +88,13 @@ class TaskAugmentedSamplingFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.CreateMessageRequestParams,
         task_metadata: types.TaskMetadata,
     ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
 
 
-class TaskAugmentedElicitationFnT(Protocol):
+class TaskAugmentedElicitationFnT(Protocol[ClientSessionT_contra]):
     """Handler for task-augmented elicitation/create requests from server.
 
     When server sends an ElicitRequest with task field, this callback
@@ -108,14 +106,14 @@ class TaskAugmentedElicitationFnT(Protocol):
 
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.ElicitRequestParams,
         task_metadata: types.TaskMetadata,
     ) -> types.CreateTaskResult | types.ErrorData: ...  # pragma: no branch
 
 
 async def default_get_task_handler(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.GetTaskRequestParams,
 ) -> types.GetTaskResult | types.ErrorData:
     return types.ErrorData(
@@ -125,7 +123,7 @@ async def default_get_task_handler(
 
 
 async def default_get_task_result_handler(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.GetTaskPayloadRequestParams,
 ) -> types.GetTaskPayloadResult | types.ErrorData:
     return types.ErrorData(
@@ -135,7 +133,7 @@ async def default_get_task_result_handler(
 
 
 async def default_list_tasks_handler(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.PaginatedRequestParams | None,
 ) -> types.ListTasksResult | types.ErrorData:
     return types.ErrorData(
@@ -145,7 +143,7 @@ async def default_list_tasks_handler(
 
 
 async def default_cancel_task_handler(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.CancelTaskRequestParams,
 ) -> types.CancelTaskResult | types.ErrorData:
     return types.ErrorData(
@@ -155,7 +153,7 @@ async def default_cancel_task_handler(
 
 
 async def default_task_augmented_sampling(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.CreateMessageRequestParams,
     task_metadata: types.TaskMetadata,
 ) -> types.CreateTaskResult | types.ErrorData:
@@ -166,7 +164,7 @@ async def default_task_augmented_sampling(
 
 
 async def default_task_augmented_elicitation(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.ElicitRequestParams,
     task_metadata: types.TaskMetadata,
 ) -> types.CreateTaskResult | types.ErrorData:
@@ -177,7 +175,7 @@ async def default_task_augmented_elicitation(
 
 
 @dataclass
-class ExperimentalTaskHandlers:
+class ExperimentalTaskHandlers(Generic[ClientSessionT_contra]):
     """Container for experimental task handlers.
 
     Groups all task-related handlers that handle server -> client requests.
@@ -195,14 +193,16 @@ class ExperimentalTaskHandlers:
     """
 
     # Pure task request handlers
-    get_task: GetTaskHandlerFnT = field(default=default_get_task_handler)
-    get_task_result: GetTaskResultHandlerFnT = field(default=default_get_task_result_handler)
-    list_tasks: ListTasksHandlerFnT = field(default=default_list_tasks_handler)
-    cancel_task: CancelTaskHandlerFnT = field(default=default_cancel_task_handler)
+    get_task: GetTaskHandlerFnT[ClientSessionT_contra] = field(default=default_get_task_handler)
+    get_task_result: GetTaskResultHandlerFnT[ClientSessionT_contra] = field(default=default_get_task_result_handler)
+    list_tasks: ListTasksHandlerFnT[ClientSessionT_contra] = field(default=default_list_tasks_handler)
+    cancel_task: CancelTaskHandlerFnT[ClientSessionT_contra] = field(default=default_cancel_task_handler)
 
     # Task-augmented request handlers
-    augmented_sampling: TaskAugmentedSamplingFnT = field(default=default_task_augmented_sampling)
-    augmented_elicitation: TaskAugmentedElicitationFnT = field(default=default_task_augmented_elicitation)
+    augmented_sampling: TaskAugmentedSamplingFnT[ClientSessionT_contra] = field(default=default_task_augmented_sampling)
+    augmented_elicitation: TaskAugmentedElicitationFnT[ClientSessionT_contra] = field(
+        default=default_task_augmented_elicitation
+    )
 
     def build_capability(self) -> types.ClientTasksCapability | None:
         """Build ClientTasksCapability from the configured handlers.
@@ -250,7 +250,7 @@ class ExperimentalTaskHandlers:
 
     async def handle_request(
         self,
-        ctx: RequestContext[ClientSession],
+        ctx: RequestContext[ClientSessionT_contra],
         responder: RequestResponder[types.ServerRequest, types.ClientResult],
     ) -> None:
         """Handle a task-related request from the server.

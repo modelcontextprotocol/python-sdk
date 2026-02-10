@@ -8,7 +8,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import TypeAdapter
 
 from mcp import types
-from mcp.client.base_client_session import BaseClientSession
+from mcp.client.base_client_session import BaseClientSession, ClientSessionT_contra
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
@@ -22,25 +22,25 @@ DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 logger = logging.getLogger("client")
 
 
-class SamplingFnT(Protocol):
+class SamplingFnT(Protocol[ClientSessionT_contra]):
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData: ...  # pragma: no branch
 
 
-class ElicitationFnT(Protocol):
+class ElicitationFnT(Protocol[ClientSessionT_contra]):
     async def __call__(
         self,
-        context: RequestContext[ClientSession],
+        context: RequestContext[ClientSessionT_contra],
         params: types.ElicitRequestParams,
     ) -> types.ElicitResult | types.ErrorData: ...  # pragma: no branch
 
 
-class ListRootsFnT(Protocol):
+class ListRootsFnT(Protocol[ClientSessionT_contra]):
     async def __call__(
-        self, context: RequestContext[ClientSession]
+        self, context: RequestContext[ClientSessionT_contra]
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
@@ -62,7 +62,7 @@ async def _default_message_handler(
 
 
 async def _default_sampling_callback(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.CreateMessageRequestParams,
 ) -> types.CreateMessageResult | types.CreateMessageResultWithTools | types.ErrorData:
     return types.ErrorData(
@@ -72,7 +72,7 @@ async def _default_sampling_callback(
 
 
 async def _default_elicitation_callback(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     return types.ErrorData(  # pragma: no cover
@@ -82,7 +82,7 @@ async def _default_elicitation_callback(
 
 
 async def _default_list_roots_callback(
-    context: RequestContext[ClientSession],
+    context: RequestContext[BaseClientSession],
 ) -> types.ListRootsResult | types.ErrorData:
     return types.ErrorData(
         code=types.INVALID_REQUEST,
@@ -114,15 +114,15 @@ class ClientSession(
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
         read_timeout_seconds: float | None = None,
-        sampling_callback: SamplingFnT | None = None,
-        elicitation_callback: ElicitationFnT | None = None,
-        list_roots_callback: ListRootsFnT | None = None,
+        sampling_callback: SamplingFnT[ClientSession] | None = None,
+        elicitation_callback: ElicitationFnT[ClientSession] | None = None,
+        list_roots_callback: ListRootsFnT[ClientSession] | None = None,
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
-        experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+        experimental_task_handlers: ExperimentalTaskHandlers[ClientSession] | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
