@@ -4,8 +4,9 @@
 Server implementing all MCP features for conformance testing based on Conformance Server Specification.
 """
 
+from __future__ import annotations
+
 import asyncio
-import base64
 import json
 import logging
 from typing import Any
@@ -15,7 +16,6 @@ from mcp import types
 from mcp.server.context import ServerRequestContext
 from mcp.server.elicitation import ElicitationResult, elicit_with_validation
 from mcp.server.lowlevel import Server
-from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from pydantic import BaseModel, Field
 
