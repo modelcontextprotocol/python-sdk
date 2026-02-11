@@ -8,62 +8,42 @@ This tests the recommended user flow:
 These are integration tests that verify the complete flow works end-to-end.
 """
 
-from typing import Any
 from unittest.mock import Mock
 
 import anyio
 import pytest
 from anyio import Event
 
-from mcp.client.session import ClientSession
-from mcp.server import Server
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.lowlevel import NotificationOptions
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
-from mcp.shared.message import SessionMessage
 from mcp.types import (
     TASK_REQUIRED,
+    CallToolRequestParams,
     CallToolResult,
-    CancelTaskRequest,
-    CancelTaskResult,
     CreateTaskResult,
-    GetTaskPayloadRequest,
-    GetTaskPayloadResult,
-    GetTaskRequest,
+    GetTaskRequestParams,
     GetTaskResult,
-    ListTasksRequest,
-    ListTasksResult,
+    ListToolsResult,
+    PaginatedRequestParams,
     TextContent,
     Tool,
     ToolExecution,
 )
 
+pytestmark = pytest.mark.anyio
 
-@pytest.mark.anyio
-async def test_run_task_basic_flow() -> None:
-    """Test the basic run_task flow without elicitation.
 
-    1. enable_tasks() sets up handlers
-    2. Client calls tool with task field
-    3. run_task() spawns work, returns CreateTaskResult
-    4. Work completes in background
-    5. Client polls and sees completed status
-    """
-    server = Server("test-run-task")
-
-    # One-line setup
-    server.experimental.enable_tasks()
-
-    # Track when work completes and capture received meta
-    work_completed = Event()
-    received_meta: list[str | None] = [None]
-
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
+async def _handle_list_tools_simple_task(
+    ctx: ServerRequestContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(
+        tools=[
             Tool(
                 name="simple_task",
                 description="A simple task",
@@ -71,96 +51,81 @@ async def test_run_task_basic_flow() -> None:
                 execution=ToolExecution(task_support=TASK_REQUIRED),
             )
         ]
+    )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult | CreateTaskResult:
-        ctx = server.request_context
+
+async def test_run_task_basic_flow() -> None:
+    """Test the basic run_task flow without elicitation."""
+    work_completed = Event()
+    received_meta: list[str | None] = [None]
+
+    async def handle_call_tool(
+        ctx: ServerRequestContext, params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
-        # Capture the meta from the request (if present)
         if ctx.meta is not None:  # pragma: no branch
             received_meta[0] = ctx.meta.get("custom_field")
 
         async def work(task: ServerTaskContext) -> CallToolResult:
             await task.update_status("Working...")
-            input_val = arguments.get("input", "default")
+            input_val = (params.arguments or {}).get("input", "default")
             result = CallToolResult(content=[TextContent(type="text", text=f"Processed: {input_val}")])
             work_completed.set()
             return result
 
         return await ctx.experimental.run_task(work)
 
-    # Set up streams
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    server = Server(
+        "test-run-task",
+        on_list_tools=_handle_list_tools_simple_task,
+        on_call_tool=handle_call_tool,
+    )
+    server.experimental.enable_tasks()
 
-    async def run_server() -> None:
-        await server.run(
-            client_to_server_receive,
-            server_to_client_send,
-            server.create_initialization_options(
-                notification_options=NotificationOptions(),
-                experimental_capabilities={},
-            ),
+    async with Client(server) as client:
+        result = await client.session.experimental.call_tool_as_task(
+            "simple_task",
+            {"input": "hello"},
+            meta={"custom_field": "test_value"},
         )
 
-    async def run_client() -> None:
-        async with ClientSession(server_to_client_receive, client_to_server_send) as client_session:
-            # Initialize
-            await client_session.initialize()
+        task_id = result.task.task_id
+        assert result.task.status == "working"
 
-            # Call tool as task (with meta to test that code path)
-            result = await client_session.experimental.call_tool_as_task(
-                "simple_task",
-                {"input": "hello"},
-                meta={"custom_field": "test_value"},
-            )
+        with anyio.fail_after(5):
+            await work_completed.wait()
 
-            # Should get CreateTaskResult
-            task_id = result.task.task_id
-            assert result.task.status == "working"
+        with anyio.fail_after(5):
+            while True:
+                task_status = await client.session.experimental.get_task(task_id)
+                if task_status.status == "completed":  # pragma: no branch
+                    break
 
-            # Wait for work to complete
-            with anyio.fail_after(5):
-                await work_completed.wait()
-
-            # Poll until task status is completed
-            with anyio.fail_after(5):
-                while True:
-                    task_status = await client_session.experimental.get_task(task_id)
-                    if task_status.status == "completed":  # pragma: no branch
-                        break
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_server)
-        tg.start_soon(run_client)
-
-    # Verify the meta was passed through correctly
     assert received_meta[0] == "test_value"
 
 
-@pytest.mark.anyio
 async def test_run_task_auto_fails_on_exception() -> None:
     """Test that run_task automatically fails the task when work raises."""
-    server = Server("test-run-task-fail")
-    server.experimental.enable_tasks()
-
     work_failed = Event()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="failing_task",
-                description="A task that fails",
-                input_schema={"type": "object"},
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="failing_task",
+                    description="A task that fails",
+                    input_schema={"type": "object"},
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult | CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(
+        ctx: ServerRequestContext, params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         async def work(task: ServerTaskContext) -> CallToolResult:
@@ -169,42 +134,29 @@ async def test_run_task_auto_fails_on_exception() -> None:
 
         return await ctx.experimental.run_task(work)
 
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    server = Server(
+        "test-run-task-fail",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+    server.experimental.enable_tasks()
 
-    async def run_server() -> None:
-        await server.run(
-            client_to_server_receive,
-            server_to_client_send,
-            server.create_initialization_options(),
-        )
+    async with Client(server) as client:
+        result = await client.session.experimental.call_tool_as_task("failing_task", {})
+        task_id = result.task.task_id
 
-    async def run_client() -> None:
-        async with ClientSession(server_to_client_receive, client_to_server_send) as client_session:
-            await client_session.initialize()
+        with anyio.fail_after(5):
+            await work_failed.wait()
 
-            result = await client_session.experimental.call_tool_as_task("failing_task", {})
-            task_id = result.task.task_id
+        with anyio.fail_after(5):
+            while True:
+                task_status = await client.session.experimental.get_task(task_id)
+                if task_status.status == "failed":  # pragma: no branch
+                    break
 
-            # Wait for work to fail
-            with anyio.fail_after(5):
-                await work_failed.wait()
-
-            # Poll until task status is failed
-            with anyio.fail_after(5):
-                while True:
-                    task_status = await client_session.experimental.get_task(task_id)
-                    if task_status.status == "failed":  # pragma: no branch
-                        break
-
-            assert "Something went wrong" in (task_status.status_message or "")
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_server)
-        tg.start_soon(run_client)
+        assert "Something went wrong" in (task_status.status_message or "")
 
 
-@pytest.mark.anyio
 async def test_enable_tasks_auto_registers_handlers() -> None:
     """Test that enable_tasks() auto-registers get_task, list_tasks, cancel_task handlers."""
     server = Server("test-enable-tasks")
@@ -221,63 +173,41 @@ async def test_enable_tasks_auto_registers_handlers() -> None:
     assert caps_after.tasks is not None
     assert caps_after.tasks.list is not None
     assert caps_after.tasks.cancel is not None
-    # Verify nested call capability is present
     assert caps_after.tasks.requests is not None
     assert caps_after.tasks.requests.tools is not None
     assert caps_after.tasks.requests.tools.call is not None
 
 
-@pytest.mark.anyio
 async def test_enable_tasks_with_custom_store_and_queue() -> None:
     """Test that enable_tasks() uses provided store and queue instead of defaults."""
     server = Server("test-custom-store-queue")
 
-    # Create custom store and queue
     custom_store = InMemoryTaskStore()
     custom_queue = InMemoryTaskMessageQueue()
 
-    # Enable tasks with custom implementations
     task_support = server.experimental.enable_tasks(store=custom_store, queue=custom_queue)
 
-    # Verify our custom implementations are used
     assert task_support.store is custom_store
     assert task_support.queue is custom_queue
 
 
-@pytest.mark.anyio
 async def test_enable_tasks_skips_default_handlers_when_custom_registered() -> None:
     """Test that enable_tasks() doesn't override already-registered handlers."""
     server = Server("test-custom-handlers")
 
-    # Register custom handlers BEFORE enable_tasks (never called, just for registration)
-    @server.experimental.get_task()
-    async def custom_get_task(req: GetTaskRequest) -> GetTaskResult:
+    # Register custom handlers via enable_tasks kwargs
+    async def custom_get_task(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         raise NotImplementedError
 
-    @server.experimental.get_task_result()
-    async def custom_get_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-        raise NotImplementedError
+    server.experimental.enable_tasks(on_get_task=custom_get_task)
 
-    @server.experimental.list_tasks()
-    async def custom_list_tasks(req: ListTasksRequest) -> ListTasksResult:
-        raise NotImplementedError
-
-    @server.experimental.cancel_task()
-    async def custom_cancel_task(req: CancelTaskRequest) -> CancelTaskResult:
-        raise NotImplementedError
-
-    # Now enable tasks - should NOT override our custom handlers
-    server.experimental.enable_tasks()
-
-    # Verify our custom handlers are still registered (not replaced by defaults)
-    # The handlers dict should contain our custom handlers
-    assert GetTaskRequest in server.request_handlers
-    assert GetTaskPayloadRequest in server.request_handlers
-    assert ListTasksRequest in server.request_handlers
-    assert CancelTaskRequest in server.request_handlers
+    # Verify handler is registered
+    assert server._has_handler("tasks/get")
+    assert server._has_handler("tasks/list")
+    assert server._has_handler("tasks/cancel")
+    assert server._has_handler("tasks/result")
 
 
-@pytest.mark.anyio
 async def test_run_task_without_enable_tasks_raises() -> None:
     """Test that run_task raises when enable_tasks() wasn't called."""
     experimental = Experimental(
@@ -294,7 +224,6 @@ async def test_run_task_without_enable_tasks_raises() -> None:
         await experimental.run_task(work)
 
 
-@pytest.mark.anyio
 async def test_task_support_task_group_before_run_raises() -> None:
     """Test that accessing task_group before run() raises RuntimeError."""
     task_support = TaskSupport.in_memory()
@@ -303,7 +232,6 @@ async def test_task_support_task_group_before_run_raises() -> None:
         _ = task_support.task_group
 
 
-@pytest.mark.anyio
 async def test_run_task_without_session_raises() -> None:
     """Test that run_task raises when session is not available."""
     task_support = TaskSupport.in_memory()
@@ -322,7 +250,6 @@ async def test_run_task_without_session_raises() -> None:
         await experimental.run_task(work)
 
 
-@pytest.mark.anyio
 async def test_run_task_without_task_metadata_raises() -> None:
     """Test that run_task raises when request is not task-augmented."""
     task_support = TaskSupport.in_memory()
@@ -342,29 +269,28 @@ async def test_run_task_without_task_metadata_raises() -> None:
         await experimental.run_task(work)
 
 
-@pytest.mark.anyio
 async def test_run_task_with_model_immediate_response() -> None:
     """Test that run_task includes model_immediate_response in CreateTaskResult._meta."""
-    server = Server("test-run-task-immediate")
-    server.experimental.enable_tasks()
-
     work_completed = Event()
     immediate_response_text = "Processing your request..."
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="task_with_immediate",
-                description="A task with immediate response",
-                input_schema={"type": "object"},
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="task_with_immediate",
+                    description="A task with immediate response",
+                    input_schema={"type": "object"},
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult | CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(
+        ctx: ServerRequestContext, params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         async def work(task: ServerTaskContext) -> CallToolResult:
@@ -373,164 +299,124 @@ async def test_run_task_with_model_immediate_response() -> None:
 
         return await ctx.experimental.run_task(work, model_immediate_response=immediate_response_text)
 
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
-
-    async def run_server() -> None:
-        await server.run(
-            client_to_server_receive,
-            server_to_client_send,
-            server.create_initialization_options(),
-        )
-
-    async def run_client() -> None:
-        async with ClientSession(server_to_client_receive, client_to_server_send) as client_session:
-            await client_session.initialize()
-
-            result = await client_session.experimental.call_tool_as_task("task_with_immediate", {})
-
-            # Verify the immediate response is in _meta
-            assert result.meta is not None
-            assert "io.modelcontextprotocol/model-immediate-response" in result.meta
-            assert result.meta["io.modelcontextprotocol/model-immediate-response"] == immediate_response_text
-
-            with anyio.fail_after(5):
-                await work_completed.wait()
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_server)
-        tg.start_soon(run_client)
-
-
-@pytest.mark.anyio
-async def test_run_task_doesnt_complete_if_already_terminal() -> None:
-    """Test that run_task doesn't auto-complete if work manually completed the task."""
-    server = Server("test-already-complete")
+    server = Server(
+        "test-run-task-immediate",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
     server.experimental.enable_tasks()
 
+    async with Client(server) as client:
+        result = await client.session.experimental.call_tool_as_task("task_with_immediate", {})
+
+        assert result.meta is not None
+        assert "io.modelcontextprotocol/model-immediate-response" in result.meta
+        assert result.meta["io.modelcontextprotocol/model-immediate-response"] == immediate_response_text
+
+        with anyio.fail_after(5):
+            await work_completed.wait()
+
+
+async def test_run_task_doesnt_complete_if_already_terminal() -> None:
+    """Test that run_task doesn't auto-complete if work manually completed the task."""
     work_completed = Event()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="manual_complete_task",
-                description="A task that manually completes",
-                input_schema={"type": "object"},
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="manual_complete_task",
+                    description="A task that manually completes",
+                    input_schema={"type": "object"},
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult | CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(
+        ctx: ServerRequestContext, params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         async def work(task: ServerTaskContext) -> CallToolResult:
-            # Manually complete the task before returning
             manual_result = CallToolResult(content=[TextContent(type="text", text="Manually completed")])
             await task.complete(manual_result, notify=False)
             work_completed.set()
-            # Return a different result - but it should be ignored since task is already terminal
             return CallToolResult(content=[TextContent(type="text", text="This should be ignored")])
 
         return await ctx.experimental.run_task(work)
 
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
-
-    async def run_server() -> None:
-        await server.run(
-            client_to_server_receive,
-            server_to_client_send,
-            server.create_initialization_options(),
-        )
-
-    async def run_client() -> None:
-        async with ClientSession(server_to_client_receive, client_to_server_send) as client_session:
-            await client_session.initialize()
-
-            result = await client_session.experimental.call_tool_as_task("manual_complete_task", {})
-            task_id = result.task.task_id
-
-            with anyio.fail_after(5):
-                await work_completed.wait()
-
-            # Poll until task status is completed
-            with anyio.fail_after(5):
-                while True:
-                    status = await client_session.experimental.get_task(task_id)
-                    if status.status == "completed":  # pragma: no branch
-                        break
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_server)
-        tg.start_soon(run_client)
-
-
-@pytest.mark.anyio
-async def test_run_task_doesnt_fail_if_already_terminal() -> None:
-    """Test that run_task doesn't auto-fail if work manually failed/cancelled the task."""
-    server = Server("test-already-failed")
+    server = Server(
+        "test-already-complete",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
     server.experimental.enable_tasks()
 
+    async with Client(server) as client:
+        result = await client.session.experimental.call_tool_as_task("manual_complete_task", {})
+        task_id = result.task.task_id
+
+        with anyio.fail_after(5):
+            await work_completed.wait()
+
+        with anyio.fail_after(5):
+            while True:
+                status = await client.session.experimental.get_task(task_id)
+                if status.status == "completed":  # pragma: no branch
+                    break
+
+
+async def test_run_task_doesnt_fail_if_already_terminal() -> None:
+    """Test that run_task doesn't auto-fail if work manually failed/cancelled the task."""
     work_completed = Event()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="manual_cancel_task",
-                description="A task that manually cancels then raises",
-                input_schema={"type": "object"},
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="manual_cancel_task",
+                    description="A task that manually cancels then raises",
+                    input_schema={"type": "object"},
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult | CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(
+        ctx: ServerRequestContext, params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         async def work(task: ServerTaskContext) -> CallToolResult:
-            # Manually fail the task first
             await task.fail("Manually failed", notify=False)
             work_completed.set()
-            # Then raise - but the auto-fail should be skipped since task is already terminal
             raise RuntimeError("This error should not change status")
 
         return await ctx.experimental.run_task(work)
 
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    server = Server(
+        "test-already-failed",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+    server.experimental.enable_tasks()
 
-    async def run_server() -> None:
-        await server.run(
-            client_to_server_receive,
-            server_to_client_send,
-            server.create_initialization_options(),
-        )
+    async with Client(server) as client:
+        result = await client.session.experimental.call_tool_as_task("manual_cancel_task", {})
+        task_id = result.task.task_id
 
-    async def run_client() -> None:
-        async with ClientSession(server_to_client_receive, client_to_server_send) as client_session:
-            await client_session.initialize()
+        with anyio.fail_after(5):
+            await work_completed.wait()
 
-            result = await client_session.experimental.call_tool_as_task("manual_cancel_task", {})
-            task_id = result.task.task_id
+        with anyio.fail_after(5):
+            while True:
+                status = await client.session.experimental.get_task(task_id)
+                if status.status == "failed":  # pragma: no branch
+                    break
 
-            with anyio.fail_after(5):
-                await work_completed.wait()
-
-            # Poll until task status is failed
-            with anyio.fail_after(5):
-                while True:
-                    status = await client_session.experimental.get_task(task_id)
-                    if status.status == "failed":  # pragma: no branch
-                        break
-
-            # Task should still be failed (from manual fail, not auto-fail from exception)
-            assert status.status_message == "Manually failed"  # Not "This error should not change status"
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_server)
-        tg.start_soon(run_client)
+        assert status.status_message == "Manually failed"
