@@ -1911,18 +1911,11 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/structured_output.py)_
 <!-- /snippet-source -->
 
-Tools can return data in four ways:
+With the low-level server, handlers always return `CallToolResult` directly. You construct both the human-readable `content` and the machine-readable `structured_content` yourself, giving you full control over the response.
 
-1. **Content only**: Return a list of content blocks (default behavior before spec revision 2025-06-18)
-2. **Structured data only**: Return a dictionary that will be serialized to JSON (Introduced in spec revision 2025-06-18)
-3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
-4. **Direct CallToolResult**: Return `CallToolResult` directly for full control (including `_meta` field)
+##### Returning CallToolResult with `_meta`
 
-When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
-
-##### Returning CallToolResult Directly
-
-For full control over the response including the `_meta` field (for passing data to client applications without exposing it to the model), return `CallToolResult` directly:
+For passing data to client applications without exposing it to the model, use the `_meta` field on `CallToolResult`:
 
 <!-- snippet-source examples/snippets/servers/lowlevel/direct_call_tool_result.py -->
 ```python
@@ -1992,8 +1985,6 @@ if __name__ == "__main__":
 
 _Full example: [examples/snippets/servers/lowlevel/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/direct_call_tool_result.py)_
 <!-- /snippet-source -->
-
-**Note:** When returning `CallToolResult`, you bypass the automatic content/structured conversion. You must construct the complete response yourself.
 
 ### Pagination (Advanced)
 
