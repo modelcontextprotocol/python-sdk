@@ -51,15 +51,7 @@ async def test_request_cancellation():
     async def handle_list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
     ) -> types.ListToolsResult:
-        return types.ListToolsResult(
-            tools=[
-                types.Tool(
-                    name="slow_tool",
-                    description="A slow tool that takes 10 seconds to complete",
-                    input_schema={},
-                )
-            ]
-        )
+        raise NotImplementedError
 
     server = Server(
         name="TestSessionServer",

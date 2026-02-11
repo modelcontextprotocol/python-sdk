@@ -29,7 +29,6 @@ from mcp.types import (
     PaginatedRequestParams,
     TaskMetadata,
     TextContent,
-    Tool,
 )
 
 pytestmark = pytest.mark.anyio
@@ -47,7 +46,7 @@ class AppContext:
 async def _handle_list_tools(
     ctx: ServerRequestContext[AppContext], params: PaginatedRequestParams | None
 ) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})])
+    raise NotImplementedError
 
 
 async def _handle_call_tool_with_done_event(

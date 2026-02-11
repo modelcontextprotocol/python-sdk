@@ -70,31 +70,26 @@ async def test_dependent_completion_scenario():
 
     async def handle_completion(ctx: ServerRequestContext, params: CompleteRequestParams) -> CompleteResult:
         # Simulate database/table completion scenario
-        if isinstance(params.ref, ResourceTemplateReference):
-            if params.ref.uri == "db://{database}/{table}":
-                if params.argument.name == "database":
-                    return CompleteResult(
-                        completion=Completion(
-                            values=["users_db", "products_db", "analytics_db"], total=3, has_more=False
-                        )
-                    )
-                elif params.argument.name == "table":
-                    if params.context and params.context.arguments:
-                        db = params.context.arguments.get("database")
-                        if db == "users_db":
-                            return CompleteResult(
-                                completion=Completion(
-                                    values=["users", "sessions", "permissions"], total=3, has_more=False
-                                )
-                            )
-                        elif db == "products_db":
-                            return CompleteResult(
-                                completion=Completion(
-                                    values=["products", "categories", "inventory"], total=3, has_more=False
-                                )
-                            )
+        assert isinstance(params.ref, ResourceTemplateReference)
+        assert params.ref.uri == "db://{database}/{table}"
 
-        pytest.fail("Unexpected completion request")
+        if params.argument.name == "database":
+            return CompleteResult(
+                completion=Completion(values=["users_db", "products_db", "analytics_db"], total=3, has_more=False)
+            )
+
+        assert params.argument.name == "table"
+        assert params.context and params.context.arguments
+        db = params.context.arguments.get("database")
+        if db == "users_db":
+            return CompleteResult(
+                completion=Completion(values=["users", "sessions", "permissions"], total=3, has_more=False)
+            )
+        else:
+            assert db == "products_db"
+            return CompleteResult(
+                completion=Completion(values=["products", "categories", "inventory"], total=3, has_more=False)
+            )
 
     server = Server("test-server", on_completion=handle_completion)
 
@@ -129,18 +124,16 @@ async def test_completion_error_on_missing_context():
     """Test that server can raise error when required context is missing."""
 
     async def handle_completion(ctx: ServerRequestContext, params: CompleteRequestParams) -> CompleteResult:
-        if isinstance(params.ref, ResourceTemplateReference):
-            if params.ref.uri == "db://{database}/{table}":
-                if params.argument.name == "table":
-                    if not params.context or not params.context.arguments or "database" not in params.context.arguments:
-                        raise ValueError("Please select a database first to see available tables")
-                    db = params.context.arguments.get("database")
-                    if db == "test_db":
-                        return CompleteResult(
-                            completion=Completion(values=["users", "orders", "products"], total=3, has_more=False)
-                        )
+        assert isinstance(params.ref, ResourceTemplateReference)
+        assert params.ref.uri == "db://{database}/{table}"
+        assert params.argument.name == "table"
 
-        pytest.fail("Unexpected completion request")
+        if not params.context or not params.context.arguments or "database" not in params.context.arguments:
+            raise ValueError("Please select a database first to see available tables")
+
+        db = params.context.arguments.get("database")
+        assert db == "test_db"
+        return CompleteResult(completion=Completion(values=["users", "orders", "products"], total=3, has_more=False))
 
     server = Server("test-server", on_completion=handle_completion)
 

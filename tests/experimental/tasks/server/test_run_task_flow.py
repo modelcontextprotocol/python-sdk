@@ -32,8 +32,6 @@ from mcp.types import (
     ListToolsResult,
     PaginatedRequestParams,
     TextContent,
-    Tool,
-    ToolExecution,
 )
 
 pytestmark = pytest.mark.anyio
@@ -42,16 +40,7 @@ pytestmark = pytest.mark.anyio
 async def _handle_list_tools_simple_task(
     ctx: ServerRequestContext, params: PaginatedRequestParams | None
 ) -> ListToolsResult:
-    return ListToolsResult(
-        tools=[
-            Tool(
-                name="simple_task",
-                description="A simple task",
-                input_schema={"type": "object", "properties": {"input": {"type": "string"}}},
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            )
-        ]
-    )
+    raise NotImplementedError
 
 
 async def test_run_task_basic_flow() -> None:
@@ -110,16 +99,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
     work_failed = Event()
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="failing_task",
-                    description="A task that fails",
-                    input_schema={"type": "object"},
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(
         ctx: ServerRequestContext, params: CallToolRequestParams
@@ -273,16 +253,7 @@ async def test_run_task_with_model_immediate_response() -> None:
     immediate_response_text = "Processing your request..."
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="task_with_immediate",
-                    description="A task with immediate response",
-                    input_schema={"type": "object"},
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(
         ctx: ServerRequestContext, params: CallToolRequestParams
@@ -318,16 +289,7 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
     work_completed = Event()
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="manual_complete_task",
-                    description="A task that manually completes",
-                    input_schema={"type": "object"},
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(
         ctx: ServerRequestContext, params: CallToolRequestParams
@@ -368,16 +330,7 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
     work_completed = Event()
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="manual_cancel_task",
-                    description="A task that manually cancels then raises",
-                    input_schema={"type": "object"},
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(
         ctx: ServerRequestContext, params: CallToolRequestParams

@@ -94,7 +94,7 @@ def test_server_with_get_task_handler_declares_requests_tools_call_capability() 
     "so partial capabilities aren't possible yet. Low-level API should support "
     "selectively enabling/disabling task capabilities."
 )
-def test_server_without_list_handler_has_no_list_capability() -> None:
+def test_server_without_list_handler_has_no_list_capability() -> None:  # pragma: no cover
     """Server without list_tasks handler has no tasks.list capability."""
     server: Server = Server("test")
     server.experimental.enable_tasks(on_get_task=_noop_get_task)
@@ -109,7 +109,7 @@ def test_server_without_list_handler_has_no_list_capability() -> None:
     "so partial capabilities aren't possible yet. Low-level API should support "
     "selectively enabling/disabling task capabilities."
 )
-def test_server_without_cancel_handler_has_no_cancel_capability() -> None:
+def test_server_without_cancel_handler_has_no_cancel_capability() -> None:  # pragma: no cover
     """Server without cancel_task handler has no tasks.cancel capability."""
     server: Server = Server("test")
     server.experimental.enable_tasks(on_get_task=_noop_get_task)

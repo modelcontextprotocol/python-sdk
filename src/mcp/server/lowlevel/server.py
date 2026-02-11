@@ -245,14 +245,6 @@ class Server(Generic[LifespanResultT]):
         """Add a request handler, silently replacing any existing handler for the same method."""
         self._request_handlers[method] = handler
 
-    def _add_notification_handler(
-        self,
-        method: str,
-        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]],
-    ) -> None:
-        """Add a notification handler, silently replacing any existing handler for the same method."""
-        self._notification_handlers[method] = handler
-
     def _has_handler(self, method: str) -> bool:
         """Check if a handler is registered for the given method."""
         return method in self._request_handlers or method in self._notification_handlers

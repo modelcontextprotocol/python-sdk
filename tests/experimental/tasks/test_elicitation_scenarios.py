@@ -42,7 +42,6 @@ from mcp.types import (
     TaskMetadata,
     TextContent,
     Tool,
-    ToolExecution,
 )
 
 
@@ -346,16 +345,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
     work_completed = Event()
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="confirm_action",
-                    description="Confirm an action",
-                    input_schema={"type": "object"},
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
@@ -458,16 +448,7 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
     client_task_store = InMemoryTaskStore()
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="confirm_action",
-                    description="Confirm an action",
-                    input_schema={"type": "object"},
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
@@ -638,16 +619,7 @@ async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() 
     client_task_store = InMemoryTaskStore()
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="generate_text",
-                    description="Generate text using sampling",
-                    input_schema={"type": "object"},
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)

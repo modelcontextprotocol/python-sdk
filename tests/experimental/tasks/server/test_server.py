@@ -164,7 +164,7 @@ async def test_server_capabilities_include_tasks() -> None:
     "so partial capabilities aren't possible yet. Low-level API should support "
     "selectively enabling/disabling task capabilities."
 )
-async def test_server_capabilities_partial_tasks() -> None:
+async def test_server_capabilities_partial_tasks() -> None:  # pragma: no cover
     """Test capabilities with only some task handlers registered."""
     server = Server("test")
 
@@ -227,16 +227,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
     captured_task_metadata: TaskMetadata | None = None
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="long_task",
-                    description="A long running task",
-                    input_schema={"type": "object", "properties": {}},
-                    execution=ToolExecution(task_support="optional"),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal captured_task_metadata
@@ -267,15 +258,7 @@ async def test_task_metadata_is_task_property() -> None:
     is_task_values: list[bool] = []
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="test_tool",
-                    description="Test tool",
-                    input_schema={"type": "object", "properties": {}},
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         is_task_values.append(ctx.experimental.is_task)
@@ -310,6 +293,23 @@ async def test_update_capabilities_no_handlers() -> None:
 
     caps = server.get_capabilities(NotificationOptions(), {})
     assert caps.tasks is None
+
+
+async def test_update_capabilities_partial_handlers() -> None:
+    """Test that update_capabilities skips list/cancel when only tasks/get is registered."""
+    server = Server("test-partial")
+    # Access .experimental to create the ExperimentalHandlers instance
+    _ = server.experimental
+
+    async def noop_get(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
+        raise NotImplementedError
+
+    server._add_request_handler("tasks/get", noop_get)
+
+    caps = server.get_capabilities(NotificationOptions(), {})
+    assert caps.tasks is not None
+    assert caps.tasks.list is None
+    assert caps.tasks.cancel is None
 
 
 async def test_default_task_handlers_via_enable_tasks() -> None:

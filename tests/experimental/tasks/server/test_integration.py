@@ -22,7 +22,6 @@ from mcp.server import Server, ServerRequestContext
 from mcp.shared.experimental.tasks.helpers import task_execution
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.types import (
-    TASK_REQUIRED,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -36,8 +35,6 @@ from mcp.types import (
     PaginatedRequestParams,
     TaskMetadata,
     TextContent,
-    Tool,
-    ToolExecution,
 )
 
 pytestmark = pytest.mark.anyio
@@ -69,19 +66,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
     async def handle_list_tools(
         ctx: ServerRequestContext[AppContext], params: PaginatedRequestParams | None
     ) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="process_data",
-                    description="Process data asynchronously",
-                    input_schema={
-                        "type": "object",
-                        "properties": {"input": {"type": "string"}},
-                    },
-                    execution=ToolExecution(task_support=TASK_REQUIRED),
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(
         ctx: ServerRequestContext[AppContext], params: CallToolRequestParams
@@ -189,15 +174,7 @@ async def test_task_auto_fails_on_exception() -> None:
     async def handle_list_tools(
         ctx: ServerRequestContext[AppContext], params: PaginatedRequestParams | None
     ) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[
-                Tool(
-                    name="failing_task",
-                    description="A task that fails",
-                    input_schema={"type": "object", "properties": {}},
-                )
-            ]
-        )
+        raise NotImplementedError
 
     async def handle_call_tool(
         ctx: ServerRequestContext[AppContext], params: CallToolRequestParams

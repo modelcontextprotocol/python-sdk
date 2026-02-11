@@ -52,13 +52,14 @@ async def test_notification_validation_error(tmp_path: Path):
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal request_count
         request_count += 1
+        assert params.name in ("slow", "fast"), f"Unknown tool: {params.name}"
 
         if params.name == "slow":
             await slow_request_lock.wait()  # it should timeout here
-            return CallToolResult(content=[TextContent(type="text", text=f"slow {request_count}")])
-        elif params.name == "fast":
-            return CallToolResult(content=[TextContent(type="text", text=f"fast {request_count}")])
-        pytest.fail(f"Unknown tool: {params.name}")
+            text = f"slow {request_count}"
+        else:
+            text = f"fast {request_count}"
+        return CallToolResult(content=[TextContent(type="text", text=text)])
 
     server = Server(name="test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
