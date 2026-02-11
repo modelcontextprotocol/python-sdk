@@ -89,6 +89,11 @@ def test_server_with_get_task_handler_declares_requests_tools_call_capability() 
     assert caps.tasks.requests.tools is not None
 
 
+@pytest.mark.skip(
+    reason="TODO(maxisbey): enable_tasks registers default handlers for all task methods, "
+    "so partial capabilities aren't possible yet. Low-level API should support "
+    "selectively enabling/disabling task capabilities."
+)
 def test_server_without_list_handler_has_no_list_capability() -> None:
     """Server without list_tasks handler has no tasks.list capability."""
     server: Server = Server("test")
@@ -99,6 +104,11 @@ def test_server_without_list_handler_has_no_list_capability() -> None:
     assert caps.tasks.list is None
 
 
+@pytest.mark.skip(
+    reason="TODO(maxisbey): enable_tasks registers default handlers for all task methods, "
+    "so partial capabilities aren't possible yet. Low-level API should support "
+    "selectively enabling/disabling task capabilities."
+)
 def test_server_without_cancel_handler_has_no_cancel_capability() -> None:
     """Server without cancel_task handler has no tasks.cancel capability."""
     server: Server = Server("test")

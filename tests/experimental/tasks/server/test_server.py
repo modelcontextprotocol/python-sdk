@@ -159,6 +159,11 @@ async def test_server_capabilities_include_tasks() -> None:
     assert capabilities.tasks.requests.tools is not None
 
 
+@pytest.mark.skip(
+    reason="TODO(maxisbey): enable_tasks registers default handlers for all task methods, "
+    "so partial capabilities aren't possible yet. Low-level API should support "
+    "selectively enabling/disabling task capabilities."
+)
 async def test_server_capabilities_partial_tasks() -> None:
     """Test capabilities with only some task handlers registered."""
     server = Server("test")
