@@ -124,7 +124,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult],
+            Awaitable[types.CallToolResult | types.CreateTaskResult],
         ]
         | None = None,
         on_list_resources: Callable[
@@ -643,5 +643,3 @@ class Server(Generic[LifespanResultT]):
             middleware=middleware,
             lifespan=lambda app: session_manager.run(),
         )
-
-
