@@ -149,7 +149,7 @@ class FuncMetadata(BaseModel):
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data_value, str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and _should_pre_parse_json(field_info.annotation):
                 try:
                     pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
@@ -419,6 +419,18 @@ def _try_create_model_and_schema(
 
 
 _no_default = object()
+
+_SIMPLE_TYPES: frozenset[type] = frozenset({str, int, float, bool, type(None)})
+
+
+def _should_pre_parse_json(annotation: Any) -> bool:
+    """Return True if the annotation requires JSON pre-parsing."""
+    if annotation is str:
+        return False
+    origin = get_origin(annotation)
+    if origin is not None and is_union_origin(origin):
+        return any(arg not in _SIMPLE_TYPES for arg in get_args(annotation))
+    return True
 
 
 def _create_model_from_class(cls: type[Any], type_hints: dict[str, Any]) -> type[BaseModel]:
