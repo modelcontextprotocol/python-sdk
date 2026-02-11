@@ -80,7 +80,7 @@ async def test_sse_with_middleware_no_assertion_error(middleware_server: None, s
     """
     async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{server_port}") as client:
         with anyio.fail_after(5):
-            async with client.stream("GET", "/sse") as response:
+            async with client.stream("GET", "/sse") as response:  # pragma: no branch
                 assert response.status_code == 200
                 assert "text/event-stream" in response.headers.get("content-type", "")
 
@@ -92,5 +92,5 @@ async def test_sse_with_middleware_no_assertion_error(middleware_server: None, s
                     elif line_number == 1:
                         assert line.startswith("data: /messages/?session_id=")
                     else:
-                        return
+                        break
                     line_number += 1
