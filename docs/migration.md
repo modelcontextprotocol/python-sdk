@@ -548,6 +548,95 @@ async def handle_progress(ctx: ServerRequestContext, params: ProgressNotificatio
 server = Server("my-server", on_progress=handle_progress)
 ```
 
+### Lowlevel `Server`: automatic return value wrapping removed
+
+The old decorator-based handlers performed significant automatic wrapping of return values. This magic has been removed — handlers now return fully constructed result types. If you want these conveniences, use `MCPServer` (previously `FastMCP`) instead of the lowlevel `Server`.
+
+**`call_tool()` — structured output wrapping removed:**
+
+The old decorator accepted several return types and auto-wrapped them into `CallToolResult`:
+
+```python
+# Before (v1) — returning a dict auto-wrapped into structured_content + JSON TextContent
+@server.call_tool()
+async def handle(name: str, arguments: dict) -> dict:
+    return {"temperature": 22.5, "city": "London"}
+
+# Before (v1) — returning a list auto-wrapped into CallToolResult.content
+@server.call_tool()
+async def handle(name: str, arguments: dict) -> list[TextContent]:
+    return [TextContent(type="text", text="Done")]
+```
+
+```python
+# After (v2) — construct the full result yourself
+import json
+
+async def handle(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    data = {"temperature": 22.5, "city": "London"}
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(data, indent=2))],
+        structured_content=data,
+    )
+```
+
+Note: `params.arguments` can be `None` (the old decorator defaulted it to `{}`). Use `params.arguments or {}` to preserve the old behavior.
+
+**`read_resource()` — content type wrapping removed:**
+
+The old decorator auto-wrapped `str` into `TextResourceContents` and `bytes` into `BlobResourceContents` (with base64 encoding), and applied a default mime type of `text/plain`:
+
+```python
+# Before (v1) — str/bytes auto-wrapped with mime type defaulting
+@server.read_resource()
+async def handle(uri: str) -> str:
+    return "file contents"
+
+@server.read_resource()
+async def handle(uri: str) -> bytes:
+    return b"\x89PNG..."
+```
+
+```python
+# After (v2) — construct TextResourceContents or BlobResourceContents yourself
+import base64
+
+async def handle_read(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+    # Text content
+    return ReadResourceResult(
+        contents=[TextResourceContents(uri=str(params.uri), text="file contents", mime_type="text/plain")]
+    )
+
+async def handle_read(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+    # Binary content — you must base64-encode it yourself
+    return ReadResourceResult(
+        contents=[BlobResourceContents(
+            uri=str(params.uri),
+            blob=base64.b64encode(b"\x89PNG...").decode("utf-8"),
+            mime_type="image/png",
+        )]
+    )
+```
+
+**`list_tools()`, `list_resources()`, `list_prompts()` — list wrapping removed:**
+
+The old decorators accepted bare lists and wrapped them into the result type:
+
+```python
+# Before (v1)
+@server.list_tools()
+async def handle() -> list[Tool]:
+    return [Tool(name="my_tool", ...)]
+
+# After (v2)
+async def handle(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+    return ListToolsResult(tools=[Tool(name="my_tool", ...)])
+```
+
+**Using `MCPServer` instead:**
+
+If you prefer the convenience of automatic wrapping, use `MCPServer` which still provides these features through its `@mcp.tool()`, `@mcp.resource()`, and `@mcp.prompt()` decorators. The lowlevel `Server` is intentionally minimal — it provides no magic and gives you full control over the MCP protocol types.
+
 ### Lowlevel `Server`: `request_context` property removed
 
 The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar still exists but should not be needed — use `ctx` directly instead.

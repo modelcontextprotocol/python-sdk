@@ -1642,12 +1642,11 @@ uv run examples/snippets/servers/lowlevel/lifespan.py
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TypedDict
 
 import mcp.server.stdio
 from mcp import types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
+from mcp.server import Server, ServerRequestContext
 
 
 # Mock database class for example
@@ -1670,52 +1669,58 @@ class Database:
         return [{"id": "1", "name": "Example", "query": query_str}]
 
 
+class AppContext(TypedDict):
+    db: Database
+
+
 @asynccontextmanager
-async def server_lifespan(_server: Server) -> AsyncIterator[dict[str, Any]]:
+async def server_lifespan(_server: Server[AppContext]) -> AsyncIterator[AppContext]:
     """Manage server startup and shutdown lifecycle."""
-    # Initialize resources on startup
     db = await Database.connect()
     try:
         yield {"db": db}
     finally:
-        # Clean up on shutdown
         await db.disconnect()
 
 
-# Pass lifespan to server
-server = Server("example-server", lifespan=server_lifespan)
-
-
-@server.list_tools()
-async def handle_list_tools() -> list[types.Tool]:
+async def handle_list_tools(
+    ctx: ServerRequestContext[AppContext], params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
     """List available tools."""
-    return [
-        types.Tool(
-            name="query_db",
-            description="Query the database",
-            input_schema={
-                "type": "object",
-                "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
-                "required": ["query"],
-            },
-        )
-    ]
+    return types.ListToolsResult(
+        tools=[
+            types.Tool(
+                name="query_db",
+                description="Query the database",
+                input_schema={
+                    "type": "object",
+                    "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
+                    "required": ["query"],
+                },
+            )
+        ]
+    )
 
 
-@server.call_tool()
-async def query_db(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+async def handle_call_tool(
+    ctx: ServerRequestContext[AppContext], params: types.CallToolRequestParams
+) -> types.CallToolResult:
     """Handle database query tool call."""
-    if name != "query_db":
-        raise ValueError(f"Unknown tool: {name}")
+    if params.name != "query_db":
+        raise ValueError(f"Unknown tool: {params.name}")
 
-    # Access lifespan context
-    ctx = server.request_context
     db = ctx.lifespan_context["db"]
+    results = await db.query((params.arguments or {})["query"])
 
-    # Execute query
-    results = await db.query(arguments["query"])
+    return types.CallToolResult(content=[types.TextContent(type="text", text=f"Query results: {results}")])
 
-    return [types.TextContent(type="text", text=f"Query results: {results}")]
+
+server = Server(
+    "example-server",
+    lifespan=server_lifespan,
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
 
 
 async def run():
@@ -1724,14 +1729,7 @@ async def run():
         await server.run(
             read_stream,
             write_stream,
-            InitializationOptions(
-                server_name="example-server",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+            server.create_initialization_options(),
         )
 
 
@@ -1760,32 +1758,30 @@ import asyncio
 
 import mcp.server.stdio
 from mcp import types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-# Create a server instance
-server = Server("example-server")
+from mcp.server import Server, ServerRequestContext
 
 
-@server.list_prompts()
-async def handle_list_prompts() -> list[types.Prompt]:
+async def handle_list_prompts(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListPromptsResult:
     """List available prompts."""
-    return [
-        types.Prompt(
-            name="example-prompt",
-            description="An example prompt template",
-            arguments=[types.PromptArgument(name="arg1", description="Example argument", required=True)],
-        )
-    ]
+    return types.ListPromptsResult(
+        prompts=[
+            types.Prompt(
+                name="example-prompt",
+                description="An example prompt template",
+                arguments=[types.PromptArgument(name="arg1", description="Example argument", required=True)],
+            )
+        ]
+    )
 
 
-@server.get_prompt()
-async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+async def handle_get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> types.GetPromptResult:
     """Get a specific prompt by name."""
-    if name != "example-prompt":
-        raise ValueError(f"Unknown prompt: {name}")
+    if params.name != "example-prompt":
+        raise ValueError(f"Unknown prompt: {params.name}")
 
-    arg1_value = (arguments or {}).get("arg1", "default")
+    arg1_value = (params.arguments or {}).get("arg1", "default")
 
     return types.GetPromptResult(
         description="Example prompt",
@@ -1798,20 +1794,20 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> type
     )
 
 
+server = Server(
+    "example-server",
+    on_list_prompts=handle_list_prompts,
+    on_get_prompt=handle_get_prompt,
+)
+
+
 async def run():
     """Run the basic low-level server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
             write_stream,
-            InitializationOptions(
-                server_name="example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+            server.create_initialization_options(),
         )
 
 
@@ -1835,62 +1831,67 @@ uv run examples/snippets/servers/lowlevel/structured_output.py
 """
 
 import asyncio
-from typing import Any
+import json
 
 import mcp.server.stdio
 from mcp import types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-server = Server("example-server")
+from mcp.server import Server, ServerRequestContext
 
 
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
     """List available tools with structured output schemas."""
-    return [
-        types.Tool(
-            name="get_weather",
-            description="Get current weather for a city",
-            input_schema={
-                "type": "object",
-                "properties": {"city": {"type": "string", "description": "City name"}},
-                "required": ["city"],
-            },
-            output_schema={
-                "type": "object",
-                "properties": {
-                    "temperature": {"type": "number", "description": "Temperature in Celsius"},
-                    "condition": {"type": "string", "description": "Weather condition"},
-                    "humidity": {"type": "number", "description": "Humidity percentage"},
-                    "city": {"type": "string", "description": "City name"},
+    return types.ListToolsResult(
+        tools=[
+            types.Tool(
+                name="get_weather",
+                description="Get current weather for a city",
+                input_schema={
+                    "type": "object",
+                    "properties": {"city": {"type": "string", "description": "City name"}},
+                    "required": ["city"],
                 },
-                "required": ["temperature", "condition", "humidity", "city"],
-            },
-        )
-    ]
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "temperature": {"type": "number", "description": "Temperature in Celsius"},
+                        "condition": {"type": "string", "description": "Weather condition"},
+                        "humidity": {"type": "number", "description": "Humidity percentage"},
+                        "city": {"type": "string", "description": "City name"},
+                    },
+                    "required": ["temperature", "condition", "humidity", "city"],
+                },
+            )
+        ]
+    )
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
     """Handle tool calls with structured output."""
-    if name == "get_weather":
-        city = arguments["city"]
+    if params.name == "get_weather":
+        city = (params.arguments or {})["city"]
 
-        # Simulated weather data - in production, call a weather API
         weather_data = {
             "temperature": 22.5,
             "condition": "partly cloudy",
             "humidity": 65,
-            "city": city,  # Include the requested city
+            "city": city,
         }
 
-        # low-level server will validate structured output against the tool's
-        # output schema, and additionally serialize it into a TextContent block
-        # for backwards compatibility with pre-2025-06-18 clients.
-        return weather_data
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps(weather_data, indent=2))],
+            structured_content=weather_data,
+        )
+
+    raise ValueError(f"Unknown tool: {params.name}")
+
+
+server = Server(
+    "example-server",
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
 
 
 async def run():
@@ -1899,14 +1900,7 @@ async def run():
         await server.run(
             read_stream,
             write_stream,
-            InitializationOptions(
-                server_name="structured-output-example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+            server.create_initialization_options(),
         )
 
 
@@ -1937,44 +1931,49 @@ uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
 """
 
 import asyncio
-from typing import Any
 
 import mcp.server.stdio
 from mcp import types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-server = Server("example-server")
+from mcp.server import Server, ServerRequestContext
 
 
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
     """List available tools."""
-    return [
-        types.Tool(
-            name="advanced_tool",
-            description="Tool with full control including _meta field",
-            input_schema={
-                "type": "object",
-                "properties": {"message": {"type": "string"}},
-                "required": ["message"],
-            },
-        )
-    ]
+    return types.ListToolsResult(
+        tools=[
+            types.Tool(
+                name="advanced_tool",
+                description="Tool with full control including _meta field",
+                input_schema={
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                    "required": ["message"],
+                },
+            )
+        ]
+    )
 
 
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
     """Handle tool calls by returning CallToolResult directly."""
-    if name == "advanced_tool":
-        message = str(arguments.get("message", ""))
+    if params.name == "advanced_tool":
+        message = (params.arguments or {}).get("message", "")
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Processed: {message}")],
             structured_content={"result": "success", "message": message},
             _meta={"hidden": "data for client applications only"},
         )
 
-    raise ValueError(f"Unknown tool: {name}")
+    raise ValueError(f"Unknown tool: {params.name}")
+
+
+server = Server(
+    "example-server",
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
 
 
 async def run():
@@ -1983,14 +1982,7 @@ async def run():
         await server.run(
             read_stream,
             write_stream,
-            InitializationOptions(
-                server_name="example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+            server.create_initialization_options(),
         )
 
 
@@ -2011,25 +2003,23 @@ For servers that need to handle large datasets, the low-level server provides pa
 
 <!-- snippet-source examples/snippets/servers/pagination_example.py -->
 ```python
-"""Example of implementing pagination with MCP server decorators."""
+"""Example of implementing pagination with the low-level MCP server."""
 
 from mcp import types
-from mcp.server.lowlevel import Server
-
-# Initialize the server
-server = Server("paginated-server")
+from mcp.server import Server, ServerRequestContext
 
 # Sample data to paginate
 ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
 
 
-@server.list_resources()
-async def list_resources_paginated(request: types.ListResourcesRequest) -> types.ListResourcesResult:
+async def handle_list_resources(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListResourcesResult:
     """List resources with pagination support."""
     page_size = 10
 
     # Extract cursor from request params
-    cursor = request.params.cursor if request.params is not None else None
+    cursor = params.cursor if params is not None else None
 
     # Parse cursor to get offset
     start = 0 if cursor is None else int(cursor)
@@ -2045,6 +2035,9 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
     next_cursor = str(end) if end < len(ITEMS) else None
 
     return types.ListResourcesResult(resources=page_items, next_cursor=next_cursor)
+
+
+server = Server("paginated-server", on_list_resources=handle_list_resources)
 ```
 
 _Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
