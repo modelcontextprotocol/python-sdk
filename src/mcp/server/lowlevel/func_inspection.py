@@ -31,7 +31,7 @@ def create_call_wrapper(func: Callable[..., R], request_type: type[T]) -> Callab
                 if param.default is not inspect.Parameter.empty:  # pragma: no cover
                     return lambda _: func()
                 # Found positional-only parameter with correct type and no default
-                return lambda req: func(req)
+                return func
 
     # Check for any positional/keyword parameter typed as request_type
     for param_name, param in sig.parameters.items():

@@ -100,6 +100,7 @@ Issues = "https://github.com/modelcontextprotocol/python-sdk/issues"
 packages = ["src/mcp"]
 
 [tool.pyright]
+pythonVersion = "3.10"
 typeCheckingMode = "strict"
 include = [
     "src/mcp",
