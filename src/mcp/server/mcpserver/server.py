@@ -28,6 +28,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
+from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
@@ -42,6 +43,8 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
+from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import Annotations, ContentBlock, GetPromptResult, Icon, ToolAnnotations
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -487,6 +490,17 @@ class MCPServer(Generic[LifespanResultT]):
                 return None
         """
         return self._lowlevel_server.completion()
+
+    def enable_tasks(
+        self,
+        store: TaskStore | None = None,
+        queue: TaskMessageQueue | None = None,
+    ) -> TaskSupport:
+        """Enable experimental task support.
+
+        WARNING: This API is experimental and may change without notice.
+        """
+        return self._lowlevel_server.experimental.enable_tasks(store=store, queue=queue)
 
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.

@@ -138,6 +138,19 @@ def test_server_with_all_task_handlers_has_full_capability() -> None:
     assert caps.tasks.requests.tools is not None
 
 
+def test_mcpserver_enable_tasks_sets_capability() -> None:
+    """MCPServer.enable_tasks() sets tasks.requests.tools.call capability."""
+    from mcp.server.mcpserver.server import MCPServer
+
+    mcp = MCPServer("test")
+    mcp.enable_tasks()
+    caps = _get_capabilities(mcp._lowlevel_server)
+    assert caps.tasks is not None
+    assert caps.tasks.requests is not None
+    assert caps.tasks.requests.tools is not None
+    assert caps.tasks.requests.tools.call is not None
+
+
 class TestClientCapabilities:
     """Clients declare:
     - tasks.list — supports listing operations
