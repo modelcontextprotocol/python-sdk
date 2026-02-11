@@ -346,6 +346,11 @@ class OAuthClientProvider(httpx.Auth):
         if self.context.client_metadata.scope:  # pragma: no branch
             auth_params["scope"] = self.context.client_metadata.scope
 
+            # OIDC requires prompt=consent when offline_access is requested
+            # https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+            if "offline_access" in self.context.client_metadata.scope.split():
+                auth_params["prompt"] = "consent"
+
         authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
         await self.context.redirect_handler(authorization_url)
 
@@ -580,6 +585,7 @@ class OAuthClientProvider(httpx.Auth):
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
+                        self.context.client_metadata.grant_types,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
@@ -626,7 +632,10 @@ class OAuthClientProvider(httpx.Auth):
                     try:
                         # Step 2a: Update the required scopes
                         self.context.client_metadata.scope = get_client_metadata_scopes(
-                            extract_scope_from_www_auth(response), self.context.protected_resource_metadata
+                            extract_scope_from_www_auth(response),
+                            self.context.protected_resource_metadata,
+                            self.context.oauth_metadata,
+                            self.context.client_metadata.grant_types,
                         )
 
                         # Step 2b: Perform (re-)authorization and token exchange

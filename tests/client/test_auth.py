@@ -2264,3 +2264,357 @@ class TestCIMD:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass
+
+
+class TestSEP2207OfflineAccessScope:
+    """Test SEP-2207: offline_access scope augmentation for OIDC-flavored refresh tokens."""
+
+    def _make_as_metadata(self, scopes_supported: list[str] | None = None) -> OAuthMetadata:
+        return OAuthMetadata(
+            issuer=AnyHttpUrl("https://auth.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+            scopes_supported=scopes_supported,
+        )
+
+    def _make_prm(self, scopes_supported: list[str] | None = None) -> ProtectedResourceMetadata:
+        return ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+            scopes_supported=scopes_supported,
+        )
+
+    def test_offline_access_added_when_as_supports_and_client_has_refresh_token(self):
+        """offline_access is appended when AS advertises it and client supports refresh_token grant."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write offline_access"
+
+    def test_offline_access_added_with_www_authenticate_scope(self):
+        """offline_access is appended even when scopes come from WWW-Authenticate header."""
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope="read write",
+            protected_resource_metadata=None,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write offline_access"
+
+    def test_offline_access_not_added_when_as_does_not_support(self):
+        """offline_access is not added when AS does not advertise it in scopes_supported."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_added_when_client_has_no_refresh_token_grant(self):
+        """offline_access is not added when client does not support refresh_token grant."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_duplicated_when_already_present(self):
+        """offline_access is not added again if it already appears in the selected scopes."""
+        prm = self._make_prm(scopes_supported=["read", "offline_access", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read offline_access write"
+
+    def test_offline_access_not_added_when_no_scopes_selected(self):
+        """offline_access is not added when no base scopes are available (None)."""
+        asm = self._make_as_metadata(scopes_supported=["offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=None,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        # When AS scopes are the only source and include offline_access,
+        # the base scope is "offline_access" and no duplication happens
+        assert scopes == "offline_access"
+
+    def test_offline_access_not_added_when_as_scopes_supported_is_none(self):
+        """offline_access is not added when AS scopes_supported is None."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=None)
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_added_when_no_as_metadata(self):
+        """offline_access is not added when AS metadata is not available."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=None,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_added_when_no_grant_types_provided(self):
+        """offline_access is not added when client_grant_types is None."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=None,
+        )
+        assert scopes == "read write"
+
+    def test_default_client_metadata_includes_refresh_token_grant(self):
+        """Default OAuthClientMetadata includes refresh_token in grant_types (SEP-2207 guidance)."""
+        metadata = OAuthClientMetadata(redirect_uris=[AnyUrl("http://localhost:3030/callback")])
+        assert "refresh_token" in metadata.grant_types
+
+    @pytest.mark.anyio
+    async def test_auth_flow_adds_offline_access_when_as_advertises(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """E2E: auth flow includes offline_access in authorization request when AS advertises it."""
+
+        captured_auth_url: str | None = None
+        captured_state: str | None = None
+
+        async def redirect_handler(url: str) -> None:
+            nonlocal captured_auth_url, captured_state
+            captured_auth_url = url
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            captured_state = params.get("state", [None])[0]
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", captured_state
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        # Pre-set client info to skip DCR
+        provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # First request
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+
+        # Send 401
+        response = httpx.Response(401, headers={}, request=test_request)
+
+        # PRM discovery
+        prm_request = await auth_flow.asend(response)
+        prm_response = httpx.Response(
+            200,
+            content=(
+                b'{"resource": "https://api.example.com/v1/mcp",'
+                b' "authorization_servers": ["https://auth.example.com"],'
+                b' "scopes_supported": ["read", "write"]}'
+            ),
+            request=prm_request,
+        )
+
+        # OAuth metadata discovery - AS advertises offline_access
+        oauth_request = await auth_flow.asend(prm_response)
+        oauth_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com",'
+                b' "authorization_endpoint": "https://auth.example.com/authorize",'
+                b' "token_endpoint": "https://auth.example.com/token",'
+                b' "scopes_supported": ["read", "write", "offline_access"]}'
+            ),
+            request=oauth_request,
+        )
+
+        # This triggers authorization, which calls redirect_handler
+        token_request = await auth_flow.asend(oauth_response)
+
+        # Verify the authorization URL included offline_access in the scope
+        assert captured_auth_url is not None
+        parsed = urlparse(captured_auth_url)
+        params = parse_qs(parsed.query)
+        scope_value = params["scope"][0]
+        scope_parts = scope_value.split()
+        assert "offline_access" in scope_parts
+        assert "read" in scope_parts
+        assert "write" in scope_parts
+
+        # OIDC requires prompt=consent when offline_access is requested
+        assert params["prompt"][0] == "consent"
+
+        # Complete the token exchange
+        token_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer",'
+                b' "expires_in": 3600, "refresh_token": "new_refresh_token"}'
+            ),
+            request=token_request,
+        )
+
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+
+        # Close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass
+
+    @pytest.mark.anyio
+    async def test_auth_flow_no_offline_access_when_as_does_not_advertise(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """E2E: auth flow does NOT include offline_access when AS doesn't advertise it."""
+
+        captured_auth_url: str | None = None
+        captured_state: str | None = None
+
+        async def redirect_handler(url: str) -> None:
+            nonlocal captured_auth_url, captured_state
+            captured_auth_url = url
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            captured_state = params.get("state", [None])[0]
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", captured_state
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        # Pre-set client info to skip DCR
+        provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # First request
+        await auth_flow.__anext__()
+
+        # Send 401
+        response = httpx.Response(401, headers={}, request=test_request)
+
+        # PRM discovery
+        prm_request = await auth_flow.asend(response)
+        prm_response = httpx.Response(
+            200,
+            content=(
+                b'{"resource": "https://api.example.com/v1/mcp",'
+                b' "authorization_servers": ["https://auth.example.com"],'
+                b' "scopes_supported": ["read", "write"]}'
+            ),
+            request=prm_request,
+        )
+
+        # OAuth metadata discovery - AS does NOT advertise offline_access
+        oauth_request = await auth_flow.asend(prm_response)
+        oauth_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com",'
+                b' "authorization_endpoint": "https://auth.example.com/authorize",'
+                b' "token_endpoint": "https://auth.example.com/token",'
+                b' "scopes_supported": ["read", "write"]}'
+            ),
+            request=oauth_request,
+        )
+
+        # This triggers authorization, which calls redirect_handler
+        token_request = await auth_flow.asend(oauth_response)
+
+        # Verify the authorization URL does NOT include offline_access
+        assert captured_auth_url is not None
+        parsed = urlparse(captured_auth_url)
+        params = parse_qs(parsed.query)
+        scope_value = params["scope"][0]
+        scope_parts = scope_value.split()
+        assert "offline_access" not in scope_parts
+        assert "read" in scope_parts
+        assert "write" in scope_parts
+
+        # prompt=consent should NOT be present without offline_access
+        assert "prompt" not in params
+
+        # Complete the token exchange
+        token_response = httpx.Response(
+            200,
+            content=b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600}',
+            request=token_request,
+        )
+
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+
+        # Close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass
