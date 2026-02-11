@@ -86,7 +86,7 @@ async def test_run_task_basic_flow() -> None:
 
         return await ctx.experimental.run_task(work)
 
-    server = Server("test-run-task", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-run-task", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
 
     # One-line setup
     server.experimental.enable_tasks()
@@ -168,7 +168,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
 
         return await ctx.experimental.run_task(work)
 
-    server = Server("test-run-task-fail", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-run-task-fail", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
     server.experimental.enable_tasks()
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -373,7 +373,7 @@ async def test_run_task_with_model_immediate_response() -> None:
 
         return await ctx.experimental.run_task(work, model_immediate_response=immediate_response_text)
 
-    server = Server("test-run-task-immediate", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-run-task-immediate", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
     server.experimental.enable_tasks()
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -437,7 +437,7 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
 
         return await ctx.experimental.run_task(work)
 
-    server = Server("test-already-complete", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-already-complete", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
     server.experimental.enable_tasks()
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -503,7 +503,7 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
 
         return await ctx.experimental.run_task(work)
 
-    server = Server("test-already-failed", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-already-failed", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
     server.experimental.enable_tasks()
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)

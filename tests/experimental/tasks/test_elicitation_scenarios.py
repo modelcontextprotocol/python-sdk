@@ -375,7 +375,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
 
         return await ctx.experimental.run_task(work)
 
-    server = Server("test-scenario3", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-scenario3", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
     server.experimental.enable_tasks()
 
     # Elicitation callback for client
@@ -488,7 +488,7 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
 
         return await ctx.experimental.run_task(work)
 
-    server = Server("test-scenario4", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-scenario4", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
     server.experimental.enable_tasks()
 
     task_handlers = create_client_task_handlers(client_task_store, elicit_received)
@@ -672,7 +672,7 @@ async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() 
 
         return await ctx.experimental.run_task(work)
 
-    server = Server("test-scenario4-sampling", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server("test-scenario4-sampling", on_list_tools=on_list_tools, on_call_tool=on_call_tool)  # type: ignore[arg-type]
     server.experimental.enable_tasks()
 
     task_handlers = create_sampling_task_handlers(client_task_store, sampling_received)

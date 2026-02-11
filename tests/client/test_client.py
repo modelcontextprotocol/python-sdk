@@ -217,7 +217,7 @@ async def test_client_send_progress_notification():
         ctx: ServerRequestContext, params: types.ProgressNotificationParams
     ) -> None:
         nonlocal received_from_client
-        received_from_client = {"progress_token": params.progressToken, "progress": params.progress}
+        received_from_client = {"progress_token": params.progress_token, "progress": params.progress}
         event.set()
 
     server = Server(name="test_server", on_progress=handle_progress_notification)

@@ -98,7 +98,7 @@ async def test_session_experimental_get_task() -> None:
     server: Server[AppContext] = Server(  # type: ignore[assignment]
         "test-server",
         on_list_tools=on_list_tools,
-        on_call_tool=on_call_tool,
+        on_call_tool=on_call_tool,  # type: ignore[arg-type]
     )
     server.experimental.enable_tasks(on_get_task=on_get_task)
 
@@ -206,7 +206,7 @@ async def test_session_experimental_get_task_result() -> None:
     server: Server[AppContext] = Server(  # type: ignore[assignment]
         "test-server",
         on_list_tools=on_list_tools,
-        on_call_tool=on_call_tool,
+        on_call_tool=on_call_tool,  # type: ignore[arg-type]
     )
     server.experimental.enable_tasks(on_task_result=on_task_result)
 
@@ -310,7 +310,7 @@ async def test_session_experimental_list_tasks() -> None:
     server: Server[AppContext] = Server(  # type: ignore[assignment]
         "test-server",
         on_list_tools=on_list_tools,
-        on_call_tool=on_call_tool,
+        on_call_tool=on_call_tool,  # type: ignore[arg-type]
     )
     server.experimental.enable_tasks(on_list_tasks=on_list_tasks)
 
@@ -425,7 +425,7 @@ async def test_session_experimental_cancel_task() -> None:
     server: Server[AppContext] = Server(  # type: ignore[assignment]
         "test-server",
         on_list_tools=on_list_tools,
-        on_call_tool=on_call_tool,
+        on_call_tool=on_call_tool,  # type: ignore[arg-type]
     )
     server.experimental.enable_tasks(on_get_task=on_get_task, on_cancel_task=on_cancel_task)
 
