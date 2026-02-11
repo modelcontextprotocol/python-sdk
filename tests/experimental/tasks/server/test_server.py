@@ -36,6 +36,7 @@ from mcp.types import (
     JSONRPCError,
     JSONRPCNotification,
     JSONRPCResponse,
+    ListTasksRequest,
     ListTasksResult,
     ListToolsResult,
     PaginatedRequestParams,
@@ -509,7 +510,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             task = await store.create_task(TaskMetadata(ttl=60000))
 
             # Test list_tasks (default handler)
-            list_result = await client_session.send_request(ListTasksResult, ListTasksResult)
+            list_result = await client_session.send_request(ListTasksRequest(), ListTasksResult)
             assert len(list_result.tasks) == 1
             assert list_result.tasks[0].task_id == task.task_id
 
