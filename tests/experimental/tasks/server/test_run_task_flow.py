@@ -109,9 +109,7 @@ async def test_run_task_auto_fails_on_exception() -> None:
     """Test that run_task automatically fails the task when work raises."""
     work_failed = Event()
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(
@@ -274,9 +272,7 @@ async def test_run_task_with_model_immediate_response() -> None:
     work_completed = Event()
     immediate_response_text = "Processing your request..."
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(
@@ -321,9 +317,7 @@ async def test_run_task_doesnt_complete_if_already_terminal() -> None:
     """Test that run_task doesn't auto-complete if work manually completed the task."""
     work_completed = Event()
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(
@@ -373,9 +367,7 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
     """Test that run_task doesn't auto-fail if work manually failed/cancelled the task."""
     work_completed = Event()
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(

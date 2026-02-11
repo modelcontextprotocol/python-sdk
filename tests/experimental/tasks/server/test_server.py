@@ -61,9 +61,7 @@ async def test_list_tasks_handler() -> None:
         Task(task_id="task-2", status="completed", created_at=now, last_updated_at=now, ttl=60000, poll_interval=1000),
     ]
 
-    async def handle_list_tasks(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListTasksResult:
+    async def handle_list_tasks(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListTasksResult:
         return ListTasksResult(tasks=test_tasks)
 
     server = Server("test")
@@ -79,9 +77,7 @@ async def test_list_tasks_handler() -> None:
 async def test_get_task_handler() -> None:
     """Test that experimental get_task handler works via Client."""
 
-    async def handle_get_task(
-        ctx: ServerRequestContext, params: GetTaskRequestParams
-    ) -> GetTaskResult:
+    async def handle_get_task(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         now = datetime.now(timezone.utc)
         return GetTaskResult(
             task_id=params.task_id,
@@ -123,9 +119,7 @@ async def test_get_task_result_handler() -> None:
 async def test_cancel_task_handler() -> None:
     """Test that experimental cancel_task handler works via Client."""
 
-    async def handle_cancel_task(
-        ctx: ServerRequestContext, params: CancelTaskRequestParams
-    ) -> CancelTaskResult:
+    async def handle_cancel_task(ctx: ServerRequestContext, params: CancelTaskRequestParams) -> CancelTaskResult:
         now = datetime.now(timezone.utc)
         return CancelTaskResult(
             task_id=params.task_id,
@@ -185,9 +179,7 @@ async def test_server_capabilities_partial_tasks() -> None:
 async def test_tool_with_task_execution_metadata() -> None:
     """Test that tools can declare task execution mode."""
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(
@@ -229,9 +221,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
     """Test that task metadata is accessible via ctx when calling a tool."""
     captured_task_metadata: TaskMetadata | None = None
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(
@@ -243,9 +233,7 @@ async def test_task_metadata_in_call_tool_request() -> None:
             ]
         )
 
-    async def handle_call_tool(
-        ctx: ServerRequestContext, params: CallToolRequestParams
-    ) -> CallToolResult:
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal captured_task_metadata
         captured_task_metadata = ctx.experimental.task_metadata
         return CallToolResult(content=[TextContent(type="text", text="done")])
@@ -273,9 +261,7 @@ async def test_task_metadata_is_task_property() -> None:
     """Test that ctx.experimental.is_task works correctly."""
     is_task_values: list[bool] = []
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         return ListToolsResult(
             tools=[
                 Tool(
@@ -286,9 +272,7 @@ async def test_task_metadata_is_task_property() -> None:
             ]
         )
 
-    async def handle_call_tool(
-        ctx: ServerRequestContext, params: CallToolRequestParams
-    ) -> CallToolResult:
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         is_task_values.append(ctx.experimental.is_task)
         return CallToolResult(content=[TextContent(type="text", text="done")])
 

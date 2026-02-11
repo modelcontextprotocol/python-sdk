@@ -31,8 +31,8 @@ from mcp.types import (
     GetTaskPayloadResult,
     GetTaskRequestParams,
     GetTaskResult,
-    ListToolsResult,
     ListTasksResult,
+    ListToolsResult,
     PaginatedRequestParams,
     TaskMetadata,
     TextContent,
@@ -108,9 +108,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
         raise NotImplementedError
 
-    async def handle_get_task(
-        ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams
-    ) -> GetTaskResult:
+    async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
         app = ctx.lifespan_context
         task = await app.store.get_task(params.task_id)
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
@@ -225,9 +223,7 @@ async def test_task_auto_fails_on_exception() -> None:
 
         raise NotImplementedError
 
-    async def handle_get_task(
-        ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams
-    ) -> GetTaskResult:
+    async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
         app = ctx.lifespan_context
         task = await app.store.get_task(params.task_id)
         assert task is not None, f"Test setup error: task {params.task_id} should exist"

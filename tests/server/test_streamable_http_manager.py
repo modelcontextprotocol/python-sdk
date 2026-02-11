@@ -217,7 +217,7 @@ async def test_stateless_requests_memory_cleanup():
 
     # Patch StreamableHTTPServerTransport constructor to track instances
 
-    original_constructor = streamable_http_manager.StreamableHTTPServerTransport
+    original_constructor = StreamableHTTPServerTransport
 
     def track_transport(*args: Any, **kwargs: Any) -> StreamableHTTPServerTransport:
         transport = original_constructor(*args, **kwargs)
