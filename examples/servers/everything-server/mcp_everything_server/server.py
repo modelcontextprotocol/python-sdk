@@ -474,7 +474,10 @@ async def handle_call_tool(ctx: ServerRequestContext[Any], params: types.CallToo
             )
 
     elif name == "test_error_handling":
-        raise RuntimeError("This tool intentionally returns an error for testing")
+        return types.CallToolResult(
+            isError=True,
+            content=[types.TextContent(type="text", text="This tool intentionally returns an error for testing")],
+        )
 
     elif name == "test_reconnection":
         await ctx.session.send_log_message(level="info", data="Before disconnect", related_request_id=ctx.request_id)
