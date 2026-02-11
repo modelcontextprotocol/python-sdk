@@ -13,12 +13,11 @@ site_url: https://modelcontextprotocol.github.io/python-sdk
 nav:
   - Introduction: index.md
   - Installation: installation.md
+  - Quickstart: quickstart.md
+  - Concepts: concepts.md
+  - Authorization: authorization.md
+  - Testing: testing.md
   - Migration Guide: migration.md
-  - Documentation:
-      - Concepts: concepts.md
-      - Low-Level Server: low-level-server.md
-      - Authorization: authorization.md
-      - Testing: testing.md
   - Experimental:
       - Overview: experimental/index.md
       - Tasks:

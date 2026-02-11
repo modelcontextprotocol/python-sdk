@@ -7,6 +7,7 @@
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
@@ -96,16 +97,47 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
             assert "/fake/path/file2.txt" in content.text
 
 
-# TODO(v2): Change back to README.md when v2 is released
-@pytest.mark.parametrize("example", find_examples("README.v2.md"), ids=str)
+SKIP_RUN_TAGS = ["skip", "skip-run"]
+SKIP_LINT_TAGS = ["skip", "skip-lint"]
+
+# TODO(v2): Change "README.v2.md" back to "README.md" when v2 is released
+_ALL_EXAMPLES = list(find_examples("README.v2.md", "docs/"))
+
+
+def _set_eval_config(eval_example: EvalExample) -> None:
+    eval_example.set_config(
+        ruff_ignore=["F841", "I001", "F821"],
+        target_version="py310",
+        line_length=120,
+    )
+
+
+@pytest.mark.parametrize(
+    "example",
+    [ex for ex in _ALL_EXAMPLES if not any(ex.prefix_settings().get(key) == "true" for key in SKIP_LINT_TAGS)],
+    ids=str,
+)
 def test_docs_examples(example: CodeExample, eval_example: EvalExample):
-    ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
+    _set_eval_config(eval_example)
 
-    # Use project's actual line length of 120
-    eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=120)
-
-    # Use Ruff for both formatting and linting (skip Black)
     if eval_example.update_examples:  # pragma: no cover
         eval_example.format_ruff(example)
     else:
         eval_example.lint_ruff(example)
+
+
+@pytest.mark.parametrize(
+    "example",
+    [ex for ex in _ALL_EXAMPLES if not any(ex.prefix_settings().get(key) == "true" for key in SKIP_RUN_TAGS)],
+    ids=str,
+)
+def test_docs_examples_run(example: CodeExample, eval_example: EvalExample):
+    _set_eval_config(eval_example)
+
+    # Prevent `if __name__ == "__main__"` blocks from starting servers
+    module_globals: dict[str, Any] = {"__name__": "__docs_test__"}
+
+    if eval_example.update_examples:  # pragma: no cover
+        eval_example.run_print_update(example, module_globals=module_globals)
+    else:
+        eval_example.run_print_check(example, module_globals=module_globals)

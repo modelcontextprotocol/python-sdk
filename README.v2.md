@@ -595,7 +595,7 @@ _Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/mo
 
 MCP servers can provide icons for UI display. Icons can be added to the server implementation, tools, resources, and prompts:
 
-```python
+```python skip-run="true"
 from mcp.server.mcpserver import MCPServer, Icon
 
 # Create an icon from a file path or URL
@@ -1079,7 +1079,7 @@ The MCPServer server instance accessible via `ctx.mcp_server` provides access to
   - `stateless_http` - Whether the server operates in stateless mode
   - And other configuration options
 
-```python
+```python skip-run="true"
 @mcp.tool()
 def server_info(ctx: Context) -> dict:
     """Get information about the current server."""
@@ -1106,7 +1106,7 @@ The session object accessible via `ctx.session` provides advanced control over c
 - `await ctx.session.send_tool_list_changed()` - Notify clients that the tool list changed
 - `await ctx.session.send_prompt_list_changed()` - Notify clients that the prompt list changed
 
-```python
+```python skip-run="true"
 @mcp.tool()
 async def notify_data_update(resource_uri: str, ctx: Context) -> str:
     """Update data and notify clients of the change."""
@@ -1134,7 +1134,7 @@ The request context accessible via `ctx.request_context` contains request-specif
 - `ctx.request_context.request` - The original MCP request object for advanced processing
 - `ctx.request_context.request_id` - Unique identifier for this request
 
-```python
+```python skip-run="true"
 # Example with typed lifespan context
 @dataclass
 class AppContext:
