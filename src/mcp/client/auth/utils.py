@@ -114,7 +114,7 @@ def get_client_metadata_scopes(
     elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
         selected_scope = " ".join(protected_resource_metadata.scopes_supported)
     elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported is not None:
-        selected_scope = " ".join(authorization_server_metadata.scopes_supported)  # pragma: no cover
+        selected_scope = " ".join(authorization_server_metadata.scopes_supported)
 
     # SEP-2207: append offline_access when the AS supports it and the client can use refresh tokens
     if (

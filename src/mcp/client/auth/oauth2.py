@@ -318,7 +318,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError("No callback handler provided for authorization code grant")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.authorization_endpoint:
-            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)  # pragma: no cover
+            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             auth_endpoint = urljoin(auth_base_url, "/authorize")
@@ -341,7 +341,7 @@ class OAuthClientProvider(httpx.Auth):
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
-            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707  # pragma: no cover
+            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_metadata.scope:  # pragma: no branch
             auth_params["scope"] = self.context.client_metadata.scope
