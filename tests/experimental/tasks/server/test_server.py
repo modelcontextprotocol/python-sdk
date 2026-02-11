@@ -299,7 +299,9 @@ async def test_update_capabilities_partial_handlers() -> None:
     """Test that update_capabilities skips list/cancel when only tasks/get is registered."""
     server = Server("test-partial")
     # Access .experimental to create the ExperimentalHandlers instance
-    _ = server.experimental
+    exp = server.experimental
+    # Second access returns the same cached instance
+    assert server.experimental is exp
 
     async def noop_get(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         raise NotImplementedError

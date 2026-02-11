@@ -1412,10 +1412,9 @@ async def test_completion_decorator() -> None:
     @mcp.completion()
     async def handle_completion(
         ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None
-    ) -> Completion | None:
-        if argument.name == "style":
-            return Completion(values=["bold", "italic", "underline"])
-        return None
+    ) -> Completion:
+        assert argument.name == "style"
+        return Completion(values=["bold", "italic", "underline"])
 
     async with Client(mcp) as client:
         ref = PromptReference(type="ref/prompt", name="test")
