@@ -1,6 +1,9 @@
+from typing import Any
+
 import anyio
 import click
 from mcp import types
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from starlette.requests import Request
 
@@ -30,20 +33,11 @@ def create_messages(context: str | None = None, topic: str | None = None) -> lis
     return messages
 
 
-@click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
-@click.option(
-    "--transport",
-    type=click.Choice(["stdio", "sse"]),
-    default="stdio",
-    help="Transport type",
-)
-def main(port: int, transport: str) -> int:
-    app = Server("mcp-simple-prompt")
-
-    @app.list_prompts()
-    async def list_prompts() -> list[types.Prompt]:
-        return [
+async def handle_list_prompts(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListPromptsResult:
+    return types.ListPromptsResult(
+        prompts=[
             types.Prompt(
                 name="simple",
                 title="Simple Assistant Prompt",
@@ -62,19 +56,37 @@ def main(port: int, transport: str) -> int:
                 ],
             )
         ]
+    )
 
-    @app.get_prompt()
-    async def get_prompt(name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
-        if name != "simple":
-            raise ValueError(f"Unknown prompt: {name}")
 
-        if arguments is None:
-            arguments = {}
+async def handle_get_prompt(
+    ctx: ServerRequestContext[Any], params: types.GetPromptRequestParams
+) -> types.GetPromptResult:
+    if params.name != "simple":
+        raise ValueError(f"Unknown prompt: {params.name}")
 
-        return types.GetPromptResult(
-            messages=create_messages(context=arguments.get("context"), topic=arguments.get("topic")),
-            description="A simple prompt with optional context and topic arguments",
-        )
+    arguments = params.arguments or {}
+
+    return types.GetPromptResult(
+        messages=create_messages(context=arguments.get("context"), topic=arguments.get("topic")),
+        description="A simple prompt with optional context and topic arguments",
+    )
+
+
+@click.command()
+@click.option("--port", default=8000, help="Port to listen on for SSE")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "sse"]),
+    default="stdio",
+    help="Transport type",
+)
+def main(port: int, transport: str) -> int:
+    app = Server(
+        "mcp-simple-prompt",
+        on_list_prompts=handle_list_prompts,
+        on_get_prompt=handle_get_prompt,
+    )
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport

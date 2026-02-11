@@ -12,10 +12,11 @@ from starlette.applications import Starlette
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket
 
-from mcp import MCPError
+from mcp import MCPError, types
 from mcp.client.session import ClientSession
 from mcp.client.websocket import websocket_client
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.websocket import websocket_server
 from mcp.types import EmptyResult, InitializeResult, ReadResourceResult, TextContent, TextResourceContents, Tool
 from tests.test_helpers import wait_for_server
@@ -35,42 +36,54 @@ def server_url(server_port: int) -> str:
     return f"ws://127.0.0.1:{server_port}"
 
 
-# Test server implementation
-class ServerTest(Server):  # pragma: no cover
-    def __init__(self):
-        super().__init__(SERVER_NAME)
+# Module-level handlers for the test server
 
-        @self.read_resource()
-        async def handle_read_resource(uri: str) -> str | bytes:
-            parsed = urlparse(uri)
-            if parsed.scheme == "foobar":
-                return f"Read {parsed.netloc}"
-            elif parsed.scheme == "slow":
-                # Simulate a slow resource
-                await anyio.sleep(2.0)
-                return f"Slow response from {parsed.netloc}"
 
-            raise MCPError(code=404, message="OOPS! no resource with that URI was found")
+async def handle_read_resource(
+    ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
+) -> types.ReadResourceResult:  # pragma: no cover
+    parsed = urlparse(str(params.uri))
+    if parsed.scheme == "foobar":
+        return types.ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text=f"Read {parsed.netloc}")])
+    elif parsed.scheme == "slow":
+        # Simulate a slow resource
+        await anyio.sleep(2.0)
+        return types.ReadResourceResult(
+            contents=[TextResourceContents(uri=params.uri, text=f"Slow response from {parsed.netloc}")]
+        )
 
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return [
-                Tool(
-                    name="test_tool",
-                    description="A test tool",
-                    input_schema={"type": "object", "properties": {}},
-                )
-            ]
+    raise MCPError(code=404, message="OOPS! no resource with that URI was found")
 
-        @self.call_tool()
-        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
-            return [TextContent(type="text", text=f"Called {name}")]
+
+async def handle_list_tools(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:  # pragma: no cover
+    return types.ListToolsResult(
+        tools=[
+            Tool(
+                name="test_tool",
+                description="A test tool",
+                input_schema={"type": "object", "properties": {}},
+            )
+        ]
+    )
+
+
+async def handle_call_tool(
+    ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+) -> types.CallToolResult:  # pragma: no cover
+    return types.CallToolResult(content=[TextContent(type="text", text=f"Called {params.name}")])
 
 
 # Test fixtures
 def make_server_app() -> Starlette:  # pragma: no cover
     """Create test Starlette app with WebSocket transport"""
-    server = ServerTest()
+    server = Server(
+        SERVER_NAME,
+        on_read_resource=handle_read_resource,
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
 
     async def handle_ws(websocket: WebSocket):
         async with websocket_server(websocket.scope, websocket.receive, websocket.send) as streams:

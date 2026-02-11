@@ -10,6 +10,7 @@ from anyio.abc import TaskGroup
 
 from mcp.client.session import ClientSession
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -21,16 +22,17 @@ from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
-    CancelTaskRequest,
+    CancelTaskRequestParams,
     CancelTaskResult,
     ClientResult,
     CreateTaskResult,
-    GetTaskPayloadRequest,
+    GetTaskPayloadRequestParams,
     GetTaskPayloadResult,
-    GetTaskRequest,
+    GetTaskRequestParams,
     GetTaskResult,
-    ListTasksRequest,
     ListTasksResult,
+    ListToolsResult,
+    PaginatedRequestParams,
     ServerNotification,
     ServerRequest,
     TaskMetadata,
@@ -52,17 +54,15 @@ class AppContext:
 async def test_session_experimental_get_task() -> None:
     """Test session.experimental.get_task() method."""
     # Note: We bypass the normal lifespan mechanism
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})])
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
-        app = ctx.lifespan_context
+    async def on_call_tool(
+        ctx: ServerRequestContext[Any], params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
+        app: AppContext = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -81,11 +81,10 @@ async def test_session_experimental_get_task() -> None:
 
         raise NotImplementedError
 
-    @server.experimental.get_task()
-    async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
-        app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.task_id)
-        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
+    async def on_get_task(ctx: ServerRequestContext[Any], params: GetTaskRequestParams) -> GetTaskResult:
+        app: AppContext = ctx.lifespan_context
+        task = await app.store.get_task(params.task_id)
+        assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,
             status=task.status,
@@ -95,6 +94,13 @@ async def test_session_experimental_get_task() -> None:
             ttl=task.ttl,
             poll_interval=task.poll_interval,
         )
+
+    server: Server[AppContext] = Server(  # type: ignore[assignment]
+        "test-server",
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+    )
+    server.experimental.enable_tasks(on_get_task=on_get_task)
 
     # Set up streams
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -159,17 +165,15 @@ async def test_session_experimental_get_task() -> None:
 @pytest.mark.anyio
 async def test_session_experimental_get_task_result() -> None:
     """Test session.experimental.get_task_result() method."""
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})])
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
-        app = ctx.lifespan_context
+    async def on_call_tool(
+        ctx: ServerRequestContext[Any], params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
+        app: AppContext = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -190,15 +194,21 @@ async def test_session_experimental_get_task_result() -> None:
 
         raise NotImplementedError
 
-    @server.experimental.get_task_result()
-    async def handle_get_task_result(
-        request: GetTaskPayloadRequest,
+    async def on_task_result(
+        ctx: ServerRequestContext[Any], params: GetTaskPayloadRequestParams
     ) -> GetTaskPayloadResult:
-        app = server.request_context.lifespan_context
-        result = await app.store.get_result(request.params.task_id)
-        assert result is not None, f"Test setup error: result for {request.params.task_id} should exist"
+        app: AppContext = ctx.lifespan_context
+        result = await app.store.get_result(params.task_id)
+        assert result is not None, f"Test setup error: result for {params.task_id} should exist"
         assert isinstance(result, CallToolResult)
         return GetTaskPayloadResult(**result.model_dump())
+
+    server: Server[AppContext] = Server(  # type: ignore[assignment]
+        "test-server",
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+    )
+    server.experimental.enable_tasks(on_task_result=on_task_result)
 
     # Set up streams
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -265,17 +275,15 @@ async def test_session_experimental_get_task_result() -> None:
 @pytest.mark.anyio
 async def test_session_experimental_list_tasks() -> None:
     """Test TaskClient.list_tasks() method."""
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})])
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
-        app = ctx.lifespan_context
+    async def on_call_tool(
+        ctx: ServerRequestContext[Any], params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
+        app: AppContext = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -294,11 +302,17 @@ async def test_session_experimental_list_tasks() -> None:
 
         raise NotImplementedError
 
-    @server.experimental.list_tasks()
-    async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
-        app = server.request_context.lifespan_context
-        tasks_list, next_cursor = await app.store.list_tasks(cursor=request.params.cursor if request.params else None)
+    async def on_list_tasks(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListTasksResult:
+        app: AppContext = ctx.lifespan_context
+        tasks_list, next_cursor = await app.store.list_tasks(cursor=params.cursor if params else None)
         return ListTasksResult(tasks=tasks_list, next_cursor=next_cursor)
+
+    server: Server[AppContext] = Server(  # type: ignore[assignment]
+        "test-server",
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+    )
+    server.experimental.enable_tasks(on_list_tasks=on_list_tasks)
 
     # Set up streams
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -360,17 +374,15 @@ async def test_session_experimental_list_tasks() -> None:
 @pytest.mark.anyio
 async def test_session_experimental_cancel_task() -> None:
     """Test TaskClient.cancel_task() method."""
-    server: Server[AppContext, Any] = Server("test-server")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [Tool(name="test_tool", description="Test", input_schema={"type": "object"})]
+    async def on_list_tools(ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="test_tool", description="Test", input_schema={"type": "object"})])
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
-        app = ctx.lifespan_context
+    async def on_call_tool(
+        ctx: ServerRequestContext[Any], params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
+        app: AppContext = ctx.lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -380,11 +392,10 @@ async def test_session_experimental_cancel_task() -> None:
 
         raise NotImplementedError
 
-    @server.experimental.get_task()
-    async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
-        app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.task_id)
-        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
+    async def on_get_task(ctx: ServerRequestContext[Any], params: GetTaskRequestParams) -> GetTaskResult:
+        app: AppContext = ctx.lifespan_context
+        task = await app.store.get_task(params.task_id)
+        assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,
             status=task.status,
@@ -395,14 +406,13 @@ async def test_session_experimental_cancel_task() -> None:
             poll_interval=task.poll_interval,
         )
 
-    @server.experimental.cancel_task()
-    async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
-        app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.task_id)
-        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
-        await app.store.update_task(request.params.task_id, status="cancelled")
+    async def on_cancel_task(ctx: ServerRequestContext[Any], params: CancelTaskRequestParams) -> CancelTaskResult:
+        app: AppContext = ctx.lifespan_context
+        task = await app.store.get_task(params.task_id)
+        assert task is not None, f"Test setup error: task {params.task_id} should exist"
+        await app.store.update_task(params.task_id, status="cancelled")
         # CancelTaskResult extends Task, so we need to return the updated task info
-        updated_task = await app.store.get_task(request.params.task_id)
+        updated_task = await app.store.get_task(params.task_id)
         assert updated_task is not None
         return CancelTaskResult(
             task_id=updated_task.task_id,
@@ -411,6 +421,13 @@ async def test_session_experimental_cancel_task() -> None:
             last_updated_at=updated_task.last_updated_at,
             ttl=updated_task.ttl,
         )
+
+    server: Server[AppContext] = Server(  # type: ignore[assignment]
+        "test-server",
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+    )
+    server.experimental.enable_tasks(on_get_task=on_get_task, on_cancel_task=on_cancel_task)
 
     # Set up streams
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)

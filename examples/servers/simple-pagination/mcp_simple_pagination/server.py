@@ -1,6 +1,6 @@
 """Simple MCP server demonstrating pagination for tools, resources, and prompts.
 
-This example shows how to use the paginated decorators to handle large lists
+This example shows how to use the on_* handler pattern to handle large lists
 of items that need to be split across multiple pages.
 """
 
@@ -9,6 +9,7 @@ from typing import Any
 import anyio
 import click
 from mcp import types
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from starlette.requests import Request
 
@@ -44,6 +45,136 @@ SAMPLE_PROMPTS = [
 ]
 
 
+async def handle_list_tools(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
+    """Paginated list_tools - returns 5 tools per page."""
+    page_size = 5
+
+    cursor = params.cursor if params is not None else None
+    if cursor is None:
+        start_idx = 0
+    else:
+        try:
+            start_idx = int(cursor)
+        except (ValueError, TypeError):
+            return types.ListToolsResult(tools=[], next_cursor=None)
+
+    page_tools = SAMPLE_TOOLS[start_idx : start_idx + page_size]
+
+    next_cursor = None
+    if start_idx + page_size < len(SAMPLE_TOOLS):
+        next_cursor = str(start_idx + page_size)
+
+    return types.ListToolsResult(tools=page_tools, next_cursor=next_cursor)
+
+
+async def handle_list_resources(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListResourcesResult:
+    """Paginated list_resources - returns 10 resources per page."""
+    page_size = 10
+
+    cursor = params.cursor if params is not None else None
+    if cursor is None:
+        start_idx = 0
+    else:
+        try:
+            start_idx = int(cursor)
+        except (ValueError, TypeError):
+            return types.ListResourcesResult(resources=[], next_cursor=None)
+
+    page_resources = SAMPLE_RESOURCES[start_idx : start_idx + page_size]
+
+    next_cursor = None
+    if start_idx + page_size < len(SAMPLE_RESOURCES):
+        next_cursor = str(start_idx + page_size)
+
+    return types.ListResourcesResult(resources=page_resources, next_cursor=next_cursor)
+
+
+async def handle_list_prompts(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListPromptsResult:
+    """Paginated list_prompts - returns 7 prompts per page."""
+    page_size = 7
+
+    cursor = params.cursor if params is not None else None
+    if cursor is None:
+        start_idx = 0
+    else:
+        try:
+            start_idx = int(cursor)
+        except (ValueError, TypeError):
+            return types.ListPromptsResult(prompts=[], next_cursor=None)
+
+    page_prompts = SAMPLE_PROMPTS[start_idx : start_idx + page_size]
+
+    next_cursor = None
+    if start_idx + page_size < len(SAMPLE_PROMPTS):
+        next_cursor = str(start_idx + page_size)
+
+    return types.ListPromptsResult(prompts=page_prompts, next_cursor=next_cursor)
+
+
+async def handle_call_tool(ctx: ServerRequestContext[Any], params: types.CallToolRequestParams) -> types.CallToolResult:
+    """Handle tool calls."""
+    tool = next((t for t in SAMPLE_TOOLS if t.name == params.name), None)
+    if not tool:
+        raise ValueError(f"Unknown tool: {params.name}")
+
+    return types.CallToolResult(
+        content=[
+            types.TextContent(
+                type="text",
+                text=f"Called tool '{params.name}' with arguments: {params.arguments}",
+            )
+        ]
+    )
+
+
+async def handle_read_resource(
+    ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
+) -> types.ReadResourceResult:
+    """Handle read_resource requests."""
+    resource = next((r for r in SAMPLE_RESOURCES if r.uri == params.uri), None)
+    if not resource:
+        raise ValueError(f"Unknown resource: {params.uri}")
+
+    return types.ReadResourceResult(
+        contents=[
+            types.TextResourceContents(
+                uri=params.uri,
+                text=f"Content of {resource.name}: This is sample content for the resource.",
+                mime_type="text/plain",
+            )
+        ]
+    )
+
+
+async def handle_get_prompt(
+    ctx: ServerRequestContext[Any], params: types.GetPromptRequestParams
+) -> types.GetPromptResult:
+    """Handle get_prompt requests."""
+    prompt = next((p for p in SAMPLE_PROMPTS if p.name == params.name), None)
+    if not prompt:
+        raise ValueError(f"Unknown prompt: {params.name}")
+
+    message_text = f"This is the prompt '{params.name}'"
+    if params.arguments:
+        message_text += f" with arguments: {params.arguments}"
+
+    return types.GetPromptResult(
+        description=prompt.description,
+        messages=[
+            types.PromptMessage(
+                role="user",
+                content=types.TextContent(type="text", text=message_text),
+            )
+        ],
+    )
+
+
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on for SSE")
 @click.option(
@@ -53,142 +184,15 @@ SAMPLE_PROMPTS = [
     help="Transport type",
 )
 def main(port: int, transport: str) -> int:
-    app = Server("mcp-simple-pagination")
-
-    # Paginated list_tools - returns 5 tools per page
-    @app.list_tools()
-    async def list_tools_paginated(request: types.ListToolsRequest) -> types.ListToolsResult:
-        page_size = 5
-
-        cursor = request.params.cursor if request.params is not None else None
-        if cursor is None:
-            # First page
-            start_idx = 0
-        else:
-            # Parse cursor to get the start index
-            try:
-                start_idx = int(cursor)
-            except (ValueError, TypeError):
-                # Invalid cursor, return empty
-                return types.ListToolsResult(tools=[], next_cursor=None)
-
-        # Get the page of tools
-        page_tools = SAMPLE_TOOLS[start_idx : start_idx + page_size]
-
-        # Determine if there are more pages
-        next_cursor = None
-        if start_idx + page_size < len(SAMPLE_TOOLS):
-            next_cursor = str(start_idx + page_size)
-
-        return types.ListToolsResult(tools=page_tools, next_cursor=next_cursor)
-
-    # Paginated list_resources - returns 10 resources per page
-    @app.list_resources()
-    async def list_resources_paginated(
-        request: types.ListResourcesRequest,
-    ) -> types.ListResourcesResult:
-        page_size = 10
-
-        cursor = request.params.cursor if request.params is not None else None
-        if cursor is None:
-            # First page
-            start_idx = 0
-        else:
-            # Parse cursor to get the start index
-            try:
-                start_idx = int(cursor)
-            except (ValueError, TypeError):
-                # Invalid cursor, return empty
-                return types.ListResourcesResult(resources=[], next_cursor=None)
-
-        # Get the page of resources
-        page_resources = SAMPLE_RESOURCES[start_idx : start_idx + page_size]
-
-        # Determine if there are more pages
-        next_cursor = None
-        if start_idx + page_size < len(SAMPLE_RESOURCES):
-            next_cursor = str(start_idx + page_size)
-
-        return types.ListResourcesResult(resources=page_resources, next_cursor=next_cursor)
-
-    # Paginated list_prompts - returns 7 prompts per page
-    @app.list_prompts()
-    async def list_prompts_paginated(
-        request: types.ListPromptsRequest,
-    ) -> types.ListPromptsResult:
-        page_size = 7
-
-        cursor = request.params.cursor if request.params is not None else None
-        if cursor is None:
-            # First page
-            start_idx = 0
-        else:
-            # Parse cursor to get the start index
-            try:
-                start_idx = int(cursor)
-            except (ValueError, TypeError):
-                # Invalid cursor, return empty
-                return types.ListPromptsResult(prompts=[], next_cursor=None)
-
-        # Get the page of prompts
-        page_prompts = SAMPLE_PROMPTS[start_idx : start_idx + page_size]
-
-        # Determine if there are more pages
-        next_cursor = None
-        if start_idx + page_size < len(SAMPLE_PROMPTS):
-            next_cursor = str(start_idx + page_size)
-
-        return types.ListPromptsResult(prompts=page_prompts, next_cursor=next_cursor)
-
-    # Implement call_tool handler
-    @app.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
-        # Find the tool in our sample data
-        tool = next((t for t in SAMPLE_TOOLS if t.name == name), None)
-        if not tool:
-            raise ValueError(f"Unknown tool: {name}")
-
-        # Simple mock response
-        return [
-            types.TextContent(
-                type="text",
-                text=f"Called tool '{name}' with arguments: {arguments}",
-            )
-        ]
-
-    # Implement read_resource handler
-    @app.read_resource()
-    async def read_resource(uri: str) -> str:
-        # Find the resource in our sample data
-        resource = next((r for r in SAMPLE_RESOURCES if r.uri == uri), None)
-        if not resource:
-            raise ValueError(f"Unknown resource: {uri}")
-
-        # Return a simple string - the decorator will convert it to TextResourceContents
-        return f"Content of {resource.name}: This is sample content for the resource."
-
-    # Implement get_prompt handler
-    @app.get_prompt()
-    async def get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
-        # Find the prompt in our sample data
-        prompt = next((p for p in SAMPLE_PROMPTS if p.name == name), None)
-        if not prompt:
-            raise ValueError(f"Unknown prompt: {name}")
-
-        # Simple mock response
-        message_text = f"This is the prompt '{name}'"
-        if arguments:
-            message_text += f" with arguments: {arguments}"
-
-        return types.GetPromptResult(
-            description=prompt.description,
-            messages=[
-                types.PromptMessage(
-                    role="user",
-                    content=types.TextContent(type="text", text=message_text),
-                )
-            ],
-        )
+    app = Server(
+        "mcp-simple-pagination",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+        on_list_resources=handle_list_resources,
+        on_read_resource=handle_read_resource,
+        on_list_prompts=handle_list_prompts,
+        on_get_prompt=handle_get_prompt,
+    )
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
