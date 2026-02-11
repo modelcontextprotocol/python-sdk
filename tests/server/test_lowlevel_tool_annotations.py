@@ -5,39 +5,52 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import ClientResult, ServerNotification, ServerRequest, Tool, ToolAnnotations
+from mcp.types import (
+    ClientResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ServerNotification,
+    ServerRequest,
+    Tool,
+    ToolAnnotations,
+)
 
 
 @pytest.mark.anyio
 async def test_lowlevel_server_tool_annotations():
     """Test that tool annotations work in low-level server."""
-    server = Server("test")
 
     # Create a tool with annotations
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="echo",
-                description="Echo a message back",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "message": {"type": "string"},
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="echo",
+                    description="Echo a message back",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "message": {"type": "string"},
+                        },
+                        "required": ["message"],
                     },
-                    "required": ["message"],
-                },
-                annotations=ToolAnnotations(
-                    title="Echo Tool",
-                    read_only_hint=True,
-                ),
-            )
-        ]
+                    annotations=ToolAnnotations(
+                        title="Echo Tool",
+                        read_only_hint=True,
+                    ),
+                )
+            ]
+        )
+
+    server = Server("test", on_list_tools=handle_list_tools)
 
     tools_result = None
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)

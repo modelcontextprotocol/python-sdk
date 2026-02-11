@@ -29,6 +29,7 @@ from mcp import MCPError, types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
     MCP_SESSION_ID_HEADER,
@@ -124,263 +125,288 @@ class SimpleEventStore(EventStore):
         return target_stream_id
 
 
-# Test server implementation that follows MCP protocol
-class ServerTest(Server):  # pragma: no cover
-    def __init__(self):
-        super().__init__(SERVER_NAME)
-        self._lock = None  # Will be initialized in async context
+# Module-level state for test server (used across handler functions)
+_server_state: dict[str, anyio.Event | None] = {"lock": None}
 
-        @self.read_resource()
-        async def handle_read_resource(uri: str) -> str | bytes:
-            parsed = urlparse(uri)
-            if parsed.scheme == "foobar":
-                return f"Read {parsed.netloc}"
-            if parsed.scheme == "slow":
-                # Simulate a slow resource
-                await anyio.sleep(2.0)
-                return f"Slow response from {parsed.netloc}"
 
-            raise ValueError(f"Unknown resource: {uri}")
-
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return [
-                Tool(
-                    name="test_tool",
-                    description="A test tool",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="test_tool_with_standalone_notification",
-                    description="A test tool that sends a notification",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="long_running_with_checkpoints",
-                    description="A long-running tool that sends periodic notifications",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="test_sampling_tool",
-                    description="A tool that triggers server-side sampling",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="wait_for_lock_with_notification",
-                    description="A tool that sends a notification and waits for lock",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="release_lock",
-                    description="A tool that releases the lock",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="tool_with_stream_close",
-                    description="A tool that closes SSE stream mid-operation",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="tool_with_multiple_notifications_and_close",
-                    description="Tool that sends notification1, closes stream, sends notification2, notification3",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="tool_with_multiple_stream_closes",
-                    description="Tool that closes SSE stream multiple times during execution",
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "checkpoints": {"type": "integer", "default": 3},
-                            "sleep_time": {"type": "number", "default": 0.2},
-                        },
-                    },
-                ),
-                Tool(
-                    name="tool_with_standalone_stream_close",
-                    description="Tool that closes standalone GET stream mid-operation",
-                    input_schema={"type": "object", "properties": {}},
-                ),
+async def _test_handle_read_resource(
+    ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
+) -> types.ReadResourceResult:  # pragma: no cover
+    uri = str(params.uri)
+    parsed = urlparse(uri)
+    if parsed.scheme == "foobar":
+        return types.ReadResourceResult(
+            contents=[TextResourceContents(uri=params.uri, text=f"Read {parsed.netloc}", mimeType="text/plain")]
+        )
+    if parsed.scheme == "slow":
+        # Simulate a slow resource
+        await anyio.sleep(2.0)
+        return types.ReadResourceResult(
+            contents=[
+                TextResourceContents(uri=params.uri, text=f"Slow response from {parsed.netloc}", mimeType="text/plain")
             ]
+        )
 
-        @self.call_tool()
-        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
-            ctx = self.request_context
+    raise ValueError(f"Unknown resource: {uri}")
 
-            # When the tool is called, send a notification to test GET stream
-            if name == "test_tool_with_standalone_notification":
-                await ctx.session.send_resource_updated(uri="http://test_resource")
-                return [TextContent(type="text", text=f"Called {name}")]
 
-            elif name == "long_running_with_checkpoints":
-                # Send notifications that are part of the response stream
-                # This simulates a long-running tool that sends logs
+async def _test_handle_list_tools(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:  # pragma: no cover
+    return types.ListToolsResult(
+        tools=[
+            Tool(
+                name="test_tool",
+                description="A test tool",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="test_tool_with_standalone_notification",
+                description="A test tool that sends a notification",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="long_running_with_checkpoints",
+                description="A long-running tool that sends periodic notifications",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="test_sampling_tool",
+                description="A tool that triggers server-side sampling",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="wait_for_lock_with_notification",
+                description="A tool that sends a notification and waits for lock",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="release_lock",
+                description="A tool that releases the lock",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="tool_with_stream_close",
+                description="A tool that closes SSE stream mid-operation",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="tool_with_multiple_notifications_and_close",
+                description="Tool that sends notification1, closes stream, sends notification2, notification3",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="tool_with_multiple_stream_closes",
+                description="Tool that closes SSE stream multiple times during execution",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "checkpoints": {"type": "integer", "default": 3},
+                        "sleep_time": {"type": "number", "default": 0.2},
+                    },
+                },
+            ),
+            Tool(
+                name="tool_with_standalone_stream_close",
+                description="Tool that closes standalone GET stream mid-operation",
+                input_schema={"type": "object", "properties": {}},
+            ),
+        ]
+    )
 
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="Tool started",
-                    logger="tool",
-                    related_request_id=ctx.request_id,  # need for stream association
+
+async def _test_handle_call_tool(
+    ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+) -> types.CallToolResult:  # pragma: no cover
+    name = params.name
+    args = params.arguments or {}
+
+    # When the tool is called, send a notification to test GET stream
+    if name == "test_tool_with_standalone_notification":
+        await ctx.session.send_resource_updated(uri="http://test_resource")
+        return types.CallToolResult(content=[TextContent(type="text", text=f"Called {name}")])
+
+    elif name == "long_running_with_checkpoints":
+        # Send notifications that are part of the response stream
+        # This simulates a long-running tool that sends logs
+
+        await ctx.session.send_log_message(
+            level="info",
+            data="Tool started",
+            logger="tool",
+            related_request_id=ctx.request_id,  # need for stream association
+        )
+
+        await anyio.sleep(0.1)
+
+        await ctx.session.send_log_message(
+            level="info",
+            data="Tool is almost done",
+            logger="tool",
+            related_request_id=ctx.request_id,
+        )
+
+        return types.CallToolResult(content=[TextContent(type="text", text="Completed!")])
+
+    elif name == "test_sampling_tool":
+        # Test sampling by requesting the client to sample a message
+        sampling_result = await ctx.session.create_message(
+            messages=[
+                types.SamplingMessage(
+                    role="user",
+                    content=types.TextContent(type="text", text="Server needs client sampling"),
                 )
+            ],
+            max_tokens=100,
+            related_request_id=ctx.request_id,
+        )
 
-                await anyio.sleep(0.1)
-
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="Tool is almost done",
-                    logger="tool",
-                    related_request_id=ctx.request_id,
+        # Return the sampling result in the tool response
+        # Since we're not passing tools param, result.content is single content
+        if sampling_result.content.type == "text":
+            response = sampling_result.content.text
+        else:
+            response = str(sampling_result.content)
+        return types.CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"Response from sampling: {response}",
                 )
+            ]
+        )
 
-                return [TextContent(type="text", text="Completed!")]
+    elif name == "wait_for_lock_with_notification":
+        # Initialize lock if not already done
+        if _server_state["lock"] is None:
+            _server_state["lock"] = anyio.Event()
 
-            elif name == "test_sampling_tool":
-                # Test sampling by requesting the client to sample a message
-                sampling_result = await ctx.session.create_message(
-                    messages=[
-                        types.SamplingMessage(
-                            role="user",
-                            content=types.TextContent(type="text", text="Server needs client sampling"),
-                        )
-                    ],
-                    max_tokens=100,
-                    related_request_id=ctx.request_id,
-                )
+        # First send a notification
+        await ctx.session.send_log_message(
+            level="info",
+            data="First notification before lock",
+            logger="lock_tool",
+            related_request_id=ctx.request_id,
+        )
 
-                # Return the sampling result in the tool response
-                # Since we're not passing tools param, result.content is single content
-                if sampling_result.content.type == "text":
-                    response = sampling_result.content.text
-                else:
-                    response = str(sampling_result.content)
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Response from sampling: {response}",
-                    )
-                ]
+        # Now wait for the lock to be released
+        await _server_state["lock"].wait()
 
-            elif name == "wait_for_lock_with_notification":
-                # Initialize lock if not already done
-                if self._lock is None:
-                    self._lock = anyio.Event()
+        # Send second notification after lock is released
+        await ctx.session.send_log_message(
+            level="info",
+            data="Second notification after lock",
+            logger="lock_tool",
+            related_request_id=ctx.request_id,
+        )
 
-                # First send a notification
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="First notification before lock",
-                    logger="lock_tool",
-                    related_request_id=ctx.request_id,
-                )
+        return types.CallToolResult(content=[TextContent(type="text", text="Completed")])
 
-                # Now wait for the lock to be released
-                await self._lock.wait()
+    elif name == "release_lock":
+        assert _server_state["lock"] is not None, "Lock must be initialized before releasing"
 
-                # Send second notification after lock is released
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="Second notification after lock",
-                    logger="lock_tool",
-                    related_request_id=ctx.request_id,
-                )
+        # Release the lock
+        _server_state["lock"].set()
+        return types.CallToolResult(content=[TextContent(type="text", text="Lock released")])
 
-                return [TextContent(type="text", text="Completed")]
+    elif name == "tool_with_stream_close":
+        # Send notification before closing
+        await ctx.session.send_log_message(
+            level="info",
+            data="Before close",
+            logger="stream_close_tool",
+            related_request_id=ctx.request_id,
+        )
+        # Close SSE stream (triggers client reconnect)
+        assert ctx.close_sse_stream is not None
+        await ctx.close_sse_stream()
+        # Continue processing (events stored in event_store)
+        await anyio.sleep(0.1)
+        await ctx.session.send_log_message(
+            level="info",
+            data="After close",
+            logger="stream_close_tool",
+            related_request_id=ctx.request_id,
+        )
+        return types.CallToolResult(content=[TextContent(type="text", text="Done")])
 
-            elif name == "release_lock":
-                assert self._lock is not None, "Lock must be initialized before releasing"
+    elif name == "tool_with_multiple_notifications_and_close":
+        # Send notification1
+        await ctx.session.send_log_message(
+            level="info",
+            data="notification1",
+            logger="multi_notif_tool",
+            related_request_id=ctx.request_id,
+        )
+        # Close SSE stream
+        assert ctx.close_sse_stream is not None
+        await ctx.close_sse_stream()
+        # Send notification2, notification3 (stored in event_store)
+        await anyio.sleep(0.1)
+        await ctx.session.send_log_message(
+            level="info",
+            data="notification2",
+            logger="multi_notif_tool",
+            related_request_id=ctx.request_id,
+        )
+        await ctx.session.send_log_message(
+            level="info",
+            data="notification3",
+            logger="multi_notif_tool",
+            related_request_id=ctx.request_id,
+        )
+        return types.CallToolResult(content=[TextContent(type="text", text="All notifications sent")])
 
-                # Release the lock
-                self._lock.set()
-                return [TextContent(type="text", text="Lock released")]
+    elif name == "tool_with_multiple_stream_closes":
+        num_checkpoints = args.get("checkpoints", 3)
+        sleep_time = args.get("sleep_time", 0.2)
 
-            elif name == "tool_with_stream_close":
-                # Send notification before closing
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="Before close",
-                    logger="stream_close_tool",
-                    related_request_id=ctx.request_id,
-                )
-                # Close SSE stream (triggers client reconnect)
-                assert ctx.close_sse_stream is not None
+        for i in range(num_checkpoints):
+            await ctx.session.send_log_message(
+                level="info",
+                data=f"checkpoint_{i}",
+                logger="multi_close_tool",
+                related_request_id=ctx.request_id,
+            )
+
+            if ctx.close_sse_stream:
                 await ctx.close_sse_stream()
-                # Continue processing (events stored in event_store)
-                await anyio.sleep(0.1)
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="After close",
-                    logger="stream_close_tool",
-                    related_request_id=ctx.request_id,
-                )
-                return [TextContent(type="text", text="Done")]
 
-            elif name == "tool_with_multiple_notifications_and_close":
-                # Send notification1
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="notification1",
-                    logger="multi_notif_tool",
-                    related_request_id=ctx.request_id,
-                )
-                # Close SSE stream
-                assert ctx.close_sse_stream is not None
-                await ctx.close_sse_stream()
-                # Send notification2, notification3 (stored in event_store)
-                await anyio.sleep(0.1)
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="notification2",
-                    logger="multi_notif_tool",
-                    related_request_id=ctx.request_id,
-                )
-                await ctx.session.send_log_message(
-                    level="info",
-                    data="notification3",
-                    logger="multi_notif_tool",
-                    related_request_id=ctx.request_id,
-                )
-                return [TextContent(type="text", text="All notifications sent")]
+            await anyio.sleep(sleep_time)
 
-            elif name == "tool_with_multiple_stream_closes":
-                num_checkpoints = args.get("checkpoints", 3)
-                sleep_time = args.get("sleep_time", 0.2)
+        return types.CallToolResult(content=[TextContent(type="text", text=f"Completed {num_checkpoints} checkpoints")])
 
-                for i in range(num_checkpoints):
-                    await ctx.session.send_log_message(
-                        level="info",
-                        data=f"checkpoint_{i}",
-                        logger="multi_close_tool",
-                        related_request_id=ctx.request_id,
-                    )
+    elif name == "tool_with_standalone_stream_close":
+        # Test for GET stream reconnection
+        # 1. Send unsolicited notification via GET stream (no related_request_id)
+        await ctx.session.send_resource_updated(uri="http://notification_1")
 
-                    if ctx.close_sse_stream:
-                        await ctx.close_sse_stream()
+        # Small delay to ensure notification is flushed before closing
+        await anyio.sleep(0.1)
 
-                    await anyio.sleep(sleep_time)
+        # 2. Close the standalone GET stream
+        if ctx.close_standalone_sse_stream:
+            await ctx.close_standalone_sse_stream()
 
-                return [TextContent(type="text", text=f"Completed {num_checkpoints} checkpoints")]
+        # 3. Wait for client to reconnect (uses retry_interval from server, default 1000ms)
+        await anyio.sleep(1.5)
 
-            elif name == "tool_with_standalone_stream_close":
-                # Test for GET stream reconnection
-                # 1. Send unsolicited notification via GET stream (no related_request_id)
-                await ctx.session.send_resource_updated(uri="http://notification_1")
+        # 4. Send another notification on the new GET stream connection
+        await ctx.session.send_resource_updated(uri="http://notification_2")
 
-                # Small delay to ensure notification is flushed before closing
-                await anyio.sleep(0.1)
+        return types.CallToolResult(content=[TextContent(type="text", text="Standalone stream close test done")])
 
-                # 2. Close the standalone GET stream
-                if ctx.close_standalone_sse_stream:
-                    await ctx.close_standalone_sse_stream()
+    return types.CallToolResult(content=[TextContent(type="text", text=f"Called {name}")])
 
-                # 3. Wait for client to reconnect (uses retry_interval from server, default 1000ms)
-                await anyio.sleep(1.5)
 
-                # 4. Send another notification on the new GET stream connection
-                await ctx.session.send_resource_updated(uri="http://notification_2")
-
-                return [TextContent(type="text", text="Standalone stream close test done")]
-
-            return [TextContent(type="text", text=f"Called {name}")]
+def _create_test_server() -> Server:  # pragma: no cover
+    """Create a test Server instance with handlers registered via constructor kwargs."""
+    return Server(
+        SERVER_NAME,
+        on_read_resource=_test_handle_read_resource,
+        on_list_tools=_test_handle_list_tools,
+        on_call_tool=_test_handle_call_tool,
+    )
 
 
 def create_app(
@@ -396,7 +422,7 @@ def create_app(
         retry_interval: Retry interval in milliseconds for SSE polling.
     """
     # Create server instance
-    server = ServerTest()
+    server = _create_test_server()
 
     # Create the session manager
     security_settings = TransportSecuritySettings(
@@ -1384,70 +1410,80 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
             assert captured_message_params.messages[0].content.text == "Server needs client sampling"
 
 
-# Context-aware server implementation for testing request context propagation
-class ContextAwareServerTest(Server):  # pragma: no cover
-    def __init__(self):
-        super().__init__("ContextAwareServer")
+# Context-aware server handler functions for testing request context propagation
 
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return [
-                Tool(
-                    name="echo_headers",
-                    description="Echo request headers from context",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="echo_context",
-                    description="Echo request context with custom data",
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "request_id": {"type": "string"},
-                        },
-                        "required": ["request_id"],
+
+async def _ctx_list_tools(  # pragma: no cover
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
+    return types.ListToolsResult(
+        tools=[
+            Tool(
+                name="echo_headers",
+                description="Echo request headers from context",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="echo_context",
+                description="Echo request context with custom data",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"},
                     },
-                ),
+                    "required": ["request_id"],
+                },
+            ),
+        ]
+    )
+
+
+async def _ctx_call_tool(  # pragma: no cover
+    ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+) -> types.CallToolResult:
+    name = params.name
+    args = params.arguments or {}
+
+    if name == "echo_headers":
+        # Access the request object from context
+        headers_info = {}
+        if ctx.request and isinstance(ctx.request, Request):
+            headers_info = dict(ctx.request.headers)
+        return types.CallToolResult(content=[TextContent(type="text", text=json.dumps(headers_info))])
+
+    elif name == "echo_context":
+        # Return full context information
+        context_data: dict[str, Any] = {
+            "request_id": args.get("request_id"),
+            "headers": {},
+            "method": None,
+            "path": None,
+        }
+        if ctx.request and isinstance(ctx.request, Request):
+            request = ctx.request
+            context_data["headers"] = dict(request.headers)
+            context_data["method"] = request.method
+            context_data["path"] = request.url.path
+        return types.CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=json.dumps(context_data),
+                )
             ]
+        )
 
-        @self.call_tool()
-        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
-            ctx = self.request_context
-
-            if name == "echo_headers":
-                # Access the request object from context
-                headers_info = {}
-                if ctx.request and isinstance(ctx.request, Request):
-                    headers_info = dict(ctx.request.headers)
-                return [TextContent(type="text", text=json.dumps(headers_info))]
-
-            elif name == "echo_context":
-                # Return full context information
-                context_data: dict[str, Any] = {
-                    "request_id": args.get("request_id"),
-                    "headers": {},
-                    "method": None,
-                    "path": None,
-                }
-                if ctx.request and isinstance(ctx.request, Request):
-                    request = ctx.request
-                    context_data["headers"] = dict(request.headers)
-                    context_data["method"] = request.method
-                    context_data["path"] = request.url.path
-                return [
-                    TextContent(
-                        type="text",
-                        text=json.dumps(context_data),
-                    )
-                ]
-
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+    return types.CallToolResult(content=[TextContent(type="text", text=f"Unknown tool: {name}")])
 
 
 # Server runner for context-aware testing
 def run_context_aware_server(port: int):  # pragma: no cover
     """Run the context-aware test server."""
-    server = ContextAwareServerTest()
+    server = Server(
+        "ContextAwareServer",
+        on_list_tools=_ctx_list_tools,
+        on_call_tool=_ctx_call_tool,
+    )
 
     session_manager = StreamableHTTPSessionManager(
         app=server,

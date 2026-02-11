@@ -1,25 +1,30 @@
+from typing import Any
+
 import pytest
 
-from mcp import Client
+from mcp import Client, types
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.types import EmptyResult, Resource
 
 
-@pytest.fixture
-def mcp_server() -> Server:
-    server = Server(name="test_server")
-
-    @server.list_resources()
-    async def handle_list_resources():  # pragma: no cover
-        return [
+async def handle_list_resources(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListResourcesResult:  # pragma: no cover
+    return types.ListResourcesResult(
+        resources=[
             Resource(
                 uri="memory://test",
                 name="Test Resource",
                 description="A test resource",
             )
         ]
+    )
 
-    return server
+
+@pytest.fixture
+def mcp_server() -> Server:
+    return Server(name="test_server", on_list_resources=handle_list_resources)
 
 
 @pytest.mark.anyio

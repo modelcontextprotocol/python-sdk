@@ -1,81 +1,61 @@
-"""Basic tests for list_prompts, list_resources, and list_tools decorators without pagination."""
-
-import warnings
+"""Basic tests for on_list_prompts, on_list_resources, and on_list_tools handlers without pagination."""
 
 import pytest
 
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.types import (
-    ListPromptsRequest,
     ListPromptsResult,
-    ListResourcesRequest,
     ListResourcesResult,
-    ListToolsRequest,
     ListToolsResult,
     Prompt,
     Resource,
-    ServerResult,
     Tool,
 )
 
+pytestmark = pytest.mark.anyio
 
-@pytest.mark.anyio
+
 async def test_list_prompts_basic() -> None:
     """Test basic prompt listing without pagination."""
-    server = Server("test")
-
     test_prompts = [
         Prompt(name="prompt1", description="First prompt"),
         Prompt(name="prompt2", description="Second prompt"),
     ]
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+    async def handle_list_prompts(ctx: ServerRequestContext, params: None) -> ListPromptsResult:
+        return ListPromptsResult(prompts=test_prompts)
 
-        @server.list_prompts()
-        async def handle_list_prompts() -> list[Prompt]:
-            return test_prompts
+    server = Server("test", on_list_prompts=handle_list_prompts)
 
-    handler = server.request_handlers[ListPromptsRequest]
-    request = ListPromptsRequest(method="prompts/list", params=None)
-    result = await handler(request)
+    assert "prompts/list" in server._request_handlers
+    result = await server._request_handlers["prompts/list"](None, None)  # type: ignore[arg-type]
 
-    assert isinstance(result, ServerResult)
     assert isinstance(result, ListPromptsResult)
     assert result.prompts == test_prompts
 
 
-@pytest.mark.anyio
 async def test_list_resources_basic() -> None:
     """Test basic resource listing without pagination."""
-    server = Server("test")
-
     test_resources = [
         Resource(uri="file:///test1.txt", name="Test 1"),
         Resource(uri="file:///test2.txt", name="Test 2"),
     ]
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+    async def handle_list_resources(ctx: ServerRequestContext, params: None) -> ListResourcesResult:
+        return ListResourcesResult(resources=test_resources)
 
-        @server.list_resources()
-        async def handle_list_resources() -> list[Resource]:
-            return test_resources
+    server = Server("test", on_list_resources=handle_list_resources)
 
-    handler = server.request_handlers[ListResourcesRequest]
-    request = ListResourcesRequest(method="resources/list", params=None)
-    result = await handler(request)
+    assert "resources/list" in server._request_handlers
+    result = await server._request_handlers["resources/list"](None, None)  # type: ignore[arg-type]
 
-    assert isinstance(result, ServerResult)
     assert isinstance(result, ListResourcesResult)
     assert result.resources == test_resources
 
 
-@pytest.mark.anyio
 async def test_list_tools_basic() -> None:
     """Test basic tool listing without pagination."""
-    server = Server("test")
-
     test_tools = [
         Tool(
             name="tool1",
@@ -102,80 +82,52 @@ async def test_list_tools_basic() -> None:
         ),
     ]
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+    async def handle_list_tools(ctx: ServerRequestContext, params: None) -> ListToolsResult:
+        return ListToolsResult(tools=test_tools)
 
-        @server.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return test_tools
+    server = Server("test", on_list_tools=handle_list_tools)
 
-    handler = server.request_handlers[ListToolsRequest]
-    request = ListToolsRequest(method="tools/list", params=None)
-    result = await handler(request)
+    assert "tools/list" in server._request_handlers
+    result = await server._request_handlers["tools/list"](None, None)  # type: ignore[arg-type]
 
-    assert isinstance(result, ServerResult)
     assert isinstance(result, ListToolsResult)
     assert result.tools == test_tools
 
 
-@pytest.mark.anyio
 async def test_list_prompts_empty() -> None:
     """Test listing with empty results."""
-    server = Server("test")
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+    async def handle_list_prompts(ctx: ServerRequestContext, params: None) -> ListPromptsResult:
+        return ListPromptsResult(prompts=[])
 
-        @server.list_prompts()
-        async def handle_list_prompts() -> list[Prompt]:
-            return []
+    server = Server("test", on_list_prompts=handle_list_prompts)
+    result = await server._request_handlers["prompts/list"](None, None)  # type: ignore[arg-type]
 
-    handler = server.request_handlers[ListPromptsRequest]
-    request = ListPromptsRequest(method="prompts/list", params=None)
-    result = await handler(request)
-
-    assert isinstance(result, ServerResult)
     assert isinstance(result, ListPromptsResult)
     assert result.prompts == []
 
 
-@pytest.mark.anyio
 async def test_list_resources_empty() -> None:
     """Test listing with empty results."""
-    server = Server("test")
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+    async def handle_list_resources(ctx: ServerRequestContext, params: None) -> ListResourcesResult:
+        return ListResourcesResult(resources=[])
 
-        @server.list_resources()
-        async def handle_list_resources() -> list[Resource]:
-            return []
+    server = Server("test", on_list_resources=handle_list_resources)
+    result = await server._request_handlers["resources/list"](None, None)  # type: ignore[arg-type]
 
-    handler = server.request_handlers[ListResourcesRequest]
-    request = ListResourcesRequest(method="resources/list", params=None)
-    result = await handler(request)
-
-    assert isinstance(result, ServerResult)
     assert isinstance(result, ListResourcesResult)
     assert result.resources == []
 
 
-@pytest.mark.anyio
 async def test_list_tools_empty() -> None:
     """Test listing with empty results."""
-    server = Server("test")
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
+    async def handle_list_tools(ctx: ServerRequestContext, params: None) -> ListToolsResult:
+        return ListToolsResult(tools=[])
 
-        @server.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return []
+    server = Server("test", on_list_tools=handle_list_tools)
+    result = await server._request_handlers["tools/list"](None, None)  # type: ignore[arg-type]
 
-    handler = server.request_handlers[ListToolsRequest]
-    request = ListToolsRequest(method="tools/list", params=None)
-    result = await handler(request)
-
-    assert isinstance(result, ServerResult)
     assert isinstance(result, ListToolsResult)
     assert result.tools == []

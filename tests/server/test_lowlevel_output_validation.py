@@ -9,17 +9,28 @@ import pytest
 
 from mcp.client.session import ClientSession
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
-from mcp.types import CallToolResult, ClientResult, ServerNotification, ServerRequest, TextContent, Tool
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ClientResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ServerNotification,
+    ServerRequest,
+    TextContent,
+    Tool,
+)
 
 
 async def run_tool_test(
     tools: list[Tool],
-    call_tool_handler: Callable[[str, dict[str, Any]], Awaitable[Any]],
+    call_tool_handler: Callable[[ServerRequestContext, CallToolRequestParams], Awaitable[CallToolResult]],
     test_callback: Callable[[ClientSession], Awaitable[CallToolResult]],
 ) -> CallToolResult | None:
     """Helper to run a tool test with minimal boilerplate.
@@ -32,17 +43,15 @@ async def run_tool_test(
     Returns:
         The result of the tool call
     """
-    server = Server("test")
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(tools=tools)
+
+    server = Server("test", on_list_tools=handle_list_tools, on_call_tool=call_tool_handler)
 
     result = None
-
-    @server.list_tools()
-    async def list_tools():
-        return tools
-
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
-        return await call_tool_handler(name, arguments)
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -116,11 +125,12 @@ async def test_content_only_without_output_schema():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        if name == "echo":
-            return [TextContent(type="text", text=f"Echo: {arguments['message']}")]
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "echo":
+            assert params.arguments is not None
+            return CallToolResult(content=[TextContent(type="text", text=f"Echo: {params.arguments['message']}")])
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("echo", {"message": "Hello"})
@@ -139,7 +149,7 @@ async def test_content_only_without_output_schema():
 
 @pytest.mark.anyio
 async def test_dict_only_without_output_schema():
-    """Test returning dict only when no outputSchema is defined."""
+    """Test returning dict as structured_content when no outputSchema is defined."""
     tools = [
         Tool(
             name="get_info",
@@ -152,11 +162,15 @@ async def test_dict_only_without_output_schema():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if name == "get_info":
-            return {"status": "ok", "data": {"value": 42}}
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "get_info":
+            data: dict[str, Any] = {"status": "ok", "data": {"value": 42}}
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(data))],
+                structured_content=data,
+            )
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("get_info", {})
@@ -176,7 +190,7 @@ async def test_dict_only_without_output_schema():
 
 @pytest.mark.anyio
 async def test_both_content_and_dict_without_output_schema():
-    """Test returning both content and dict when no outputSchema is defined."""
+    """Test returning both content and structured_content when no outputSchema is defined."""
     tools = [
         Tool(
             name="process",
@@ -189,13 +203,14 @@ async def test_both_content_and_dict_without_output_schema():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> tuple[list[TextContent], dict[str, Any]]:
-        if name == "process":
-            content = [TextContent(type="text", text="Processing complete")]
-            data = {"result": "success", "count": 10}
-            return (content, data)
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "process":
+            return CallToolResult(
+                content=[TextContent(type="text", text="Processing complete")],
+                structured_content={"result": "success", "count": 10},
+            )
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("process", {})
@@ -214,7 +229,12 @@ async def test_both_content_and_dict_without_output_schema():
 
 @pytest.mark.anyio
 async def test_content_only_with_output_schema_error():
-    """Test error when outputSchema is defined but only content is returned."""
+    """Test that returning content without structured_content when outputSchema is defined results in error.
+
+    Note: With the new low-level server API, handlers return CallToolResult directly.
+    The handler is responsible for returning the appropriate error when outputSchema
+    requirements are not met.
+    """
     tools = [
         Tool(
             name="structured_tool",
@@ -233,9 +253,18 @@ async def test_content_only_with_output_schema_error():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         # This returns only content, but outputSchema expects structured data
-        return [TextContent(type="text", text="This is not structured")]
+        # With the new API, the handler is responsible for validation
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text="Output validation error: outputSchema defined but no structured output returned",
+                )
+            ],
+            is_error=True,
+        )
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("structured_tool", {})
@@ -277,13 +306,18 @@ async def test_valid_dict_with_output_schema():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if name == "calc":
-            x = arguments["x"]
-            y = arguments["y"]
-            return {"sum": x + y, "product": x * y}
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "calc":
+            assert params.arguments is not None
+            x = params.arguments["x"]
+            y = params.arguments["y"]
+            data: dict[str, Any] = {"sum": x + y, "product": x * y}
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(data))],
+                structured_content=data,
+            )
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("calc", {"x": 3, "y": 4})
@@ -302,7 +336,12 @@ async def test_valid_dict_with_output_schema():
 
 @pytest.mark.anyio
 async def test_invalid_dict_with_output_schema():
-    """Test dict output that doesn't match outputSchema."""
+    """Test dict output that doesn't match outputSchema.
+
+    Note: With the new low-level server API, handlers return CallToolResult directly.
+    The handler is responsible for returning the appropriate error when outputSchema
+    validation fails.
+    """
     tools = [
         Tool(
             name="user_info",
@@ -322,12 +361,20 @@ async def test_invalid_dict_with_output_schema():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if name == "user_info":
-            # Missing required 'age' field
-            return {"name": "Alice"}
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "user_info":
+            # Missing required 'age' field - handler reports the error
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text="Output validation error: 'age' is a required property",
+                    )
+                ],
+                is_error=True,
+            )
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("user_info", {})
@@ -346,7 +393,7 @@ async def test_invalid_dict_with_output_schema():
 
 @pytest.mark.anyio
 async def test_both_content_and_valid_dict_with_output_schema():
-    """Test returning both content and valid dict with outputSchema."""
+    """Test returning both content and valid structured_content with outputSchema."""
     tools = [
         Tool(
             name="analyze",
@@ -369,13 +416,15 @@ async def test_both_content_and_valid_dict_with_output_schema():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> tuple[list[TextContent], dict[str, Any]]:
-        if name == "analyze":
-            content = [TextContent(type="text", text=f"Analysis of: {arguments['text']}")]
-            data = {"sentiment": "positive", "confidence": 0.95}
-            return (content, data)
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "analyze":
+            assert params.arguments is not None
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Analysis of: {params.arguments['text']}")],
+                structured_content={"sentiment": "positive", "confidence": 0.95},
+            )
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("analyze", {"text": "Great job!"})
@@ -393,7 +442,7 @@ async def test_both_content_and_valid_dict_with_output_schema():
 
 @pytest.mark.anyio
 async def test_tool_call_result():
-    """Test returning ToolCallResult when no outputSchema is defined."""
+    """Test returning CallToolResult directly."""
     tools = [
         Tool(
             name="get_info",
@@ -406,15 +455,15 @@ async def test_tool_call_result():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> CallToolResult:
-        if name == "get_info":
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "get_info":
             return CallToolResult(
                 content=[TextContent(type="text", text="Results calculated")],
                 structured_content={"status": "ok", "data": {"value": 42}},
                 _meta={"some": "metadata"},
             )
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("get_info", {})
@@ -434,7 +483,12 @@ async def test_tool_call_result():
 
 @pytest.mark.anyio
 async def test_output_schema_type_validation():
-    """Test outputSchema validates types correctly."""
+    """Test outputSchema validates types correctly.
+
+    Note: With the new low-level server API, handlers return CallToolResult directly.
+    The handler is responsible for returning the appropriate error when outputSchema
+    validation fails.
+    """
     tools = [
         Tool(
             name="stats",
@@ -455,12 +509,20 @@ async def test_output_schema_type_validation():
         )
     ]
 
-    async def call_tool_handler(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if name == "stats":
-            # Wrong type for 'count' - should be integer
-            return {"count": "five", "average": 2.5, "items": ["a", "b"]}
+    async def call_tool_handler(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "stats":
+            # Wrong type for 'count' - should be integer, handler reports the error
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text="Output validation error: 'five' is not of type 'integer'",
+                    )
+                ],
+                is_error=True,
+            )
         else:  # pragma: no cover
-            raise ValueError(f"Unknown tool: {name}")
+            raise ValueError(f"Unknown tool: {params.name}")
 
     async def test_callback(client_session: ClientSession) -> CallToolResult:
         return await client_session.call_tool("stats", {})

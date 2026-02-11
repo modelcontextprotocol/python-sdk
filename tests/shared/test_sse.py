@@ -23,6 +23,7 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -42,6 +43,56 @@ from tests.test_helpers import wait_for_server
 SERVER_NAME = "test_server_for_SSE"
 
 
+async def _handle_read_resource(
+    ctx: ServerRequestContext[Any], params: types.ReadResourceRequestParams
+) -> types.ReadResourceResult:  # pragma: no cover
+    uri = str(params.uri)
+    parsed = urlparse(uri)
+    if parsed.scheme == "foobar":
+        return types.ReadResourceResult(
+            contents=[TextResourceContents(uri=params.uri, text=f"Read {parsed.netloc}", mimeType="text/plain")]
+        )
+    if parsed.scheme == "slow":
+        # Simulate a slow resource
+        await anyio.sleep(2.0)
+        return types.ReadResourceResult(
+            contents=[
+                TextResourceContents(uri=params.uri, text=f"Slow response from {parsed.netloc}", mimeType="text/plain")
+            ]
+        )
+
+    raise MCPError(code=404, message="OOPS! no resource with that URI was found")
+
+
+async def _handle_list_tools(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:  # pragma: no cover
+    return types.ListToolsResult(
+        tools=[
+            Tool(
+                name="test_tool",
+                description="A test tool",
+                input_schema={"type": "object", "properties": {}},
+            )
+        ]
+    )
+
+
+async def _handle_call_tool(
+    ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+) -> types.CallToolResult:  # pragma: no cover
+    return types.CallToolResult(content=[TextContent(type="text", text=f"Called {params.name}")])
+
+
+def _create_server_test() -> Server:  # pragma: no cover
+    return Server(
+        SERVER_NAME,
+        on_read_resource=_handle_read_resource,
+        on_list_tools=_handle_list_tools,
+        on_call_tool=_handle_call_tool,
+    )
+
+
 @pytest.fixture
 def server_port() -> int:
     with socket.socket() as s:
@@ -54,38 +105,6 @@ def server_url(server_port: int) -> str:
     return f"http://127.0.0.1:{server_port}"
 
 
-# Test server implementation
-class ServerTest(Server):  # pragma: no cover
-    def __init__(self):
-        super().__init__(SERVER_NAME)
-
-        @self.read_resource()
-        async def handle_read_resource(uri: str) -> str | bytes:
-            parsed = urlparse(uri)
-            if parsed.scheme == "foobar":
-                return f"Read {parsed.netloc}"
-            if parsed.scheme == "slow":
-                # Simulate a slow resource
-                await anyio.sleep(2.0)
-                return f"Slow response from {parsed.netloc}"
-
-            raise MCPError(code=404, message="OOPS! no resource with that URI was found")
-
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return [
-                Tool(
-                    name="test_tool",
-                    description="A test tool",
-                    input_schema={"type": "object", "properties": {}},
-                )
-            ]
-
-        @self.call_tool()
-        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
-            return [TextContent(type="text", text=f"Called {name}")]
-
-
 # Test fixtures
 def make_server_app() -> Starlette:  # pragma: no cover
     """Create test Starlette app with SSE transport"""
@@ -94,7 +113,7 @@ def make_server_app() -> Starlette:  # pragma: no cover
         allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
-    server = ServerTest()
+    server = _create_server_test()
 
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
@@ -336,47 +355,48 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
             assert isinstance(ping_result, EmptyResult)
 
 
-# Test server with request context that returns headers in the response
-class RequestContextServer(Server[object, Request]):  # pragma: no cover
-    def __init__(self):
-        super().__init__("request_context_server")
+# Request context handler functions for the context server
+async def _ctx_handle_call_tool(
+    ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+) -> types.CallToolResult:  # pragma: no cover
+    headers_info: dict[str, str] = {}
+    if ctx.request:
+        headers_info = dict(ctx.request.headers)
 
-        @self.call_tool()
-        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
-            headers_info = {}
-            context = self.request_context
-            if context.request:
-                headers_info = dict(context.request.headers)
+    if params.name == "echo_headers":
+        return types.CallToolResult(content=[TextContent(type="text", text=json.dumps(headers_info))])
+    elif params.name == "echo_context":
+        args = params.arguments or {}
+        context_data = {
+            "request_id": args.get("request_id"),
+            "headers": headers_info,
+        }
+        return types.CallToolResult(content=[TextContent(type="text", text=json.dumps(context_data))])
 
-            if name == "echo_headers":
-                return [TextContent(type="text", text=json.dumps(headers_info))]
-            elif name == "echo_context":
-                context_data = {
-                    "request_id": args.get("request_id"),
-                    "headers": headers_info,
-                }
-                return [TextContent(type="text", text=json.dumps(context_data))]
+    return types.CallToolResult(content=[TextContent(type="text", text=f"Called {params.name}")])
 
-            return [TextContent(type="text", text=f"Called {name}")]
 
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return [
-                Tool(
-                    name="echo_headers",
-                    description="Echoes request headers",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="echo_context",
-                    description="Echoes request context",
-                    input_schema={
-                        "type": "object",
-                        "properties": {"request_id": {"type": "string"}},
-                        "required": ["request_id"],
-                    },
-                ),
-            ]
+async def _ctx_handle_list_tools(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:  # pragma: no cover
+    return types.ListToolsResult(
+        tools=[
+            Tool(
+                name="echo_headers",
+                description="Echoes request headers",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="echo_context",
+                description="Echoes request context",
+                input_schema={
+                    "type": "object",
+                    "properties": {"request_id": {"type": "string"}},
+                    "required": ["request_id"],
+                },
+            ),
+        ]
+    )
 
 
 def run_context_server(server_port: int) -> None:  # pragma: no cover
@@ -386,7 +406,11 @@ def run_context_server(server_port: int) -> None:  # pragma: no cover
         allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
-    context_server = RequestContextServer()
+    context_server = Server(
+        "request_context_server",
+        on_call_tool=_ctx_handle_call_tool,
+        on_list_tools=_ctx_handle_list_tools,
+    )
 
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:

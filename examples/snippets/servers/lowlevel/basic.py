@@ -3,35 +3,38 @@ uv run examples/snippets/servers/lowlevel/basic.py
 """
 
 import asyncio
+from typing import Any
 
 import mcp.server.stdio
 from mcp import types
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
-# Create a server instance
-server = Server("example-server")
 
-
-@server.list_prompts()
-async def handle_list_prompts() -> list[types.Prompt]:
+async def handle_list_prompts(
+    ctx: ServerRequestContext[Any], params: types.PaginatedRequestParams | None
+) -> types.ListPromptsResult:
     """List available prompts."""
-    return [
-        types.Prompt(
-            name="example-prompt",
-            description="An example prompt template",
-            arguments=[types.PromptArgument(name="arg1", description="Example argument", required=True)],
-        )
-    ]
+    return types.ListPromptsResult(
+        prompts=[
+            types.Prompt(
+                name="example-prompt",
+                description="An example prompt template",
+                arguments=[types.PromptArgument(name="arg1", description="Example argument", required=True)],
+            )
+        ]
+    )
 
 
-@server.get_prompt()
-async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+async def handle_get_prompt(
+    ctx: ServerRequestContext[Any], params: types.GetPromptRequestParams
+) -> types.GetPromptResult:
     """Get a specific prompt by name."""
-    if name != "example-prompt":
-        raise ValueError(f"Unknown prompt: {name}")
+    if params.name != "example-prompt":
+        raise ValueError(f"Unknown prompt: {params.name}")
 
-    arg1_value = (arguments or {}).get("arg1", "default")
+    arg1_value = (params.arguments or {}).get("arg1", "default")
 
     return types.GetPromptResult(
         description="Example prompt",
@@ -42,6 +45,14 @@ async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> type
             )
         ],
     )
+
+
+# Create a server instance
+server = Server(
+    "example-server",
+    on_list_prompts=handle_list_prompts,
+    on_get_prompt=handle_get_prompt,
+)
 
 
 async def run():

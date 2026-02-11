@@ -21,11 +21,8 @@ async def test_resource_templates():
         return f"Profile data for user {user_id}"
 
     # Get the list of resource templates using the underlying server
-    # Note: list_resource_templates() returns a decorator that wraps the handler
-    # The handler returns a ServerResult with a ListResourceTemplatesResult inside
-    result = await mcp._lowlevel_server.request_handlers[types.ListResourceTemplatesRequest](
-        types.ListResourceTemplatesRequest(params=None)
-    )
+    # The handler receives (ctx, params) and returns ListResourceTemplatesResult
+    result = await mcp._lowlevel_server._request_handlers["resources/templates/list"](None, None)  # type: ignore[arg-type]
     assert isinstance(result, types.ListResourceTemplatesResult)
     templates = result.resource_templates
 

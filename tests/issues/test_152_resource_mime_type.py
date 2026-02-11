@@ -3,8 +3,8 @@ import base64
 import pytest
 
 from mcp import Client, types
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
-from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.mcpserver import MCPServer
 
 pytestmark = pytest.mark.anyio
@@ -58,7 +58,6 @@ async def test_mcpserver_resource_mime_type():
 
 async def test_lowlevel_resource_mime_type():
     """Test that mime_type parameter is respected for resources."""
-    server = Server("test")
 
     # Create a small test image as bytes
     image_bytes = b"fake_image_data"
@@ -74,17 +73,42 @@ async def test_lowlevel_resource_mime_type():
         ),
     ]
 
-    @server.list_resources()
-    async def handle_list_resources():
-        return test_resources
+    async def handle_list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(resources=test_resources)
 
-    @server.read_resource()
-    async def handle_read_resource(uri: str):
-        if str(uri) == "test://image":
-            return [ReadResourceContents(content=base64_string, mime_type="image/png")]
-        elif str(uri) == "test://image_bytes":
-            return [ReadResourceContents(content=bytes(image_bytes), mime_type="image/png")]
+    async def handle_read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult:
+        uri = str(params.uri)
+        if uri == "test://image":
+            return types.ReadResourceResult(
+                contents=[
+                    types.TextResourceContents(
+                        uri=uri,
+                        text=base64_string,
+                        mime_type="image/png",
+                    )
+                ]
+            )
+        elif uri == "test://image_bytes":
+            return types.ReadResourceResult(
+                contents=[
+                    types.BlobResourceContents(
+                        uri=uri,
+                        blob=base64.b64encode(image_bytes).decode("utf-8"),
+                        mime_type="image/png",
+                    )
+                ]
+            )
         raise Exception(f"Resource not found: {uri}")  # pragma: no cover
+
+    server = Server(
+        "test",
+        on_list_resources=handle_list_resources,
+        on_read_resource=handle_read_resource,
+    )
 
     # Test that resources are listed with correct mime type
     async with Client(server) as client:

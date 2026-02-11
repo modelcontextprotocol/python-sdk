@@ -2,12 +2,14 @@
 uv run examples/snippets/servers/lowlevel/lifespan.py
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import mcp.server.stdio
 from mcp import types
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
@@ -44,40 +46,46 @@ async def server_lifespan(_server: Server) -> AsyncIterator[dict[str, Any]]:
         await db.disconnect()
 
 
-# Pass lifespan to server
-server = Server("example-server", lifespan=server_lifespan)
-
-
-@server.list_tools()
-async def handle_list_tools() -> list[types.Tool]:
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
     """List available tools."""
-    return [
-        types.Tool(
-            name="query_db",
-            description="Query the database",
-            input_schema={
-                "type": "object",
-                "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
-                "required": ["query"],
-            },
-        )
-    ]
+    return types.ListToolsResult(
+        tools=[
+            types.Tool(
+                name="query_db",
+                description="Query the database",
+                input_schema={
+                    "type": "object",
+                    "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
+                    "required": ["query"],
+                },
+            )
+        ]
+    )
 
 
-@server.call_tool()
-async def query_db(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
     """Handle database query tool call."""
-    if name != "query_db":
-        raise ValueError(f"Unknown tool: {name}")
+    if params.name != "query_db":
+        raise ValueError(f"Unknown tool: {params.name}")
 
-    # Access lifespan context
-    ctx = server.request_context
+    # Access lifespan context from the ctx parameter
     db = ctx.lifespan_context["db"]
 
     # Execute query
-    results = await db.query(arguments["query"])
+    results = await db.query((params.arguments or {})["query"])
 
-    return [types.TextContent(type="text", text=f"Query results: {results}")]
+    return types.CallToolResult(content=[types.TextContent(type="text", text=f"Query results: {results}")])
+
+
+# Pass lifespan to server
+server = Server(
+    "example-server",
+    lifespan=server_lifespan,
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
 
 
 async def run():
@@ -98,6 +106,4 @@ async def run():
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(run())

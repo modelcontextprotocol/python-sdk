@@ -13,42 +13,16 @@ from typing import Any
 import click
 import uvicorn
 from mcp import types
+from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-server = Server("simple-task-interactive")
 
-# Enable task support - this auto-registers all handlers
-server.experimental.enable_tasks()
-
-
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            name="confirm_delete",
-            description="Asks for confirmation before deleting (demonstrates elicitation)",
-            input_schema={
-                "type": "object",
-                "properties": {"filename": {"type": "string"}},
-            },
-            execution=types.ToolExecution(task_support=types.TASK_REQUIRED),
-        ),
-        types.Tool(
-            name="write_haiku",
-            description="Asks LLM to write a haiku (demonstrates sampling)",
-            input_schema={"type": "object", "properties": {"topic": {"type": "string"}}},
-            execution=types.ToolExecution(task_support=types.TASK_REQUIRED),
-        ),
-    ]
-
-
-async def handle_confirm_delete(arguments: dict[str, Any]) -> types.CreateTaskResult:
+async def handle_confirm_delete(ctx: ServerRequestContext, arguments: dict[str, Any]) -> types.CreateTaskResult:
     """Handle the confirm_delete tool - demonstrates elicitation."""
-    ctx = server.request_context
     ctx.experimental.validate_task_mode(types.TASK_REQUIRED)
 
     filename = arguments.get("filename", "unknown.txt")
@@ -80,9 +54,8 @@ async def handle_confirm_delete(arguments: dict[str, Any]) -> types.CreateTaskRe
     return await ctx.experimental.run_task(work)
 
 
-async def handle_write_haiku(arguments: dict[str, Any]) -> types.CreateTaskResult:
+async def handle_write_haiku(ctx: ServerRequestContext, arguments: dict[str, Any]) -> types.CreateTaskResult:
     """Handle the write_haiku tool - demonstrates sampling."""
-    ctx = server.request_context
     ctx.experimental.validate_task_mode(types.TASK_REQUIRED)
 
     topic = arguments.get("topic", "nature")
@@ -111,18 +84,54 @@ async def handle_write_haiku(arguments: dict[str, Any]) -> types.CreateTaskResul
     return await ctx.experimental.run_task(work)
 
 
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult | types.CreateTaskResult:
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
+    """List available tools."""
+    return types.ListToolsResult(
+        tools=[
+            types.Tool(
+                name="confirm_delete",
+                description="Asks for confirmation before deleting (demonstrates elicitation)",
+                input_schema={
+                    "type": "object",
+                    "properties": {"filename": {"type": "string"}},
+                },
+                execution=types.ToolExecution(task_support=types.TASK_REQUIRED),
+            ),
+            types.Tool(
+                name="write_haiku",
+                description="Asks LLM to write a haiku (demonstrates sampling)",
+                input_schema={"type": "object", "properties": {"topic": {"type": "string"}}},
+                execution=types.ToolExecution(task_support=types.TASK_REQUIRED),
+            ),
+        ]
+    )
+
+
+async def handle_call_tool(
+    ctx: ServerRequestContext, params: types.CallToolRequestParams
+) -> types.CallToolResult | types.CreateTaskResult:
     """Dispatch tool calls to their handlers."""
-    if name == "confirm_delete":
-        return await handle_confirm_delete(arguments)
-    elif name == "write_haiku":
-        return await handle_write_haiku(arguments)
+    if params.name == "confirm_delete":
+        return await handle_confirm_delete(ctx, params.arguments or {})
+    elif params.name == "write_haiku":
+        return await handle_write_haiku(ctx, params.arguments or {})
     else:
         return types.CallToolResult(
-            content=[types.TextContent(type="text", text=f"Unknown tool: {name}")],
+            content=[types.TextContent(type="text", text=f"Unknown tool: {params.name}")],
             is_error=True,
         )
+
+
+server = Server(
+    "simple-task-interactive",
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
+
+# Enable task support - this auto-registers all handlers
+server.experimental.enable_tasks()
 
 
 def create_app(session_manager: StreamableHTTPSessionManager) -> Starlette:

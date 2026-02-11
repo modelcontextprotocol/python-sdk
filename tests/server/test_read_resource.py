@@ -1,11 +1,12 @@
-from collections.abc import Iterable
+import base64
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import pytest
 
 from mcp import types
-from mcp.server.lowlevel.server import ReadResourceContents, Server
+from mcp.server.context import ServerRequestContext
+from mcp.server.lowlevel.server import Server
 
 
 @pytest.fixture
@@ -23,22 +24,34 @@ def temp_file():
 
 @pytest.mark.anyio
 async def test_read_resource_text(temp_file: Path):
-    server = Server("test")
+    async def handle_read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult:
+        return types.ReadResourceResult(
+            contents=[
+                types.TextResourceContents(
+                    uri=str(params.uri),
+                    text="Hello World",
+                    mime_type="text/plain",
+                )
+            ]
+        )
 
-    @server.read_resource()
-    async def read_resource(uri: str) -> Iterable[ReadResourceContents]:
-        return [ReadResourceContents(content="Hello World", mime_type="text/plain")]
+    server = Server("test", on_read_resource=handle_read_resource)
 
     # Get the handler directly from the server
-    handler = server.request_handlers[types.ReadResourceRequest]
+    handler = server._request_handlers["resources/read"]
 
-    # Create a request
-    request = types.ReadResourceRequest(
-        params=types.ReadResourceRequestParams(uri=temp_file.as_uri()),
-    )
+    # Create a mock context
+    from unittest.mock import MagicMock
+
+    mock_ctx = MagicMock(spec=ServerRequestContext)
+
+    # Create params
+    params = types.ReadResourceRequestParams(uri=temp_file.as_uri())
 
     # Call the handler
-    result = await handler(request)
+    result = await handler(mock_ctx, params)
     assert isinstance(result, types.ReadResourceResult)
     assert len(result.contents) == 1
 
@@ -50,22 +63,34 @@ async def test_read_resource_text(temp_file: Path):
 
 @pytest.mark.anyio
 async def test_read_resource_binary(temp_file: Path):
-    server = Server("test")
+    async def handle_read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult:
+        return types.ReadResourceResult(
+            contents=[
+                types.BlobResourceContents(
+                    uri=str(params.uri),
+                    blob=base64.standard_b64encode(b"Hello World").decode(),
+                    mime_type="application/octet-stream",
+                )
+            ]
+        )
 
-    @server.read_resource()
-    async def read_resource(uri: str) -> Iterable[ReadResourceContents]:
-        return [ReadResourceContents(content=b"Hello World", mime_type="application/octet-stream")]
+    server = Server("test", on_read_resource=handle_read_resource)
 
     # Get the handler directly from the server
-    handler = server.request_handlers[types.ReadResourceRequest]
+    handler = server._request_handlers["resources/read"]
 
-    # Create a request
-    request = types.ReadResourceRequest(
-        params=types.ReadResourceRequestParams(uri=temp_file.as_uri()),
-    )
+    # Create a mock context
+    from unittest.mock import MagicMock
+
+    mock_ctx = MagicMock(spec=ServerRequestContext)
+
+    # Create params
+    params = types.ReadResourceRequestParams(uri=temp_file.as_uri())
 
     # Call the handler
-    result = await handler(request)
+    result = await handler(mock_ctx, params)
     assert isinstance(result, types.ReadResourceResult)
     assert len(result.contents) == 1
 
@@ -76,27 +101,34 @@ async def test_read_resource_binary(temp_file: Path):
 
 @pytest.mark.anyio
 async def test_read_resource_default_mime(temp_file: Path):
-    server = Server("test")
+    async def handle_read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult:
+        return types.ReadResourceResult(
+            contents=[
+                types.TextResourceContents(
+                    uri=str(params.uri),
+                    text="Hello World",
+                    mime_type="text/plain",
+                )
+            ]
+        )
 
-    @server.read_resource()
-    async def read_resource(uri: str) -> Iterable[ReadResourceContents]:
-        return [
-            ReadResourceContents(
-                content="Hello World",
-                # No mime_type specified, should default to text/plain
-            )
-        ]
+    server = Server("test", on_read_resource=handle_read_resource)
 
     # Get the handler directly from the server
-    handler = server.request_handlers[types.ReadResourceRequest]
+    handler = server._request_handlers["resources/read"]
 
-    # Create a request
-    request = types.ReadResourceRequest(
-        params=types.ReadResourceRequestParams(uri=temp_file.as_uri()),
-    )
+    # Create a mock context
+    from unittest.mock import MagicMock
+
+    mock_ctx = MagicMock(spec=ServerRequestContext)
+
+    # Create params
+    params = types.ReadResourceRequestParams(uri=temp_file.as_uri())
 
     # Call the handler
-    result = await handler(request)
+    result = await handler(mock_ctx, params)
     assert isinstance(result, types.ReadResourceResult)
     assert len(result.contents) == 1
 

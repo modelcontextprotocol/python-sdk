@@ -1,14 +1,13 @@
 """Tests for Unicode handling in streamable HTTP transport.
 
 Verifies that Unicode text is correctly transmitted and received in both directions
-(server→client and client→server) using the streamable HTTP transport.
+(server->client and client->server) using the streamable HTTP transport.
 """
 
 import multiprocessing
 import socket
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
-from typing import Any
 
 import pytest
 from starlette.applications import Starlette
@@ -18,6 +17,7 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import TextContent, Tool
 from tests.test_helpers import wait_for_server
@@ -47,54 +47,65 @@ def run_unicode_server(port: int) -> None:  # pragma: no cover
     import uvicorn
 
     # Need to recreate the server setup in this process
-    server = Server(name="unicode_test_server")
-
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
         """List tools with Unicode descriptions."""
-        return [
-            Tool(
-                name="echo_unicode",
-                description="🔤 Echo Unicode text - Hello 👋 World 🌍 - Testing 🧪 Unicode ✨",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string", "description": "Text to echo back"},
+        return types.ListToolsResult(
+            tools=[
+                Tool(
+                    name="echo_unicode",
+                    description=(
+                        "🔤 Echo Unicode text - Hello 👋 World 🌍 - Testing 🧪 Unicode ✨"
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string", "description": "Text to echo back"},
+                        },
+                        "required": ["text"],
                     },
-                    "required": ["text"],
-                },
-            ),
-        ]
+                ),
+            ]
+        )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
+    async def handle_call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> types.CallToolResult:
         """Handle tool calls with Unicode content."""
-        if name == "echo_unicode":
-            text = arguments.get("text", "") if arguments else ""
-            return [
-                TextContent(
-                    type="text",
-                    text=f"Echo: {text}",
+        if params.name == "echo_unicode":
+            arguments = params.arguments or {}
+            text = arguments.get("text", "")
+            return types.CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=f"Echo: {text}",
+                    )
+                ]
+            )
+        else:
+            raise ValueError(f"Unknown tool: {params.name}")
+
+    async def handle_list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        """List prompts with Unicode names and descriptions."""
+        return types.ListPromptsResult(
+            prompts=[
+                types.Prompt(
+                    name="unicode_prompt",
+                    description="Unicode prompt - Слой хранилища, где располагаются",
+                    arguments=[],
                 )
             ]
-        else:
-            raise ValueError(f"Unknown tool: {name}")
+        )
 
-    @server.list_prompts()
-    async def list_prompts() -> list[types.Prompt]:
-        """List prompts with Unicode names and descriptions."""
-        return [
-            types.Prompt(
-                name="unicode_prompt",
-                description="Unicode prompt - Слой хранилища, где располагаются",
-                arguments=[],
-            )
-        ]
-
-    @server.get_prompt()
-    async def get_prompt(name: str, arguments: dict[str, Any] | None) -> types.GetPromptResult:
+    async def handle_get_prompt(
+        ctx: ServerRequestContext, params: types.GetPromptRequestParams
+    ) -> types.GetPromptResult:
         """Get a prompt with Unicode content."""
-        if name == "unicode_prompt":
+        if params.name == "unicode_prompt":
             return types.GetPromptResult(
                 messages=[
                     types.PromptMessage(
@@ -106,7 +117,15 @@ def run_unicode_server(port: int) -> None:  # pragma: no cover
                     )
                 ]
             )
-        raise ValueError(f"Unknown prompt: {name}")
+        raise ValueError(f"Unknown prompt: {params.name}")
+
+    server = Server(
+        name="unicode_test_server",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+        on_list_prompts=handle_list_prompts,
+        on_get_prompt=handle_get_prompt,
+    )
 
     # Create the session manager
     session_manager = StreamableHTTPSessionManager(
@@ -177,7 +196,7 @@ async def test_streamable_http_client_unicode_tool_call(running_unicode_server: 
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
-            # Test 1: List tools (server→client Unicode in descriptions)
+            # Test 1: List tools (server->client Unicode in descriptions)
             tools = await session.list_tools()
             assert len(tools.tools) == 1
 
@@ -188,7 +207,7 @@ async def test_streamable_http_client_unicode_tool_call(running_unicode_server: 
             assert "🔤" in echo_tool.description
             assert "👋" in echo_tool.description
 
-            # Test 2: Send Unicode text in tool call (client→server→client)
+            # Test 2: Send Unicode text in tool call (client->server->client)
             for test_name, test_string in UNICODE_TEST_STRINGS.items():
                 result = await session.call_tool("echo_unicode", arguments={"text": test_string})
 
@@ -209,7 +228,7 @@ async def test_streamable_http_client_unicode_prompts(running_unicode_server: st
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
-            # Test 1: List prompts (server→client Unicode in descriptions)
+            # Test 1: List prompts (server->client Unicode in descriptions)
             prompts = await session.list_prompts()
             assert len(prompts.prompts) == 1
 
@@ -218,7 +237,7 @@ async def test_streamable_http_client_unicode_prompts(running_unicode_server: st
             assert prompt.description is not None
             assert "Слой хранилища, где располагаются" in prompt.description
 
-            # Test 2: Get prompt with Unicode content (server→client)
+            # Test 2: Get prompt with Unicode content (server->client)
             result = await session.get_prompt("unicode_prompt", arguments={})
             assert len(result.messages) == 1
 

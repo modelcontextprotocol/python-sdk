@@ -11,16 +11,17 @@ from datetime import datetime, timezone
 import pytest
 
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.shared.experimental.tasks.helpers import MODEL_IMMEDIATE_RESPONSE_KEY
 from mcp.types import (
-    CancelTaskRequest,
+    CancelTaskRequestParams,
     CancelTaskResult,
     CreateTaskResult,
-    GetTaskRequest,
+    GetTaskRequestParams,
     GetTaskResult,
-    ListTasksRequest,
     ListTasksResult,
+    PaginatedRequestParams,
     ServerCapabilities,
     Task,
 )
@@ -48,9 +49,10 @@ def test_server_with_list_tasks_handler_declares_list_capability() -> None:
     """Server with list_tasks handler declares tasks.list capability."""
     server: Server = Server("test")
 
-    @server.experimental.list_tasks()
-    async def handle_list(req: ListTasksRequest) -> ListTasksResult:
+    async def handle_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListTasksResult:
         raise NotImplementedError
+
+    server.experimental.enable_tasks(on_list_tasks=handle_list)
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -61,9 +63,10 @@ def test_server_with_cancel_task_handler_declares_cancel_capability() -> None:
     """Server with cancel_task handler declares tasks.cancel capability."""
     server: Server = Server("test")
 
-    @server.experimental.cancel_task()
-    async def handle_cancel(req: CancelTaskRequest) -> CancelTaskResult:
+    async def handle_cancel(ctx: ServerRequestContext, params: CancelTaskRequestParams) -> CancelTaskResult:
         raise NotImplementedError
+
+    server.experimental.enable_tasks(on_cancel_task=handle_cancel)
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -76,9 +79,10 @@ def test_server_with_get_task_handler_declares_requests_tools_call_capability() 
     """
     server: Server = Server("test")
 
-    @server.experimental.get_task()
-    async def handle_get(req: GetTaskRequest) -> GetTaskResult:
+    async def handle_get(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         raise NotImplementedError
+
+    server.experimental.enable_tasks(on_get_task=handle_get)
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -91,9 +95,10 @@ def test_server_without_list_handler_has_no_list_capability() -> None:
     server: Server = Server("test")
 
     # Register only get_task (not list_tasks)
-    @server.experimental.get_task()
-    async def handle_get(req: GetTaskRequest) -> GetTaskResult:
+    async def handle_get(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         raise NotImplementedError
+
+    server.experimental.enable_tasks(on_get_task=handle_get)
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -105,9 +110,10 @@ def test_server_without_cancel_handler_has_no_cancel_capability() -> None:
     server: Server = Server("test")
 
     # Register only get_task (not cancel_task)
-    @server.experimental.get_task()
-    async def handle_get(req: GetTaskRequest) -> GetTaskResult:
+    async def handle_get(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         raise NotImplementedError
+
+    server.experimental.enable_tasks(on_get_task=handle_get)
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None
@@ -118,17 +124,20 @@ def test_server_with_all_task_handlers_has_full_capability() -> None:
     """Server with all task handlers declares complete tasks capability."""
     server: Server = Server("test")
 
-    @server.experimental.list_tasks()
-    async def handle_list(req: ListTasksRequest) -> ListTasksResult:
+    async def handle_list(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListTasksResult:
         raise NotImplementedError
 
-    @server.experimental.cancel_task()
-    async def handle_cancel(req: CancelTaskRequest) -> CancelTaskResult:
+    async def handle_cancel(ctx: ServerRequestContext, params: CancelTaskRequestParams) -> CancelTaskResult:
         raise NotImplementedError
 
-    @server.experimental.get_task()
-    async def handle_get(req: GetTaskRequest) -> GetTaskResult:
+    async def handle_get(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         raise NotImplementedError
+
+    server.experimental.enable_tasks(
+        on_list_tasks=handle_list,
+        on_cancel_task=handle_cancel,
+        on_get_task=handle_get,
+    )
 
     caps = _get_capabilities(server)
     assert caps.tasks is not None

@@ -10,19 +10,13 @@ After the fix, the test should PASS.
 """
 
 import base64
-from typing import cast
 
 import pytest
 
-from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp import Client, types
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.server import Server
-from mcp.types import (
-    BlobResourceContents,
-    ReadResourceRequest,
-    ReadResourceRequestParams,
-    ReadResourceResult,
-    ServerResult,
-)
+from mcp.types import BlobResourceContents
 
 
 @pytest.mark.anyio
@@ -31,53 +25,59 @@ async def test_server_base64_encoding_issue():
 
     This test will:
     1. Set up a server that returns binary data
-    2. Extract the base64-encoded blob from the server's response
+    2. Read the resource through the client
     3. Verify the encoded data can be properly validated by BlobResourceContents
 
     BEFORE FIX: The test will fail because server uses urlsafe_b64encode
     AFTER FIX: The test will pass because server uses standard b64encode
     """
-    server = Server("test")
-
     # Create binary data that will definitely result in + and / characters
     # when encoded with standard base64
     binary_data = bytes(list(range(255)) * 4)
 
-    # Register a resource handler that returns our test data
-    @server.read_resource()
-    async def read_resource(uri: str) -> list[ReadResourceContents]:
-        return [ReadResourceContents(content=binary_data, mime_type="application/octet-stream")]
+    async def handle_list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        return types.ListResourcesResult(
+            resources=[
+                types.Resource(uri="test://resource", name="test resource"),
+            ]
+        )
 
-    # Get the handler directly from the server
-    handler = server.request_handlers[ReadResourceRequest]
+    async def handle_read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> types.ReadResourceResult:
+        return types.ReadResourceResult(
+            contents=[
+                types.BlobResourceContents(
+                    uri=str(params.uri),
+                    blob=base64.b64encode(binary_data).decode("utf-8"),
+                    mime_type="application/octet-stream",
+                )
+            ]
+        )
 
-    # Create a request
-    request = ReadResourceRequest(
-        params=ReadResourceRequestParams(uri="test://resource"),
+    server = Server(
+        "test",
+        on_list_resources=handle_list_resources,
+        on_read_resource=handle_read_resource,
     )
 
-    # Call the handler to get the response
-    result: ServerResult = await handler(request)
+    async with Client(server) as client:
+        result = await client.read_resource("test://resource")
+        assert len(result.contents) == 1
 
-    # After (fixed code):
-    read_result: ReadResourceResult = cast(ReadResourceResult, result)
-    blob_content = read_result.contents[0]
+        blob_content = result.contents[0]
 
-    # First verify our test data actually produces different encodings
-    urlsafe_b64 = base64.urlsafe_b64encode(binary_data).decode()
-    standard_b64 = base64.b64encode(binary_data).decode()
-    assert urlsafe_b64 != standard_b64, "Test data doesn't demonstrate"
-    " encoding difference"
+        # First verify our test data actually produces different encodings
+        urlsafe_b64 = base64.urlsafe_b64encode(binary_data).decode()
+        standard_b64 = base64.b64encode(binary_data).decode()
+        assert urlsafe_b64 != standard_b64, "Test data doesn't demonstrate encoding difference"
 
-    # Now validate the server's output with BlobResourceContents.model_validate
-    # Before the fix: This should fail with "Invalid base64" because server
-    # uses urlsafe_b64encode
-    # After the fix: This should pass because server will use standard b64encode
-    model_dict = blob_content.model_dump()
+        # Validate the response with BlobResourceContents.model_validate
+        model_dict = blob_content.model_dump()
+        blob_model = BlobResourceContents.model_validate(model_dict)
 
-    # Direct validation - this will fail before fix, pass after fix
-    blob_model = BlobResourceContents.model_validate(model_dict)
-
-    # Verify we can decode the data back correctly
-    decoded = base64.b64decode(blob_model.blob)
-    assert decoded == binary_data
+        # Verify we can decode the data back correctly
+        decoded = base64.b64decode(blob_model.blob)
+        assert decoded == binary_data

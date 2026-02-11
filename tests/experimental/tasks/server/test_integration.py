@@ -18,6 +18,7 @@ from anyio.abc import TaskGroup
 
 from mcp.client.session import ClientSession
 from mcp.server import Server
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -38,8 +39,8 @@ from mcp.types import (
     GetTaskRequest,
     GetTaskRequestParams,
     GetTaskResult,
-    ListTasksRequest,
     ListTasksResult,
+    PaginatedRequestParams,
     ServerNotification,
     ServerRequest,
     TaskMetadata,
@@ -69,29 +70,30 @@ async def test_task_lifecycle_with_task_execution() -> None:
     3. Return CreateTaskResult immediately
     4. Work executes in background, auto-fails on exception
     """
-    # Note: We bypass the normal lifespan mechanism and pass context directly to _handle_message
-    server: Server[AppContext, Any] = Server("test-tasks")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="process_data",
-                description="Process data asynchronously",
-                input_schema={
-                    "type": "object",
-                    "properties": {"input": {"type": "string"}},
-                },
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext[AppContext], params: PaginatedRequestParams | None
+    ) -> ListTasksResult:
+        return ListTasksResult(
+            tools=[
+                Tool(
+                    name="process_data",
+                    description="Process data asynchronously",
+                    input_schema={
+                        "type": "object",
+                        "properties": {"input": {"type": "string"}},
+                    },
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(
+        ctx: ServerRequestContext[AppContext], params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
-        if name == "process_data" and ctx.experimental.is_task:
+        if params.name == "process_data" and ctx.experimental.is_task:
             # 1. Create task in store
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -106,7 +108,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
                 async with task_execution(task.task_id, app.store) as task_ctx:
                     await task_ctx.update_status("Processing input...")
                     # Simulate work
-                    input_value = arguments.get("input", "")
+                    input_value = params.arguments.get("input", "") if params.arguments else ""
                     result_text = f"Processed: {input_value.upper()}"
                     await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text=result_text)]))
                 # Signal completion
@@ -120,12 +122,12 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
         raise NotImplementedError
 
-    # Register task query handlers (delegate to store)
-    @server.experimental.get_task()
-    async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
-        app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.task_id)
-        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
+    async def handle_get_task(
+        ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams
+    ) -> GetTaskResult:
+        app = ctx.lifespan_context
+        task = await app.store.get_task(params.task_id)
+        assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,
             status=task.status,
@@ -136,20 +138,33 @@ async def test_task_lifecycle_with_task_execution() -> None:
             poll_interval=task.poll_interval,
         )
 
-    @server.experimental.get_task_result()
     async def handle_get_task_result(
-        request: GetTaskPayloadRequest,
+        ctx: ServerRequestContext[AppContext], params: GetTaskPayloadRequestParams
     ) -> GetTaskPayloadResult:
-        app = server.request_context.lifespan_context
-        result = await app.store.get_result(request.params.task_id)
-        assert result is not None, f"Test setup error: result for {request.params.task_id} should exist"
+        app = ctx.lifespan_context
+        result = await app.store.get_result(params.task_id)
+        assert result is not None, f"Test setup error: result for {params.task_id} should exist"
         assert isinstance(result, CallToolResult)
         # Return as GetTaskPayloadResult (which accepts extra fields)
         return GetTaskPayloadResult(**result.model_dump())
 
-    @server.experimental.list_tasks()
-    async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
+    async def handle_list_tasks(
+        ctx: ServerRequestContext[AppContext], params: PaginatedRequestParams | None
+    ) -> ListTasksResult:
         raise NotImplementedError
+
+    # Note: We bypass the normal lifespan mechanism and pass context directly to _handle_message
+    server: Server[AppContext] = Server(
+        "test-tasks",
+        on_list_tools=handle_list_tools,  # type: ignore[arg-type]
+        on_call_tool=handle_call_tool,  # type: ignore[arg-type]
+    )
+
+    server.experimental.enable_tasks(
+        on_get_task=handle_get_task,  # type: ignore[arg-type]
+        on_task_result=handle_get_task_result,  # type: ignore[arg-type]
+        on_list_tasks=handle_list_tasks,  # type: ignore[arg-type]
+    )
 
     # Set up client-server communication
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -231,25 +246,26 @@ async def test_task_lifecycle_with_task_execution() -> None:
 @pytest.mark.anyio
 async def test_task_auto_fails_on_exception() -> None:
     """Test that task_execution automatically fails the task on unhandled exception."""
-    # Note: We bypass the normal lifespan mechanism and pass context directly to _handle_message
-    server: Server[AppContext, Any] = Server("test-tasks-failure")  # type: ignore[assignment]
     store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="failing_task",
-                description="A task that fails",
-                input_schema={"type": "object", "properties": {}},
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext[AppContext], params: PaginatedRequestParams | None
+    ) -> ListTasksResult:
+        return ListTasksResult(
+            tools=[
+                Tool(
+                    name="failing_task",
+                    description="A task that fails",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent] | CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(
+        ctx: ServerRequestContext[AppContext], params: CallToolRequestParams
+    ) -> CallToolResult | CreateTaskResult:
         app = ctx.lifespan_context
-        if name == "failing_task" and ctx.experimental.is_task:
+        if params.name == "failing_task" and ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
             task = await app.store.create_task(task_metadata)
@@ -272,11 +288,12 @@ async def test_task_auto_fails_on_exception() -> None:
 
         raise NotImplementedError
 
-    @server.experimental.get_task()
-    async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
-        app = server.request_context.lifespan_context
-        task = await app.store.get_task(request.params.task_id)
-        assert task is not None, f"Test setup error: task {request.params.task_id} should exist"
+    async def handle_get_task(
+        ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams
+    ) -> GetTaskResult:
+        app = ctx.lifespan_context
+        task = await app.store.get_task(params.task_id)
+        assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,
             status=task.status,
@@ -286,6 +303,17 @@ async def test_task_auto_fails_on_exception() -> None:
             ttl=task.ttl,
             poll_interval=task.poll_interval,
         )
+
+    # Note: We bypass the normal lifespan mechanism and pass context directly to _handle_message
+    server: Server[AppContext] = Server(
+        "test-tasks-failure",
+        on_list_tools=handle_list_tools,  # type: ignore[arg-type]
+        on_call_tool=handle_call_tool,  # type: ignore[arg-type]
+    )
+
+    server.experimental.enable_tasks(
+        on_get_task=handle_get_task,  # type: ignore[arg-type]
+    )
 
     # Set up streams
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
