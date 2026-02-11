@@ -102,7 +102,7 @@ class ServerSession(
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
             ServerRequestResponder
         ](0)
-        self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
+        self._exit_stack.push_async_callback(self._incoming_message_stream_reader.aclose)
 
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ClientRequest]:
