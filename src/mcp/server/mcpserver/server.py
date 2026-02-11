@@ -873,7 +873,7 @@ class MCPServer(Generic[LifespanResultT]):
             # endpoint.  BaseHTTPMiddleware expects http.response.body
             # messages, but the SSE handler sends raw ASGI events,
             # which triggers "AssertionError: Unexpected message".
-            class HandleSseAsgi:
+            class HandleSseAsgi:  # pragma: no cover
                 async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
                     await handle_sse(scope, receive, send)
 
