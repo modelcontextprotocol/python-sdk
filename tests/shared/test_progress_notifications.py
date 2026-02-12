@@ -6,7 +6,7 @@ import pytest
 
 from mcp import Client, types
 from mcp.client.session import ClientSession
-from mcp.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -35,9 +35,6 @@ async def test_bidirectional_progress_notifications():
                 capabilities=server.get_capabilities(NotificationOptions(), {}),
             ),
         ) as server_session:
-            global serv_sesh
-
-            serv_sesh = server_session
             async for message in server_session.incoming_messages:
                 try:
                     await server._handle_message(message, server_session, {})
@@ -52,79 +49,73 @@ async def test_bidirectional_progress_notifications():
     server_progress_token = "server_token_123"
     client_progress_token = "client_token_456"
 
-    # Create a server with progress capability
-    server = Server(name="ProgressTestServer")
-
     # Register progress handler
-    @server.progress_notification()
-    async def handle_progress(
-        progress_token: str | int,
-        progress: float,
-        total: float | None,
-        message: str | None,
-    ):
+    async def handle_progress(ctx: ServerRequestContext, params: types.ProgressNotificationParams) -> None:
         server_progress_updates.append(
             {
-                "token": progress_token,
-                "progress": progress,
-                "total": total,
-                "message": message,
+                "token": params.progress_token,
+                "progress": params.progress,
+                "total": params.total,
+                "message": params.message,
             }
         )
 
     # Register list tool handler
-    @server.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="test_tool",
-                description="A tool that sends progress notifications <o/",
-                input_schema={},
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="test_tool",
+                    description="A tool that sends progress notifications <o/",
+                    input_schema={},
+                )
+            ]
+        )
 
     # Register tool handler
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
         # Make sure we received a progress token
-        if name == "test_tool":
-            if arguments and "_meta" in arguments:
-                progressToken = arguments["_meta"]["progressToken"]
+        if params.name == "test_tool":
+            assert params.meta is not None
+            progress_token = params.meta.get("progress_token")
+            assert progress_token is not None
+            assert progress_token == client_progress_token
 
-                if not progressToken:  # pragma: no cover
-                    raise ValueError("Empty progress token received")
+            # Send progress notifications using ctx.session
+            await ctx.session.send_progress_notification(
+                progress_token=progress_token,
+                progress=0.25,
+                total=1.0,
+                message="Server progress 25%",
+            )
 
-                if progressToken != client_progress_token:  # pragma: no cover
-                    raise ValueError("Server sending back incorrect progressToken")
+            await ctx.session.send_progress_notification(
+                progress_token=progress_token,
+                progress=0.5,
+                total=1.0,
+                message="Server progress 50%",
+            )
 
-                # Send progress notifications
-                await serv_sesh.send_progress_notification(
-                    progress_token=progressToken,
-                    progress=0.25,
-                    total=1.0,
-                    message="Server progress 25%",
-                )
+            await ctx.session.send_progress_notification(
+                progress_token=progress_token,
+                progress=1.0,
+                total=1.0,
+                message="Server progress 100%",
+            )
 
-                await serv_sesh.send_progress_notification(
-                    progress_token=progressToken,
-                    progress=0.5,
-                    total=1.0,
-                    message="Server progress 50%",
-                )
+            return types.CallToolResult(content=[types.TextContent(type="text", text="Tool executed successfully")])
 
-                await serv_sesh.send_progress_notification(
-                    progress_token=progressToken,
-                    progress=1.0,
-                    total=1.0,
-                    message="Server progress 100%",
-                )
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
-            else:  # pragma: no cover
-                raise ValueError("Progress token not sent.")
-
-            return [types.TextContent(type="text", text="Tool executed successfully")]
-
-        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+    # Create a server with progress capability
+    server = Server(
+        name="ProgressTestServer",
+        on_progress=handle_progress,
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
 
     # Client message handler to store progress notifications
     async def handle_client_message(
@@ -164,7 +155,7 @@ async def test_bidirectional_progress_notifications():
         await client_session.list_tools()
 
         # Call test_tool with progress token
-        await client_session.call_tool("test_tool", {"_meta": {"progressToken": client_progress_token}})
+        await client_session.call_tool("test_tool", meta={"progress_token": client_progress_token})
 
         # Send progress notifications from client to server
         await client_session.send_progress_notification(
@@ -217,21 +208,20 @@ async def test_progress_context_manager():
     # Track progress updates
     server_progress_updates: list[dict[str, Any]] = []
 
-    server = Server(name="ProgressContextTestServer")
-
     progress_token = None
 
     # Register progress handler
-    @server.progress_notification()
-    async def handle_progress(
-        progress_token: str | int,
-        progress: float,
-        total: float | None,
-        message: str | None,
-    ):
+    async def handle_progress(ctx: ServerRequestContext, params: types.ProgressNotificationParams) -> None:
         server_progress_updates.append(
-            {"token": progress_token, "progress": progress, "total": total, "message": message}
+            {
+                "token": params.progress_token,
+                "progress": params.progress,
+                "total": params.total,
+                "message": params.message,
+            }
         )
+
+    server = Server(name="ProgressContextTestServer", on_progress=handle_progress)
 
     # Run server session to receive progress updates
     async def run_server():
@@ -334,30 +324,37 @@ async def test_progress_callback_exception_logging():
         raise ValueError("Progress callback failed!")
 
     # Create a server with a tool that sends progress notifications
-    server = Server(name="TestProgressServer")
-
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: Any) -> list[types.TextContent]:
-        if name == "progress_tool":
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        if params.name == "progress_tool":
+            assert ctx.request_id is not None
             # Send a progress notification
-            await server.request_context.session.send_progress_notification(
-                progress_token=server.request_context.request_id,
+            await ctx.session.send_progress_notification(
+                progress_token=ctx.request_id,
                 progress=50.0,
                 total=100.0,
                 message="Halfway done",
             )
-            return [types.TextContent(type="text", text="progress_result")]
-        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+            return types.CallToolResult(content=[types.TextContent(type="text", text="progress_result")])
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
-    @server.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="progress_tool",
-                description="A tool that sends progress notifications",
-                input_schema={},
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="progress_tool",
+                    description="A tool that sends progress notifications",
+                    input_schema={},
+                )
+            ]
+        )
+
+    server = Server(
+        name="TestProgressServer",
+        on_call_tool=handle_call_tool,
+        on_list_tools=handle_list_tools,
+    )
 
     # Test with mocked logging
     with patch("mcp.shared.session.logging.exception", side_effect=mock_log_exception):

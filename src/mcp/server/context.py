@@ -10,7 +10,7 @@ from mcp.server.session import ServerSession
 from mcp.shared._context import RequestContext
 from mcp.shared.message import CloseSSEStreamCallback
 
-LifespanContextT = TypeVar("LifespanContextT")
+LifespanContextT = TypeVar("LifespanContextT", default=dict[str, Any])
 RequestT = TypeVar("RequestT", default=Any)
 
 
