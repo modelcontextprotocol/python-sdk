@@ -415,7 +415,7 @@ async def test_server_create_message_progress_callback():
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         # Send progress notifications back to the server using the progress token
-        if context.meta and "progress_token" in context.meta:
+        if context.meta and "progress_token" in context.meta:  # pragma: no branch
             token = context.meta["progress_token"]
             await context.session.send_progress_notification(
                 progress_token=token,
@@ -472,7 +472,7 @@ async def test_server_elicit_form_progress_callback():
         params: ElicitRequestParams,
     ) -> ElicitResult:
         # Send progress notifications back to the server using the progress token
-        if context.meta and "progress_token" in context.meta:
+        if context.meta and "progress_token" in context.meta:  # pragma: no branch
             token = context.meta["progress_token"]
             await context.session.send_progress_notification(
                 progress_token=token,
