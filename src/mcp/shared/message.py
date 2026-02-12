@@ -6,7 +6,6 @@ to support transport-specific features like resumability.
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TypeVar
 
 from mcp.types import JSONRPCMessage, RequestId
 
@@ -40,8 +39,6 @@ class ServerMessageMetadata:
 
 
 MessageMetadata = ClientMessageMetadata | ServerMessageMetadata | None
-
-WireMessageT = TypeVar("WireMessageT")
 
 
 @dataclass

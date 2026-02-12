@@ -107,7 +107,6 @@ class ClientSession(
         types.ServerRequest,
         types.ServerNotification,
     ],
-    BaseClientSession,
 ):
     def __init__(
         self,
