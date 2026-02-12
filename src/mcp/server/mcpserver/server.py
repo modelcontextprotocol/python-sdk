@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import inspect
+import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -29,7 +31,7 @@ from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.helper_types import ReadResourceContents
-from mcp.server.lowlevel.server import LifespanResultT, Server
+from mcp.server.lowlevel.server import LifespanResultT, Server, request_ctx
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
@@ -42,8 +44,31 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared.exceptions import MCPError
 from mcp.shared.session import ProgressFnT
-from mcp.types import Annotations, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.types import (
+    Annotations,
+    BlobResourceContents,
+    CallToolRequestParams,
+    CallToolResult,
+    CompleteRequestParams,
+    CompleteResult,
+    Completion,
+    ContentBlock,
+    GetPromptRequestParams,
+    GetPromptResult,
+    Icon,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+    ToolAnnotations,
+)
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -92,9 +117,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 def lifespan_wrapper(
     app: MCPServer[LifespanResultT],
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[Server[LifespanResultT, Request]], AbstractAsyncContextManager[LifespanResultT]]:
+) -> Callable[[Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]]:
     @asynccontextmanager
-    async def wrap(_: Server[LifespanResultT, Request]) -> AsyncIterator[LifespanResultT]:
+    async def wrap(_: Server[LifespanResultT]) -> AsyncIterator[LifespanResultT]:
         async with lifespan(app) as context:
             yield context
 
@@ -133,6 +158,9 @@ class MCPServer(Generic[LifespanResultT]):
             auth=auth,
         )
 
+        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
+        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
+        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -141,13 +169,17 @@ class MCPServer(Generic[LifespanResultT]):
             website_url=website_url,
             icons=icons,
             version=version,
+            on_list_tools=self._handle_list_tools,
+            on_call_tool=self._handle_call_tool,
+            on_list_resources=self._handle_list_resources,
+            on_read_resource=self._handle_read_resource,
+            on_list_resource_templates=self._handle_list_resource_templates,
+            on_list_prompts=self._handle_list_prompts,
+            on_get_prompt=self._handle_get_prompt,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
-        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
-        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -164,9 +196,6 @@ class MCPServer(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
-
-        # Set up MCP protocol handlers
-        self._setup_handlers()
 
         # Configure logging
         configure_logging(self.settings.log_level)
@@ -264,18 +293,83 @@ class MCPServer(Generic[LifespanResultT]):
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
-    def _setup_handlers(self) -> None:
-        """Set up core MCP protocol handlers."""
-        self._lowlevel_server.list_tools()(self.list_tools)
-        # Note: we disable the lowlevel server's input validation.
-        # MCPServer does ad hoc conversion of incoming data before validating -
-        # for now we preserve this for backwards compatibility.
-        self._lowlevel_server.call_tool(validate_input=False)(self.call_tool)
-        self._lowlevel_server.list_resources()(self.list_resources)
-        self._lowlevel_server.read_resource()(self.read_resource)
-        self._lowlevel_server.list_prompts()(self.list_prompts)
-        self._lowlevel_server.get_prompt()(self.get_prompt)
-        self._lowlevel_server.list_resource_templates()(self.list_resource_templates)
+    async def _handle_list_tools(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(tools=await self.list_tools())
+
+    async def _handle_call_tool(
+        self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
+    ) -> CallToolResult:
+        try:
+            result = await self.call_tool(params.name, params.arguments or {})
+        except MCPError:
+            raise
+        except Exception as e:
+            return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        if isinstance(result, CallToolResult):
+            return result
+        if isinstance(result, tuple) and len(result) == 2:
+            unstructured_content, structured_content = result
+            return CallToolResult(
+                content=list(unstructured_content),  # type: ignore[arg-type]
+                structured_content=structured_content,  # type: ignore[arg-type]
+            )
+        if isinstance(result, dict):  # pragma: no cover
+            # TODO: this code path is unreachable — convert_result never returns a raw dict.
+            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
+            # and needs to be cleaned up.
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
+                structured_content=result,
+            )
+        return CallToolResult(content=list(result))
+
+    async def _handle_list_resources(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        return ListResourcesResult(resources=await self.list_resources())
+
+    async def _handle_read_resource(
+        self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
+    ) -> ReadResourceResult:
+        results = await self.read_resource(params.uri)
+        contents: list[TextResourceContents | BlobResourceContents] = []
+        for item in results:
+            if isinstance(item.content, bytes):
+                contents.append(
+                    BlobResourceContents(
+                        uri=params.uri,
+                        blob=base64.b64encode(item.content).decode(),
+                        mime_type=item.mime_type or "application/octet-stream",
+                        _meta=item.meta,
+                    )
+                )
+            else:
+                contents.append(
+                    TextResourceContents(
+                        uri=params.uri,
+                        text=item.content,
+                        mime_type=item.mime_type or "text/plain",
+                        _meta=item.meta,
+                    )
+                )
+        return ReadResourceResult(contents=contents)
+
+    async def _handle_list_resource_templates(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
+
+    async def _handle_list_prompts(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListPromptsResult:
+        return ListPromptsResult(prompts=await self.list_prompts())
+
+    async def _handle_get_prompt(
+        self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
+    ) -> GetPromptResult:
+        return await self.get_prompt(params.name, params.arguments)
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
@@ -299,7 +393,7 @@ class MCPServer(Generic[LifespanResultT]):
         during a request; outside a request, most methods will error.
         """
         try:
-            request_context = self._lowlevel_server.request_context
+            request_context = request_ctx.get()
         except LookupError:
             request_context = None
         return Context(request_context=request_context, mcp_server=self)
@@ -487,7 +581,24 @@ class MCPServer(Generic[LifespanResultT]):
                     return Completion(values=["option1", "option2"])
                 return None
         """
-        return self._lowlevel_server.completion()
+
+        def decorator(func: _CallableT) -> _CallableT:
+            async def handler(
+                ctx: ServerRequestContext[LifespanResultT], params: CompleteRequestParams
+            ) -> CompleteResult:
+                result = await func(params.ref, params.argument, params.context)
+                return CompleteResult(
+                    completion=result if result is not None else Completion(values=[], total=None, has_more=None),
+                )
+
+            # TODO(maxisbey): remove private access — completion needs post-construction
+            #   handler registration, find a better pattern for this
+            self._lowlevel_server._add_request_handler(  # pyright: ignore[reportPrivateUsage]
+                "completion/complete", handler
+            )
+            return func
+
+        return decorator
 
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.
