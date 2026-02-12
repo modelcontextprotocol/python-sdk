@@ -5,10 +5,10 @@ from typing import Any, Generic
 
 from typing_extensions import TypeVar
 
-from mcp.shared.session import CommonBaseSession
+from mcp.shared.session import AbstractBaseSession
 from mcp.types import RequestId, RequestParamsMeta
 
-SessionT_co = TypeVar("SessionT_co", bound=CommonBaseSession[Any, Any, Any, Any, Any, Any], covariant=True)
+SessionT_co = TypeVar("SessionT_co", bound=AbstractBaseSession[Any, Any, Any, Any, Any, Any], covariant=True)
 
 
 @dataclass(kw_only=True)

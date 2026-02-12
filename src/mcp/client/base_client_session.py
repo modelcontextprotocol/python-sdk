@@ -2,14 +2,14 @@ from abc import abstractmethod
 from typing import Any, TypeVar
 
 from mcp import types
-from mcp.shared.session import CommonBaseSession, ProgressFnT
+from mcp.shared.session import AbstractBaseSession, ProgressFnT
 from mcp.types._types import RequestParamsMeta
 
 ClientSessionT_contra = TypeVar("ClientSessionT_contra", bound="BaseClientSession", contravariant=True)
 
 
 class BaseClientSession(
-    CommonBaseSession[
+    AbstractBaseSession[
         Any,
         types.ClientRequest,
         types.ClientNotification,

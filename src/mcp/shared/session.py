@@ -155,7 +155,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
-class CommonBaseSession(
+class AbstractBaseSession(
     ABC,
     Generic[
         WireMessageT,
@@ -228,7 +228,7 @@ class CommonBaseSession(
 
 
 class BaseSession(
-    CommonBaseSession[
+    AbstractBaseSession[
         SessionMessage,
         SendRequestT,
         SendNotificationT,
