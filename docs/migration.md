@@ -483,6 +483,42 @@ server = Server("my-server", "1.0")
 server = Server("my-server", version="1.0")
 ```
 
+### Lowlevel `Server`: type parameter reduced from 2 to 1
+
+The `Server` class previously had two type parameters: `Server[LifespanResultT, RequestT]`. The `RequestT` parameter has been removed — handlers now receive typed params directly rather than a generic request type.
+
+```python
+# Before (v1)
+from typing import Any
+
+from mcp.server.lowlevel.server import Server
+
+server: Server[dict[str, Any], Any] = Server(...)
+
+# After (v2)
+from typing import Any
+
+from mcp.server import Server
+
+server: Server[dict[str, Any]] = Server(...)
+```
+
+### Lowlevel `Server`: `request_handlers` and `notification_handlers` attributes removed
+
+The public `server.request_handlers` and `server.notification_handlers` dictionaries have been removed. Handler registration is now done exclusively through constructor `on_*` keyword arguments. There is no public API to register handlers after construction.
+
+```python
+# Before (v1) — direct dict access
+from mcp.types import ListToolsRequest
+
+if ListToolsRequest in server.request_handlers:
+    ...
+
+# After (v2) — no public access to handler dicts
+# Use the on_* constructor params to register handlers
+server = Server("my-server", on_list_tools=handle_list_tools)
+```
+
 ### Lowlevel `Server`: decorator-based handlers replaced with constructor `on_*` params
 
 The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are passed as `on_*` keyword arguments to the constructor.
@@ -531,7 +567,7 @@ server = Server("my-server", on_list_tools=handle_list_tools, on_call_tool=handl
 
 **Key differences:**
 
-- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `RequestContext` with `session`, `lifespan_context`, and `experimental` fields (plus `request_id`, `meta`, etc. for request handlers). `params` is the typed request params object.
+- Handlers receive `(ctx, params)` instead of the full request object or unpacked arguments. `ctx` is a `ServerRequestContext` with `session`, `lifespan_context`, and `experimental` fields (plus `request_id`, `meta`, etc. for request handlers). `params` is the typed request params object.
 - Handlers return the full result type (e.g. `ListToolsResult`) rather than unwrapped values (e.g. `list[Tool]`).
 - The automatic `jsonschema` input/output validation that the old `call_tool()` decorator performed has been removed. There is no built-in replacement — if you relied on schema validation in the lowlevel server, you will need to validate inputs yourself in your handler.
 
@@ -639,7 +675,7 @@ If you prefer the convenience of automatic wrapping, use `MCPServer` which still
 
 ### Lowlevel `Server`: `request_context` property removed
 
-The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar still exists but should not be needed — use `ctx` directly instead.
+The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar is now an internal implementation detail and should not be relied upon.
 
 **Before (v1):**
 
@@ -689,7 +725,7 @@ Default task handlers are still registered automatically via `server.experimenta
 
 ```python
 server = Server("my-server")
-server.experimental.enable_tasks(task_store)
+server.experimental.enable_tasks()
 
 @server.experimental.get_task()
 async def custom_get_task(request: GetTaskRequest) -> GetTaskResult:
@@ -716,6 +752,10 @@ server.experimental.enable_tasks(on_get_task=custom_get_task)
 <!-- Add deprecations below -->
 
 ## Bug Fixes
+
+### Lowlevel `Server`: `subscribe` capability now correctly reported
+
+Previously, the lowlevel `Server` hardcoded `subscribe=False` in resource capabilities even when a `subscribe_resource()` handler was registered. The `subscribe` capability is now dynamically set to `True` when an `on_subscribe_resource` handler is provided. Clients that previously didn't see `subscribe: true` in capabilities will now see it when a handler is registered, which may change client behavior.
 
 ### Extra fields no longer allowed on top-level MCP types
 
