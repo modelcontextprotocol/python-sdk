@@ -74,7 +74,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
         if i < count - 1:  # Don't wait after the last notification
             await anyio.sleep(interval)
 
-    # This will send a resource notification though standalone SSE
+    # This will send a resource notification through standalone SSE
     # established by GET request
     await ctx.session.send_resource_updated(uri="http:///test_resource")
     return types.CallToolResult(

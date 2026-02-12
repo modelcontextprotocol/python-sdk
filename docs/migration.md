@@ -517,7 +517,7 @@ from mcp.types import (
 )
 
 async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(name="my_tool", description="A tool", inputSchema={})])
+    return ListToolsResult(tools=[Tool(name="my_tool", description="A tool", input_schema={})])
 
 
 async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
