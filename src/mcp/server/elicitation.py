@@ -9,6 +9,7 @@ from typing import Generic, Literal, TypeVar, Union, get_args, get_origin
 from pydantic import BaseModel
 
 from mcp.server.session import ServerSession
+from mcp.shared.session import ProgressFnT
 from mcp.types import RequestId
 
 ElicitSchemaModelT = TypeVar("ElicitSchemaModelT", bound=BaseModel)
@@ -107,6 +108,7 @@ async def elicit_with_validation(
     message: str,
     schema: type[ElicitSchemaModelT],
     related_request_id: RequestId | None = None,
+    progress_callback: ProgressFnT | None = None,
 ) -> ElicitationResult[ElicitSchemaModelT]:
     """Elicit information from the client/user with schema validation (form mode).
 
@@ -127,6 +129,7 @@ async def elicit_with_validation(
         message=message,
         requested_schema=json_schema,
         related_request_id=related_request_id,
+        progress_callback=progress_callback,
     )
 
     if result.action == "accept" and result.content is not None:
@@ -148,6 +151,7 @@ async def elicit_url(
     url: str,
     elicitation_id: str,
     related_request_id: RequestId | None = None,
+    progress_callback: ProgressFnT | None = None,
 ) -> UrlElicitationResult:
     """Elicit information from the user via out-of-band URL navigation (URL mode).
 
@@ -177,6 +181,7 @@ async def elicit_url(
         url=url,
         elicitation_id=elicitation_id,
         related_request_id=related_request_id,
+        progress_callback=progress_callback,
     )
 
     if result.action == "accept":

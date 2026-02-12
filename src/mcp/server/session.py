@@ -54,6 +54,7 @@ from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
+    ProgressFnT,
     RequestResponder,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -253,6 +254,7 @@ class ServerSession(
         tools: None = None,
         tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CreateMessageResult:
         """Overload: Without tools, returns single content."""
         ...
@@ -272,6 +274,7 @@ class ServerSession(
         tools: list[types.Tool],
         tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CreateMessageResultWithTools:
         """Overload: With tools, returns array-capable content."""
         ...
@@ -290,6 +293,7 @@ class ServerSession(
         tools: list[types.Tool] | None = None,
         tool_choice: types.ToolChoice | None = None,
         related_request_id: types.RequestId | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CreateMessageResult | types.CreateMessageResultWithTools:
         """Send a sampling/create_message request.
 
@@ -309,6 +313,7 @@ class ServerSession(
             tool_choice: Optional control over tool usage behavior.
                 Requires client to have sampling.tools capability.
             related_request_id: Optional ID of a related request.
+            progress_callback: Optional callback for receiving progress notifications.
 
         Returns:
             The sampling result from the client.
@@ -346,11 +351,13 @@ class ServerSession(
                 request=request,
                 result_type=types.CreateMessageResultWithTools,
                 metadata=metadata_obj,
+                progress_callback=progress_callback,
             )
         return await self.send_request(
             request=request,
             result_type=types.CreateMessageResult,
             metadata=metadata_obj,
+            progress_callback=progress_callback,
         )
 
     async def list_roots(self) -> types.ListRootsResult:
@@ -367,6 +374,7 @@ class ServerSession(
         message: str,
         requested_schema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.ElicitResult:
         """Send a form mode elicitation/create request.
 
@@ -374,6 +382,7 @@ class ServerSession(
             message: The message to present to the user
             requested_schema: Schema defining the expected response structure
             related_request_id: Optional ID of the request that triggered this elicitation
+            progress_callback: Optional callback for receiving progress notifications.
 
         Returns:
             The client's response
@@ -382,13 +391,14 @@ class ServerSession(
             This method is deprecated in favor of elicit_form(). It remains for
             backward compatibility but new code should use elicit_form().
         """
-        return await self.elicit_form(message, requested_schema, related_request_id)
+        return await self.elicit_form(message, requested_schema, related_request_id, progress_callback)
 
     async def elicit_form(
         self,
         message: str,
         requested_schema: types.ElicitRequestedSchema,
         related_request_id: types.RequestId | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.ElicitResult:
         """Send a form mode elicitation/create request.
 
@@ -396,6 +406,7 @@ class ServerSession(
             message: The message to present to the user
             requested_schema: Schema defining the expected response structure
             related_request_id: Optional ID of the request that triggered this elicitation
+            progress_callback: Optional callback for receiving progress notifications.
 
         Returns:
             The client's response with form data
@@ -414,6 +425,7 @@ class ServerSession(
             ),
             types.ElicitResult,
             metadata=ServerMessageMetadata(related_request_id=related_request_id),
+            progress_callback=progress_callback,
         )
 
     async def elicit_url(
@@ -422,6 +434,7 @@ class ServerSession(
         url: str,
         elicitation_id: str,
         related_request_id: types.RequestId | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.ElicitResult:
         """Send a URL mode elicitation/create request.
 
@@ -433,6 +446,7 @@ class ServerSession(
             url: The URL the user should navigate to
             elicitation_id: Unique identifier for tracking this elicitation
             related_request_id: Optional ID of the request that triggered this elicitation
+            progress_callback: Optional callback for receiving progress notifications.
 
         Returns:
             The client's response indicating acceptance, decline, or cancellation
@@ -452,6 +466,7 @@ class ServerSession(
             ),
             types.ElicitResult,
             metadata=ServerMessageMetadata(related_request_id=related_request_id),
+            progress_callback=progress_callback,
         )
 
     async def send_ping(self) -> types.EmptyResult:  # pragma: no cover
