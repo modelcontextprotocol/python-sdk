@@ -1,4 +1,5 @@
 # MCP Python SDK
+<!-- test: this change should be caught by CI -->
 
 <div align="center">
 
