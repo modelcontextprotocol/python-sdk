@@ -1,8 +1,6 @@
 """Test to reproduce issue #88: Random error thrown on response."""
 
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import anyio
 import pytest
@@ -11,10 +9,10 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.server.lowlevel import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
-from mcp.types import ContentBlock, TextContent
+from mcp.types import CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams, TextContent
 
 
 @pytest.mark.anyio
@@ -32,36 +30,38 @@ async def test_notification_validation_error(tmp_path: Path):
     - Slow operations use minimal timeout (10ms) for quick test execution
     """
 
-    server = Server(name="test")
     request_count = 0
     slow_request_lock = anyio.Event()
 
-    @server.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="slow",
-                description="A slow tool",
-                input_schema={"type": "object"},
-            ),
-            types.Tool(
-                name="fast",
-                description="A fast tool",
-                input_schema={"type": "object"},
-            ),
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="slow",
+                    description="A slow tool",
+                    input_schema={"type": "object"},
+                ),
+                types.Tool(
+                    name="fast",
+                    description="A fast tool",
+                    input_schema={"type": "object"},
+                ),
+            ]
+        )
 
-    @server.call_tool()
-    async def slow_tool(name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock]:
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal request_count
         request_count += 1
+        assert params.name in ("slow", "fast"), f"Unknown tool: {params.name}"
 
-        if name == "slow":
+        if params.name == "slow":
             await slow_request_lock.wait()  # it should timeout here
-            return [TextContent(type="text", text=f"slow {request_count}")]
-        elif name == "fast":
-            return [TextContent(type="text", text=f"fast {request_count}")]
-        return [TextContent(type="text", text=f"unknown {request_count}")]  # pragma: no cover
+            text = f"slow {request_count}"
+        else:
+            text = f"fast {request_count}"
+        return CallToolResult(content=[TextContent(type="text", text=text)])
+
+    server = Server(name="test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async def server_handler(
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],

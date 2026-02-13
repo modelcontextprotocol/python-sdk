@@ -60,7 +60,7 @@ class StreamableHTTPSessionManager:
 
     def __init__(
         self,
-        app: Server[Any, Any],
+        app: Server[Any],
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
@@ -181,7 +181,7 @@ class StreamableHTTPSessionManager:
         request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
 
         # Existing session case
-        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:  # pragma: no cover
+        if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
             await transport.handle_request(scope, receive, send)
@@ -261,5 +261,5 @@ class StreamableHTTPASGIApp:
     def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         await self.session_manager.handle_request(scope, receive, send)
