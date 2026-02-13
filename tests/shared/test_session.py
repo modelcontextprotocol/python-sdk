@@ -313,14 +313,14 @@ async def test_null_id_error_surfaced_via_message_handler():
     request, so they are forwarded to the message handler as MCPError.
     """
     ev_error_received = anyio.Event()
-    error_holder: list[Exception] = []
+    error_holder: list[MCPError] = []
 
     async def capture_errors(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
-            error_holder.append(message)
-            ev_error_received.set()
+        assert isinstance(message, MCPError)
+        error_holder.append(message)
+        ev_error_received.set()
 
     sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
 
@@ -347,7 +347,6 @@ async def test_null_id_error_surfaced_via_message_handler():
                 await ev_error_received.wait()
 
     assert len(error_holder) == 1
-    assert isinstance(error_holder[0], MCPError)
     assert error_holder[0].error == sent_error
 
 
@@ -361,15 +360,15 @@ async def test_null_id_error_does_not_affect_pending_request():
     """
     ev_error_received = anyio.Event()
     ev_response_received = anyio.Event()
-    error_holder: list[Exception] = []
+    error_holder: list[MCPError] = []
     result_holder: list[EmptyResult] = []
 
     async def capture_errors(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
-            error_holder.append(message)
-            ev_error_received.set()
+        assert isinstance(message, MCPError)
+        error_holder.append(message)
+        ev_error_received.set()
 
     sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
 
@@ -412,7 +411,6 @@ async def test_null_id_error_does_not_affect_pending_request():
 
     # Null-id error reached the message handler
     assert len(error_holder) == 1
-    assert isinstance(error_holder[0], MCPError)
     assert error_holder[0].error == sent_error
 
     # Pending request completed successfully

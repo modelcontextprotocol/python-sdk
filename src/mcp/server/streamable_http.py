@@ -975,13 +975,11 @@ class StreamableHTTPServerTransport:
                         # Determine which request stream(s) should receive this message
                         message = session_message.message
                         target_request_id = None
-                        # Check if this is a response
-                        if isinstance(message, JSONRPCResponse | JSONRPCError):
-                            # Null-id errors (e.g., parse errors) go to the
-                            # GET stream since they can't be correlated to a
-                            # specific request.
-                            if message.id is not None:
-                                target_request_id = str(message.id)
+                        # Check if this is a response with a known request id.
+                        # Null-id errors (e.g., parse errors) fall through to
+                        # the GET stream since they can't be correlated.
+                        if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
+                            target_request_id = str(message.id)
                         # Extract related_request_id from meta if it exists
                         elif (  # pragma: no cover
                             session_message.metadata is not None
