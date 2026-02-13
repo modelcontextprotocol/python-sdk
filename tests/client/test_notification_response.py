@@ -116,7 +116,7 @@ async def test_unexpected_content_type_sends_jsonrpc_error() -> None:
                     await session.list_tools()
 
 
-def _create_http_error_app(error_status: int) -> Starlette:
+def _create_http_error_app(error_status: int, *, error_on_notifications: bool = False) -> Starlette:
     """Create a server that returns an HTTP error for non-init requests."""
 
     async def handle_mcp_request(request: Request) -> Response:
@@ -127,6 +127,8 @@ def _create_http_error_app(error_status: int) -> Starlette:
             return _init_json_response(data)
 
         if "id" not in data:
+            if error_on_notifications:
+                return Response(status_code=error_status)
             return Response(status_code=202)
 
         return Response(status_code=error_status)
@@ -148,6 +150,22 @@ async def test_http_error_status_sends_jsonrpc_error() -> None:
 
                 with pytest.raises(MCPError, match="Server returned an error response"):  # pragma: no branch
                     await session.list_tools()
+
+
+async def test_http_error_on_notification_does_not_hang() -> None:
+    """Verify HTTP errors on notifications are silently ignored.
+
+    When a notification gets an HTTP error, there is no pending request to
+    unblock, so the client should just return without sending a JSONRPCError.
+    """
+    app = _create_http_error_app(500, error_on_notifications=True)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                # Should not raise or hang — the error is silently ignored for notifications
+                await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
 
 
 def _create_invalid_json_response_app() -> Starlette:
