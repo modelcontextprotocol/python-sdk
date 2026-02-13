@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, SerializationInfo, SerializerFunctionWrapHandler, TypeAdapter, model_serializer
 
 RequestId = Annotated[int, Field(strict=True)] | str
 """The ID of a JSON-RPC request."""
@@ -75,8 +75,18 @@ class JSONRPCError(BaseModel):
     """A response to a request that indicates an error occurred."""
 
     jsonrpc: Literal["2.0"]
-    id: RequestId
+    id: RequestId | None
     error: ErrorData
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler, _: SerializationInfo) -> dict[str, Any]:
+        result = handler(self)
+        # JSON-RPC 2.0 requires id to always be present in error responses,
+        # even when null (e.g. parse errors). Ensure exclude_none=True
+        # cannot strip it.
+        if "id" not in result and self.id is None:
+            result["id"] = None
+        return result
 
 
 JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResponse | JSONRPCError

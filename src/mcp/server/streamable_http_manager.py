@@ -244,7 +244,7 @@ class StreamableHTTPSessionManager:
             # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
             error_response = JSONRPCError(
                 jsonrpc="2.0",
-                id="server-error",
+                id=None,
                 error=ErrorData(code=INVALID_REQUEST, message="Session not found"),
             )
             response = Response(

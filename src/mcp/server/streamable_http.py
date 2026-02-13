@@ -298,7 +298,7 @@ class StreamableHTTPServerTransport:
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id="server-error",  # We don't have a request ID for general errors
+            id=None,
             error=ErrorData(code=error_code, message=error_message),
         )
 
@@ -977,10 +977,11 @@ class StreamableHTTPServerTransport:
                         target_request_id = None
                         # Check if this is a response
                         if isinstance(message, JSONRPCResponse | JSONRPCError):
-                            response_id = str(message.id)
-                            # If this response is for an existing request stream,
-                            # send it there
-                            target_request_id = response_id
+                            # Null-id errors (e.g., parse errors) go to the
+                            # GET stream since they can't be correlated to a
+                            # specific request.
+                            if message.id is not None:
+                                target_request_id = str(message.id)
                         # Extract related_request_id from meta if it exists
                         elif (  # pragma: no cover
                             session_message.metadata is not None

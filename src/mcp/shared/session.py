@@ -458,6 +458,19 @@ class BaseSession(
         if not isinstance(message.message, JSONRPCResponse | JSONRPCError):
             return  # pragma: no cover
 
+        # Handle null-id errors (e.g., parse errors, invalid requests) before
+        # routing. Per JSON-RPC 2.0, id is null when the request id could not
+        # be determined — these cannot be correlated to any pending request.
+        if isinstance(message.message, JSONRPCError) and message.message.id is None:
+            error = message.message.error
+            logging.warning(f"Received error with null ID: {error.message}")
+            await self._handle_incoming(MCPError(error.code, error.message, error.data))
+            return
+
+        # After the null-id guard above, id is guaranteed to be non-None.
+        # JSONRPCResponse.id is always RequestId, and JSONRPCError.id is only
+        # None for parse errors (handled above).
+        assert message.message.id is not None
         # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
         response_id = self._normalize_request_id(message.message.id)
 

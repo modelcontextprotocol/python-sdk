@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -8,9 +9,11 @@ from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    ErrorData,
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
+    JSONRPCError,
     JSONRPCRequest,
     ListToolsResult,
     SamplingCapability,
@@ -360,3 +363,20 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert tool.input_schema["additionalProperties"] is False
+
+
+def test_jsonrpc_error_null_id_serialization_preserves_id():
+    """Test that id: null is preserved in JSON output even with exclude_none=True.
+
+    JSON-RPC 2.0 requires the id field to be present with value null for
+    parse errors, not absent entirely.
+    """
+    error = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=-32700, message="Parse error"))
+    serialized = error.model_dump(by_alias=True, exclude_none=True)
+    assert "id" in serialized
+    assert serialized["id"] is None
+
+    json_str = error.model_dump_json(by_alias=True, exclude_none=True)
+    parsed = json.loads(json_str)
+    assert "id" in parsed
+    assert parsed["id"] is None
