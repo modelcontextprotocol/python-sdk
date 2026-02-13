@@ -5,6 +5,7 @@ import pytest
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
+    PARSE_ERROR,
     ClientCapabilities,
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -371,7 +372,7 @@ def test_jsonrpc_error_null_id_serialization_preserves_id():
     JSON-RPC 2.0 requires the id field to be present with value null for
     parse errors, not absent entirely.
     """
-    error = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=-32700, message="Parse error"))
+    error = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
     serialized = error.model_dump(by_alias=True, exclude_none=True)
     assert "id" in serialized
     assert serialized["id"] is None

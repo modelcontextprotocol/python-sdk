@@ -9,6 +9,7 @@ from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    PARSE_ERROR,
     CancelledNotification,
     CancelledNotificationParams,
     ClientResult,
@@ -321,7 +322,7 @@ async def test_null_id_error_surfaced_via_message_handler():
             error_holder.append(message)
             ev_error_received.set()
 
-    sent_error = ErrorData(code=-32700, message="Parse error")
+    sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
@@ -370,7 +371,7 @@ async def test_null_id_error_does_not_affect_pending_request():
             error_holder.append(message)
             ev_error_received.set()
 
-    sent_error = ErrorData(code=-32700, message="Parse error")
+    sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
