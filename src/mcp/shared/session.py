@@ -8,12 +8,14 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry import trace
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
+from mcp.shared.tracing import end_span_error, end_span_ok, start_client_span, start_server_span
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
@@ -77,6 +79,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
+        span: trace.Span | None = None,
     ) -> None:
         self.request_id = request_id
         self.request_meta = request_meta
@@ -87,6 +90,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         self._cancel_scope = anyio.CancelScope()
         self._on_complete = on_complete
         self._entered = False  # Track if we're in a context manager
+        self._span = span
 
     def __enter__(self) -> RequestResponder[ReceiveRequestT, SendResultT]:
         """Enter the context manager, enabling request cancellation tracking."""
@@ -126,6 +130,12 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         if not self.cancelled:  # pragma: no branch
             self._completed = True
 
+            if self._span is not None:
+                if isinstance(response, ErrorData):
+                    end_span_error(self._span, MCPError(code=response.code, message=response.message))
+                else:
+                    end_span_ok(self._span)
+
             await self._session._send_response(  # type: ignore[reportPrivateUsage]
                 request_id=self.request_id, response=response
             )
@@ -139,6 +149,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
         self._cancel_scope.cancel()
         self._completed = True  # Mark as completed so it's removed from in_flight
+
+        if self._span is not None:
+            end_span_error(self._span, MCPError(code=0, message="Request cancelled"))
+
         # Send an error response to indicate cancellation
         await self._session._send_response(  # type: ignore[reportPrivateUsage]
             request_id=self.request_id,
@@ -260,6 +274,9 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
+        method = request_data["method"]
+        span = start_client_span(method, request_data.get("params"))
+
         try:
             jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
             await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
@@ -278,7 +295,15 @@ class BaseSession(
             if isinstance(response_or_error, JSONRPCError):
                 raise MCPError.from_jsonrpc_error(response_or_error)
             else:
-                return result_type.model_validate(response_or_error.result, by_name=False)
+                result = result_type.model_validate(response_or_error.result, by_name=False)
+                if span is not None:
+                    end_span_ok(span)
+                return result
+
+        except BaseException as exc:
+            if span is not None:
+                end_span_error(span, exc)
+            raise
 
         finally:
             self._response_streams.pop(request_id, None)
@@ -339,6 +364,8 @@ class BaseSession(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
                                 by_name=False,
                             )
+                            request_data = message.message.model_dump(by_alias=True, mode="json", exclude_none=True)
+                            server_span = start_server_span(request_data["method"], request_data.get("params"))
                             responder = RequestResponder(
                                 request_id=message.message.id,
                                 request_meta=validated_request.params.meta if validated_request.params else None,
@@ -346,6 +373,7 @@ class BaseSession(
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,
+                                span=server_span,
                             )
                             self._in_flight[responder.request_id] = responder
                             await self._received_request(responder)

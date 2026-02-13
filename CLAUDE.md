@@ -28,6 +28,7 @@ This document contains critical information about working with this codebase. Fo
    - Bug fixes require regression tests
    - IMPORTANT: The `tests/client/test_client.py` is the most well designed test file. Follow its patterns.
    - IMPORTANT: Be minimal, and focus on E2E tests: Use the `mcp.client.Client` whenever possible.
+   - IMPORTANT: Do NOT test private functions (prefixed with `_`). Test them indirectly through the public API.
 
 Test files mirror the source tree: `src/mcp/client/streamable_http.py` → `tests/client/test_streamable_http.py`
 Add tests to the existing file for that module.
