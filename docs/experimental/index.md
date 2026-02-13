@@ -27,10 +27,9 @@ Tasks are useful for:
 Experimental features are accessed via the `.experimental` property:
 
 ```python
-# Server-side
-@server.experimental.get_task()
-async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
-    ...
+# Server-side: enable task support (auto-registers default handlers)
+server = Server(name="my-server")
+server.experimental.enable_tasks()
 
 # Client-side
 result = await session.experimental.call_tool_as_task("tool_name", {"arg": "value"})

@@ -55,6 +55,12 @@ repos:
         language: system
         files: ^(pyproject\.toml|uv\.lock)$
         pass_filenames: false
+      # TODO(Max): Drop this in v2.
+      - id: readme-v1-frozen
+        name: README.md is frozen (v1 docs)
+        entry: README.md is frozen at v1. Edit README.v2.md instead.
+        language: fail
+        files: ^README\.md$
       - id: readme-snippets
         name: Check README snippets are up to date
         entry: uv run --frozen python scripts/update_readme_snippets.py --check
