@@ -161,7 +161,7 @@ async def test_http_error_on_notification_does_not_hang() -> None:
     app = _create_http_error_app(500, error_on_notifications=True)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
                 # Should not raise or hang — the error is silently ignored for notifications
