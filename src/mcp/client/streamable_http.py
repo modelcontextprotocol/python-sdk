@@ -19,6 +19,7 @@ from mcp.client._transport import TransportStreams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    INTERNAL_ERROR,
     INVALID_REQUEST,
     PARSE_ERROR,
     ErrorData,
@@ -273,7 +274,13 @@ class StreamableHTTPTransport:
                     await ctx.read_stream_writer.send(session_message)
                 return
 
-            response.raise_for_status()
+            if response.status_code >= 400:
+                if isinstance(message, JSONRPCRequest):
+                    error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                    session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
+                    await ctx.read_stream_writer.send(session_message)
+                return
+
             if is_initialization:
                 self._maybe_extract_session_id_from_response(response)
 
