@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import anyio
 import pytest
 
@@ -706,3 +708,18 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_initialize_without_context_manager_raises_error():
+    """Test that calling initialize() without entering the context manager raises RuntimeError."""
+    send_stream, receive_stream = anyio.create_memory_object_stream[Any](0)
+
+    read_stream = cast(Any, receive_stream)
+    write_stream = cast(Any, send_stream)
+
+    async with send_stream, receive_stream:
+        session = ClientSession(read_stream, write_stream)
+
+        with pytest.raises(RuntimeError, match="must be used within"):
+            await session.initialize()
