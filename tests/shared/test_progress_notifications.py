@@ -44,6 +44,7 @@ async def test_bidirectional_progress_notifications():
     # Track progress updates
     server_progress_updates: list[dict[str, Any]] = []
     client_progress_updates: list[dict[str, Any]] = []
+    all_server_progress_received = anyio.Event()
 
     # Progress tokens
     server_progress_token = "server_token_123"
@@ -59,6 +60,8 @@ async def test_bidirectional_progress_notifications():
                 "message": params.message,
             }
         )
+        if len(server_progress_updates) == 3:
+            all_server_progress_received.set()
 
     # Register list tool handler
     async def handle_list_tools(
@@ -179,8 +182,9 @@ async def test_bidirectional_progress_notifications():
             message="Client progress 100%",
         )
 
-        # Wait and exit
-        await anyio.sleep(0.5)
+        # Wait for all server-side progress updates to arrive, then exit
+        with anyio.fail_after(5):
+            await all_server_progress_received.wait()
         tg.cancel_scope.cancel()
 
     # Verify client received progress updates from server
@@ -207,6 +211,7 @@ async def test_progress_context_manager():
 
     # Track progress updates
     server_progress_updates: list[dict[str, Any]] = []
+    all_progress_received = anyio.Event()
 
     progress_token = None
 
@@ -220,6 +225,8 @@ async def test_progress_context_manager():
                 "message": params.message,
             }
         )
+        if len(server_progress_updates) == 4:
+            all_progress_received.set()
 
     server = Server(name="ProgressContextTestServer", on_progress=handle_progress)
 
@@ -277,8 +284,9 @@ async def test_progress_context_manager():
             await p.progress(40, message="Fetching data...")
             await p.progress(20, message="Processing results...")
 
-        # Wait for all messages to be processed
-        await anyio.sleep(0.5)
+        # Wait for all progress updates to arrive, then exit
+        with anyio.fail_after(5):
+            await all_progress_received.wait()
         tg.cancel_scope.cancel()
 
     # Verify progress updates were received by server
