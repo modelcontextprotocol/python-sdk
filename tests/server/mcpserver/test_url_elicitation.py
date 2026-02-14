@@ -1,6 +1,5 @@
 """Test URL mode elicitation feature (SEP 1036)."""
 
-import anyio
 import pytest
 from pydantic import BaseModel, Field
 
@@ -216,10 +215,8 @@ async def test_elicit_complete_notification():
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "Elicitation completed"
 
-        # Give time for notification to be processed
-        await anyio.sleep(0.1)
-
-        # Verify the notification was sent
+        # Verify the notification was sent (flag is set inside the tool handler
+        # which completes before call_tool returns, so no wait needed)
         assert notification_sent
 
 
