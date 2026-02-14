@@ -143,13 +143,11 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
     # At this point, mock_mcp_run has completed, and the finally block in
     # StreamableHTTPSessionManager's run_server should have executed.
 
-    # To ensure the task spawned by handle_request finishes and cleanup occurs:
-    # Give other tasks a chance to run. This is important for the finally block.
-    await anyio.sleep(0.01)
+    # Poll until the cleanup task runs and removes the session
+    with anyio.fail_after(5):
+        while session_id in manager._server_instances:
+            await anyio.sleep(0)
 
-    assert session_id not in manager._server_instances, (
-        "Session ID should be removed from _server_instances after graceful exit"
-    )
     assert not manager._server_instances, "No sessions should be tracked after the only session exits gracefully"
 
 
@@ -197,12 +195,11 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
 
     mock_mcp_run.assert_called_once()
 
-    # Give other tasks a chance to run to ensure the finally block executes
-    await anyio.sleep(0.01)
+    # Poll until the cleanup task runs and removes the session
+    with anyio.fail_after(5):
+        while session_id in manager._server_instances:
+            await anyio.sleep(0)
 
-    assert session_id not in manager._server_instances, (
-        "Session ID should be removed from _server_instances after an exception"
-    )
     assert not manager._server_instances, "No sessions should be tracked after the only session crashes"
 
 
