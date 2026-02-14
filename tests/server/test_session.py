@@ -449,6 +449,7 @@ async def test_other_requests_blocked_before_initialization():
 
     error_response_received = False
     error_code = None
+    client_done = anyio.Event()
 
     async def run_server():
         async with ServerSession(
@@ -460,9 +461,8 @@ async def test_other_requests_blocked_before_initialization():
                 capabilities=ServerCapabilities(),
             ),
         ):
-            # Server should handle the request and send an error response
-            # No need to process incoming_messages since the error is handled automatically
-            await anyio.sleep(0.1)  # Give time for the request to be processed
+            # Wait until the client has received and verified the error response
+            await client_done.wait()
 
     async def mock_client():
         nonlocal error_response_received, error_code
@@ -477,6 +477,8 @@ async def test_other_requests_blocked_before_initialization():
         if isinstance(error_message.message, types.JSONRPCError):  # pragma: no branch
             error_response_received = True
             error_code = error_message.message.error.code
+
+        client_done.set()
 
     async with (
         client_to_server_send,
