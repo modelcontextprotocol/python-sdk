@@ -1232,7 +1232,8 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
     captured_resumption_token: str | None = None
     captured_notifications: list[types.ServerNotification] = []
     captured_protocol_version: str | int | None = None
-    first_notification_received = False
+    notification_event = anyio.Event()
+    resumption_token_event = anyio.Event()
 
     async def message_handler(  # pragma: no branch
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
@@ -1242,12 +1243,12 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             # Look for our first notification
             if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
                 if message.params.data == "First notification before lock":
-                    nonlocal first_notification_received
-                    first_notification_received = True
+                    notification_event.set()
 
     async def on_resumption_token_update(token: str) -> None:
         nonlocal captured_resumption_token
         captured_resumption_token = token
+        resumption_token_event.set()
 
     # Use httpx client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client()
@@ -1288,8 +1289,9 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                     tg.start_soon(run_tool)
 
                     # Wait for the first notification and resumption token
-                    while not first_notification_received or not captured_resumption_token:
-                        await anyio.sleep(0.1)
+                    with anyio.fail_after(5):
+                        await notification_event.wait()
+                        await resumption_token_event.wait()
 
                     # Kill the client session while tool is waiting on lock
                     tg.cancel_scope.cancel()
