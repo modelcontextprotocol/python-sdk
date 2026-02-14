@@ -44,44 +44,38 @@ async def test_malformed_initialize_request_does_not_crash_server():
             # Send the malformed request
             await read_send_stream.send(request_message)
 
-            # Give the session time to process the request
-            await anyio.sleep(0.1)
+            # Wait for the error response
+            with anyio.fail_after(5):
+                response_message = await write_receive_stream.receive()
+            response = response_message.message
 
-            # Check that we received an error response instead of a crash
-            try:
-                response_message = write_receive_stream.receive_nowait()
-                response = response_message.message
+            # Verify it's a proper JSON-RPC error response
+            assert isinstance(response, JSONRPCError)
+            assert response.jsonrpc == "2.0"
+            assert response.id == "f20fe86132ed4cd197f89a7134de5685"
+            assert response.error.code == INVALID_PARAMS
+            assert "Invalid request parameters" in response.error.message
 
-                # Verify it's a proper JSON-RPC error response
-                assert isinstance(response, JSONRPCError)
-                assert response.jsonrpc == "2.0"
-                assert response.id == "f20fe86132ed4cd197f89a7134de5685"
-                assert response.error.code == INVALID_PARAMS
-                assert "Invalid request parameters" in response.error.message
+            # Verify the session is still alive and can handle more requests
+            # Send another malformed request to confirm server stability
+            another_malformed_request = JSONRPCRequest(
+                jsonrpc="2.0",
+                id="test_id_2",
+                method="tools/call",
+                # params=None  # Missing required params
+            )
+            another_request_message = SessionMessage(message=another_malformed_request)
 
-                # Verify the session is still alive and can handle more requests
-                # Send another malformed request to confirm server stability
-                another_malformed_request = JSONRPCRequest(
-                    jsonrpc="2.0",
-                    id="test_id_2",
-                    method="tools/call",
-                    # params=None  # Missing required params
-                )
-                another_request_message = SessionMessage(message=another_malformed_request)
+            await read_send_stream.send(another_request_message)
 
-                await read_send_stream.send(another_request_message)
-                await anyio.sleep(0.1)
+            # Wait for the second error response
+            with anyio.fail_after(5):
+                second_response_message = await write_receive_stream.receive()
+            second_response = second_response_message.message
 
-                # Should get another error response, not a crash
-                second_response_message = write_receive_stream.receive_nowait()
-                second_response = second_response_message.message
-
-                assert isinstance(second_response, JSONRPCError)
-                assert second_response.id == "test_id_2"
-                assert second_response.error.code == INVALID_PARAMS
-
-            except anyio.WouldBlock:  # pragma: no cover
-                pytest.fail("No response received - server likely crashed")
+            assert isinstance(second_response, JSONRPCError)
+            assert second_response.id == "test_id_2"
+            assert second_response.error.code == INVALID_PARAMS
     finally:  # pragma: lax no cover
         # Close all streams to ensure proper cleanup
         await read_send_stream.aclose()
@@ -124,19 +118,13 @@ async def test_multiple_concurrent_malformed_requests():
             for request in malformed_requests:
                 await read_send_stream.send(request)
 
-            # Give time to process
-            await anyio.sleep(0.2)
-
-            # Verify we get error responses for all requests
+            # Collect all 10 error responses
             error_responses: list[JSONRPCMessage] = []
-            try:
-                while True:
-                    response_message = write_receive_stream.receive_nowait()
+            with anyio.fail_after(5):
+                for _ in range(10):
+                    response_message = await write_receive_stream.receive()
                     error_responses.append(response_message.message)
-            except anyio.WouldBlock:
-                pass  # No more messages
 
-            # Should have received 10 error responses
             assert len(error_responses) == 10
 
             for i, response in enumerate(error_responses):
