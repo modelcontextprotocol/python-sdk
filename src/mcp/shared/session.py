@@ -274,6 +274,10 @@ class BaseSession(
                 class_name = request.__class__.__name__
                 message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
                 raise MCPError(code=REQUEST_TIMEOUT, message=message)
+            except (anyio.EndOfStream, anyio.ClosedResourceError) as e:
+                class_name = request.__class__.__name__
+                message = f"Connection closed while waiting for response to {class_name}: {e}"
+                raise MCPError(code=CONNECTION_CLOSED, message=message)
 
             if isinstance(response_or_error, JSONRPCError):
                 raise MCPError.from_jsonrpc_error(response_or_error)
