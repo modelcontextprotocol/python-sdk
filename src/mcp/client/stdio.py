@@ -4,7 +4,7 @@ import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Callable, Literal, TextIO
+from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
@@ -50,6 +50,7 @@ def _is_jupyter_environment() -> bool:
     except (ImportError, AttributeError):
         pass
     return False
+
 
 # Environment variables to inherit by default
 DEFAULT_INHERITED_ENV_VARS = (
@@ -215,16 +216,15 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             await anyio.lowlevel.checkpoint()
 
     async def stderr_reader():
-        """Read stderr from the process and output it appropriately.
+        """Read stderr from the process and print it to notebook output.
 
         In Jupyter environments, stderr is captured as a pipe and printed
-        to make it visible in the notebook output. In normal environments,
-        stderr is passed directly to sys.stderr.
+        to make it visible in the notebook output.
 
         See: https://github.com/modelcontextprotocol/python-sdk/issues/156
         """
         if not process.stderr:
-            return
+            return  # pragma: no cover
 
         try:
             async for chunk in TextReceiveStream(
@@ -232,15 +232,9 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                 encoding=server.encoding,
                 errors=server.encoding_error_handler,
             ):
-                # In Jupyter, print to stdout with red color for visibility
-                # In normal environments, write to the provided errlog
-                if is_jupyter:
-                    # Use ANSI red color for stderr in Jupyter
-                    print(f"\033[91m{chunk}\033[0m", end="", flush=True)
-                else:
-                    errlog.write(chunk)
-                    errlog.flush()
-        except anyio.ClosedResourceError:
+                # Use ANSI red color for stderr visibility in Jupyter
+                print(f"\033[91m{chunk}\033[0m", end="", flush=True)
+        except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg, process:

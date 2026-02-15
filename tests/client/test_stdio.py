@@ -5,6 +5,7 @@ import sys
 import tempfile
 import textwrap
 import time
+from unittest.mock import MagicMock, patch
 
 import anyio
 import pytest
@@ -648,13 +649,13 @@ class TestJupyterStderrSupport:
         """Test that stderr output from a subprocess can be captured."""
         # Create a script that writes to stderr
         script = textwrap.dedent(
-            '''
+            """
             import sys
             sys.stderr.write("test error message\\n")
             sys.stderr.flush()
             # Exit immediately
             sys.exit(0)
-            '''
+            """
         )
 
         server_params = StdioServerParameters(
@@ -674,7 +675,7 @@ class TestJupyterStderrSupport:
         """Test that continuous stderr output doesn't block the client."""
         # Create a script that writes to stderr continuously then exits
         script = textwrap.dedent(
-            '''
+            """
             import sys
             import time
 
@@ -685,7 +686,7 @@ class TestJupyterStderrSupport:
 
             # Exit after writing
             sys.exit(0)
-            '''
+            """
         )
 
         server_params = StdioServerParameters(
@@ -699,3 +700,96 @@ class TestJupyterStderrSupport:
                 await anyio.sleep(1.0)  # Wait for stderr output
 
         assert not cancel_scope.cancelled_caught, "stdio_client should handle continuous stderr output"
+
+    def test_jupyter_detection_ipkernel_app(self):
+        """Test that _is_jupyter_environment returns True for IPKernelApp config."""
+        mock_ipython_instance = MagicMock()
+        mock_ipython_instance.config = {"IPKernelApp": {}}
+        mock_ipython_instance.__class__ = type("TerminalInteractiveShell", (), {})
+
+        mock_ipython_module = MagicMock()
+        mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
+
+        with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
+            result = _is_jupyter_environment()
+            assert result is True
+
+    def test_jupyter_detection_zmq_shell(self):
+        """Test that _is_jupyter_environment returns True for ZMQInteractiveShell."""
+        mock_ipython_instance = MagicMock()
+        mock_ipython_instance.config = {}
+        mock_ipython_instance.__class__ = type("ZMQInteractiveShell", (), {})
+
+        mock_ipython_module = MagicMock()
+        mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
+
+        with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
+            result = _is_jupyter_environment()
+            assert result is True
+
+    def test_jupyter_detection_non_notebook_ipython(self):
+        """Test that _is_jupyter_environment returns False for plain IPython terminal."""
+        mock_ipython_instance = MagicMock()
+        mock_ipython_instance.config = {}
+        mock_ipython_instance.__class__ = type("TerminalInteractiveShell", (), {})
+
+        mock_ipython_module = MagicMock()
+        mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
+
+        with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
+            result = _is_jupyter_environment()
+            assert result is False
+
+    @pytest.mark.anyio
+    async def test_stderr_reader_jupyter_mode(self):
+        """Test that stderr is captured and printed in Jupyter mode."""
+        script = textwrap.dedent(
+            """
+            import sys
+            sys.stderr.write("jupyter error output\\n")
+            sys.stderr.flush()
+            sys.exit(0)
+            """
+        )
+
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-c", script],
+        )
+
+        # Mock _is_jupyter_environment to return True to exercise stderr_reader
+        with patch("mcp.client.stdio._is_jupyter_environment", return_value=True):
+            with anyio.move_on_after(5.0) as cancel_scope:
+                async with stdio_client(server_params) as (read_stream, write_stream):
+                    await anyio.sleep(1.0)
+
+        assert not cancel_scope.cancelled_caught, "stdio_client should not hang in Jupyter mode"
+
+    @pytest.mark.anyio
+    async def test_stderr_reader_jupyter_mode_continuous(self):
+        """Test that continuous stderr output is handled in Jupyter mode."""
+        script = textwrap.dedent(
+            """
+            import sys
+            import time
+
+            for i in range(3):
+                sys.stderr.write(f"jupyter stderr line {i}\\n")
+                sys.stderr.flush()
+                time.sleep(0.05)
+
+            sys.exit(0)
+            """
+        )
+
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=["-c", script],
+        )
+
+        with patch("mcp.client.stdio._is_jupyter_environment", return_value=True):
+            with anyio.move_on_after(5.0) as cancel_scope:
+                async with stdio_client(server_params) as (read_stream, write_stream):
+                    await anyio.sleep(1.0)
+
+        assert not cancel_scope.cancelled_caught, "stdio_client should handle continuous Jupyter stderr"
