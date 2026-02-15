@@ -37,15 +37,15 @@ def _is_jupyter_environment() -> bool:
     """
     try:
         # Check for IPython kernel
-        from IPython import get_ipython
+        from IPython import get_ipython  # type: ignore[reportMissingImports]
 
-        ipython = get_ipython()
+        ipython = get_ipython()  # type: ignore[reportUnknownVariableType]
         if ipython is not None:
             # Check if it's a notebook kernel (not just IPython terminal)
-            if "IPKernelApp" in ipython.config:
+            if "IPKernelApp" in ipython.config:  # type: ignore[reportUnknownMemberType]
                 return True
             # Also check for ZMQInteractiveShell which indicates notebook
-            if ipython.__class__.__name__ == "ZMQInteractiveShell":
+            if ipython.__class__.__name__ == "ZMQInteractiveShell":  # type: ignore[reportUnknownMemberType]
                 return True
     except (ImportError, AttributeError):
         pass

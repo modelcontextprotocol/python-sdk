@@ -769,7 +769,10 @@ class TestJupyterStderrSupport:
         # Mock _is_jupyter_environment to return True to exercise stderr_reader
         with patch("mcp.client.stdio._is_jupyter_environment", return_value=True):
             with anyio.move_on_after(5.0) as cancel_scope:
-                async with stdio_client(server_params) as (read_stream, write_stream):
+                async with stdio_client(server_params) as (  # pragma: no branch
+                    read_stream,
+                    write_stream,
+                ):
                     await anyio.sleep(1.0)
 
         assert not cancel_scope.cancelled_caught, "stdio_client should not hang in Jupyter mode"
@@ -798,7 +801,10 @@ class TestJupyterStderrSupport:
 
         with patch("mcp.client.stdio._is_jupyter_environment", return_value=True):
             with anyio.move_on_after(5.0) as cancel_scope:
-                async with stdio_client(server_params) as (read_stream, write_stream):
+                async with stdio_client(server_params) as (  # pragma: no branch
+                    read_stream,
+                    write_stream,
+                ):
                     await anyio.sleep(1.0)
 
         assert not cancel_scope.cancelled_caught, "stdio_client should handle continuous Jupyter stderr"
