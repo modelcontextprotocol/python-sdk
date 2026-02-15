@@ -740,6 +740,15 @@ class TestJupyterStderrSupport:
             result = _is_jupyter_environment()
             assert result is False
 
+    def test_jupyter_detection_ipython_returns_none(self):
+        """Test that _is_jupyter_environment returns False when get_ipython() returns None."""
+        mock_ipython_module = MagicMock()
+        mock_ipython_module.get_ipython = MagicMock(return_value=None)
+
+        with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
+            result = _is_jupyter_environment()
+            assert result is False
+
     @pytest.mark.anyio
     async def test_stderr_reader_jupyter_mode(self):
         """Test that stderr is captured and printed in Jupyter mode."""

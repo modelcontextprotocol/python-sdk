@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import BinaryIO, TextIO, Union, cast
+from typing import BinaryIO, TextIO, cast
 
 import anyio
 from anyio import to_thread
@@ -137,7 +137,7 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: Union[TextIO, int, None] = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
     """Creates a subprocess in a Windows-compatible way with Job Object support.
@@ -196,7 +196,7 @@ async def _create_windows_fallback_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: Union[TextIO, int, None] = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
     """Create a subprocess using subprocess.Popen as a fallback when anyio fails.
