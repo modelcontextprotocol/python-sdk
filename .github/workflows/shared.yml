@@ -13,9 +13,9 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+      - uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
         with:
           enable-cache: true
           version: 0.9.5
@@ -26,7 +26,19 @@ jobs:
         with:
           extra_args: --all-files --verbose
         env:
-          SKIP: no-commit-to-branch
+          SKIP: no-commit-to-branch,readme-v1-frozen
+
+      # TODO(Max): Drop this in v2.
+      - name: Check README.md is not modified
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          if git diff --name-only "$BASE_SHA" -- README.md | grep -q .; then
+            echo "::error::README.md is frozen at v1. Edit README.v2.md instead."
+            exit 1
+          fi
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
   test:
     name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})
@@ -44,10 +56,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
         with:
           enable-cache: true
           version: 0.9.5
@@ -62,12 +74,16 @@ jobs:
           uv run --frozen --no-sync coverage combine
           uv run --frozen --no-sync coverage report
 
+      - name: Check for unnecessary no cover pragmas
+        if: runner.os != 'Windows'
+        run: uv run --frozen --no-sync strict-no-cover
+
   readme-snippets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+      - uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # v7.2.1
         with:
           enable-cache: true
           version: 0.9.5
@@ -76,4 +92,4 @@ jobs:
         run: uv sync --frozen --all-extras --python 3.10
 
       - name: Check README snippets are up to date
-        run: uv run --frozen scripts/update_readme_snippets.py --check
+        run: uv run --frozen scripts/update_readme_snippets.py --check --readme README.v2.md

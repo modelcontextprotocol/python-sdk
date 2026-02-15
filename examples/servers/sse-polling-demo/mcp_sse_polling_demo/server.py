@@ -15,12 +15,11 @@ Run with:
 import contextlib
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
 
 import anyio
 import click
-import mcp.types as types
-from mcp.server.lowlevel import Server
+from mcp import types
+from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -31,88 +30,12 @@ from .event_store import InMemoryEventStore
 logger = logging.getLogger(__name__)
 
 
-@click.command()
-@click.option("--port", default=3000, help="Port to listen on")
-@click.option(
-    "--log-level",
-    default="INFO",
-    help="Logging level (DEBUG, INFO, WARNING, ERROR)",
-)
-@click.option(
-    "--retry-interval",
-    default=100,
-    help="SSE retry interval in milliseconds (sent to client)",
-)
-def main(port: int, log_level: str, retry_interval: int) -> int:
-    """Run the SSE Polling Demo server."""
-    logging.basicConfig(
-        level=getattr(logging, log_level.upper()),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    # Create the lowlevel server
-    app = Server("sse-polling-demo")
-
-    @app.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
-        """Handle tool calls."""
-        ctx = app.request_context
-
-        if name == "process_batch":
-            items = arguments.get("items", 10)
-            checkpoint_every = arguments.get("checkpoint_every", 3)
-
-            if items < 1 or items > 100:
-                return [types.TextContent(type="text", text="Error: items must be between 1 and 100")]
-            if checkpoint_every < 1 or checkpoint_every > 20:
-                return [types.TextContent(type="text", text="Error: checkpoint_every must be between 1 and 20")]
-
-            await ctx.session.send_log_message(
-                level="info",
-                data=f"Starting batch processing of {items} items...",
-                logger="process_batch",
-                related_request_id=ctx.request_id,
-            )
-
-            for i in range(1, items + 1):
-                # Simulate work
-                await anyio.sleep(0.5)
-
-                # Report progress
-                await ctx.session.send_log_message(
-                    level="info",
-                    data=f"[{i}/{items}] Processing item {i}",
-                    logger="process_batch",
-                    related_request_id=ctx.request_id,
-                )
-
-                # Checkpoint: close stream to trigger client reconnect
-                if i % checkpoint_every == 0 and i < items:
-                    await ctx.session.send_log_message(
-                        level="info",
-                        data=f"Checkpoint at item {i} - closing SSE stream for polling",
-                        logger="process_batch",
-                        related_request_id=ctx.request_id,
-                    )
-                    if ctx.close_sse_stream:
-                        logger.info(f"Closing SSE stream at checkpoint {i}")
-                        await ctx.close_sse_stream()
-                    # Wait for client to reconnect (must be > retry_interval of 100ms)
-                    await anyio.sleep(0.2)
-
-            return [
-                types.TextContent(
-                    type="text",
-                    text=f"Successfully processed {items} items with checkpoints every {checkpoint_every} items",
-                )
-            ]
-
-        return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
-
-    @app.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        """List available tools."""
-        return [
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
+    """List available tools."""
+    return types.ListToolsResult(
+        tools=[
             types.Tool(
                 name="process_batch",
                 description=(
@@ -136,6 +59,95 @@ def main(port: int, log_level: str, retry_interval: int) -> int:
                 },
             )
         ]
+    )
+
+
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+    """Handle tool calls."""
+    arguments = params.arguments or {}
+
+    if params.name == "process_batch":
+        items = arguments.get("items", 10)
+        checkpoint_every = arguments.get("checkpoint_every", 3)
+
+        if items < 1 or items > 100:
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text="Error: items must be between 1 and 100")]
+            )
+        if checkpoint_every < 1 or checkpoint_every > 20:
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text="Error: checkpoint_every must be between 1 and 20")]
+            )
+
+        await ctx.session.send_log_message(
+            level="info",
+            data=f"Starting batch processing of {items} items...",
+            logger="process_batch",
+            related_request_id=ctx.request_id,
+        )
+
+        for i in range(1, items + 1):
+            # Simulate work
+            await anyio.sleep(0.5)
+
+            # Report progress
+            await ctx.session.send_log_message(
+                level="info",
+                data=f"[{i}/{items}] Processing item {i}",
+                logger="process_batch",
+                related_request_id=ctx.request_id,
+            )
+
+            # Checkpoint: close stream to trigger client reconnect
+            if i % checkpoint_every == 0 and i < items:
+                await ctx.session.send_log_message(
+                    level="info",
+                    data=f"Checkpoint at item {i} - closing SSE stream for polling",
+                    logger="process_batch",
+                    related_request_id=ctx.request_id,
+                )
+                if ctx.close_sse_stream:
+                    logger.info(f"Closing SSE stream at checkpoint {i}")
+                    await ctx.close_sse_stream()
+                # Wait for client to reconnect (must be > retry_interval of 100ms)
+                await anyio.sleep(0.2)
+
+        return types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text",
+                    text=f"Successfully processed {items} items with checkpoints every {checkpoint_every} items",
+                )
+            ]
+        )
+
+    return types.CallToolResult(content=[types.TextContent(type="text", text=f"Unknown tool: {params.name}")])
+
+
+@click.command()
+@click.option("--port", default=3000, help="Port to listen on")
+@click.option(
+    "--log-level",
+    default="INFO",
+    help="Logging level (DEBUG, INFO, WARNING, ERROR)",
+)
+@click.option(
+    "--retry-interval",
+    default=100,
+    help="SSE retry interval in milliseconds (sent to client)",
+)
+def main(port: int, log_level: str, retry_interval: int) -> int:
+    """Run the SSE Polling Demo server."""
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    app = Server(
+        "sse-polling-demo",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
 
     # Create event store for resumability
     event_store = InMemoryEventStore()

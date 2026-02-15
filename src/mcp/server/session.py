@@ -6,30 +6,22 @@ used in MCP servers to interact with the client.
 
 Common usage pattern:
 ```
-    server = Server(name)
-
-    @server.call_tool()
-    async def handle_tool_call(ctx: RequestContext, arguments: dict[str, Any]) -> Any:
+    async def handle_call_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
         # Check client capabilities before proceeding
         if ctx.session.check_client_capability(
             types.ClientCapabilities(experimental={"advanced_tools": dict()})
         ):
-            # Perform advanced tool operations
-            result = await perform_advanced_tool_operation(arguments)
+            result = await perform_advanced_tool_operation(params.arguments)
         else:
-            # Fall back to basic tool operations
-            result = await perform_basic_tool_operation(arguments)
-
+            result = await perform_basic_tool_operation(params.arguments)
         return result
 
-    @server.list_prompts()
-    async def handle_list_prompts(ctx: RequestContext) -> list[types.Prompt]:
-        # Access session for any necessary checks or operations
+    async def handle_list_prompts(ctx: RequestContext, params) -> ListPromptsResult:
         if ctx.session.client_params:
-            # Customize prompts based on client initialization parameters
-            return generate_custom_prompts(ctx.session.client_params)
-        else:
-            return default_prompts
+            return ListPromptsResult(prompts=generate_custom_prompts(ctx.session.client_params))
+        return ListPromptsResult(prompts=default_prompts)
+
+    server = Server(name, on_call_tool=handle_call_tool, on_list_prompts=handle_list_prompts)
 ```
 
 The ServerSession class is typically used internally by the Server class and should not
@@ -44,7 +36,7 @@ import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl, TypeAdapter
 
-import mcp.types as types
+from mcp import types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
@@ -114,7 +106,7 @@ class ServerSession(
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
-        return self._client_params  # pragma: no cover
+        return self._client_params
 
     @property
     def experimental(self) -> ExperimentalServerSessionFeatures:
@@ -126,20 +118,20 @@ class ServerSession(
             self._experimental_features = ExperimentalServerSessionFeatures(self)
         return self._experimental_features
 
-    def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
+    def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
-        if self._client_params is None:
+        if self._client_params is None:  # pragma: lax no cover
             return False
 
         client_caps = self._client_params.capabilities
 
-        if capability.roots is not None:
+        if capability.roots is not None:  # pragma: lax no cover
             if client_caps.roots is None:
                 return False
             if capability.roots.list_changed and not client_caps.roots.list_changed:
                 return False
 
-        if capability.sampling is not None:
+        if capability.sampling is not None:  # pragma: lax no cover
             if client_caps.sampling is None:
                 return False
             if capability.sampling.context is not None and client_caps.sampling.context is None:
@@ -147,17 +139,17 @@ class ServerSession(
             if capability.sampling.tools is not None and client_caps.sampling.tools is None:
                 return False
 
-        if capability.elicitation is not None and client_caps.elicitation is None:
+        if capability.elicitation is not None and client_caps.elicitation is None:  # pragma: lax no cover
             return False
 
-        if capability.experimental is not None:
+        if capability.experimental is not None:  # pragma: lax no cover
             if client_caps.experimental is None:
                 return False
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
 
-        if capability.tasks is not None:
+        if capability.tasks is not None:  # pragma: lax no cover
             if client_caps.tasks is None:
                 return False
             if not check_tasks_capability(capability.tasks, client_caps.tasks):
@@ -314,7 +306,7 @@ class ServerSession(
             The sampling result from the client.
 
         Raises:
-            McpError: If tools are provided but client doesn't support them.
+            MCPError: If tools are provided but client doesn't support them.
             ValueError: If tool_use or tool_result message structure is invalid.
             StatelessModeNotSupported: If called in stateless HTTP mode.
         """
@@ -544,7 +536,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id
@@ -589,7 +581,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id
@@ -659,7 +651,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id

@@ -1,8 +1,8 @@
 import pytest
 
 from mcp import Client
-from mcp.server.fastmcp import FastMCP
-from mcp.shared.exceptions import McpError
+from mcp.server.mcpserver import MCPServer
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     RESOURCE_NOT_FOUND,
     ListResourceTemplatesResult,
@@ -13,7 +13,7 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_resource_template_edge_cases():
     """Test server-side resource template validation"""
-    mcp = FastMCP("Demo")
+    mcp = MCPServer("Demo")
 
     # Test case 1: Template with multiple parameters
     @mcp.resource("resource://users/{user_id}/posts/{post_id}")
@@ -56,11 +56,11 @@ async def test_resource_template_edge_cases():
     assert result_list[0].mime_type == "text/plain"
 
     # Verify invalid parameters raise protocol error
-    with pytest.raises(McpError, match="Unknown resource") as exc_info:
+    with pytest.raises(MCPError, match="Unknown resource") as exc_info:
         await mcp.read_resource("resource://users/123/posts")  # Missing post_id
     assert exc_info.value.error.code == RESOURCE_NOT_FOUND
 
-    with pytest.raises(McpError, match="Unknown resource") as exc_info:
+    with pytest.raises(MCPError, match="Unknown resource") as exc_info:
         await mcp.read_resource("resource://users/123/posts/456/extra")  # Extra path component
     assert exc_info.value.error.code == RESOURCE_NOT_FOUND
 
@@ -68,7 +68,7 @@ async def test_resource_template_edge_cases():
 @pytest.mark.anyio
 async def test_resource_template_client_interaction():
     """Test client-side resource template interaction"""
-    mcp = FastMCP("Demo")
+    mcp = MCPServer("Demo")
 
     # Register some templated resources
     @mcp.resource("resource://users/{user_id}/posts/{post_id}")

@@ -11,7 +11,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
@@ -150,7 +150,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return not self._completed and not self.cancelled
 
     @property
-    def cancelled(self) -> bool:  # pragma: no cover
+    def cancelled(self) -> bool:
         return self._cancel_scope.cancel_called
 
 
@@ -237,7 +237,7 @@ class BaseSession(
     ) -> ReceiveResultT:
         """Sends a request and wait for a response.
 
-        Raises an McpError if the response contains an error. If a request read timeout is provided, it will take
+        Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
         precedence over the session read timeout.
 
         Do not use this method to emit notifications! Use send_notification() instead.
@@ -250,11 +250,11 @@ class BaseSession(
 
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        if progress_callback is not None:  # pragma: no cover
+        if progress_callback is not None:
             # Use request_id as progress token
-            if "params" not in request_data:
+            if "params" not in request_data:  # pragma: lax no cover
                 request_data["params"] = {}
-            if "_meta" not in request_data["params"]:  # pragma: no branch
+            if "_meta" not in request_data["params"]:  # pragma: lax no cover
                 request_data["params"]["_meta"] = {}
             request_data["params"]["_meta"]["progressToken"] = request_id
             # Store the callback for this request
@@ -271,18 +271,12 @@ class BaseSession(
                 with anyio.fail_after(timeout):
                     response_or_error = await response_stream_reader.receive()
             except TimeoutError:
-                raise McpError(
-                    ErrorData(
-                        code=REQUEST_TIMEOUT,
-                        message=(
-                            f"Timed out while waiting for response to {request.__class__.__name__}. "
-                            f"Waited {timeout} seconds."
-                        ),
-                    )
-                )
+                class_name = request.__class__.__name__
+                message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
+                raise MCPError(code=REQUEST_TIMEOUT, message=message)
 
             if isinstance(response_or_error, JSONRPCError):
-                raise McpError(response_or_error.error)
+                raise MCPError.from_jsonrpc_error(response_or_error)
             else:
                 return result_type.model_validate(response_or_error.result, by_name=False)
 
@@ -304,7 +298,7 @@ class BaseSession(
             jsonrpc="2.0",
             **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
         )
-        session_message = SessionMessage(  # pragma: no cover
+        session_message = SessionMessage(
             message=jsonrpc_notification,
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
@@ -384,7 +378,7 @@ class BaseSession(
                                     await self._in_flight[cancelled_id].cancel()
                             else:
                                 # Handle progress notifications callback
-                                if isinstance(notification, ProgressNotification):  # pragma: no cover
+                                if isinstance(notification, ProgressNotification):
                                     progress_token = notification.params.progress_token
                                     # If there is a progress callback for this token,
                                     # call it with the progress information
@@ -400,9 +394,9 @@ class BaseSession(
                                             logging.exception("Progress callback raised an exception")
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
-                        except Exception:  # pragma: no cover
+                        except Exception:
                             # For other validation errors, log and continue
-                            logging.warning(
+                            logging.warning(  # pragma: no cover
                                 f"Failed to validate notification:. Message was: {message.message}",
                                 exc_info=True,
                             )
@@ -413,11 +407,11 @@ class BaseSession(
                 # This is expected when the client disconnects abruptly.
                 # Without this handler, the exception would propagate up and
                 # crash the server's task group.
-                logging.debug("Read stream closed by client")  # pragma: no cover
-            except Exception as e:  # pragma: no cover
+                logging.debug("Read stream closed by client")
+            except Exception as e:
                 # Other exceptions are not expected and should be logged. We purposefully
                 # catch all exceptions here to avoid crashing the server.
-                logging.exception(f"Unhandled exception in receive loop: {e}")
+                logging.exception(f"Unhandled exception in receive loop: {e}")  # pragma: no cover
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
@@ -482,9 +476,9 @@ class BaseSession(
 
         # Fall back to normal response streams
         stream = self._response_streams.pop(response_id, None)
-        if stream:  # pragma: no cover
+        if stream:
             await stream.send(message.message)
-        else:  # pragma: no cover
+        else:
             await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:

@@ -1,20 +1,20 @@
 """Test that cancelled requests don't cause double responses."""
 
-from typing import Any
-
 import anyio
 import pytest
 
-import mcp.types as types
 from mcp import Client
-from mcp.server.lowlevel.server import Server
-from mcp.shared.exceptions import McpError
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     CancelledNotification,
     CancelledNotificationParams,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
     Tool,
 )
 
@@ -23,34 +23,34 @@ from mcp.types import (
 async def test_server_remains_functional_after_cancel():
     """Verify server can handle new requests after a cancellation."""
 
-    server = Server("test-server")
-
     # Track tool calls
     call_count = 0
     ev_first_call = anyio.Event()
     first_request_id = None
 
-    @server.list_tools()
-    async def handle_list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="test_tool",
-                description="Tool for testing",
-                input_schema={},
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="test_tool",
+                    description="Tool for testing",
+                    input_schema={},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal call_count, first_request_id
-        if name == "test_tool":
+        if params.name == "test_tool":
             call_count += 1
             if call_count == 1:
-                first_request_id = server.request_context.request_id
+                first_request_id = ctx.request_id
                 ev_first_call.set()
                 await anyio.sleep(5)  # First call is slow
-            return [types.TextContent(type="text", text=f"Call number: {call_count}")]
-        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+            return CallToolResult(content=[TextContent(type="text", text=f"Call number: {call_count}")])
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
+
+    server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     async with Client(server) as client:
         # First request (will be cancelled)
@@ -61,7 +61,7 @@ async def test_server_remains_functional_after_cancel():
                     CallToolResult,
                 )
                 pytest.fail("First request should have been cancelled")  # pragma: no cover
-            except McpError:
+            except MCPError:
                 pass  # Expected
 
         # Start first request
@@ -87,6 +87,6 @@ async def test_server_remains_functional_after_cancel():
         # Type narrowing for pyright
         content = result.content[0]
         assert content.type == "text"
-        assert isinstance(content, types.TextContent)
+        assert isinstance(content, TextContent)
         assert content.text == "Call number: 2"
         assert call_count == 2

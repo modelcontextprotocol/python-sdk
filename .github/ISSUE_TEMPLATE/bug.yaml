@@ -39,7 +39,7 @@ body:
         demonstrating the bug.
 
       placeholder: |
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
         ...
       render: Python

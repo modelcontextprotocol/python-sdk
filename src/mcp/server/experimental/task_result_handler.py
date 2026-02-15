@@ -15,7 +15,7 @@ from typing import Any
 import anyio
 
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY, is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
@@ -44,17 +44,14 @@ class TaskResultHandler:
     5. Returns the final result
 
     Usage:
-        # Create handler with store and queue
-        handler = TaskResultHandler(task_store, message_queue)
+        async def handle_task_result(
+            ctx: ServerRequestContext, params: GetTaskPayloadRequestParams
+        ) -> GetTaskPayloadResult:
+            ...
 
-        # Register it with the server
-        @server.experimental.get_task_result()
-        async def handle_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-            ctx = server.request_context
-            return await handler.handle(req, ctx.session, ctx.request_id)
-
-        # Or use the convenience method
-        handler.register(server)
+        server.experimental.enable_tasks(
+            on_task_result=handle_task_result,
+        )
     """
 
     def __init__(
@@ -106,7 +103,7 @@ class TaskResultHandler:
         while True:
             task = await self._store.get_task(task_id)
             if task is None:
-                raise McpError(ErrorData(code=INVALID_PARAMS, message=f"Task not found: {task_id}"))
+                raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
             await self._deliver_queued_messages(task_id, session, request_id)
 
@@ -216,6 +213,6 @@ class TaskResultHandler:
         """
         resolver = self._pending_requests.pop(request_id, None)
         if resolver is not None and not resolver.done():
-            resolver.set_exception(McpError(error))
+            resolver.set_exception(MCPError.from_error_data(error))
             return True
         return False

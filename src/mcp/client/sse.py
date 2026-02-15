@@ -11,7 +11,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import aconnect_sse
 from httpx_sse._exceptions import SSEError
 
-import mcp.types as types
+from mcp import types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
@@ -119,12 +119,12 @@ async def sse_client(
                                         await read_stream_writer.send(session_message)
                                     case _:  # pragma: no cover
                                         logger.warning(f"Unknown SSE event: {sse.event}")  # pragma: no cover
-                        except SSEError as sse_exc:  # pragma: no cover
-                            logger.exception("Encountered SSE exception")  # pragma: no cover
-                            raise sse_exc  # pragma: no cover
-                        except Exception as exc:  # pragma: no cover
-                            logger.exception("Error in sse_reader")  # pragma: no cover
-                            await read_stream_writer.send(exc)  # pragma: no cover
+                        except SSEError as sse_exc:  # pragma: lax no cover
+                            logger.exception("Encountered SSE exception")
+                            raise sse_exc
+                        except Exception as exc:  # pragma: lax no cover
+                            logger.exception("Error in sse_reader")
+                            await read_stream_writer.send(exc)
                         finally:
                             await read_stream_writer.aclose()
 
@@ -143,8 +143,8 @@ async def sse_client(
                                     )
                                     response.raise_for_status()
                                     logger.debug(f"Client message sent successfully: {response.status_code}")
-                        except Exception:  # pragma: no cover
-                            logger.exception("Error in post_writer")  # pragma: no cover
+                        except Exception:  # pragma: lax no cover
+                            logger.exception("Error in post_writer")
                         finally:
                             await write_stream.aclose()
 

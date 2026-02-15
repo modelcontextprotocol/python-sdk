@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Annotated, Any
 
-from mcp.server import FastMCP
+from mcp.server import MCPServer
 from mcp.server import Server as LowLevelServer
 
 try:
@@ -19,9 +19,9 @@ except ImportError:  # pragma: no cover
 
 try:
     from mcp.cli import claude
-    from mcp.server.fastmcp.utilities.logging import get_logger
+    from mcp.server.mcpserver.utilities.logging import get_logger
 except ImportError:  # pragma: no cover
-    print("Error: mcp.server.fastmcp is not installed or not in PYTHONPATH")
+    print("Error: mcp.server is not installed or not in PYTHONPATH")
     sys.exit(1)
 
 try:
@@ -77,7 +77,7 @@ def _build_uv_command(
 
     if with_packages:
         for pkg in with_packages:
-            if pkg:  # pragma: no cover
+            if pkg:  # pragma: no branch
                 cmd.extend(["--with", pkg])
 
     # Add mcp run command
@@ -149,12 +149,10 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
         Returns:
             True if it's supported.
         """
-        if not isinstance(server_object, FastMCP):
-            logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting {FastMCP}).")
+        if not isinstance(server_object, MCPServer):
+            logger.error(f"The server object {object_name} is of type {type(server_object)} (expecting {MCPServer}).")
             if isinstance(server_object, LowLevelServer):
-                logger.warning(
-                    "Note that only FastMCP server is supported. Low level Server class is not yet supported."
-                )
+                logger.warning("Note that only MCPServer is supported. Low level Server class is not yet supported.")
             return False
         return True
 
@@ -172,8 +170,8 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
             f"No server object found in {file}. Please either:\n"
             "1. Use a standard variable name (mcp, server, or app)\n"
             "2. Specify the object name with file:object syntax"
-            "3. If the server creates the FastMCP object within main() "
-            "   or another function, refactor the FastMCP object to be a "
+            "3. If the server creates the MCPServer object within main() "
+            "   or another function, refactor the MCPServer object to be a "
             "   global variable named mcp, server, or app.",
             extra={"file": str(file)},
         )

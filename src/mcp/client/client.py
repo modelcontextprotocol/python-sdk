@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from contextlib import AsyncExitStack
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
 from mcp.client._memory import InMemoryTransport
+from mcp.client._transport import Transport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     CallToolResult,
@@ -30,18 +33,19 @@ from mcp.types import (
 )
 
 
+@dataclass
 class Client:
     """A high-level MCP client for connecting to MCP servers.
 
     Currently supports in-memory transport for testing. Pass a Server or
-    FastMCP instance directly to the constructor.
+    MCPServer instance directly to the constructor.
 
     Example:
         ```python
         from mcp.client import Client
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
-        server = FastMCP("test")
+        server = MCPServer("test")
 
         @server.tool()
         def add(a: int, b: int) -> int:
@@ -55,52 +59,53 @@ class Client:
         ```
     """
 
-    # TODO(felixweinberger): Expand to support all transport types (like FastMCP 2):
-    # - Add ClientTransport base class with connect_session() method
-    # - Add StreamableHttpTransport, SSETransport, StdioTransport
-    # - Add infer_transport() to auto-detect transport from input type
-    # - Accept URL strings, Path objects, config dicts in constructor
-    # - Add auth support (OAuth, bearer tokens)
+    server: Server[Any] | MCPServer | Transport | str
+    """The MCP server to connect to.
 
-    def __init__(
-        self,
-        server: Server[Any] | FastMCP,
-        *,
-        # TODO(Marcelo): When do `raise_exceptions=True` actually raises?
-        raise_exceptions: bool = False,
-        read_timeout_seconds: float | None = None,
-        sampling_callback: SamplingFnT | None = None,
-        list_roots_callback: ListRootsFnT | None = None,
-        logging_callback: LoggingFnT | None = None,
-        message_handler: MessageHandlerFnT | None = None,
-        client_info: Implementation | None = None,
-        elicitation_callback: ElicitationFnT | None = None,
-    ) -> None:
-        """Initialize the client with a server.
+    If the server is a `Server` or `MCPServer` instance, it will be wrapped in an `InMemoryTransport`.
+    If the server is a URL string, it will be used as the URL for a `streamable_http_client` transport.
+    If the server is a `Transport` instance, it will be used directly.
+    """
 
-        Args:
-            server: The MCP server to connect to (Server or FastMCP instance)
-            raise_exceptions: Whether to raise exceptions from the server
-            read_timeout_seconds: Timeout for read operations
-            sampling_callback: Callback for handling sampling requests
-            list_roots_callback: Callback for handling list roots requests
-            logging_callback: Callback for handling logging notifications
-            message_handler: Callback for handling raw messages
-            client_info: Client implementation info to send to server
-            elicitation_callback: Callback for handling elicitation requests
-        """
-        self._server = server
-        self._raise_exceptions = raise_exceptions
-        self._read_timeout_seconds = read_timeout_seconds
-        self._sampling_callback = sampling_callback
-        self._list_roots_callback = list_roots_callback
-        self._logging_callback = logging_callback
-        self._message_handler = message_handler
-        self._client_info = client_info
-        self._elicitation_callback = elicitation_callback
+    _: KW_ONLY
 
-        self._session: ClientSession | None = None
-        self._exit_stack: AsyncExitStack | None = None
+    # TODO(Marcelo): When do `raise_exceptions=True` actually raises?
+    raise_exceptions: bool = False
+    """Whether to raise exceptions from the server."""
+
+    read_timeout_seconds: float | None = None
+    """Timeout for read operations."""
+
+    sampling_callback: SamplingFnT | None = None
+    """Callback for handling sampling requests."""
+
+    list_roots_callback: ListRootsFnT | None = None
+    """Callback for handling list roots requests."""
+
+    logging_callback: LoggingFnT | None = None
+    """Callback for handling logging notifications."""
+
+    # TODO(Marcelo): Why do we have both "callback" and "handler"?
+    message_handler: MessageHandlerFnT | None = None
+    """Callback for handling raw messages."""
+
+    client_info: Implementation | None = None
+    """Client implementation info to send to server."""
+
+    elicitation_callback: ElicitationFnT | None = None
+    """Callback for handling elicitation requests."""
+
+    _session: ClientSession | None = field(init=False, default=None)
+    _exit_stack: AsyncExitStack | None = field(init=False, default=None)
+    _transport: Transport = field(init=False)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.server, Server | MCPServer):
+            self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
+        elif isinstance(self.server, str):
+            self._transport = streamable_http_client(self.server)
+        else:
+            self._transport = self.server
 
     async def __aenter__(self) -> Client:
         """Enter the async context manager."""
@@ -108,26 +113,22 @@ class Client:
             raise RuntimeError("Client is already entered; cannot reenter")
 
         async with AsyncExitStack() as exit_stack:
-            # Create transport and connect
-            transport = InMemoryTransport(self._server, raise_exceptions=self._raise_exceptions)
-            read_stream, write_stream = await exit_stack.enter_async_context(transport.connect())
+            read_stream, write_stream = await exit_stack.enter_async_context(self._transport)
 
-            # Create session
             self._session = await exit_stack.enter_async_context(
                 ClientSession(
                     read_stream=read_stream,
                     write_stream=write_stream,
-                    read_timeout_seconds=self._read_timeout_seconds,
-                    sampling_callback=self._sampling_callback,
-                    list_roots_callback=self._list_roots_callback,
-                    logging_callback=self._logging_callback,
-                    message_handler=self._message_handler,
-                    client_info=self._client_info,
-                    elicitation_callback=self._elicitation_callback,
+                    read_timeout_seconds=self.read_timeout_seconds,
+                    sampling_callback=self.sampling_callback,
+                    list_roots_callback=self.list_roots_callback,
+                    logging_callback=self.logging_callback,
+                    message_handler=self.message_handler,
+                    client_info=self.client_info,
+                    elicitation_callback=self.elicitation_callback,
                 )
             )
 
-            # Initialize the session
             await self._session.initialize()
 
             # Transfer ownership to self for __aexit__ to handle

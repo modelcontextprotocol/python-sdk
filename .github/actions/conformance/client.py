@@ -38,9 +38,9 @@ from mcp.client.auth.extensions.client_credentials import (
     PrivateKeyJWTOAuthProvider,
     SignedJWTParameters,
 )
+from mcp.client.context import ClientRequestContext
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from mcp.shared.context import RequestContext
 
 # Set up logging to stderr (stdout is for conformance test output)
 logging.basicConfig(
@@ -156,7 +156,7 @@ class ConformanceOAuthCallbackHandler:
 @register("initialize")
 async def run_initialize(server_url: str) -> None:
     """Connect, initialize, list tools, close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             logger.debug("Initialized successfully")
@@ -167,7 +167,7 @@ async def run_initialize(server_url: str) -> None:
 @register("tools_call")
 async def run_tools_call(server_url: str) -> None:
     """Connect, initialize, list tools, call add_numbers(a=5, b=3), close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             await session.list_tools()
@@ -178,7 +178,7 @@ async def run_tools_call(server_url: str) -> None:
 @register("sse-retry")
 async def run_sse_retry(server_url: str) -> None:
     """Connect, initialize, list tools, call test_reconnection, close."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             await session.list_tools()
@@ -187,7 +187,7 @@ async def run_sse_retry(server_url: str) -> None:
 
 
 async def default_elicitation_callback(
-    context: RequestContext[ClientSession, Any],  # noqa: ARG001
+    context: ClientRequestContext,
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     """Accept elicitation and apply defaults from the schema (SEP-1034)."""
@@ -209,7 +209,7 @@ async def default_elicitation_callback(
 @register("elicitation-sep1034-client-defaults")
 async def run_elicitation_defaults(server_url: str) -> None:
     """Connect with elicitation callback that applies schema defaults."""
-    async with streamable_http_client(url=server_url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url) as (read_stream, write_stream):
         async with ClientSession(
             read_stream, write_stream, elicitation_callback=default_elicitation_callback
         ) as session:
@@ -275,6 +275,27 @@ async def run_client_credentials_basic(server_url: str) -> None:
 async def run_auth_code_client(server_url: str) -> None:
     """Authorization code flow (default for auth/* scenarios)."""
     callback_handler = ConformanceOAuthCallbackHandler()
+    storage = InMemoryTokenStorage()
+
+    # Check for pre-registered client credentials from context
+    context_json = os.environ.get("MCP_CONFORMANCE_CONTEXT")
+    if context_json:
+        try:
+            context = json.loads(context_json)
+            client_id = context.get("client_id")
+            client_secret = context.get("client_secret")
+            if client_id:
+                await storage.set_client_info(
+                    OAuthClientInformationFull(
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+                        token_endpoint_auth_method="client_secret_basic" if client_secret else "none",
+                    )
+                )
+                logger.debug(f"Pre-loaded client credentials: client_id={client_id}")
+        except json.JSONDecodeError:
+            logger.exception("Failed to parse MCP_CONFORMANCE_CONTEXT")
 
     oauth_auth = OAuthClientProvider(
         server_url=server_url,
@@ -284,7 +305,7 @@ async def run_auth_code_client(server_url: str) -> None:
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
         ),
-        storage=InMemoryTokenStorage(),
+        storage=storage,
         redirect_handler=callback_handler.handle_redirect,
         callback_handler=callback_handler.handle_callback,
         client_metadata_url="https://conformance-test.local/client-metadata.json",
@@ -296,7 +317,7 @@ async def run_auth_code_client(server_url: str) -> None:
 async def _run_auth_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
     """Common session logic for all OAuth flows."""
     client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
-    async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream, _):
+    async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream):
         async with ClientSession(
             read_stream, write_stream, elicitation_callback=default_elicitation_callback
         ) as session:

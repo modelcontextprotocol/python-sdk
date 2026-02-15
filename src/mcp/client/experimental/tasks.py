@@ -26,7 +26,7 @@ Example:
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import mcp.types as types
+from mcp import types
 from mcp.shared.experimental.tasks.polling import poll_until_terminal
 from mcp.types._types import RequestParamsMeta
 

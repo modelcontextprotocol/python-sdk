@@ -9,10 +9,10 @@ import contextlib
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Create MCP server
-mcp = FastMCP("My App")
+mcp = MCPServer("My App")
 
 
 @mcp.tool()

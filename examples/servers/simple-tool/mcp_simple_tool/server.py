@@ -1,9 +1,7 @@
-from typing import Any
-
 import anyio
 import click
-import mcp.types as types
-from mcp.server.lowlevel import Server
+from mcp import types
+from mcp.server import Server, ServerRequestContext
 from mcp.shared._httpx_utils import create_mcp_http_client
 from starlette.requests import Request
 
@@ -18,28 +16,11 @@ async def fetch_website(
         return [types.TextContent(type="text", text=response.text)]
 
 
-@click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
-@click.option(
-    "--transport",
-    type=click.Choice(["stdio", "sse"]),
-    default="stdio",
-    help="Transport type",
-)
-def main(port: int, transport: str) -> int:
-    app = Server("mcp-website-fetcher")
-
-    @app.call_tool()
-    async def fetch_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
-        if name != "fetch":
-            raise ValueError(f"Unknown tool: {name}")
-        if "url" not in arguments:
-            raise ValueError("Missing required argument 'url'")
-        return await fetch_website(arguments["url"])
-
-    @app.list_tools()
-    async def list_tools() -> list[types.Tool]:
-        return [
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
+    return types.ListToolsResult(
+        tools=[
             types.Tool(
                 name="fetch",
                 title="Website Fetcher",
@@ -56,6 +37,33 @@ def main(port: int, transport: str) -> int:
                 },
             )
         ]
+    )
+
+
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+    if params.name != "fetch":
+        raise ValueError(f"Unknown tool: {params.name}")
+    arguments = params.arguments or {}
+    if "url" not in arguments:
+        raise ValueError("Missing required argument 'url'")
+    content = await fetch_website(arguments["url"])
+    return types.CallToolResult(content=content)
+
+
+@click.command()
+@click.option("--port", default=8000, help="Port to listen on for SSE")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "sse"]),
+    default="stdio",
+    help="Transport type",
+)
+def main(port: int, transport: str) -> int:
+    app = Server(
+        "mcp-website-fetcher",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport

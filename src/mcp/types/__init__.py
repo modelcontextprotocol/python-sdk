@@ -1,4 +1,8 @@
-"""MCP types package."""
+"""This module defines the types for the MCP protocol.
+
+Check the latest schema at:
+https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2025-11-25/schema.json
+"""
 
 # Re-export everything from _types for backward compatibility
 from mcp.types._types import (
@@ -43,7 +47,6 @@ from mcp.types._types import (
     CreateMessageResult,
     CreateMessageResultWithTools,
     CreateTaskResult,
-    Cursor,
     ElicitationCapability,
     ElicitationRequiredErrorData,
     ElicitCompleteNotification,
@@ -67,6 +70,7 @@ from mcp.types._types import (
     GetTaskRequestParams,
     GetTaskResult,
     Icon,
+    IconTheme,
     ImageContent,
     Implementation,
     IncludeContext,
@@ -90,12 +94,10 @@ from mcp.types._types import (
     LoggingLevel,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
-    MethodT,
     ModelHint,
     ModelPreferences,
     Notification,
     NotificationParams,
-    NotificationParamsT,
     PaginatedRequest,
     PaginatedRequestParams,
     PaginatedResult,
@@ -116,7 +118,6 @@ from mcp.types._types import (
     Request,
     RequestParams,
     RequestParamsMeta,
-    RequestParamsT,
     Resource,
     ResourceContents,
     ResourceLink,
@@ -220,15 +221,11 @@ __all__ = [
     "TASK_STATUS_WORKING",
     # Type aliases and variables
     "ContentBlock",
-    "Cursor",
     "ElicitRequestedSchema",
     "ElicitRequestParams",
     "IncludeContext",
     "LoggingLevel",
-    "MethodT",
-    "NotificationParamsT",
     "ProgressToken",
-    "RequestParamsT",
     "Role",
     "SamplingContent",
     "SamplingMessageContentBlock",
@@ -280,6 +277,7 @@ __all__ = [
     "BlobResourceContents",
     "EmbeddedResource",
     "Icon",
+    "IconTheme",
     "ImageContent",
     "ResourceContents",
     "ResourceLink",

@@ -43,13 +43,13 @@ async def test_lifespan_cleanup_executed():
     Path(startup_marker).unlink()
     Path(cleanup_marker).unlink()
 
-    # Create a minimal MCP server using FastMCP that tracks lifecycle
+    # Create a minimal MCP server using MCPServer that tracks lifecycle
     server_code = textwrap.dedent(f"""
         import asyncio
         import sys
         from pathlib import Path
         from contextlib import asynccontextmanager
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
         STARTUP_MARKER = {escape_path_for_python(startup_marker)}
         CLEANUP_MARKER = {escape_path_for_python(cleanup_marker)}
@@ -64,7 +64,7 @@ async def test_lifespan_cleanup_executed():
                 # This cleanup code now runs properly during shutdown
                 Path(CLEANUP_MARKER).write_text("cleaned up")
 
-        mcp = FastMCP("test-server", lifespan=lifespan)
+        mcp = MCPServer("test-server", lifespan=lifespan)
 
         @mcp.tool()
         def echo(text: str) -> str:
@@ -102,7 +102,7 @@ async def test_lifespan_cleanup_executed():
 
         # Give server a moment to complete cleanup
         with anyio.move_on_after(5.0):
-            while not Path(cleanup_marker).exists():  # pragma: no cover
+            while not Path(cleanup_marker).exists():  # pragma: lax no cover
                 await anyio.sleep(0.1)
 
         # Verify cleanup marker was created - this works now that stdio_client
@@ -113,9 +113,9 @@ async def test_lifespan_cleanup_executed():
     finally:
         # Clean up files
         for path in [server_script, startup_marker, cleanup_marker]:
-            try:  # pragma: no cover
+            try:  # pragma: lax no cover
                 Path(path).unlink()
-            except FileNotFoundError:  # pragma: no cover
+            except FileNotFoundError:  # pragma: lax no cover
                 pass
 
 
@@ -156,7 +156,7 @@ async def test_stdin_close_triggers_cleanup():
         import sys
         from pathlib import Path
         from contextlib import asynccontextmanager
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
         STARTUP_MARKER = {escape_path_for_python(startup_marker)}
         CLEANUP_MARKER = {escape_path_for_python(cleanup_marker)}
@@ -171,7 +171,7 @@ async def test_stdin_close_triggers_cleanup():
                 # This cleanup code runs when stdin closes, enabling graceful shutdown
                 Path(CLEANUP_MARKER).write_text("cleaned up")
 
-        mcp = FastMCP("test-server", lifespan=lifespan)
+        mcp = MCPServer("test-server", lifespan=lifespan)
 
         @mcp.tool()
         def echo(text: str) -> str:
@@ -204,7 +204,7 @@ async def test_stdin_close_triggers_cleanup():
                 await anyio.sleep(0.1)
 
         # Check if process is still running
-        if hasattr(process, "returncode") and process.returncode is not None:  # pragma: no cover
+        if hasattr(process, "returncode") and process.returncode is not None:  # pragma: lax no cover
             pytest.fail(f"Server process exited with code {process.returncode}")
 
         assert Path(startup_marker).exists(), "Server startup marker not created"
@@ -217,14 +217,14 @@ async def test_stdin_close_triggers_cleanup():
         try:
             with anyio.fail_after(5.0):  # Increased from 2.0 to 5.0
                 await process.wait()
-        except TimeoutError:  # pragma: no cover
+        except TimeoutError:  # pragma: lax no cover
             # If it doesn't exit after stdin close, terminate it
             process.terminate()
             await process.wait()
 
         # Check if cleanup ran
         with anyio.move_on_after(5.0):
-            while not Path(cleanup_marker).exists():  # pragma: no cover
+            while not Path(cleanup_marker).exists():  # pragma: lax no cover
                 await anyio.sleep(0.1)
 
         # Verify the cleanup ran - stdin closure enables graceful shutdown
@@ -234,7 +234,7 @@ async def test_stdin_close_triggers_cleanup():
     finally:
         # Clean up files
         for path in [server_script, startup_marker, cleanup_marker]:
-            try:  # pragma: no cover
+            try:  # pragma: lax no cover
                 Path(path).unlink()
-            except FileNotFoundError:  # pragma: no cover
+            except FileNotFoundError:  # pragma: lax no cover
                 pass

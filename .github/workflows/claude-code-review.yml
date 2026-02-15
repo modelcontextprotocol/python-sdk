@@ -7,6 +7,9 @@ on:
 
 jobs:
   claude-review:
+    # Fork PRs don't have access to secrets or OIDC tokens, so the action
+    # cannot authenticate. See https://github.com/anthropics/claude-code-action/issues/339
+    if: github.event.pull_request.head.repo.fork == false && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -16,7 +19,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 

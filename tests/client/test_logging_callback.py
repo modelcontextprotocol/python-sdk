@@ -2,9 +2,8 @@ from typing import Any, Literal
 
 import pytest
 
-import mcp.types as types
-from mcp import Client
-from mcp.server.fastmcp import FastMCP
+from mcp import Client, types
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     LoggingMessageNotificationParams,
@@ -22,7 +21,7 @@ class LoggingCollector:
 
 @pytest.mark.anyio
 async def test_logging_callback():
-    server = FastMCP("test")
+    server = MCPServer("test")
     logging_collector = LoggingCollector()
 
     # Create a simple test tool

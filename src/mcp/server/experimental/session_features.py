@@ -9,7 +9,7 @@ WARNING: These APIs are experimental and may change without notice.
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import mcp.types as types
+from mcp import types
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.experimental.tasks.capabilities import (
     require_task_augmented_elicitation,
@@ -114,7 +114,7 @@ class ExperimentalServerSessionFeatures:
             The client's elicitation response
 
         Raises:
-            McpError: If client doesn't support task-augmented elicitation
+            MCPError: If client doesn't support task-augmented elicitation
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
         require_task_augmented_elicitation(client_caps)
@@ -174,7 +174,7 @@ class ExperimentalServerSessionFeatures:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support task-augmented sampling or tools
+            MCPError: If client doesn't support task-augmented sampling or tools
             ValueError: If tool_use or tool_result message structure is invalid
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None

@@ -2,8 +2,8 @@ import pytest
 
 from mcp import Client
 from mcp.client.session import ClientSession
-from mcp.server.fastmcp import FastMCP
-from mcp.shared.context import RequestContext
+from mcp.server.mcpserver import MCPServer
+from mcp.shared._context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -16,7 +16,7 @@ from mcp.types import (
 
 @pytest.mark.anyio
 async def test_sampling_callback():
-    server = FastMCP("test")
+    server = MCPServer("test")
 
     callback_return = CreateMessageResult(
         role="assistant",
@@ -26,7 +26,7 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientSession],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
@@ -60,7 +60,7 @@ async def test_sampling_callback():
 @pytest.mark.anyio
 async def test_create_message_backwards_compat_single_content():
     """Test backwards compatibility: create_message without tools returns single content."""
-    server = FastMCP("test")
+    server = MCPServer("test")
 
     # Callback returns single content (text)
     callback_return = CreateMessageResult(
@@ -71,7 +71,7 @@ async def test_create_message_backwards_compat_single_content():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientSession],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return

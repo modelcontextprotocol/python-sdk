@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData
 
 
@@ -137,7 +137,7 @@ def test_url_elicitation_required_error_data_contains_elicitations() -> None:
 
 
 def test_url_elicitation_required_error_inherits_from_mcp_error() -> None:
-    """Test that UrlElicitationRequiredError inherits from McpError."""
+    """Test that UrlElicitationRequiredError inherits from MCPError."""
     elicitation = ElicitRequestURLParams(
         mode="url",
         message="Auth required",
@@ -146,7 +146,7 @@ def test_url_elicitation_required_error_inherits_from_mcp_error() -> None:
     )
     error = UrlElicitationRequiredError([elicitation])
 
-    assert isinstance(error, McpError)
+    assert isinstance(error, MCPError)
     assert isinstance(error, Exception)
 
 

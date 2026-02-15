@@ -6,12 +6,13 @@ from typing import Any
 import anyio
 import pytest
 
+from mcp import Client
 from mcp.client.session import ClientSession
-from mcp.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.shared.session import RequestResponder
@@ -23,7 +24,6 @@ from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
-    CancelTaskRequest,
     CancelTaskRequestParams,
     CancelTaskResult,
     ClientResult,
@@ -31,21 +31,18 @@ from mcp.types import (
     GetTaskPayloadRequest,
     GetTaskPayloadRequestParams,
     GetTaskPayloadResult,
-    GetTaskRequest,
     GetTaskRequestParams,
     GetTaskResult,
     JSONRPCError,
     JSONRPCNotification,
     JSONRPCResponse,
-    ListTasksRequest,
     ListTasksResult,
-    ListToolsRequest,
     ListToolsResult,
+    PaginatedRequestParams,
     SamplingMessage,
     ServerCapabilities,
     ServerNotification,
     ServerRequest,
-    ServerResult,
     Task,
     TaskMetadata,
     TextContent,
@@ -53,57 +50,37 @@ from mcp.types import (
     ToolExecution,
 )
 
+pytestmark = pytest.mark.anyio
 
-@pytest.mark.anyio
+
 async def test_list_tasks_handler() -> None:
-    """Test that experimental list_tasks handler works."""
-    server = Server("test")
-
+    """Test that experimental list_tasks handler works via Client."""
     now = datetime.now(timezone.utc)
     test_tasks = [
-        Task(
-            task_id="task-1",
-            status="working",
-            created_at=now,
-            last_updated_at=now,
-            ttl=60000,
-            poll_interval=1000,
-        ),
-        Task(
-            task_id="task-2",
-            status="completed",
-            created_at=now,
-            last_updated_at=now,
-            ttl=60000,
-            poll_interval=1000,
-        ),
+        Task(task_id="task-1", status="working", created_at=now, last_updated_at=now, ttl=60000, poll_interval=1000),
+        Task(task_id="task-2", status="completed", created_at=now, last_updated_at=now, ttl=60000, poll_interval=1000),
     ]
 
-    @server.experimental.list_tasks()
-    async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
+    async def handle_list_tasks(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListTasksResult:
         return ListTasksResult(tasks=test_tasks)
 
-    handler = server.request_handlers[ListTasksRequest]
-    request = ListTasksRequest(method="tasks/list")
-    result = await handler(request)
-
-    assert isinstance(result, ServerResult)
-    assert isinstance(result, ListTasksResult)
-    assert len(result.tasks) == 2
-    assert result.tasks[0].task_id == "task-1"
-    assert result.tasks[1].task_id == "task-2"
-
-
-@pytest.mark.anyio
-async def test_get_task_handler() -> None:
-    """Test that experimental get_task handler works."""
     server = Server("test")
+    server.experimental.enable_tasks(on_list_tasks=handle_list_tasks)
 
-    @server.experimental.get_task()
-    async def handle_get_task(request: GetTaskRequest) -> GetTaskResult:
+    async with Client(server) as client:
+        result = await client.session.experimental.list_tasks()
+        assert len(result.tasks) == 2
+        assert result.tasks[0].task_id == "task-1"
+        assert result.tasks[1].task_id == "task-2"
+
+
+async def test_get_task_handler() -> None:
+    """Test that experimental get_task handler works via Client."""
+
+    async def handle_get_task(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
         now = datetime.now(timezone.utc)
         return GetTaskResult(
-            task_id=request.params.task_id,
+            task_id=params.task_id,
             status="working",
             created_at=now,
             last_updated_at=now,
@@ -111,85 +88,69 @@ async def test_get_task_handler() -> None:
             poll_interval=1000,
         )
 
-    handler = server.request_handlers[GetTaskRequest]
-    request = GetTaskRequest(
-        method="tasks/get",
-        params=GetTaskRequestParams(task_id="test-task-123"),
-    )
-    result = await handler(request)
-
-    assert isinstance(result, ServerResult)
-    assert isinstance(result, GetTaskResult)
-    assert result.task_id == "test-task-123"
-    assert result.status == "working"
-
-
-@pytest.mark.anyio
-async def test_get_task_result_handler() -> None:
-    """Test that experimental get_task_result handler works."""
     server = Server("test")
+    server.experimental.enable_tasks(on_get_task=handle_get_task)
 
-    @server.experimental.get_task_result()
-    async def handle_get_task_result(request: GetTaskPayloadRequest) -> GetTaskPayloadResult:
+    async with Client(server) as client:
+        result = await client.session.experimental.get_task("test-task-123")
+        assert result.task_id == "test-task-123"
+        assert result.status == "working"
+
+
+async def test_get_task_result_handler() -> None:
+    """Test that experimental get_task_result handler works via Client."""
+
+    async def handle_get_task_result(
+        ctx: ServerRequestContext, params: GetTaskPayloadRequestParams
+    ) -> GetTaskPayloadResult:
         return GetTaskPayloadResult()
 
-    handler = server.request_handlers[GetTaskPayloadRequest]
-    request = GetTaskPayloadRequest(
-        method="tasks/result",
-        params=GetTaskPayloadRequestParams(task_id="test-task-123"),
-    )
-    result = await handler(request)
-
-    assert isinstance(result, ServerResult)
-    assert isinstance(result, GetTaskPayloadResult)
-
-
-@pytest.mark.anyio
-async def test_cancel_task_handler() -> None:
-    """Test that experimental cancel_task handler works."""
     server = Server("test")
+    server.experimental.enable_tasks(on_task_result=handle_get_task_result)
 
-    @server.experimental.cancel_task()
-    async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
+    async with Client(server) as client:
+        result = await client.session.send_request(
+            GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="test-task-123")),
+            GetTaskPayloadResult,
+        )
+        assert isinstance(result, GetTaskPayloadResult)
+
+
+async def test_cancel_task_handler() -> None:
+    """Test that experimental cancel_task handler works via Client."""
+
+    async def handle_cancel_task(ctx: ServerRequestContext, params: CancelTaskRequestParams) -> CancelTaskResult:
         now = datetime.now(timezone.utc)
         return CancelTaskResult(
-            task_id=request.params.task_id,
+            task_id=params.task_id,
             status="cancelled",
             created_at=now,
             last_updated_at=now,
             ttl=60000,
         )
 
-    handler = server.request_handlers[CancelTaskRequest]
-    request = CancelTaskRequest(
-        method="tasks/cancel",
-        params=CancelTaskRequestParams(task_id="test-task-123"),
-    )
-    result = await handler(request)
+    server = Server("test")
+    server.experimental.enable_tasks(on_cancel_task=handle_cancel_task)
 
-    assert isinstance(result, ServerResult)
-    assert isinstance(result, CancelTaskResult)
-    assert result.task_id == "test-task-123"
-    assert result.status == "cancelled"
+    async with Client(server) as client:
+        result = await client.session.experimental.cancel_task("test-task-123")
+        assert result.task_id == "test-task-123"
+        assert result.status == "cancelled"
 
 
-@pytest.mark.anyio
 async def test_server_capabilities_include_tasks() -> None:
     """Test that server capabilities include tasks when handlers are registered."""
     server = Server("test")
 
-    @server.experimental.list_tasks()
-    async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
+    async def noop_list_tasks(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListTasksResult:
         raise NotImplementedError
 
-    @server.experimental.cancel_task()
-    async def handle_cancel_task(request: CancelTaskRequest) -> CancelTaskResult:
+    async def noop_cancel_task(ctx: ServerRequestContext, params: CancelTaskRequestParams) -> CancelTaskResult:
         raise NotImplementedError
 
-    capabilities = server.get_capabilities(
-        notification_options=NotificationOptions(),
-        experimental_capabilities={},
-    )
+    server.experimental.enable_tasks(on_list_tasks=noop_list_tasks, on_cancel_task=noop_cancel_task)
+
+    capabilities = server.get_capabilities(notification_options=NotificationOptions(), experimental_capabilities={})
 
     assert capabilities.tasks is not None
     assert capabilities.tasks.list is not None
@@ -198,260 +159,164 @@ async def test_server_capabilities_include_tasks() -> None:
     assert capabilities.tasks.requests.tools is not None
 
 
-@pytest.mark.anyio
-async def test_server_capabilities_partial_tasks() -> None:
+@pytest.mark.skip(
+    reason="TODO(maxisbey): enable_tasks registers default handlers for all task methods, "
+    "so partial capabilities aren't possible yet. Low-level API should support "
+    "selectively enabling/disabling task capabilities."
+)
+async def test_server_capabilities_partial_tasks() -> None:  # pragma: no cover
     """Test capabilities with only some task handlers registered."""
     server = Server("test")
 
-    @server.experimental.list_tasks()
-    async def handle_list_tasks(request: ListTasksRequest) -> ListTasksResult:
+    async def noop_list_tasks(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListTasksResult:
         raise NotImplementedError
 
     # Only list_tasks registered, not cancel_task
+    server.experimental.enable_tasks(on_list_tasks=noop_list_tasks)
 
-    capabilities = server.get_capabilities(
-        notification_options=NotificationOptions(),
-        experimental_capabilities={},
-    )
+    capabilities = server.get_capabilities(notification_options=NotificationOptions(), experimental_capabilities={})
 
     assert capabilities.tasks is not None
     assert capabilities.tasks.list is not None
     assert capabilities.tasks.cancel is None  # Not registered
 
 
-@pytest.mark.anyio
 async def test_tool_with_task_execution_metadata() -> None:
     """Test that tools can declare task execution mode."""
-    server = Server("test")
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="quick_tool",
-                description="Fast tool",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support=TASK_FORBIDDEN),
-            ),
-            Tool(
-                name="long_tool",
-                description="Long running tool",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support=TASK_REQUIRED),
-            ),
-            Tool(
-                name="flexible_tool",
-                description="Can be either",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support=TASK_OPTIONAL),
-            ),
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="quick_tool",
+                    description="Fast tool",
+                    input_schema={"type": "object", "properties": {}},
+                    execution=ToolExecution(task_support=TASK_FORBIDDEN),
+                ),
+                Tool(
+                    name="long_tool",
+                    description="Long running tool",
+                    input_schema={"type": "object", "properties": {}},
+                    execution=ToolExecution(task_support=TASK_REQUIRED),
+                ),
+                Tool(
+                    name="flexible_tool",
+                    description="Can be either",
+                    input_schema={"type": "object", "properties": {}},
+                    execution=ToolExecution(task_support=TASK_OPTIONAL),
+                ),
+            ]
+        )
 
-    tools_handler = server.request_handlers[ListToolsRequest]
-    request = ListToolsRequest(method="tools/list")
-    result = await tools_handler(request)
+    server = Server("test", on_list_tools=handle_list_tools)
 
-    assert isinstance(result, ServerResult)
-    assert isinstance(result, ListToolsResult)
-    tools = result.tools
+    async with Client(server) as client:
+        result = await client.list_tools()
+        tools = result.tools
 
-    assert tools[0].execution is not None
-    assert tools[0].execution.task_support == TASK_FORBIDDEN
-    assert tools[1].execution is not None
-    assert tools[1].execution.task_support == TASK_REQUIRED
-    assert tools[2].execution is not None
-    assert tools[2].execution.task_support == TASK_OPTIONAL
+        assert tools[0].execution is not None
+        assert tools[0].execution.task_support == TASK_FORBIDDEN
+        assert tools[1].execution is not None
+        assert tools[1].execution.task_support == TASK_REQUIRED
+        assert tools[2].execution is not None
+        assert tools[2].execution.task_support == TASK_OPTIONAL
 
 
-@pytest.mark.anyio
 async def test_task_metadata_in_call_tool_request() -> None:
-    """Test that task metadata is accessible via RequestContext when calling a tool."""
-    server = Server("test")
+    """Test that task metadata is accessible via ctx when calling a tool."""
     captured_task_metadata: TaskMetadata | None = None
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="long_task",
-                description="A long running task",
-                input_schema={"type": "object", "properties": {}},
-                execution=ToolExecution(task_support="optional"),
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise NotImplementedError
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal captured_task_metadata
-        ctx = server.request_context
         captured_task_metadata = ctx.experimental.task_metadata
-        return [TextContent(type="text", text="done")]
+        return CallToolResult(content=[TextContent(type="text", text="done")])
 
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    server = Server("test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
-    async def message_handler(
-        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None: ...  # pragma: no branch
-
-    async def run_server():
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="test-server",
-                server_version="1.0.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
+    async with Client(server) as client:
+        # Call tool with task metadata
+        await client.session.send_request(
+            CallToolRequest(
+                params=CallToolRequestParams(
+                    name="long_task",
+                    arguments={},
+                    task=TaskMetadata(ttl=60000),
                 ),
             ),
-        ) as server_session:
-            async with anyio.create_task_group() as tg:
-
-                async def handle_messages():
-                    # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-                    async for message in server_session.incoming_messages:  # pragma: no cover
-                        await server._handle_message(message, server_session, {}, False)
-
-                tg.start_soon(handle_messages)
-                await anyio.sleep_forever()
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_server)
-
-        async with ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-            message_handler=message_handler,
-        ) as client_session:
-            await client_session.initialize()
-
-            # Call tool with task metadata
-            await client_session.send_request(
-                CallToolRequest(
-                    params=CallToolRequestParams(
-                        name="long_task",
-                        arguments={},
-                        task=TaskMetadata(ttl=60000),
-                    ),
-                ),
-                CallToolResult,
-            )
-
-            tg.cancel_scope.cancel()
+            CallToolResult,
+        )
 
     assert captured_task_metadata is not None
     assert captured_task_metadata.ttl == 60000
 
 
-@pytest.mark.anyio
 async def test_task_metadata_is_task_property() -> None:
-    """Test that RequestContext.experimental.is_task works correctly."""
-    server = Server("test")
+    """Test that ctx.experimental.is_task works correctly."""
     is_task_values: list[bool] = []
 
-    @server.list_tools()
-    async def list_tools():
-        return [
-            Tool(
-                name="test_tool",
-                description="Test tool",
-                input_schema={"type": "object", "properties": {}},
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise NotImplementedError
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        ctx = server.request_context
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         is_task_values.append(ctx.experimental.is_task)
-        return [TextContent(type="text", text="done")]
+        return CallToolResult(content=[TextContent(type="text", text="done")])
 
-    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
-    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    server = Server("test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
-    async def message_handler(
-        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None: ...  # pragma: no branch
+    async with Client(server) as client:
+        # Call without task metadata
+        await client.session.send_request(
+            CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
+            CallToolResult,
+        )
 
-    async def run_server():
-        async with ServerSession(
-            client_to_server_receive,
-            server_to_client_send,
-            InitializationOptions(
-                server_name="test-server",
-                server_version="1.0.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
+        # Call with task metadata
+        await client.session.send_request(
+            CallToolRequest(
+                params=CallToolRequestParams(name="test_tool", arguments={}, task=TaskMetadata(ttl=60000)),
             ),
-        ) as server_session:
-            async with anyio.create_task_group() as tg:
-                # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-                async def handle_messages():  # pragma: no cover
-                    async for message in server_session.incoming_messages:
-                        await server._handle_message(message, server_session, {}, False)
-
-                tg.start_soon(handle_messages)
-                await anyio.sleep_forever()
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_server)
-
-        async with ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-            message_handler=message_handler,
-        ) as client_session:
-            await client_session.initialize()
-
-            # Call without task metadata
-            await client_session.send_request(
-                CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
-                CallToolResult,
-            )
-
-            # Call with task metadata
-            await client_session.send_request(
-                CallToolRequest(
-                    params=CallToolRequestParams(name="test_tool", arguments={}, task=TaskMetadata(ttl=60000)),
-                ),
-                CallToolResult,
-            )
-
-            tg.cancel_scope.cancel()
+            CallToolResult,
+        )
 
     assert len(is_task_values) == 2
     assert is_task_values[0] is False  # First call without task
     assert is_task_values[1] is True  # Second call with task
 
 
-@pytest.mark.anyio
 async def test_update_capabilities_no_handlers() -> None:
     """Test that update_capabilities returns early when no task handlers are registered."""
     server = Server("test-no-handlers")
-    # Access experimental to initialize it, but don't register any task handlers
     _ = server.experimental
 
     caps = server.get_capabilities(NotificationOptions(), {})
-
-    # Without any task handlers registered, tasks capability should be None
     assert caps.tasks is None
 
 
-@pytest.mark.anyio
-async def test_default_task_handlers_via_enable_tasks() -> None:
-    """Test that enable_tasks() auto-registers working default handlers.
+async def test_update_capabilities_partial_handlers() -> None:
+    """Test that update_capabilities skips list/cancel when only tasks/get is registered."""
+    server = Server("test-partial")
+    # Access .experimental to create the ExperimentalHandlers instance
+    exp = server.experimental
+    # Second access returns the same cached instance
+    assert server.experimental is exp
 
-    This exercises the default handlers in lowlevel/experimental.py:
-    - _default_get_task (task not found)
-    - _default_get_task_result
-    - _default_list_tasks
-    - _default_cancel_task
-    """
+    async def noop_get(ctx: ServerRequestContext, params: GetTaskRequestParams) -> GetTaskResult:
+        raise NotImplementedError
+
+    server._add_request_handler("tasks/get", noop_get)
+
+    caps = server.get_capabilities(NotificationOptions(), {})
+    assert caps.tasks is not None
+    assert caps.tasks.list is None
+    assert caps.tasks.cancel is None
+
+
+async def test_default_task_handlers_via_enable_tasks() -> None:
+    """Test that enable_tasks() auto-registers working default handlers."""
     server = Server("test-default-handlers")
-    # Enable tasks with default handlers (no custom handlers registered)
     task_support = server.experimental.enable_tasks()
     store = task_support.store
 
@@ -494,24 +359,18 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             task = await store.create_task(TaskMetadata(ttl=60000))
 
             # Test list_tasks (default handler)
-            list_result = await client_session.send_request(ListTasksRequest(), ListTasksResult)
+            list_result = await client_session.experimental.list_tasks()
             assert len(list_result.tasks) == 1
             assert list_result.tasks[0].task_id == task.task_id
 
             # Test get_task (default handler - found)
-            get_result = await client_session.send_request(
-                GetTaskRequest(params=GetTaskRequestParams(task_id=task.task_id)),
-                GetTaskResult,
-            )
+            get_result = await client_session.experimental.get_task(task.task_id)
             assert get_result.task_id == task.task_id
             assert get_result.status == "working"
 
             # Test get_task (default handler - not found path)
-            with pytest.raises(McpError, match="not found"):
-                await client_session.send_request(
-                    GetTaskRequest(params=GetTaskRequestParams(task_id="nonexistent-task")),
-                    GetTaskResult,
-                )
+            with pytest.raises(MCPError, match="not found"):
+                await client_session.experimental.get_task("nonexistent-task")
 
             # Create a completed task to test get_task_result
             completed_task = await store.create_task(TaskMetadata(ttl=60000))
@@ -530,9 +389,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             assert "io.modelcontextprotocol/related-task" in payload_result.meta
 
             # Test cancel_task (default handler)
-            cancel_result = await client_session.send_request(
-                CancelTaskRequest(params=CancelTaskRequestParams(task_id=task.task_id)), CancelTaskResult
-            )
+            cancel_result = await client_session.experimental.cancel_task(task.task_id)
             assert cancel_result.task_id == task.task_id
             assert cancel_result.status == "cancelled"
 
@@ -573,7 +430,7 @@ async def test_build_elicit_form_request() -> None:
             assert (
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-123"
             )
-    finally:  # pragma: no cover
+    finally:
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -619,7 +476,7 @@ async def test_build_elicit_url_request() -> None:
             assert (
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"] == "test-task-789"
             )
-    finally:  # pragma: no cover
+    finally:
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -670,7 +527,7 @@ async def test_build_create_message_request() -> None:
                 request_with_task.params["_meta"]["io.modelcontextprotocol/related-task"]["taskId"]
                 == "sampling-task-456"
             )
-    finally:  # pragma: no cover
+    finally:
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -707,7 +564,7 @@ async def test_send_message() -> None:
             received = await server_to_client_receive.receive()
             assert isinstance(received.message, JSONRPCNotification)
             assert received.message.method == "test/notification"
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -761,7 +618,7 @@ async def test_response_routing_success() -> None:
             assert len(routed_responses) == 1
             assert routed_responses[0]["id"] == "test-req-1"
             assert routed_responses[0]["response"]["status"] == "ok"
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -816,7 +673,7 @@ async def test_response_routing_error() -> None:
             assert len(routed_errors) == 1
             assert routed_errors[0]["id"] == "test-req-2"
             assert routed_errors[0]["error"].message == "Test error"
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -874,7 +731,7 @@ async def test_response_routing_skips_non_matching_routers() -> None:
 
             # Verify both routers were called (first returned False, second returned True)
             assert router_calls == ["non_matching_response", "matching_response"]
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()
@@ -933,7 +790,7 @@ async def test_error_routing_skips_non_matching_routers() -> None:
 
             # Verify both routers were called (first returned False, second returned True)
             assert router_calls == ["non_matching_error", "matching_error"]
-    finally:  # pragma: no cover
+    finally:  # pragma: lax no cover
         await server_to_client_send.aclose()
         await server_to_client_receive.aclose()
         await client_to_server_send.aclose()

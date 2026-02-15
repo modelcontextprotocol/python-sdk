@@ -2,60 +2,54 @@
 """Example low-level MCP server demonstrating structured output support.
 
 This example shows how to use the low-level server API to return
-structured data from tools, with automatic validation against output
-schemas.
+structured data from tools.
 """
 
 import asyncio
+import json
+import random
 from datetime import datetime
-from typing import Any
 
 import mcp.server.stdio
-import mcp.types as types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-# Create low-level server instance
-server = Server("structured-output-lowlevel-example")
+from mcp import types
+from mcp.server import Server, ServerRequestContext
 
 
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
     """List available tools with their schemas."""
-    return [
-        types.Tool(
-            name="get_weather",
-            description="Get weather information (simulated)",
-            input_schema={
-                "type": "object",
-                "properties": {"city": {"type": "string", "description": "City name"}},
-                "required": ["city"],
-            },
-            output_schema={
-                "type": "object",
-                "properties": {
-                    "temperature": {"type": "number"},
-                    "conditions": {"type": "string"},
-                    "humidity": {"type": "integer", "minimum": 0, "maximum": 100},
-                    "wind_speed": {"type": "number"},
-                    "timestamp": {"type": "string", "format": "date-time"},
+    return types.ListToolsResult(
+        tools=[
+            types.Tool(
+                name="get_weather",
+                description="Get weather information (simulated)",
+                input_schema={
+                    "type": "object",
+                    "properties": {"city": {"type": "string", "description": "City name"}},
+                    "required": ["city"],
                 },
-                "required": ["temperature", "conditions", "humidity", "wind_speed", "timestamp"],
-            },
-        ),
-    ]
+                output_schema={
+                    "type": "object",
+                    "properties": {
+                        "temperature": {"type": "number"},
+                        "conditions": {"type": "string"},
+                        "humidity": {"type": "integer", "minimum": 0, "maximum": 100},
+                        "wind_speed": {"type": "number"},
+                        "timestamp": {"type": "string", "format": "date-time"},
+                    },
+                    "required": ["temperature", "conditions", "humidity", "wind_speed", "timestamp"],
+                },
+            ),
+        ]
+    )
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
     """Handle tool call with structured output."""
 
-    if name == "get_weather":
-        # city = arguments["city"]  # Would be used with real weather API
-
+    if params.name == "get_weather":
         # Simulate weather data (in production, call a real weather API)
-        import random
-
         weather_conditions = ["sunny", "cloudy", "rainy", "partly cloudy", "foggy"]
 
         weather_data = {
@@ -66,12 +60,19 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             "timestamp": datetime.now().isoformat(),
         }
 
-        # Return structured data only
-        # The low-level server will serialize this to JSON content automatically
-        return weather_data
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps(weather_data, indent=2))],
+            structured_content=weather_data,
+        )
 
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+    raise ValueError(f"Unknown tool: {params.name}")
+
+
+server = Server(
+    "structured-output-lowlevel-example",
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
 
 
 async def run():
@@ -80,14 +81,7 @@ async def run():
         await server.run(
             read_stream,
             write_stream,
-            InitializationOptions(
-                server_name="structured-output-lowlevel-example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+            server.create_initialization_options(),
         )
 
 

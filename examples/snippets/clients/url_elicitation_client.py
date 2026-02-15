@@ -31,14 +31,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from mcp import ClientSession, types
+from mcp.client.context import ClientRequestContext
 from mcp.client.sse import sse_client
-from mcp.shared.context import RequestContext
-from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
+from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED
 
 
 async def handle_elicitation(
-    context: RequestContext[ClientSession, Any],
+    context: ClientRequestContext,
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
     """Handle elicitation requests from the server.
@@ -160,9 +160,9 @@ async def call_tool_with_error_handling(
 
         return result
 
-    except McpError as e:
+    except MCPError as e:
         # Check if this is a URL elicitation required error
-        if e.error.code == URL_ELICITATION_REQUIRED:
+        if e.code == URL_ELICITATION_REQUIRED:
             print("\n[Tool requires URL elicitation to proceed]")
 
             # Convert to typed error to access elicitations

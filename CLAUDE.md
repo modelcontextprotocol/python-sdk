@@ -17,7 +17,7 @@ This document contains critical information about working with this codebase. Fo
    - Functions must be focused and small
    - Follow existing patterns exactly
    - Line length: 120 chars maximum
-   - FORBIDDEN: imports inside functions
+   - FORBIDDEN: imports inside functions. THEY SHOULD BE AT THE TOP OF THE FILE.
 
 3. Testing Requirements
    - Framework: `uv run --frozen pytest`
@@ -28,6 +28,12 @@ This document contains critical information about working with this codebase. Fo
    - Bug fixes require regression tests
    - IMPORTANT: The `tests/client/test_client.py` is the most well designed test file. Follow its patterns.
    - IMPORTANT: Be minimal, and focus on E2E tests: Use the `mcp.client.Client` whenever possible.
+   - IMPORTANT: Before pushing, verify 100% branch coverage on changed files by running
+     `uv run --frozen pytest -x` (coverage is configured in `pyproject.toml` with `fail_under = 100`
+     and `branch = true`). If any branch is uncovered, add a test for it before pushing.
+
+Test files mirror the source tree: `src/mcp/client/streamable_http.py` → `tests/client/test_streamable_http.py`
+Add tests to the existing file for that module.
 
 - For commits fixing bugs or adding features based on user reports add:
 

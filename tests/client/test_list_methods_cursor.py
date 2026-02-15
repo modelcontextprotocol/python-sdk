@@ -2,11 +2,10 @@ from collections.abc import Callable
 
 import pytest
 
-import mcp.types as types
-from mcp import Client
-from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
-from mcp.types import ListToolsRequest, ListToolsResult
+from mcp import Client, types
+from mcp.server import Server, ServerRequestContext
+from mcp.server.mcpserver import MCPServer
+from mcp.types import ListToolsResult
 
 from .conftest import StreamSpyCollection
 
@@ -16,7 +15,7 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 async def full_featured_server():
     """Create a server with tools, resources, prompts, and templates."""
-    server = FastMCP("test")
+    server = MCPServer("test")
 
     # pragma: no cover on handlers below - these exist only to register items with the
     # server so list_* methods return results. The handlers themselves are never called
@@ -55,7 +54,7 @@ async def full_featured_server():
 )
 async def test_list_methods_params_parameter(
     stream_spy: Callable[[], StreamSpyCollection],
-    full_featured_server: FastMCP,
+    full_featured_server: MCPServer,
     method_name: str,
     request_method: str,
 ):
@@ -95,7 +94,7 @@ async def test_list_methods_params_parameter(
 
 
 async def test_list_tools_with_strict_server_validation(
-    full_featured_server: FastMCP,
+    full_featured_server: MCPServer,
 ):
     """Test pagination with a server that validates request format strictly."""
     async with Client(full_featured_server) as client:
@@ -106,13 +105,15 @@ async def test_list_tools_with_strict_server_validation(
 
 async def test_list_tools_with_lowlevel_server():
     """Test that list_tools works with a lowlevel Server using params."""
-    server = Server("test-lowlevel")
 
-    @server.list_tools()
-    async def handle_list_tools(request: ListToolsRequest) -> ListToolsResult:
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListToolsResult:
         # Echo back what cursor we received in the tool description
-        cursor = request.params.cursor if request.params else None
+        cursor = params.cursor if params else None
         return ListToolsResult(tools=[types.Tool(name="test_tool", description=f"cursor={cursor}", input_schema={})])
+
+    server = Server("test-lowlevel", on_list_tools=handle_list_tools)
 
     async with Client(server) as client:
         result = await client.list_tools()
