@@ -91,6 +91,19 @@ class TestResourceValidation:
         )
         assert resource.mime_type == "application/json"
 
+    def test_resource_mime_type_validation(self):
+        """Test that MIME types without '/' are rejected."""
+
+        def dummy_func() -> str:  # pragma: no cover
+            return "data"
+
+        with pytest.raises(ValueError, match="must contain a '/'"):
+            FunctionResource(
+                uri="resource://test",
+                fn=dummy_func,
+                mime_type="invalid",
+            )
+
     @pytest.mark.anyio
     async def test_resource_read_abstract(self):
         """Test that Resource.read() is abstract."""
