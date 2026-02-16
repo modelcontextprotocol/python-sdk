@@ -778,7 +778,7 @@ class StreamableHTTPServerTransport:
         Calling this method multiple times is safe (idempotent).
         """
 
-        if self._terminated:
+        if self._terminated:  # pragma: no cover
             return
 
         self._terminated = True

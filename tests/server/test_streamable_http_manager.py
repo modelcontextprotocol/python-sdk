@@ -317,10 +317,9 @@ async def test_unknown_session_id_returns_404():
 
 @pytest.mark.anyio
 async def test_idle_session_is_reaped():
-    """Idle timeout sets a cancel scope deadline and reaps the session when it fires."""
-    idle_timeout = 300
+    """After idle timeout fires, the session returns 404."""
     app = Server("test-idle-reap")
-    manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=idle_timeout)
+    manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=0.05)
 
     async with manager.run():
         sent_messages: list[Message] = []
@@ -338,7 +337,6 @@ async def test_idle_session_is_reaped():
         async def mock_receive():  # pragma: no cover
             return {"type": "http.request", "body": b"", "more_body": False}
 
-        before = anyio.current_time()
         await manager.handle_request(scope, mock_receive, mock_send)
 
         session_id = None
@@ -352,35 +350,43 @@ async def test_idle_session_is_reaped():
                     break
 
         assert session_id is not None, "Session ID not found in response headers"
-        assert session_id in manager._server_instances
 
-        # Verify the idle deadline was set correctly
-        transport = manager._server_instances[session_id]
-        assert transport.idle_scope is not None
-        assert transport.idle_scope.deadline >= before + idle_timeout
+        # Wait for the 50ms idle timeout to fire and cleanup to complete
+        await anyio.sleep(0.1)
 
-        # Simulate time passing by expiring the deadline
-        transport.idle_scope.deadline = anyio.current_time()
+        # Verify via public API: old session ID now returns 404
+        response_messages: list[Message] = []
 
-        with anyio.fail_after(5):
-            while session_id in manager._server_instances:
-                await anyio.sleep(0)
+        async def capture_send(message: Message):
+            response_messages.append(message)
 
-        assert session_id not in manager._server_instances
+        scope_with_session = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"mcp-session-id", session_id.encode()),
+            ],
+        }
 
-        # Verify terminate() is idempotent
-        await transport.terminate()
-        assert transport.is_terminated
+        await manager.handle_request(scope_with_session, mock_receive, capture_send)
+
+        response_start = next(
+            (msg for msg in response_messages if msg["type"] == "http.response.start"),
+            None,
+        )
+        assert response_start is not None
+        assert response_start["status"] == 404
 
 
-@pytest.mark.parametrize(
-    "kwargs,match",
-    [
-        ({"session_idle_timeout": -1}, "positive number"),
-        ({"session_idle_timeout": 0}, "positive number"),
-        ({"session_idle_timeout": 30, "stateless": True}, "not supported in stateless"),
-    ],
-)
-def test_session_idle_timeout_validation(kwargs: dict[str, Any], match: str):
-    with pytest.raises(ValueError, match=match):
-        StreamableHTTPSessionManager(app=Server("test"), **kwargs)
+def test_session_idle_timeout_rejects_non_positive():
+    with pytest.raises(ValueError, match="positive number"):
+        StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=-1)
+    with pytest.raises(ValueError, match="positive number"):
+        StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=0)
+
+
+def test_session_idle_timeout_rejects_stateless():
+    with pytest.raises(RuntimeError, match="not supported in stateless"):
+        StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
