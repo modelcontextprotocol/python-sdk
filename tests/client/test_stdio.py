@@ -665,7 +665,7 @@ class TestJupyterStderrSupport:
 
         # The stdio_client should handle this without hanging
         with anyio.move_on_after(3.0) as cancel_scope:
-            async with stdio_client(server_params) as (read_stream, write_stream):
+            async with stdio_client(server_params) as (_read_stream, _write_stream):
                 await anyio.sleep(0.5)  # Give process time to write and exit
 
         assert not cancel_scope.cancelled_caught, "stdio_client should not hang on stderr output"
@@ -696,19 +696,19 @@ class TestJupyterStderrSupport:
 
         # The client should handle continuous stderr without blocking
         with anyio.move_on_after(5.0) as cancel_scope:
-            async with stdio_client(server_params) as (read_stream, write_stream):
+            async with stdio_client(server_params) as (_read_stream, _write_stream):
                 await anyio.sleep(1.0)  # Wait for stderr output
 
         assert not cancel_scope.cancelled_caught, "stdio_client should handle continuous stderr output"
 
     def test_jupyter_detection_ipkernel_app(self):
         """Test that _is_jupyter_environment returns True for IPKernelApp config."""
-        mock_ipython_instance = MagicMock()
-        mock_ipython_instance.config = {"IPKernelApp": {}}
-        mock_ipython_instance.__class__ = type("TerminalInteractiveShell", (), {})
+
+        class FakeIPython:
+            config = {"IPKernelApp": {}}
 
         mock_ipython_module = MagicMock()
-        mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
+        mock_ipython_module.get_ipython = MagicMock(return_value=FakeIPython())
 
         with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
             result = _is_jupyter_environment()
@@ -716,12 +716,12 @@ class TestJupyterStderrSupport:
 
     def test_jupyter_detection_zmq_shell(self):
         """Test that _is_jupyter_environment returns True for ZMQInteractiveShell."""
-        mock_ipython_instance = MagicMock()
-        mock_ipython_instance.config = {}
-        mock_ipython_instance.__class__ = type("ZMQInteractiveShell", (), {})
+
+        class ZMQInteractiveShell:
+            config: dict[str, object] = {}
 
         mock_ipython_module = MagicMock()
-        mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
+        mock_ipython_module.get_ipython = MagicMock(return_value=ZMQInteractiveShell())
 
         with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
             result = _is_jupyter_environment()
@@ -729,12 +729,12 @@ class TestJupyterStderrSupport:
 
     def test_jupyter_detection_non_notebook_ipython(self):
         """Test that _is_jupyter_environment returns False for plain IPython terminal."""
-        mock_ipython_instance = MagicMock()
-        mock_ipython_instance.config = {}
-        mock_ipython_instance.__class__ = type("TerminalInteractiveShell", (), {})
+
+        class TerminalInteractiveShell:
+            config: dict[str, object] = {}
 
         mock_ipython_module = MagicMock()
-        mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
+        mock_ipython_module.get_ipython = MagicMock(return_value=TerminalInteractiveShell())
 
         with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
             result = _is_jupyter_environment()
@@ -770,8 +770,8 @@ class TestJupyterStderrSupport:
         with patch("mcp.client.stdio._is_jupyter_environment", return_value=True):
             with anyio.move_on_after(5.0) as cancel_scope:
                 async with stdio_client(server_params) as (  # pragma: no branch
-                    read_stream,
-                    write_stream,
+                    _read_stream,
+                    _write_stream,
                 ):
                     await anyio.sleep(1.0)
 
@@ -802,8 +802,8 @@ class TestJupyterStderrSupport:
         with patch("mcp.client.stdio._is_jupyter_environment", return_value=True):
             with anyio.move_on_after(5.0) as cancel_scope:
                 async with stdio_client(server_params) as (  # pragma: no branch
-                    read_stream,
-                    write_stream,
+                    _read_stream,
+                    _write_stream,
                 ):
                     await anyio.sleep(1.0)
 
