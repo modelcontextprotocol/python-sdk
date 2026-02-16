@@ -705,7 +705,7 @@ class TestJupyterStderrSupport:
         """Test that _is_jupyter_environment returns True for IPKernelApp config."""
 
         class FakeIPython:
-            config = {"IPKernelApp": {}}
+            config: dict[str, dict[str, str]] = {"IPKernelApp": {}}
 
         mock_ipython_module = MagicMock()
         mock_ipython_module.get_ipython = MagicMock(return_value=FakeIPython())
