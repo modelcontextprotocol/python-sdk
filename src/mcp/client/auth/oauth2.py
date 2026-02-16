@@ -267,6 +267,15 @@ class OAuthClientProvider(httpx.Auth):
         )
         self._initialized = False
 
+    async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
+        """Validate that PRM resource matches the server URL per RFC 8707."""
+        prm_resource = str(prm.resource) if prm.resource else None
+        if not prm_resource:
+            return  # pragma: no cover
+        default_resource = resource_url_from_server_url(self.context.server_url)
+        if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
+            raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
+
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
         """
         Handle protected resource metadata discovery response.
@@ -520,6 +529,8 @@ class OAuthClientProvider(httpx.Auth):
 
                         prm = await handle_protected_resource_response(discovery_response)
                         if prm:
+                            # Validate PRM resource matches server URL (RFC 8707)
+                            await self._validate_resource_match(prm)
                             self.context.protected_resource_metadata = prm
 
                             # todo: try all authorization_servers to find the OASM
