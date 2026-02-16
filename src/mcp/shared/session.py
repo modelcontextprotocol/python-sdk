@@ -142,7 +142,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         # Send an error response to indicate cancellation
         await self._session._send_response(  # type: ignore[reportPrivateUsage]
             request_id=self.request_id,
-            response=ErrorData(code=0, message="Request cancelled", data=None),
+            response=ErrorData(code=0, message="Request cancelled"),
         )
 
     @property

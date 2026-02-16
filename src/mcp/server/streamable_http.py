@@ -303,7 +303,7 @@ class StreamableHTTPServerTransport:
         )
 
         return Response(
-            error_response.model_dump_json(by_alias=True, exclude_none=True),
+            error_response.model_dump_json(by_alias=True, exclude_unset=True),
             status_code=status_code,
             headers=response_headers,
         )
@@ -323,7 +323,7 @@ class StreamableHTTPServerTransport:
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         return Response(
-            response_message.model_dump_json(by_alias=True, exclude_none=True) if response_message else None,
+            response_message.model_dump_json(by_alias=True, exclude_unset=True) if response_message else None,
             status_code=status_code,
             headers=response_headers,
         )
@@ -336,7 +336,7 @@ class StreamableHTTPServerTransport:
         """Create event data dictionary from an EventMessage."""
         event_data = {
             "event": "message",
-            "data": event_message.message.model_dump_json(by_alias=True, exclude_none=True),
+            "data": event_message.message.model_dump_json(by_alias=True, exclude_unset=True),
         }
 
         # If an event ID was provided, include it

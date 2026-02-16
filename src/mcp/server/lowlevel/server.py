@@ -490,7 +490,7 @@ class Server(Generic[LifespanResultT]):
             except Exception as err:
                 if raise_exceptions:  # pragma: no cover
                     raise err
-                response = types.ErrorData(code=0, message=str(err), data=None)
+                response = types.ErrorData(code=0, message=str(err))
 
             await message.respond(response)
         else:  # pragma: no cover

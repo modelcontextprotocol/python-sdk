@@ -367,17 +367,17 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
 
 
 def test_jsonrpc_error_null_id_serialization_preserves_id():
-    """Test that id: null is preserved in JSON output even with exclude_none=True.
+    """Test that id: null is preserved in JSON output with exclude_unset=True.
 
     JSON-RPC 2.0 requires the id field to be present with value null for
     parse errors, not absent entirely.
     """
     error = JSONRPCError(jsonrpc="2.0", id=None, error=ErrorData(code=PARSE_ERROR, message="Parse error"))
-    serialized = error.model_dump(by_alias=True, exclude_none=True)
+    serialized = error.model_dump(by_alias=True, exclude_unset=True)
     assert "id" in serialized
     assert serialized["id"] is None
 
-    json_str = error.model_dump_json(by_alias=True, exclude_none=True)
+    json_str = error.model_dump_json(by_alias=True, exclude_unset=True)
     parsed = json.loads(json_str)
     assert "id" in parsed
     assert parsed["id"] is None

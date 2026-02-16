@@ -248,7 +248,7 @@ class StreamableHTTPSessionManager:
                 error=ErrorData(code=INVALID_REQUEST, message="Session not found"),
             )
             response = Response(
-                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                content=error_response.model_dump_json(by_alias=True, exclude_unset=True),
                 status_code=HTTPStatus.NOT_FOUND,
                 media_type="application/json",
             )
