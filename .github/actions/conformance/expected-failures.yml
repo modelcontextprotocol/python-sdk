@@ -1,0 +1,9 @@
+# Known conformance test failures for v1.x
+# These are tracked and should be removed as they're fixed.
+#
+# auth/resource-mismatch: Client must validate that the Protected Resource
+# Metadata (PRM) resource field matches the server URL before proceeding
+# with authorization (RFC 8707). Implemented on main (PR #2010), needs
+# backport to v1.x.
+client:
+  - auth/resource-mismatch
