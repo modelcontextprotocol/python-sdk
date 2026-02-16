@@ -24,6 +24,10 @@ This document contains critical information about working with this codebase. Fo
    - Coverage: test edge cases and errors
    - New features require tests
    - Bug fixes require regression tests
+   - NEVER use `anyio.sleep()` with a fixed duration as a synchronization mechanism. Instead:
+     - Use `anyio.Event` — set it in the callback/handler, `await event.wait()` in the test
+     - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
+     - Wrap waits in `anyio.fail_after(5)` as a timeout guard
 
 - For commits fixing bugs or adding features based on user reports add:
 

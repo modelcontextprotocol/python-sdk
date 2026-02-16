@@ -56,14 +56,15 @@ class StreamableHTTPSessionManager:
         security_settings: Optional transport security settings.
         retry_interval: Retry interval in milliseconds to suggest to clients in SSE
                        retry field. Used for SSE polling behavior.
-        session_idle_timeout: Optional idle timeout in seconds for stateful sessions.
-                            If set, sessions that receive no HTTP requests for this
-                            duration will be automatically terminated and removed.
-                            When retry_interval is also configured, ensure the idle
-                            timeout comfortably exceeds the retry interval to avoid
-                            reaping sessions during normal SSE polling gaps.
-                            Default is None (no timeout). A value of 1800
-                            (30 minutes) is recommended for most deployments.
+        session_idle_timeout: Optional idle timeout in seconds for stateful
+                              sessions. If set, sessions that receive no HTTP
+                              requests for this duration will be automatically
+                              terminated and removed. When retry_interval is
+                              also configured, ensure the idle timeout
+                              comfortably exceeds the retry interval to avoid
+                              reaping sessions during normal SSE polling gaps.
+                              Default is None (no timeout). A value of 1800
+                              (30 minutes) is recommended for most deployments.
     """
 
     def __init__(
