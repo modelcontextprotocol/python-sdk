@@ -333,3 +333,74 @@ async def test_e2e_streamable_http_server_cleanup():
         Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
     ):
         await client.list_tools()
+
+
+@pytest.mark.anyio
+async def test_idle_session_is_reaped():
+    """Idle timeout sets a cancel scope deadline and reaps the session when it fires."""
+    idle_timeout = 300
+    app = Server("test-idle-reap")
+    manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=idle_timeout)
+
+    async with manager.run():
+        sent_messages: list[Message] = []
+
+        async def mock_send(message: Message):
+            sent_messages.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [(b"content-type", b"application/json")],
+        }
+
+        async def mock_receive():  # pragma: no cover
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        before = anyio.current_time()
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        session_id = None
+        for msg in sent_messages:  # pragma: no branch
+            if msg["type"] == "http.response.start":  # pragma: no branch
+                for header_name, header_value in msg.get("headers", []):  # pragma: no branch
+                    if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
+                        session_id = header_value.decode()
+                        break
+                if session_id:  # pragma: no branch
+                    break
+
+        assert session_id is not None, "Session ID not found in response headers"
+        assert session_id in manager._server_instances
+
+        # Verify the idle deadline was set correctly
+        transport = manager._server_instances[session_id]
+        assert transport.idle_scope is not None
+        assert transport.idle_scope.deadline >= before + idle_timeout
+
+        # Simulate time passing by expiring the deadline
+        transport.idle_scope.deadline = anyio.current_time()
+
+        with anyio.fail_after(5):
+            while session_id in manager._server_instances:
+                await anyio.sleep(0)
+
+        assert session_id not in manager._server_instances
+
+        # Verify terminate() is idempotent
+        await transport.terminate()
+        assert transport.is_terminated
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"session_idle_timeout": -1}, "positive number"),
+        ({"session_idle_timeout": 0}, "positive number"),
+        ({"session_idle_timeout": 30, "stateless": True}, "not supported in stateless"),
+    ],
+)
+def test_session_idle_timeout_validation(kwargs: dict[str, Any], match: str):
+    with pytest.raises(ValueError, match=match):
+        StreamableHTTPSessionManager(app=Server("test"), **kwargs)
