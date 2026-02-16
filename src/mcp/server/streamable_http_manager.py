@@ -47,25 +47,20 @@ class StreamableHTTPSessionManager:
 
     Args:
         app: The MCP server instance
-        event_store: Optional event store for resumability support.
-                     If provided, enables resumable connections where clients
-                     can reconnect and receive missed events.
-                     If None, sessions are still tracked but not resumable.
+        event_store: Optional event store for resumability support. If provided, enables resumable connections
+            where clients can reconnect and receive missed events. If None, sessions are still tracked but not
+            resumable.
         json_response: Whether to use JSON responses instead of SSE streams
-        stateless: If True, creates a completely fresh transport for each request
-                   with no session tracking or state persistence between requests.
+        stateless: If True, creates a completely fresh transport for each request with no session tracking or
+            state persistence between requests.
         security_settings: Optional transport security settings.
-        retry_interval: Retry interval in milliseconds to suggest to clients in SSE
-                       retry field. Used for SSE polling behavior.
-        session_idle_timeout: Optional idle timeout in seconds for stateful
-                              sessions. If set, sessions that receive no HTTP
-                              requests for this duration will be automatically
-                              terminated and removed. When retry_interval is
-                              also configured, ensure the idle timeout
-                              comfortably exceeds the retry interval to avoid
-                              reaping sessions during normal SSE polling gaps.
-                              Default is None (no timeout). A value of 1800
-                              (30 minutes) is recommended for most deployments.
+        retry_interval: Retry interval in milliseconds to suggest to clients in SSE retry field. Used for SSE
+            polling behavior.
+        session_idle_timeout: Optional idle timeout in seconds for stateful sessions. If set, sessions that
+            receive no HTTP requests for this duration will be automatically terminated and removed. When
+            retry_interval is also configured, ensure the idle timeout comfortably exceeds the retry interval to
+            avoid reaping sessions during normal SSE polling gaps. Default is None (no timeout). A value of 1800
+            (30 minutes) is recommended for most deployments.
     """
 
     def __init__(
@@ -81,7 +76,7 @@ class StreamableHTTPSessionManager:
         if session_idle_timeout is not None and session_idle_timeout <= 0:
             raise ValueError("session_idle_timeout must be a positive number of seconds")
         if stateless and session_idle_timeout is not None:
-            raise ValueError("session_idle_timeout is not supported in stateless mode")
+            raise RuntimeError("session_idle_timeout is not supported in stateless mode")
 
         self.app = app
         self.event_store = event_store
@@ -248,10 +243,9 @@ class StreamableHTTPSessionManager:
                                 )
 
                             if idle_scope.cancelled_caught:
-                                session_id = http_transport.mcp_session_id
-                                logger.info(f"Session {session_id} idle timeout")
-                                if session_id is not None:  # pragma: no branch
-                                    self._server_instances.pop(session_id, None)
+                                assert http_transport.mcp_session_id is not None
+                                logger.info(f"Session {http_transport.mcp_session_id} idle timeout")
+                                self._server_instances.pop(http_transport.mcp_session_id, None)
                                 await http_transport.terminate()
                         except Exception:
                             logger.exception(f"Session {http_transport.mcp_session_id} crashed")
