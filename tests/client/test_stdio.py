@@ -718,7 +718,8 @@ class TestJupyterStderrSupport:
         """Test that _is_jupyter_environment returns True for ZMQInteractiveShell."""
 
         class ZMQInteractiveShell:
-            config: dict[str, object] = {}
+            def __init__(self) -> None:
+                self.config: dict[str, str] = {}
 
         mock_ipython_module = MagicMock()
         mock_ipython_module.get_ipython = MagicMock(return_value=ZMQInteractiveShell())
@@ -731,7 +732,8 @@ class TestJupyterStderrSupport:
         """Test that _is_jupyter_environment returns False for plain IPython terminal."""
 
         class TerminalInteractiveShell:
-            config: dict[str, object] = {}
+            def __init__(self) -> None:
+                self.config: dict[str, str] = {}
 
         mock_ipython_module = MagicMock()
         mock_ipython_module.get_ipython = MagicMock(return_value=TerminalInteractiveShell())
