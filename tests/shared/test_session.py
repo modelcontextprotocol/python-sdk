@@ -1,23 +1,25 @@
-from typing import Any
-
 import anyio
 import pytest
 
 from mcp import Client, types
 from mcp.client.session import ClientSession
-from mcp.server.lowlevel.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 from mcp.types import (
+    PARSE_ERROR,
     CancelledNotification,
     CancelledNotificationParams,
+    ClientResult,
     EmptyResult,
     ErrorData,
     JSONRPCError,
     JSONRPCRequest,
     JSONRPCResponse,
-    TextContent,
+    ServerNotification,
+    ServerRequest,
 )
 
 
@@ -42,29 +44,25 @@ async def test_request_cancellation():
     request_id = None
 
     # Create a server with a slow tool
-    server = Server(name="TestSessionServer")
-
-    # Register the tool handler
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
         nonlocal request_id, ev_tool_called
-        if name == "slow_tool":
-            request_id = server.request_context.request_id
+        if params.name == "slow_tool":
+            request_id = ctx.request_id
             ev_tool_called.set()
             await anyio.sleep(10)  # Long enough to ensure we can cancel
-            return []  # pragma: no cover
-        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+            return types.CallToolResult(content=[])  # pragma: no cover
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
-    # Register the tool so it shows up in list_tools
-    @server.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="slow_tool",
-                description="A slow tool that takes 10 seconds to complete",
-                input_schema={},
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        raise NotImplementedError
+
+    server = Server(
+        name="TestSessionServer",
+        on_call_tool=handle_call_tool,
+        on_list_tools=handle_list_tools,
+    )
 
     async def make_request(client: Client):
         nonlocal ev_cancelled
@@ -304,3 +302,117 @@ async def test_connection_closed():
                 await ev_closed.wait()
             with anyio.fail_after(1):  # pragma: no branch
                 await ev_response.wait()
+
+
+@pytest.mark.anyio
+async def test_null_id_error_surfaced_via_message_handler():
+    """Test that a JSONRPCError with id=None is surfaced to the message handler.
+
+    Per JSON-RPC 2.0, error responses use id=null when the request id could not
+    be determined (e.g., parse errors). These cannot be correlated to any pending
+    request, so they are forwarded to the message handler as MCPError.
+    """
+    ev_error_received = anyio.Event()
+    error_holder: list[MCPError] = []
+
+    async def capture_errors(
+        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
+    ) -> None:
+        assert isinstance(message, MCPError)
+        error_holder.append(message)
+        ev_error_received.set()
+
+    sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        _server_read, server_write = server_streams
+
+        async def mock_server():
+            """Send a null-id error (simulating a parse error)."""
+            error_response = JSONRPCError(jsonrpc="2.0", id=None, error=sent_error)
+            await server_write.send(SessionMessage(message=error_response))
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+                message_handler=capture_errors,
+            ) as _client_session,
+        ):
+            tg.start_soon(mock_server)
+
+            with anyio.fail_after(2):  # pragma: no branch
+                await ev_error_received.wait()
+
+    assert len(error_holder) == 1
+    assert error_holder[0].error == sent_error
+
+
+@pytest.mark.anyio
+async def test_null_id_error_does_not_affect_pending_request():
+    """Test that a null-id error doesn't interfere with an in-flight request.
+
+    When a null-id error arrives while a request is pending, the error should
+    go to the message handler and the pending request should still complete
+    normally with its own response.
+    """
+    ev_error_received = anyio.Event()
+    ev_response_received = anyio.Event()
+    error_holder: list[MCPError] = []
+    result_holder: list[EmptyResult] = []
+
+    async def capture_errors(
+        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
+    ) -> None:
+        assert isinstance(message, MCPError)
+        error_holder.append(message)
+        ev_error_received.set()
+
+    sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def mock_server():
+            """Read a request, inject a null-id error, then respond normally."""
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+            assert isinstance(message.message, JSONRPCRequest)
+            request_id = message.message.id
+
+            # First, send a null-id error (should go to message handler)
+            await server_write.send(SessionMessage(message=JSONRPCError(jsonrpc="2.0", id=None, error=sent_error)))
+
+            # Then, respond normally to the pending request
+            await server_write.send(SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})))
+
+        async def make_request(client_session: ClientSession):
+            result = await client_session.send_ping()
+            result_holder.append(result)
+            ev_response_received.set()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+                message_handler=capture_errors,
+            ) as client_session,
+        ):
+            tg.start_soon(mock_server)
+            tg.start_soon(make_request, client_session)
+
+            with anyio.fail_after(2):  # pragma: no branch
+                await ev_error_received.wait()
+                await ev_response_received.wait()
+
+    # Null-id error reached the message handler
+    assert len(error_holder) == 1
+    assert error_holder[0].error == sent_error
+
+    # Pending request completed successfully
+    assert len(result_holder) == 1
+    assert isinstance(result_holder[0], EmptyResult)
