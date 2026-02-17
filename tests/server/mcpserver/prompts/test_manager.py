@@ -2,7 +2,8 @@ import pytest
 
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.mcpserver.prompts.manager import PromptManager
-from mcp.types import TextContent
+from mcp.shared.exceptions import MCPError
+from mcp.types import INVALID_PARAMS, TextContent
 
 
 class TestPromptManager:
@@ -90,10 +91,11 @@ class TestPromptManager:
 
     @pytest.mark.anyio
     async def test_render_unknown_prompt(self):
-        """Test rendering a non-existent prompt."""
+        """Test rendering a non-existent prompt raises protocol error."""
         manager = PromptManager()
-        with pytest.raises(ValueError, match="Unknown prompt: unknown"):
+        with pytest.raises(MCPError, match="Unknown prompt: unknown") as exc_info:
             await manager.render_prompt("unknown")
+        assert exc_info.value.error.code == INVALID_PARAMS
 
     @pytest.mark.anyio
     async def test_render_prompt_with_missing_args(self):
