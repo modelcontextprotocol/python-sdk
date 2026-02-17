@@ -25,24 +25,18 @@ class TestNullIdRejection:
     def test_request_rejects_null_id(self) -> None:
         """JSONRPCRequest correctly rejects null id."""
         with pytest.raises(ValidationError):
-            JSONRPCRequest.model_validate(
-                {"jsonrpc": "2.0", "method": "initialize", "id": None}
-            )
+            JSONRPCRequest.model_validate({"jsonrpc": "2.0", "method": "initialize", "id": None})
 
     def test_notification_rejects_id_field(self) -> None:
         """JSONRPCNotification must not accept messages with an 'id' field."""
         with pytest.raises(ValidationError, match="must not include an 'id' field"):
-            JSONRPCNotification.model_validate(
-                {"jsonrpc": "2.0", "method": "initialize", "id": None}
-            )
+            JSONRPCNotification.model_validate({"jsonrpc": "2.0", "method": "initialize", "id": None})
 
     def test_notification_rejects_any_id_value(self) -> None:
         """Notification rejects 'id' regardless of value — null, int, or str."""
         for id_value in [None, 0, 1, "", "abc"]:
             with pytest.raises(ValidationError):
-                JSONRPCNotification.model_validate(
-                    {"jsonrpc": "2.0", "method": "test", "id": id_value}
-                )
+                JSONRPCNotification.model_validate({"jsonrpc": "2.0", "method": "test", "id": id_value})
 
     def test_message_adapter_rejects_null_id(self) -> None:
         """JSONRPCMessage union must not accept ``"id": null``."""
@@ -58,9 +52,7 @@ class TestNullIdRejection:
 
     def test_valid_notification_still_works(self) -> None:
         """A valid notification (no 'id' field at all) must still parse fine."""
-        msg = JSONRPCNotification.model_validate(
-            {"jsonrpc": "2.0", "method": "notifications/initialized"}
-        )
+        msg = JSONRPCNotification.model_validate({"jsonrpc": "2.0", "method": "notifications/initialized"})
         assert msg.method == "notifications/initialized"
 
     def test_valid_notification_with_params(self) -> None:
@@ -73,16 +65,12 @@ class TestNullIdRejection:
 
     def test_valid_request_with_string_id(self) -> None:
         """A valid request with a string id still works."""
-        msg = JSONRPCRequest.model_validate(
-            {"jsonrpc": "2.0", "method": "initialize", "id": "abc-123"}
-        )
+        msg = JSONRPCRequest.model_validate({"jsonrpc": "2.0", "method": "initialize", "id": "abc-123"})
         assert msg.id == "abc-123"
 
     def test_valid_request_with_int_id(self) -> None:
         """A valid request with an integer id still works."""
-        msg = JSONRPCRequest.model_validate(
-            {"jsonrpc": "2.0", "method": "initialize", "id": 42}
-        )
+        msg = JSONRPCRequest.model_validate({"jsonrpc": "2.0", "method": "initialize", "id": 42})
         assert msg.id == 42
 
     def test_message_adapter_parses_valid_request(self) -> None:
