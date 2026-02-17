@@ -138,7 +138,7 @@ async def sse_client(
                                         json=session_message.message.model_dump(
                                             by_alias=True,
                                             mode="json",
-                                            exclude_none=True,
+                                            exclude_unset=True,
                                         ),
                                     )
                                     response.raise_for_status()
