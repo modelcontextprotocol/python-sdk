@@ -237,14 +237,14 @@ async def _wait_for_file_growth(
     prev_size = -1
 
     while time.monotonic() < deadline:
-        if os.path.exists(file_path):
+        if os.path.exists(file_path):  # pragma: no branch
             size = os.path.getsize(file_path)
             if size > 0 and prev_size >= 0 and size > prev_size:
                 return  # File is growing
             prev_size = size
         await anyio.sleep(poll_interval)
 
-    raise AssertionError(f"{description} did not start writing within {timeout}s")
+    raise AssertionError(f"{description} did not start writing within {timeout}s")  # pragma: no cover
 
 
 class TestChildProcessCleanup:
