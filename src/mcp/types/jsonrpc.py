@@ -42,7 +42,7 @@ class JSONRPCNotification(BaseModel):
         raw payload contains ``"id"`` (regardless of its value), it is a
         malformed request — not a valid notification.
         """
-        if isinstance(data, dict) and "id" in data:
+        if "id" in data:
             raise ValueError(
                 "Notifications must not include an 'id' field. "
                 "A JSON-RPC message with 'id' is a request, not a notification."
