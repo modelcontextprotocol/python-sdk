@@ -1211,6 +1211,152 @@ class TestAuthFlow:
         assert request_yields == 1, f"Expected 1 request yield, got {request_yields}"
 
     @pytest.mark.anyio
+    async def test_eager_oauth_flow_avoids_unauthenticated_roundtrip(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+    ):
+        """Test that when no tokens exist, OAuth discovery happens BEFORE the MCP request.
+
+        This is the fix for issue #1274: servers like Notion can be very slow (~10s)
+        when handling unauthenticated requests, so we perform eager OAuth discovery
+        to obtain tokens first, then send the MCP request with auth already attached.
+        """
+        # Ensure no tokens but with existing client_info — triggers the eager
+        # OAuth flow.  The eager flow only activates when client_info is already
+        # present (i.e. we've been through the OAuth flow at least once before).
+        oauth_provider.context.current_tokens = None
+        oauth_provider.context.token_expiry_time = None
+        oauth_provider._initialized = True
+
+        # Simulate having previously registered (required for eager flow)
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="existing_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # First yielded request should be PRM discovery (path-based), NOT the MCP request.
+        # This is the key behavioral change for #1274.
+        first_request = await auth_flow.__anext__()
+        assert str(first_request.url) == "https://api.example.com/.well-known/oauth-protected-resource/v1/mcp"
+        assert first_request.method == "GET"
+        assert "Authorization" not in first_request.headers
+
+        # PRM discovery returns 404 (path-based fails)
+        prm_response_1 = httpx.Response(404, request=first_request)
+
+        # Should fall back to root-based PRM discovery
+        prm_request_2 = await auth_flow.asend(prm_response_1)
+        assert str(prm_request_2.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+        # Root PRM discovery succeeds
+        prm_response_2 = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
+            request=prm_request_2,
+        )
+
+        # Next: OAuth authorization server metadata discovery
+        asm_request = await auth_flow.asend(prm_response_2)
+        assert asm_request.method == "GET"
+        assert str(asm_request.url).startswith("https://auth.example.com/")
+
+        asm_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com", '
+                b'"authorization_endpoint": "https://auth.example.com/authorize", '
+                b'"token_endpoint": "https://auth.example.com/token", '
+                b'"registration_endpoint": "https://auth.example.com/register"}'
+            ),
+            request=asm_request,
+        )
+
+        # Since client_info is already set, DCR is skipped.
+        # Mock authorization code grant
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
+
+        # Next: Token exchange (skipping DCR because client_info exists)
+        token_request = await auth_flow.asend(asm_response)
+        assert token_request.method == "POST"
+        assert str(token_request.url) == "https://auth.example.com/token"
+
+        token_response = httpx.Response(
+            200,
+            content=b'{"access_token": "eager_token", "token_type": "Bearer", "expires_in": 3600}',
+            request=token_request,
+        )
+
+        # NOW the MCP request is sent — with the token from the eager flow
+        mcp_request = await auth_flow.asend(token_response)
+        assert mcp_request.headers["Authorization"] == "Bearer eager_token"
+        assert str(mcp_request.url) == "https://api.example.com/v1/mcp"
+
+        # Server returns 200 — no 401 round-trip needed
+        mcp_response = httpx.Response(200, request=mcp_request)
+        try:
+            await auth_flow.asend(mcp_response)
+        except StopAsyncIteration:
+            pass
+
+        # Verify tokens were stored
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.current_tokens.access_token == "eager_token"
+
+    @pytest.mark.anyio
+    async def test_eager_oauth_falls_back_on_error(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+    ):
+        """Test that when the eager OAuth flow fails, we gracefully fall through
+        to send the MCP request without auth and let the reactive 401 path handle it.
+
+        This covers scenarios like resource mismatch (evil PRM) or registration
+        failures where the eager path cannot complete.
+        """
+        # Ensure no tokens but with existing client_info — triggers the eager flow
+        oauth_provider.context.current_tokens = None
+        oauth_provider.context.token_expiry_time = None
+        oauth_provider._initialized = True
+
+        # Simulate having previously registered (required for eager flow)
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="existing_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # Eager flow starts with PRM discovery
+        prm_request = await auth_flow.__anext__()
+        assert ".well-known/oauth-protected-resource" in str(prm_request.url)
+
+        # PRM returns a mismatched resource — this triggers OAuthFlowError
+        # inside _validate_resource_match.  The eager flow should catch this
+        # and fall through gracefully.
+        evil_prm_response = httpx.Response(
+            200,
+            content=b'{"resource": "https://evil.example.com/mcp", "authorization_servers": ["https://evil.example.com"]}',
+            request=prm_request,
+        )
+
+        # The next yielded request should be the original MCP request (without auth),
+        # because the eager flow caught the error and fell through.
+        mcp_request = await auth_flow.asend(evil_prm_response)
+        assert str(mcp_request.url) == "https://api.example.com/v1/mcp"
+        assert "Authorization" not in mcp_request.headers
+
+        # Server returns 200 (no 401) — flow completes
+        mcp_response = httpx.Response(200, request=mcp_request)
+        try:
+            await auth_flow.asend(mcp_response)
+        except StopAsyncIteration:
+            pass
+
+    @pytest.mark.anyio
     async def test_token_exchange_accepts_201_status(
         self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
     ):
@@ -1511,8 +1657,10 @@ class TestLegacyServerFallback:
             callback_handler=callback_handler,
         )
 
-        provider.context.current_tokens = None
-        provider.context.token_expiry_time = None
+        # Provide a token that appears valid so the eager OAuth flow is skipped;
+        # the server will still return 401 to trigger the reactive path.
+        provider.context.current_tokens = OAuthToken(access_token="stale_token", token_type="Bearer")
+        provider.context.token_expiry_time = time.time() + 3600
         provider._initialized = True
 
         # Mock client info to skip DCR
@@ -1524,9 +1672,9 @@ class TestLegacyServerFallback:
         test_request = httpx.Request("GET", "https://mcp.linear.app/sse")
         auth_flow = provider.async_auth_flow(test_request)
 
-        # First request
+        # First request — now carries the stale token
         request = await auth_flow.__anext__()
-        assert "Authorization" not in request.headers
+        assert request.headers["Authorization"] == "Bearer stale_token"
 
         # Send 401 without WWW-Authenticate header (typical legacy server)
         response = httpx.Response(401, headers={}, request=test_request)
@@ -1609,8 +1757,10 @@ class TestLegacyServerFallback:
             callback_handler=callback_handler,
         )
 
-        provider.context.current_tokens = None
-        provider.context.token_expiry_time = None
+        # Provide a token that appears valid so the eager OAuth flow is skipped;
+        # the server will still return 401 to trigger the reactive path.
+        provider.context.current_tokens = OAuthToken(access_token="stale_token", token_type="Bearer")
+        provider.context.token_expiry_time = time.time() + 3600
         provider._initialized = True
 
         provider.context.client_info = OAuthClientInformationFull(
@@ -1621,7 +1771,8 @@ class TestLegacyServerFallback:
         test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
         auth_flow = provider.async_auth_flow(test_request)
 
-        await auth_flow.__anext__()
+        request = await auth_flow.__anext__()
+        assert request.headers["Authorization"] == "Bearer stale_token"
 
         # 401 with custom WWW-Authenticate PRM URL
         response = httpx.Response(
@@ -1749,9 +1900,10 @@ class TestSEP985Discovery:
             callback_handler=callback_handler,
         )
 
-        # Ensure no tokens are stored
-        provider.context.current_tokens = None
-        provider.context.token_expiry_time = None
+        # Provide a token that appears valid so the eager OAuth flow is skipped;
+        # the server will still return 401 to trigger the reactive path.
+        provider.context.current_tokens = OAuthToken(access_token="stale_token", token_type="Bearer")
+        provider.context.token_expiry_time = time.time() + 3600
         provider._initialized = True
 
         # Mock client info to skip DCR
@@ -1766,9 +1918,9 @@ class TestSEP985Discovery:
         # Mock the auth flow
         auth_flow = provider.async_auth_flow(test_request)
 
-        # First request should be the original request without auth header
+        # First request carries the stale token
         request = await auth_flow.__anext__()
-        assert "Authorization" not in request.headers
+        assert request.headers["Authorization"] == "Bearer stale_token"
 
         # Send a 401 response without WWW-Authenticate header
         response = httpx.Response(401, headers={}, request=test_request)
