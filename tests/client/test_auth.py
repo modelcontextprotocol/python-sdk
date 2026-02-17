@@ -84,13 +84,15 @@ def valid_tokens():
 
 
 def test_oauth_client_metadata_treats_empty_optional_uris_as_none():
-    metadata = OAuthClientMetadata(
-        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
-        client_uri="",
-        logo_uri="",
-        tos_uri="",
-        policy_uri="",
-        jwks_uri="",
+    metadata = OAuthClientMetadata.model_validate(
+        {
+            "redirect_uris": ["http://localhost:3030/callback"],
+            "client_uri": "",
+            "logo_uri": "",
+            "tos_uri": "",
+            "policy_uri": "",
+            "jwks_uri": "",
+        }
     )
 
     assert metadata.client_uri is None
