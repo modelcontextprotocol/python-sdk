@@ -35,7 +35,7 @@ class JSONRPCNotification(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _reject_id_field(cls, data: Any) -> Any:
+    def _reject_id_field(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Reject messages that contain an ``id`` field.
 
         JSON-RPC notifications MUST NOT include an ``id`` member.  If the
