@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-import inspect
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
-from pydantic import BaseModel, Field, validate_call
+from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
-from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
-from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata, is_async_callable
 from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
@@ -34,6 +33,10 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    fn_metadata: FuncMetadata = Field(
+        description="Metadata about the function including a pydantic model for arguments"
+    )
+    is_async: bool = Field(description="Whether the function is async")
 
     @classmethod
     def from_function(
@@ -58,15 +61,14 @@ class ResourceTemplate(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
+        is_async = is_async_callable(fn)
+
         # Get schema from func_metadata, excluding context parameter
         func_arg_metadata = func_metadata(
             fn,
             skip_names=[context_kwarg] if context_kwarg is not None else [],
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
-
-        # ensure the arguments are properly cast
-        fn = validate_call(fn)
 
         return cls(
             uri_template=uri_template,
@@ -80,6 +82,8 @@ class ResourceTemplate(BaseModel):
             fn=fn,
             parameters=parameters,
             context_kwarg=context_kwarg,
+            fn_metadata=func_arg_metadata,
+            is_async=is_async,
         )
 
     def matches(self, uri: str) -> dict[str, Any] | None:
@@ -103,13 +107,12 @@ class ResourceTemplate(BaseModel):
     ) -> Resource:
         """Create a resource from the template with the given parameters."""
         try:
-            # Add context to params if needed
-            params = inject_context(self.fn, params, context, self.context_kwarg)
-
-            # Call function and check if result is a coroutine
-            result = self.fn(**params)
-            if inspect.iscoroutine(result):
-                result = await result
+            result = await self.fn_metadata.call_fn_with_arg_validation(
+                self.fn,
+                self.is_async,
+                params,
+                {self.context_kwarg: context} if self.context_kwarg is not None else None,
+            )
 
             return FunctionResource(
                 uri=uri,  # type: ignore

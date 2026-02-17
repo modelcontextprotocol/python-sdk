@@ -446,7 +446,7 @@ class MCPServer(Generic[LifespanResultT]):
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
-            content = await resource.read()
+            content = await resource.read(context=context)
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as exc:
             logger.exception(f"Error getting resource {uri}")
@@ -667,19 +667,16 @@ class MCPServer(Generic[LifespanResultT]):
         def decorator(fn: _CallableT) -> _CallableT:
             # Check if this should be a template
             sig = inspect.signature(fn)
-            has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(sig.parameters)
+            uri_params = set(re.findall(r"{(\w+)}", uri))
+            context_param = find_context_parameter(fn)
+            func_params = {p for p in sig.parameters.keys() if p != context_param}
+
+            # Determine if this should be a template
+            has_uri_params = len(uri_params) != 0
+            has_func_params = len(func_params) != 0
 
             if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
-                # Validate that URI params match function params (excluding context)
-                uri_params = set(re.findall(r"{(\w+)}", uri))
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
-
+                # Validate that URI params match function params
                 if uri_params != func_params:
                     raise ValueError(
                         f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"

@@ -3,6 +3,7 @@
 # pyright: reportMissingParameterType=false
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownLambdaType=false
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, Final, NamedTuple, TypedDict
@@ -13,7 +14,7 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import func_metadata, is_async_callable
 from mcp.types import CallToolResult
 
 
@@ -1189,3 +1190,13 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def test_is_async_callable_nested_partial():
+    """Test that is_async_callable unwraps nested functools.partial objects."""
+
+    async def async_fn() -> None:
+        pass  # pragma: no cover
+
+    nested = functools.partial(functools.partial(async_fn))
+    assert is_async_callable(nested) is True
