@@ -221,6 +221,32 @@ async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
             raise
 
 
+async def _wait_for_file_growth(
+    file_path: str,
+    description: str = "process",
+    timeout: float = 10.0,
+    poll_interval: float = 0.2,
+) -> None:
+    """Wait until a file exists, has content, and is actively growing.
+
+    Polls the file size at regular intervals until it observes growth,
+    raising AssertionError if the timeout is exceeded. This replaces
+    fixed-duration sleeps that cause flaky tests on slow CI machines.
+    """
+    deadline = time.monotonic() + timeout
+    prev_size = -1
+
+    while time.monotonic() < deadline:
+        if os.path.exists(file_path):
+            size = os.path.getsize(file_path)
+            if size > 0 and prev_size >= 0 and size > prev_size:
+                return  # File is growing
+            prev_size = size
+        await anyio.sleep(poll_interval)
+
+    raise AssertionError(f"{description} did not start writing within {timeout}s")
+
+
 class TestChildProcessCleanup:
     """Tests for child process cleanup functionality using _terminate_process_tree.
 
@@ -296,19 +322,9 @@ class TestChildProcessCleanup:
             # Start the parent process
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
 
-            # Wait for processes to start
-            await anyio.sleep(0.5)
-
-            # Verify parent started
-            assert os.path.exists(parent_marker), "Parent process didn't start"
-
-            # Verify child is writing
-            if os.path.exists(marker_file):  # pragma: no branch
-                initial_size = os.path.getsize(marker_file)
-                await anyio.sleep(0.3)
-                size_after_wait = os.path.getsize(marker_file)
-                assert size_after_wait > initial_size, "Child process should be writing"
-                print(f"Child is writing (file grew from {initial_size} to {size_after_wait} bytes)")
+            # Wait for parent and child to start (poll instead of fixed sleep)
+            await _wait_for_file_growth(parent_marker, "parent process")
+            await _wait_for_file_growth(marker_file, "child process")
 
             # Terminate using our function
             print("Terminating process and children...")
@@ -398,16 +414,10 @@ class TestChildProcessCleanup:
             # Start the parent process
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
 
-            # Let all processes start
-            await anyio.sleep(1.0)
-
-            # Verify all are writing
-            for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
-                if os.path.exists(file_path):  # pragma: no branch
-                    initial_size = os.path.getsize(file_path)
-                    await anyio.sleep(0.3)
-                    new_size = os.path.getsize(file_path)
-                    assert new_size > initial_size, f"{name} process should be writing"
+            # Wait for all processes to start writing (poll instead of fixed sleep)
+            await _wait_for_file_growth(parent_file, "parent process")
+            await _wait_for_file_growth(child_file, "child process")
+            await _wait_for_file_growth(grandchild_file, "grandchild process")
 
             # Terminate the whole tree
             await _terminate_process_tree(proc)
@@ -477,15 +487,8 @@ class TestChildProcessCleanup:
             # Start the parent process
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
 
-            # Let child start writing
-            await anyio.sleep(0.5)
-
-            # Verify child is writing
-            if os.path.exists(marker_file):  # pragma: no branch
-                size1 = os.path.getsize(marker_file)
-                await anyio.sleep(0.3)
-                size2 = os.path.getsize(marker_file)
-                assert size2 > size1, "Child should be writing"
+            # Wait for child to start writing (poll instead of fixed sleep)
+            await _wait_for_file_growth(marker_file, "child process")
 
             # Terminate - this will kill the process group even if parent exits first
             await _terminate_process_tree(proc)
