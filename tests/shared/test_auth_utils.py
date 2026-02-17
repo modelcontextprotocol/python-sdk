@@ -95,7 +95,7 @@ class TestCheckResourceAllowed:
         """Trailing slashes should be handled correctly."""
         # With and without trailing slashes
         assert check_resource_allowed("https://example.com/api/", "https://example.com/api") is True
-        assert check_resource_allowed("https://example.com/api", "https://example.com/api/") is False
+        assert check_resource_allowed("https://example.com/api", "https://example.com/api/") is True
         assert check_resource_allowed("https://example.com/api/v1", "https://example.com/api") is True
         assert check_resource_allowed("https://example.com/api/v1", "https://example.com/api/") is True
 

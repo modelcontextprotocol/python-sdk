@@ -13,6 +13,7 @@ from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
+from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -965,7 +966,7 @@ class TestAuthFlow:
         # Send a successful discovery response with minimal protected resource metadata
         discovery_response = httpx.Response(
             200,
-            content=b'{"resource": "https://api.example.com/mcp", "authorization_servers": ["https://auth.example.com"]}',
+            content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=discovery_request,
         )
 
@@ -2030,3 +2031,85 @@ class TestCIMD:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass
+
+
+@pytest.mark.anyio
+async def test_validate_resource_rejects_mismatched_resource(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client must reject PRM resource that doesn't match server URL."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://evil.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    with pytest.raises(OAuthFlowError, match="does not match expected"):
+        await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_validate_resource_accepts_matching_resource(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client must accept PRM resource that matches server URL."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise
+    await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_validate_resource_accepts_root_url_with_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Root URLs with trailing slash normalization should match."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise - both already have trailing slashes
+    await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_get_resource_url_falls_back_when_prm_mismatches(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """get_resource_url returns canonical URL when PRM resource doesn't match."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    # Set PRM with a resource that is NOT a parent of the server URL
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://other.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    # get_resource_url should return the canonical server URL, not the PRM resource
+    assert provider.context.get_resource_url() == "https://api.example.com/v1/mcp"
