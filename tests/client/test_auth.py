@@ -83,6 +83,23 @@ def valid_tokens():
     )
 
 
+def test_oauth_client_metadata_treats_empty_optional_uris_as_none():
+    metadata = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        client_uri="",
+        logo_uri="",
+        tos_uri="",
+        policy_uri="",
+        jwks_uri="",
+    )
+
+    assert metadata.client_uri is None
+    assert metadata.logo_uri is None
+    assert metadata.tos_uri is None
+    assert metadata.policy_uri is None
+    assert metadata.jwks_uri is None
+
+
 @pytest.fixture
 def oauth_provider(client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage):
     async def redirect_handler(url: str) -> None:

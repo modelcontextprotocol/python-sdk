@@ -68,6 +68,13 @@ class OAuthClientMetadata(BaseModel):
     software_id: str | None = None
     software_version: str | None = None
 
+    @field_validator("client_uri", "logo_uri", "tos_uri", "policy_uri", "jwks_uri", mode="before")
+    @classmethod
+    def normalize_empty_optional_uris(cls, v: Any) -> Any:
+        if v == "":
+            return None
+        return v
+
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
             return None
