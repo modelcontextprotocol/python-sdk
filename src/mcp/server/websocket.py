@@ -47,7 +47,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    obj = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    obj = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await websocket.send_text(obj)
         except anyio.ClosedResourceError:
             await websocket.close()
