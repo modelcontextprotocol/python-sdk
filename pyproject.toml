@@ -173,6 +173,8 @@ xfail_strict = true
 addopts = """
     --color=yes
     --capture=fd
+    -p anyio
+    -p examples
 """
 filterwarnings = [
     "error",

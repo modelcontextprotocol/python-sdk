@@ -74,7 +74,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()
         except anyio.ClosedResourceError:  # pragma: no cover

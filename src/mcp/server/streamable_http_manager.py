@@ -60,7 +60,7 @@ class StreamableHTTPSessionManager:
 
     def __init__(
         self,
-        app: Server[Any, Any],
+        app: Server[Any],
         event_store: EventStore | None = None,
         json_response: bool = False,
         stateless: bool = False,
@@ -244,11 +244,11 @@ class StreamableHTTPSessionManager:
             # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
             error_response = JSONRPCError(
                 jsonrpc="2.0",
-                id="server-error",
+                id=None,
                 error=ErrorData(code=INVALID_REQUEST, message="Session not found"),
             )
             response = Response(
-                content=error_response.model_dump_json(by_alias=True, exclude_none=True),
+                content=error_response.model_dump_json(by_alias=True, exclude_unset=True),
                 status_code=HTTPStatus.NOT_FOUND,
                 media_type="application/json",
             )

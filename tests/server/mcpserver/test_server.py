@@ -21,6 +21,9 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
+    Completion,
+    CompletionArgument,
+    CompletionContext,
     ContentBlock,
     EmbeddedResource,
     GetPromptResult,
@@ -30,6 +33,7 @@ from mcp.types import (
     Prompt,
     PromptArgument,
     PromptMessage,
+    PromptReference,
     ReadResourceResult,
     Resource,
     ResourceTemplate,
@@ -1399,6 +1403,23 @@ class TestServerPrompts:
         async with Client(mcp) as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+
+async def test_completion_decorator() -> None:
+    """Test that the completion decorator registers a working handler."""
+    mcp = MCPServer()
+
+    @mcp.completion()
+    async def handle_completion(
+        ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None
+    ) -> Completion:
+        assert argument.name == "style"
+        return Completion(values=["bold", "italic", "underline"])
+
+    async with Client(mcp) as client:
+        ref = PromptReference(type="ref/prompt", name="test")
+        result = await client.complete(ref=ref, argument={"name": "style", "value": "b"})
+        assert result.completion.values == ["bold", "italic", "underline"]
 
 
 def test_streamable_http_no_redirect() -> None:
