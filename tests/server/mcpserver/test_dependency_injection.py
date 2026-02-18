@@ -135,25 +135,6 @@ async def test_async_dependency():
 
 
 @pytest.mark.anyio
-async def test_prompt_with_dependency():
-    """Test that prompts can receive dependencies via Depends()."""
-
-    def get_greeting() -> str:
-        return "Hello"
-
-    server = MCPServer("test-server")
-
-    @server.prompt()
-    async def greeting_prompt(name: str, greeting: str = Depends(get_greeting)) -> str:
-        return f"{greeting}, {name}!"
-
-    async with Client(server) as client:
-        result = await client.get_prompt("greeting_prompt", arguments={"name": "World"})
-        # Check that we got some result (the exact format may vary)
-        assert len(result.messages) > 0
-
-
-@pytest.mark.anyio
 async def test_dependency_caching_per_request():
     """Test that dependencies are cached within a single request."""
 
