@@ -157,9 +157,19 @@ class MCPServer(Generic[LifespanResultT]):
             auth=auth,
         )
 
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
+        # Initialize dependency overrides
+        self._dependency_overrides: dict[Callable[..., Any], Callable[..., Any]] = {}
+
+        self._tool_manager = ToolManager(
+            tools=tools,
+            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools,
+            dependency_overrides=self._dependency_overrides,
+        )
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
-        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+        self._prompt_manager = PromptManager(
+            warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts,
+            dependency_overrides=self._dependency_overrides,
+        )
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -501,6 +511,31 @@ class MCPServer(Generic[LifespanResultT]):
             ToolError: If the tool does not exist
         """
         self._tool_manager.remove_tool(name)
+
+    def override_dependency(
+        self,
+        original: Callable[..., Any],
+        override: Callable[..., Any],
+    ) -> None:
+        """Override a dependency for testing.
+
+        This allows you to replace a dependency function with an alternative implementation,
+        typically used in testing to provide mock dependencies.
+
+        Usage:
+            def get_db() -> Database:
+                return Database()
+
+            def get_test_db() -> Database:
+                return MockDatabase([...])
+
+            server.override_dependency(get_db, get_test_db)
+
+        Args:
+            original: The original dependency function to override
+            override: The override function to use instead
+        """
+        self._dependency_overrides[original] = override
 
     def tool(
         self,
