@@ -45,6 +45,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.session import ProgressFnT
 from mcp.types import (
     Annotations,
     BlobResourceContents,
@@ -1182,6 +1183,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         self,
         message: str,
         schema: type[ElicitSchemaModelT],
+        progress_callback: ProgressFnT | None = None,
     ) -> ElicitationResult[ElicitSchemaModelT]:
         """Elicit information from the client/user.
 
@@ -1196,6 +1198,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
                     only primitive types are allowed.
             message: Optional message to present to the user. If not provided, will use
                     a default message based on the schema
+            progress_callback: Optional callback for receiving progress notifications.
 
         Returns:
             An ElicitationResult containing the action taken and the data if accepted
@@ -1210,6 +1213,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             message=message,
             schema=schema,
             related_request_id=self.request_id,
+            progress_callback=progress_callback,
         )
 
     async def elicit_url(
@@ -1217,6 +1221,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         message: str,
         url: str,
         elicitation_id: str,
+        progress_callback: ProgressFnT | None = None,
     ) -> UrlElicitationResult:
         """Request URL mode elicitation from the client.
 
@@ -1235,6 +1240,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             message: Human-readable explanation of why the interaction is needed
             url: The URL the user should navigate to
             elicitation_id: Unique identifier for tracking this elicitation
+            progress_callback: Optional callback for receiving progress notifications.
 
         Returns:
             UrlElicitationResult indicating accept, decline, or cancel
@@ -1245,6 +1251,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             url=url,
             elicitation_id=elicitation_id,
             related_request_id=self.request_id,
+            progress_callback=progress_callback,
         )
 
     async def log(
