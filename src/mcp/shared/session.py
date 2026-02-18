@@ -142,7 +142,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         # Send an error response to indicate cancellation
         await self._session._send_response(  # type: ignore[reportPrivateUsage]
             request_id=self.request_id,
-            response=ErrorData(code=0, message="Request cancelled", data=None),
+            response=ErrorData(code=0, message="Request cancelled"),
         )
 
     @property
@@ -458,6 +458,12 @@ class BaseSession(
         if not isinstance(message.message, JSONRPCResponse | JSONRPCError):
             return  # pragma: no cover
 
+        if message.message.id is None:
+            # Narrows to JSONRPCError since JSONRPCResponse.id is always RequestId
+            error = message.message.error
+            logging.warning(f"Received error with null ID: {error.message}")
+            await self._handle_incoming(MCPError(error.code, error.message, error.data))
+            return
         # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
         response_id = self._normalize_request_id(message.message.id)
 
