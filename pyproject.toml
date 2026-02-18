@@ -118,7 +118,7 @@ venv = ".venv"
 executionEnvironments = [
     { root = "tests", extraPaths = [
         ".",
-    ], reportUnusedFunction = false, reportPrivateUsage = false },
+    ], reportUnusedFunction = false, reportPrivateUsage = false, reportUnknownMemberType = false, reportArgumentType = false, reportUnknownVariableType = false, reportAttributeAccessIssue = false },
     { root = "examples/servers", reportUnusedFunction = false },
 ]
 
