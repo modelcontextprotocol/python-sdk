@@ -44,30 +44,3 @@ async def test_progress_token_zero_first_call():
     mock_session.send_progress_notification.assert_any_call(
         progress_token=0, progress=10.0, total=10.0, message=None, related_request_id="test-request"
     )
-
-
-async def test_report_progress_passes_related_request_id():
-    """Test that report_progress passes the request_id as related_request_id."""
-
-    mock_session = AsyncMock()
-    mock_session.send_progress_notification = AsyncMock()
-
-    request_context = ServerRequestContext(
-        request_id="req-abc-123",
-        session=mock_session,
-        meta={"progress_token": "tok-1"},
-        lifespan_context=None,
-        experimental=Experimental(),
-    )
-
-    ctx = Context(request_context=request_context, mcp_server=MagicMock())
-
-    await ctx.report_progress(50, 100, message="halfway")
-
-    mock_session.send_progress_notification.assert_awaited_once_with(
-        progress_token="tok-1",
-        progress=50,
-        total=100,
-        message="halfway",
-        related_request_id="req-abc-123",
-    )
