@@ -24,8 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
-import sys
+import logging
 import webbrowser
 from typing import Any
 from urllib.parse import urlparse
@@ -35,6 +34,8 @@ from mcp.client.sse import sse_client
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED
+
+logger = logging.getLogger(__name__)
 
 
 async def handle_elicitation(
@@ -56,15 +57,19 @@ async def handle_elicitation(
         )
 
 
+ALLOWED_SCHEMES = {"http", "https"}
+
+
 async def handle_url_elicitation(
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult:
     """Handle URL mode elicitation - show security warning and optionally open browser.
 
     This function demonstrates the security-conscious approach to URL elicitation:
-    1. Display the full URL and domain for user inspection
-    2. Show the server's reason for requesting this interaction
-    3. Require explicit user consent before opening any URL
+    1. Validate the URL scheme before prompting the user
+    2. Display the full URL and domain for user inspection
+    3. Show the server's reason for requesting this interaction
+    4. Require explicit user consent before opening any URL
     """
     # Extract URL parameters - these are available on URL mode requests
     url = getattr(params, "url", None)
@@ -74,6 +79,12 @@ async def handle_url_elicitation(
     if not url:
         print("Error: No URL provided in elicitation request")
         return types.ElicitResult(action="cancel")
+
+    # Reject dangerous URL schemes before prompting the user
+    parsed = urlparse(str(url))
+    if parsed.scheme.lower() not in ALLOWED_SCHEMES:
+        print(f"\nRejecting URL with disallowed scheme '{parsed.scheme}': {url}")
+        return types.ElicitResult(action="decline")
 
     # Extract domain for security display
     domain = extract_domain(url)
@@ -105,7 +116,11 @@ async def handle_url_elicitation(
 
     # Open the browser
     print(f"\nOpening browser to: {url}")
-    open_browser(url)
+    try:
+        webbrowser.open(url)
+    except Exception:
+        logger.exception("Failed to open browser")
+        print(f"Please manually open: {url}")
 
     print("Waiting for you to complete the interaction in your browser...")
     print("(The server will continue once you've finished)")
@@ -119,20 +134,6 @@ def extract_domain(url: str) -> str:
         return urlparse(url).netloc
     except Exception:
         return "unknown"
-
-
-def open_browser(url: str) -> None:
-    """Open URL in the default browser."""
-    try:
-        if sys.platform == "darwin":
-            subprocess.run(["open", url], check=False)
-        elif sys.platform == "win32":
-            subprocess.run(["start", url], shell=True, check=False)
-        else:
-            webbrowser.open(url)
-    except Exception as e:
-        print(f"Failed to open browser: {e}")
-        print(f"Please manually open: {url}")
 
 
 async def call_tool_with_error_handling(
