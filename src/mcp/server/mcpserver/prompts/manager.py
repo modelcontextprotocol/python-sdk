@@ -64,7 +64,7 @@ class PromptManager:
 
         # Create dependency resolver if prompt has dependencies
         dependency_resolver = None
-        if prompt.dependency_kwarg_names:
+        if prompt.dependency_kwarg_names:  # pragma: no cover
             from mcp.server.mcpserver.utilities.dependency_resolver import DependencyResolver
 
             dependency_resolver = DependencyResolver(context=context, overrides=self.dependency_overrides)

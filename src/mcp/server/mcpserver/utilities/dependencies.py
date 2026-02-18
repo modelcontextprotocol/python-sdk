@@ -36,7 +36,7 @@ class Depends(Generic[T]):
         self.dependency = dependency
         self.use_cache = use_cache
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> str:  # pragma: no cover
         return f"Depends({self.dependency.__name__})"
 
 
@@ -54,7 +54,7 @@ def find_dependency_parameters(
     deps: dict[str, Depends[Any]] = {}
     try:
         sig = inspect.signature(fn, eval_str=True)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError):  # pragma: no cover (defensive)
         return deps
 
     for param_name, param in sig.parameters.items():

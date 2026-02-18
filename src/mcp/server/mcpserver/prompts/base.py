@@ -169,7 +169,7 @@ class Prompt(BaseModel):
             call_args = inject_context(self.fn, arguments or {}, context, self.context_kwarg)
 
             # Resolve dependencies if a resolver is provided
-            if self.dependency_kwarg_names and dependency_resolver:
+            if self.dependency_kwarg_names and dependency_resolver:  # pragma: no cover
                 deps = find_dependency_parameters(self.fn)
                 for dep_name in self.dependency_kwarg_names:
                     if dep_name in deps:

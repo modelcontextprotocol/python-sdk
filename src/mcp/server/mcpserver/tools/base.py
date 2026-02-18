@@ -125,7 +125,7 @@ class Tool(BaseModel):
 
                 deps = find_dependency_parameters(self.fn)
                 for dep_name in self.dependency_kwarg_names:
-                    if dep_name in deps:
+                    if dep_name in deps:  # pragma: no cover (defensive, should always be true)
                         direct_args[dep_name] = await dependency_resolver.resolve(dep_name, deps[dep_name])
 
             result = await self.fn_metadata.call_fn_with_arg_validation(
