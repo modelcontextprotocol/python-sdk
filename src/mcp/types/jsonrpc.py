@@ -20,14 +20,7 @@ class JSONRPCRequest(BaseModel):
 
 
 class JSONRPCNotification(BaseModel):
-    """A JSON-RPC notification which does not expect a response.
-
-    Per JSON-RPC 2.0, a notification is a request without an ``id`` member.
-    Messages that include ``id`` (even with a ``null`` value) are requests,
-    not notifications.  The validator below prevents Pydantic's union
-    resolution from silently absorbing an invalid ``"id": null`` request
-    as a notification (see :issue:`2057`).
-    """
+    """A JSON-RPC notification which does not expect a response."""
 
     jsonrpc: Literal["2.0"]
     method: str
@@ -36,12 +29,10 @@ class JSONRPCNotification(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _reject_id_field(cls, data: dict[str, Any]) -> dict[str, Any]:
-        """Reject messages that contain an ``id`` field.
-
-        JSON-RPC notifications MUST NOT include an ``id`` member.  If the
-        raw payload contains ``"id"`` (regardless of its value), it is a
-        malformed request — not a valid notification.
-        """
+        """Reject payloads containing an 'id' field (notifications must not have one)."""
+        # Per JSON-RPC 2.0, notifications must not include an "id" member.
+        # Without this check, Pydantic's union resolution silently absorbs
+        # invalid "id": null requests as notifications (#2057).
         if "id" in data:
             raise ValueError(
                 "Notifications must not include an 'id' field. "
