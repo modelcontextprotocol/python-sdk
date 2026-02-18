@@ -206,10 +206,6 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                 # Process already exited, which is fine
                 pass
 
-            # Cancel background tasks before closing streams to prevent race condition
-            # where tasks try to use closed streams (BrokenResourceError)
-            tg.cancel_scope.cancel()
-
             await read_stream.aclose()
             await write_stream.aclose()
             await read_stream_writer.aclose()
