@@ -225,6 +225,11 @@ exclude_lines = [
     "raise NotImplementedError",
     "^\\s*\\.\\.\\.\\s*$",
 ]
+exclude_also = [
+    # Exclude flaky Windows tests from coverage calculation
+    # These tests are skipped on Python 3.13+ Windows due to timing issues
+    "sys.platform == \"win32\" and sys.version_info >= \\(3, 13\\)",
+]
 
 # https://coverage.readthedocs.io/en/latest/config.html#paths
 [tool.coverage.paths]
