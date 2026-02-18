@@ -1,5 +1,6 @@
 """Test dependency injection system."""
 
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
 import pytest
 
 from mcp.server.mcpserver.utilities.dependencies import Depends, find_dependency_parameters

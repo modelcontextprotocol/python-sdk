@@ -1,5 +1,6 @@
 """Test dependency injection integration with tools."""
 
+# pyright: reportUnknownMemberType=false, reportArgumentType=false
 import pytest
 
 from mcp.client import Client
@@ -24,7 +25,7 @@ async def test_tool_with_dependency():
     # Test
     async with Client(server) as client:
         result = await client.call_tool("use_dependency", {"arg": 42})
-        assert result.content[0].text == "42:injected_value"
+        assert result.content[0].text == "42:injected_value"  # pyright: ignore[reportAttributeAccessIssue]
 
 
 @pytest.mark.anyio
