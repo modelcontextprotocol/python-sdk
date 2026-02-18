@@ -620,3 +620,50 @@ async def test_stdio_client_stdin_close_ignored():
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
         f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
     )
+
+
+@pytest.mark.anyio
+async def test_stdio_client_quick_exit_race_condition():
+    """Test that stdio_client handles quick context exits without crashing.
+
+    This reproduces the race condition where:
+    1. Subprocess is spawned and starts outputting data
+    2. User code exits the context quickly (e.g., timeout, error, disconnect)
+    3. Cleanup code closes streams while background tasks are still using them
+    4. Background tasks should handle closed streams gracefully (no BrokenResourceError)
+
+    The fix ensures:
+    - Tasks are cancelled before streams are closed
+    - Tasks handle BrokenResourceError gracefully as a fallback
+    """
+
+    # Create a Python script that continuously outputs data
+    # This simulates a subprocess that's slow to shut down
+    continuous_output_script = textwrap.dedent(
+        """
+        import sys
+        import time
+
+        # Continuously output to keep stdout_reader busy
+        for i in range(100):
+            print(f'{{"jsonrpc":"2.0","id":{i},"result":{{}}}}')
+            sys.stdout.flush()
+            time.sleep(0.01)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", continuous_output_script],
+    )
+
+    # This should not raise an ExceptionGroup or BrokenResourceError
+    # The background tasks should handle stream closure gracefully
+    async with stdio_client(server_params) as (read_stream, write_stream):
+        # Immediately exit - triggers cleanup while subprocess is still outputting
+        pass
+
+    # If we get here without exception, the race condition is handled correctly
+    # The tasks either:
+    # 1. Were cancelled before stream closure (proper fix)
+    # 2. Handled BrokenResourceError gracefully (defense in depth)
