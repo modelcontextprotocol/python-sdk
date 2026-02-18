@@ -190,7 +190,6 @@ class TestDependencyResolver:
         # Manually add a dependency that doesn't exist in signature
         tool.dependency_kwarg_names.append("nonexistent")
 
-        resolver = DependencyResolver()
         # This should handle the missing dependency gracefully
         # (in practice this shouldn't happen, but we need to test the branch)
         deps = find_dependency_parameters(tool_func)
