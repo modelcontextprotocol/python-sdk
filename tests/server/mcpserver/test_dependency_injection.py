@@ -54,7 +54,7 @@ async def test_nested_dependencies():
 async def test_dependency_override():
     """Test that dependencies can be overridden for testing."""
 
-    def get_value() -> str:
+    def get_value() -> str:  # pragma: no cover
         return "production"
 
     def get_test_value() -> str:

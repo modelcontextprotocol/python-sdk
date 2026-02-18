@@ -9,7 +9,7 @@ from mcp.server.mcpserver.utilities.dependency_resolver import DependencyResolve
 
 class TestDepends:
     def test_depends_creation(self):
-        def get_dep() -> str:
+        def get_dep() -> str:  # pragma: no cover
             return "dep"
 
         dep = Depends(get_dep)
@@ -17,7 +17,7 @@ class TestDepends:
         assert dep.use_cache is True
 
     def test_depends_without_cache(self):
-        def get_dep() -> str:
+        def get_dep() -> str:  # pragma: no cover
             return "dep"
 
         dep = Depends(get_dep, use_cache=False)
@@ -25,10 +25,10 @@ class TestDepends:
         assert dep.use_cache is False
 
     def test_find_dependency_parameters(self):
-        def get_db() -> str:
+        def get_db() -> str:  # pragma: no cover
             return "db"
 
-        def tool_func(arg: int, db: str = Depends(get_db)) -> str:
+        def tool_func(arg: int, db: str = Depends(get_db)) -> str:  # pragma: no cover
             return db
 
         params = find_dependency_parameters(tool_func)
@@ -37,14 +37,14 @@ class TestDepends:
         assert params["db"].dependency == get_db
 
     def test_find_dependency_parameters_empty(self):
-        def tool_func(arg: int) -> str:
+        def tool_func(arg: int) -> str:  # pragma: no cover
             return str(arg)
 
         params = find_dependency_parameters(tool_func)
         assert params == {}
 
     def test_depends_repr(self):
-        def get_dep() -> str:
+        def get_dep() -> str:  # pragma: no cover
             return "dep"
 
         dep = Depends(get_dep)
@@ -132,7 +132,7 @@ class TestDependencyResolver:
 
     @pytest.mark.anyio
     async def test_resolve_with_override(self):
-        def get_value() -> str:
+        def get_value() -> str:  # pragma: no cover
             return "production"
 
         def get_test_value() -> str:
@@ -173,16 +173,16 @@ class TestDependencyResolver:
     async def test_resolve_dependency_not_in_signature(self):
         """Test handling when dependency name is in kwarg_names but not in signature."""
 
-        def get_value() -> str:
+        def get_value() -> str:  # pragma: no cover
             return "test"
 
-        def other_func() -> str:
+        def other_func() -> str:  # pragma: no cover
             return "other"
 
         # Create a tool with dependencies
         from mcp.server.mcpserver.tools.base import Tool
 
-        async def tool_func(value: str = Depends(get_value)) -> str:
+        async def tool_func(value: str = Depends(get_value)) -> str:  # pragma: no cover
             return value
 
         tool = Tool.from_function(tool_func)
