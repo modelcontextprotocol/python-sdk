@@ -125,8 +125,11 @@ class Tool(BaseModel):
 
                 deps = find_dependency_parameters(self.fn)
                 for dep_name in self.dependency_kwarg_names:
-                    if dep_name in deps:  # pragma: no cover (defensive, should always be in deps)
+                    if dep_name in deps:
                         direct_args[dep_name] = await dependency_resolver.resolve(dep_name, deps[dep_name])
+                    else:
+                        # Defensive: should never happen since dependency_kwarg_names is built from deps
+                        continue  # pragma: no cover
 
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
