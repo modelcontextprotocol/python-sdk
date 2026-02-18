@@ -66,7 +66,7 @@ pre-commit run --all-files
 
 ## Dependency Update Policy
 
-The lockfile is updated automatically every Thursday at 08:00 UTC by the [`weekly-lockfile-update.yml`](.github/workflows/weekly-lockfile-update.yml) workflow, which runs `uv lock --upgrade` and opens a PR. GitHub Actions versions are updated monthly via [Dependabot](.github/dependabot.yml).
+See [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) for the full dependency update policy.
 
 When bumping a dependency version manually, update the constraint in `pyproject.toml` then run `uv lock --resolution lowest-direct` (see [RELEASE.md](RELEASE.md)).
 
