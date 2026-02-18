@@ -312,7 +312,7 @@ async def test_unknown_session_id_returns_404():
         # Verify JSON-RPC error format
         error_data = json.loads(response_body)
         assert error_data["jsonrpc"] == "2.0"
-        assert error_data["id"] == "server-error"
+        assert error_data["id"] is None
         assert error_data["error"]["code"] == INVALID_REQUEST
         assert error_data["error"]["message"] == "Session not found"
 

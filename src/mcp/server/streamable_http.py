@@ -300,12 +300,12 @@ class StreamableHTTPServerTransport:
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id="server-error",  # We don't have a request ID for general errors
+            id=None,
             error=ErrorData(code=error_code, message=error_message),
         )
 
         return Response(
-            error_response.model_dump_json(by_alias=True, exclude_none=True),
+            error_response.model_dump_json(by_alias=True, exclude_unset=True),
             status_code=status_code,
             headers=response_headers,
         )
@@ -325,7 +325,7 @@ class StreamableHTTPServerTransport:
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         return Response(
-            response_message.model_dump_json(by_alias=True, exclude_none=True) if response_message else None,
+            response_message.model_dump_json(by_alias=True, exclude_unset=True) if response_message else None,
             status_code=status_code,
             headers=response_headers,
         )
@@ -338,7 +338,7 @@ class StreamableHTTPServerTransport:
         """Create event data dictionary from an EventMessage."""
         event_data = {
             "event": "message",
-            "data": event_message.message.model_dump_json(by_alias=True, exclude_none=True),
+            "data": event_message.message.model_dump_json(by_alias=True, exclude_unset=True),
         }
 
         # If an event ID was provided, include it
@@ -977,12 +977,11 @@ class StreamableHTTPServerTransport:
                         # Determine which request stream(s) should receive this message
                         message = session_message.message
                         target_request_id = None
-                        # Check if this is a response
-                        if isinstance(message, JSONRPCResponse | JSONRPCError):
-                            response_id = str(message.id)
-                            # If this response is for an existing request stream,
-                            # send it there
-                            target_request_id = response_id
+                        # Check if this is a response with a known request id.
+                        # Null-id errors (e.g., parse errors) fall through to
+                        # the GET stream since they can't be correlated.
+                        if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
+                            target_request_id = str(message.id)
                         # Extract related_request_id from meta if it exists
                         elif (  # pragma: no cover
                             session_message.metadata is not None

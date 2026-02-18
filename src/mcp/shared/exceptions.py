@@ -12,7 +12,10 @@ class MCPError(Exception):
 
     def __init__(self, code: int, message: str, data: Any = None):
         super().__init__(code, message, data)
-        self.error = ErrorData(code=code, message=message, data=data)
+        if data is not None:
+            self.error = ErrorData(code=code, message=message, data=data)
+        else:
+            self.error = ErrorData(code=code, message=message)
 
     @property
     def code(self) -> int:

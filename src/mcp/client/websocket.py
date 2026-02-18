@@ -65,7 +65,7 @@ async def websocket_client(
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
                     # Convert to a dict, then to JSON
-                    msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_none=True)
+                    msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True)
                     await ws.send(json.dumps(msg_dict))
 
         async with anyio.create_task_group() as tg:

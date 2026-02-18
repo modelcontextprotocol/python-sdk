@@ -260,7 +260,7 @@ class StreamableHTTPTransport:
         async with ctx.client.stream(
             "POST",
             self.url,
-            json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
+            json=message.model_dump(by_alias=True, mode="json", exclude_unset=True),
             headers=headers,
         ) as response:
             if response.status_code == 202:
