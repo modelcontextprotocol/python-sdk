@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import webbrowser
 from typing import Any
 from urllib.parse import urlparse
@@ -33,6 +34,8 @@ from mcp.client.sse import sse_client
 from mcp.shared.context import RequestContext
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED
+
+logger = logging.getLogger(__name__)
 
 
 async def handle_elicitation(
@@ -115,8 +118,8 @@ async def handle_url_elicitation(
     print(f"\nOpening browser to: {url}")
     try:
         webbrowser.open(url)
-    except Exception as e:
-        print(f"Failed to open browser: {e}")
+    except Exception:
+        logger.exception("Failed to open browser")
         print(f"Please manually open: {url}")
 
     print("Waiting for you to complete the interaction in your browser...")
