@@ -26,11 +26,27 @@ class Resource(BaseModel, abc.ABC):
     mime_type: str = Field(
         default="text/plain",
         description="MIME type of the resource content",
-        pattern=r"^[a-zA-Z0-9]+/[a-zA-Z0-9\-+.]+(;\s*[a-zA-Z0-9\-_.]+=[a-zA-Z0-9\-_.]+)*$",
     )
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this resource")
     annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this resource")
+
+    @field_validator("mime_type")
+    @classmethod
+    def validate_mime_type(cls, value: str) -> str:
+        """Validate that mime_type has a basic type/subtype structure.
+
+        The MCP spec defines mimeType as an optional string with no format
+        constraints. This validator only checks for the minimal type/subtype
+        structure to catch obvious mistakes, without restricting valid MIME
+        types per RFC 2045.
+        """
+        if "/" not in value:
+            raise ValueError(
+                f"Invalid MIME type '{value}': must contain a '/' separating type and subtype "
+                f"(e.g. 'text/plain', 'application/json')"
+            )
+        return value
 
     @field_validator("name", mode="before")
     @classmethod
