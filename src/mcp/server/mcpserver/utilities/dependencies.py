@@ -36,7 +36,7 @@ class Depends(Generic[T]):
         self.dependency = dependency
         self.use_cache = use_cache
 
-    def __repr__(self) -> str:  # pragma: no cover
+    def __repr__(self) -> str:
         return f"Depends({self.dependency.__name__})"
 
 
