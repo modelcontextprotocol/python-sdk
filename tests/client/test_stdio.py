@@ -659,7 +659,7 @@ async def test_stdio_client_quick_exit_race_condition():
 
     # This should not raise an ExceptionGroup or BrokenResourceError
     # The background tasks should handle stream closure gracefully
-    async with stdio_client(server_params) as (read_stream, write_stream):
+    async with stdio_client(server_params) as (_, _):
         # Immediately exit - triggers cleanup while subprocess is still outputting
         pass
 
