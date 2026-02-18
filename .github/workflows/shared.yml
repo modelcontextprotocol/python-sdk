@@ -26,7 +26,19 @@ jobs:
         with:
           extra_args: --all-files --verbose
         env:
-          SKIP: no-commit-to-branch
+          SKIP: no-commit-to-branch,readme-v1-frozen
+
+      # TODO(Max): Drop this in v2.
+      - name: Check README.md is not modified
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          if git diff --name-only "$BASE_SHA" -- README.md | grep -q .; then
+            echo "::error::README.md is frozen at v1. Edit README.v2.md instead."
+            exit 1
+          fi
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
 
   test:
     name: test (${{ matrix.python-version }}, ${{ matrix.dep-resolution.name }}, ${{ matrix.os }})
