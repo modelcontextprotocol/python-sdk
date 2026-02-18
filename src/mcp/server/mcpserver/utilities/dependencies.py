@@ -63,6 +63,6 @@ def find_dependency_parameters(
 
         # Check if default is Depends instance
         if isinstance(param.default, Depends):
-            deps[param_name] = param.default
+            deps[param_name] = param.default  # type: ignore[assignment]
 
     return deps

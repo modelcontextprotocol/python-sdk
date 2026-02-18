@@ -78,7 +78,7 @@ class Tool(BaseModel):
         dependency_kwarg_names = list(dependency_params.keys())
 
         # Skip both context and dependency params from arg_model
-        skip_names = []
+        skip_names: list[str] = []
         if context_kwarg:
             skip_names.append(context_kwarg)
         skip_names.extend(dependency_kwarg_names)
@@ -115,7 +115,7 @@ class Tool(BaseModel):
         """Run the tool with arguments."""
         try:
             # Build direct args (context and dependencies)
-            direct_args = {}
+            direct_args: dict[str, Any] = {}
             if self.context_kwarg is not None:
                 direct_args[self.context_kwarg] = context
 

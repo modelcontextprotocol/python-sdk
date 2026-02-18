@@ -111,7 +111,7 @@ class Prompt(BaseModel):
         dependency_kwarg_names = list(dependency_params.keys())
 
         # Get schema from func_metadata, excluding context and dependency parameters
-        skip_names = []
+        skip_names: list[str] = []
         if context_kwarg:
             skip_names.append(context_kwarg)
         skip_names.extend(dependency_kwarg_names)
