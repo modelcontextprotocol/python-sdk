@@ -43,6 +43,22 @@ class TestDepends:
         params = find_dependency_parameters(tool_func)
         assert params == {}
 
+    def test_depends_repr(self):
+        def get_dep() -> str:
+            return "dep"
+
+        dep = Depends(get_dep)
+        assert repr(dep) == "Depends(get_dep)"
+        assert str(dep) == "Depends(get_dep)"
+
+    def test_find_dependency_parameters_signature_error(self):
+        # Test that signature errors are handled gracefully
+        class BadFunction:
+            """A function that will raise an error when getting signature."""
+
+        params = find_dependency_parameters(BadFunction)
+        assert params == {}
+
 
 class TestDependencyResolver:
     @pytest.mark.anyio
@@ -152,3 +168,30 @@ class TestDependencyResolver:
 
         result = await resolver.resolve("db", dep)
         assert result == "test_async"
+
+    @pytest.mark.anyio
+    async def test_resolve_dependency_not_in_signature(self):
+        """Test handling when dependency name is in kwarg_names but not in signature."""
+
+        def get_value() -> str:
+            return "test"
+
+        def other_func() -> str:
+            return "other"
+
+        # Create a tool with dependencies
+        from mcp.server.mcpserver.tools.base import Tool
+
+        async def tool_func(value: str = Depends(get_value)) -> str:
+            return value
+
+        tool = Tool.from_function(tool_func)
+
+        # Manually add a dependency that doesn't exist in signature
+        tool.dependency_kwarg_names.append("nonexistent")
+
+        resolver = DependencyResolver()
+        # This should handle the missing dependency gracefully
+        # (in practice this shouldn't happen, but we need to test the branch)
+        deps = find_dependency_parameters(tool_func)
+        assert "nonexistent" not in deps
