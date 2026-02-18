@@ -116,7 +116,7 @@ class Tool(BaseModel):
         try:
             # Build direct args (context and dependencies)
             direct_args = {}
-            if self.context_kwarg is not None and context is not None:
+            if self.context_kwarg is not None:
                 direct_args[self.context_kwarg] = context
 
             # Resolve dependencies if a resolver is provided
