@@ -101,10 +101,10 @@ class TestDependencyResolver:
 
     @pytest.mark.anyio
     async def test_resolve_nested_dependency(self):
-        def get_config() -> dict:
+        def get_config() -> dict[str, str]:
             return {"db_url": "test"}
 
-        def get_db(config: dict = Depends(get_config)) -> str:
+        def get_db(config: dict[str, str] = Depends(get_config)) -> str:
             return config["db_url"]
 
         resolver = DependencyResolver()
@@ -140,10 +140,10 @@ class TestDependencyResolver:
 
     @pytest.mark.anyio
     async def test_resolve_nested_async_dependency(self):
-        async def get_config() -> dict:
+        async def get_config() -> dict[str, str]:
             return {"db_url": "test_async"}
 
-        async def get_db(config: dict = Depends(get_config)) -> str:
+        async def get_db(config: dict[str, str] = Depends(get_config)) -> str:
             return config["db_url"]
 
         resolver = DependencyResolver()
