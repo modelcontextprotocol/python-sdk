@@ -31,19 +31,15 @@ def validate_issuer_url(url: AnyHttpUrl):
         ValueError: If the issuer URL is invalid
     """
 
-    # RFC 8414 requires HTTPS, but we allow localhost HTTP for testing
-    if (
-        url.scheme != "https"
-        and url.host != "localhost"
-        and (url.host is not None and not url.host.startswith("127.0.0.1"))
-    ):
-        raise ValueError("Issuer URL must be HTTPS")  # pragma: no cover
+    # RFC 8414 requires HTTPS, but we allow loopback/localhost HTTP for testing
+    if url.scheme != "https" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
+        raise ValueError("Issuer URL must be HTTPS")
 
     # No fragments or query parameters allowed
     if url.fragment:
-        raise ValueError("Issuer URL must not have a fragment")  # pragma: no cover
+        raise ValueError("Issuer URL must not have a fragment")
     if url.query:
-        raise ValueError("Issuer URL must not have a query string")  # pragma: no cover
+        raise ValueError("Issuer URL must not have a query string")
 
 
 AUTHORIZATION_PATH = "/authorize"
