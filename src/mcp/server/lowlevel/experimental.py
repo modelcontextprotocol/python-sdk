@@ -153,7 +153,7 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
             async def _default_get_task(
                 ctx: ServerRequestContext[LifespanResultT], params: GetTaskRequestParams
             ) -> GetTaskResult:
-                session_id = str(id(ctx.session))
+                session_id = ctx.session.session_id
                 task = await task_support.store.get_task(params.task_id, session_id=session_id)
                 if task is None:
                     raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {params.task_id}")
@@ -175,7 +175,7 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
                 ctx: ServerRequestContext[LifespanResultT], params: GetTaskPayloadRequestParams
             ) -> GetTaskPayloadResult:
                 assert ctx.request_id is not None
-                session_id = str(id(ctx.session))
+                session_id = ctx.session.session_id
                 req = GetTaskPayloadRequest(params=params)
                 result = await task_support.handler.handle(req, ctx.session, ctx.request_id, session_id=session_id)
                 return result
@@ -188,7 +188,7 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
                 ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
             ) -> ListTasksResult:
                 cursor = params.cursor if params else None
-                session_id = str(id(ctx.session))
+                session_id = ctx.session.session_id
                 tasks, next_cursor = await task_support.store.list_tasks(cursor, session_id=session_id)
                 return ListTasksResult(tasks=tasks, next_cursor=next_cursor)
 
@@ -199,7 +199,7 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
             async def _default_cancel_task(
                 ctx: ServerRequestContext[LifespanResultT], params: CancelTaskRequestParams
             ) -> CancelTaskResult:
-                session_id = str(id(ctx.session))
+                session_id = ctx.session.session_id
                 result = await cancel_task(task_support.store, params.task_id, session_id=session_id)
                 return result
 
