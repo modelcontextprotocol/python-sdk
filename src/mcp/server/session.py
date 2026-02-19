@@ -28,7 +28,9 @@ The ServerSession class is typically used internally by the Server class and sho
 be instantiated directly by users of the MCP framework.
 """
 
+import logging
 from enum import Enum
+from types import TracebackType
 from typing import Any, TypeVar, overload
 
 import anyio
@@ -50,11 +52,59 @@ from mcp.shared.session import (
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
+logger = logging.getLogger(__name__)
+
 
 class InitializationState(Enum):
+    """Represents the lifecycle states of a server session.
+
+    State transitions:
+        NotInitialized -> Initializing -> Initialized -> Closing -> Closed
+        Stateless -> Closing -> Closed
+        Any state -> Error (on unrecoverable failure)
+    """
+
     NotInitialized = 1
     Initializing = 2
     Initialized = 3
+    Stateless = 4
+    Closing = 5
+    Closed = 6
+    Error = 7
+
+
+# Valid state transitions: maps each state to the set of states it can transition to.
+_VALID_TRANSITIONS: dict[InitializationState, set[InitializationState]] = {
+    InitializationState.NotInitialized: {
+        InitializationState.Initializing,
+        InitializationState.Initialized,  # client may send notification without prior request
+        InitializationState.Closing,
+        InitializationState.Error,
+    },
+    InitializationState.Initializing: {
+        InitializationState.Initialized,
+        InitializationState.Closing,
+        InitializationState.Error,
+    },
+    InitializationState.Initialized: {
+        InitializationState.Initializing,  # re-initialization
+        InitializationState.Closing,
+        InitializationState.Error,
+    },
+    InitializationState.Stateless: {
+        InitializationState.Closing,
+        InitializationState.Error,
+    },
+    InitializationState.Closing: {
+        InitializationState.Closed,
+        InitializationState.Error,
+    },
+    InitializationState.Closed: set(),
+    InitializationState.Error: {
+        InitializationState.Closing,
+        InitializationState.Closed,
+    },
+}
 
 
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
@@ -73,7 +123,7 @@ class ServerSession(
         types.ClientNotification,
     ]
 ):
-    _initialized: InitializationState = InitializationState.NotInitialized
+    _initialization_state: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
     _experimental_features: ExperimentalServerSessionFeatures | None = None
 
@@ -86,9 +136,7 @@ class ServerSession(
     ) -> None:
         super().__init__(read_stream, write_stream)
         self._stateless = stateless
-        self._initialization_state = (
-            InitializationState.Initialized if stateless else InitializationState.NotInitialized
-        )
+        self._initialization_state = InitializationState.Stateless if stateless else InitializationState.NotInitialized
 
         self._init_options = init_options
         self._incoming_message_stream_writer, self._incoming_message_stream_reader = anyio.create_memory_object_stream[
@@ -103,6 +151,39 @@ class ServerSession(
     @property
     def _receive_notification_adapter(self) -> TypeAdapter[types.ClientNotification]:
         return types.client_notification_adapter
+
+    @property
+    def initialization_state(self) -> InitializationState:
+        """Return the current initialization state of the session."""
+        return self._initialization_state
+
+    @property
+    def is_initialized(self) -> bool:
+        """Check whether the session is ready to process requests.
+
+        Returns True when the session has completed initialization handshake
+        (Initialized) or is operating in stateless mode (Stateless).
+        """
+        return self._initialization_state in (
+            InitializationState.Initialized,
+            InitializationState.Stateless,
+        )
+
+    def _transition_state(self, new_state: InitializationState) -> None:
+        """Transition the session to a new state, validating the transition.
+
+        Args:
+            new_state: The target state to transition to.
+
+        Raises:
+            RuntimeError: If the transition is not valid from the current state.
+        """
+        current = self._initialization_state
+        valid_targets = _VALID_TRANSITIONS.get(current, set())
+        if new_state not in valid_targets:
+            raise RuntimeError(f"Invalid session state transition: {current.name} -> {new_state.name}")
+        logger.debug("Session state transition: %s -> %s", current.name, new_state.name)
+        self._initialization_state = new_state
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
@@ -161,11 +242,34 @@ class ServerSession(
         async with self._incoming_message_stream_writer:
             await super()._receive_loop()
 
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        """Clean up the session with proper state transitions."""
+        try:
+            if self._initialization_state not in (
+                InitializationState.Closed,
+                InitializationState.Closing,
+            ):
+                self._transition_state(InitializationState.Closing)
+        except RuntimeError:
+            logger.debug("Could not transition to Closing from %s", self._initialization_state.name)
+        try:
+            return await super().__aexit__(exc_type, exc_val, exc_tb)
+        finally:
+            try:
+                self._transition_state(InitializationState.Closed)
+            except RuntimeError:
+                logger.debug("Could not transition to Closed from %s", self._initialization_state.name)
+
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request:
             case types.InitializeRequest(params=params):
                 requested_version = params.protocol_version
-                self._initialization_state = InitializationState.Initializing
+                self._transition_state(InitializationState.Initializing)
                 self._client_params = params
                 with responder:
                     await responder.respond(
@@ -185,12 +289,12 @@ class ServerSession(
                             instructions=self._init_options.instructions,
                         )
                     )
-                self._initialization_state = InitializationState.Initialized
+                self._transition_state(InitializationState.Initialized)
             case types.PingRequest():
                 # Ping requests are allowed at any time
                 pass
             case _:
-                if self._initialization_state != InitializationState.Initialized:
+                if not self.is_initialized:
                     raise RuntimeError("Received request before initialization was complete")
 
     async def _received_notification(self, notification: types.ClientNotification) -> None:
@@ -198,9 +302,14 @@ class ServerSession(
         await anyio.lowlevel.checkpoint()
         match notification:
             case types.InitializedNotification():
-                self._initialization_state = InitializationState.Initialized
+                # Transition to Initialized if not already there (e.g. stateless mode)
+                if self._initialization_state in (
+                    InitializationState.NotInitialized,
+                    InitializationState.Initializing,
+                ):
+                    self._transition_state(InitializationState.Initialized)
             case _:
-                if self._initialization_state != InitializationState.Initialized:  # pragma: no cover
+                if not self.is_initialized:  # pragma: no cover
                     raise RuntimeError("Received notification before initialization was complete")
 
     async def send_log_message(
