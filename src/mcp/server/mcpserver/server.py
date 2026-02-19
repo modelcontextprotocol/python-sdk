@@ -535,19 +535,25 @@ class MCPServer(Generic[LifespanResultT]):
                 - If False, unconditionally creates an unstructured tool
 
         Example:
+            ```python
             @server.tool()
             def my_tool(x: int) -> str:
                 return str(x)
+            ```
 
+            ```python
             @server.tool()
             async def tool_with_context(x: int, ctx: Context) -> str:
                 await ctx.info(f"Processing {x}")
                 return str(x)
+            ```
 
+            ```python
             @server.tool()
             async def async_tool(x: int, context: Context) -> str:
                 await context.report_progress(50, 100)
                 return str(x)
+            ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -579,12 +585,14 @@ class MCPServer(Generic[LifespanResultT]):
         - context: Optional CompletionContext with previously resolved arguments
 
         Example:
+            ```python
             @mcp.completion()
             async def handle_completion(ref, argument, context):
                 if isinstance(ref, ResourceTemplateReference):
                     # Return completions based on ref, argument, and context
                     return Completion(values=["option1", "option2"])
                 return None
+            ```
         """
 
         def decorator(func: _CallableT) -> _CallableT:
@@ -647,6 +655,7 @@ class MCPServer(Generic[LifespanResultT]):
             meta: Optional metadata dictionary for the resource
 
         Example:
+            ```python
             @server.resource("resource://my-resource")
             def get_data() -> str:
                 return "Hello, world!"
@@ -664,6 +673,7 @@ class MCPServer(Generic[LifespanResultT]):
             async def get_weather(city: str) -> str:
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
+            ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -747,6 +757,7 @@ class MCPServer(Generic[LifespanResultT]):
             icons: Optional list of icons for the prompt
 
         Example:
+            ```python
             @server.prompt()
             def analyze_table(table_name: str) -> list[Message]:
                 schema = read_table_schema(table_name)
@@ -772,6 +783,7 @@ class MCPServer(Generic[LifespanResultT]):
                         }
                     }
                 ]
+            ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -813,9 +825,11 @@ class MCPServer(Generic[LifespanResultT]):
             include_in_schema: Whether to include in OpenAPI schema, defaults to True
 
         Example:
+            ```python
             @server.custom_route("/health", methods=["GET"])
             async def health_check(request: Request) -> Response:
                 return JSONResponse({"status": "ok"})
+            ```
         """
 
         def decorator(  # pragma: no cover

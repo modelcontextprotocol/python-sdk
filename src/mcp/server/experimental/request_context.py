@@ -160,6 +160,7 @@ class Experimental:
             RuntimeError: If task support is not enabled or task_metadata is missing
 
         Example:
+            ```python
             async def handle_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
                 async def work(task: ServerTaskContext) -> CallToolResult:
                     result = await task.elicit(
@@ -170,6 +171,7 @@ class Experimental:
                     return CallToolResult(content=[TextContent(text="Done" if confirmed else "Cancelled")])
 
                 return await ctx.experimental.run_task(work)
+            ```
 
         WARNING: This API is experimental and may change without notice.
         """

@@ -2,8 +2,8 @@
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 
-Example usage:
-```
+Example:
+    ```python
     # Create an SSE transport at an endpoint
     sse = SseServerTransport("/messages/")
 
@@ -27,7 +27,7 @@ Example usage:
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
-```
+    ```
 
 Note: The handle_sse function must return a Response to avoid a
 "TypeError: 'NoneType' object is not callable" error when client disconnects. The example above returns
