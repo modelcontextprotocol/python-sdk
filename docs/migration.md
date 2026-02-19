@@ -471,6 +471,138 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
+### Transport Abstractions Refactored
+
+The session hierarchy has been refactored to support pluggable transport implementations. This introduces several breaking changes:
+
+#### `ClientRequestContext` type changed
+
+`ClientRequestContext` is now `RequestContext[BaseClientSession]` instead of `RequestContext[ClientSession]`. This means callbacks receive the more general `BaseClientSession` type, which may not have all methods available on `ClientSession`.
+
+**Before:**
+
+```python
+from mcp.client.context import ClientRequestContext
+from mcp.client.session import ClientSession
+
+async def my_callback(context: ClientRequestContext) -> None:
+    # Could access ClientSession-specific methods
+    caps = context.session.get_server_capabilities()
+```
+
+**After:**
+
+```python
+from mcp.client.context import ClientRequestContext
+from mcp.client.session import ClientSession
+
+async def my_callback(context: ClientRequestContext) -> None:
+    # context.session is BaseClientSession - narrow the type if needed
+    if isinstance(context.session, ClientSession):
+        caps = context.session.get_server_capabilities()
+```
+
+#### Callback protocols are now generic
+
+`sampling_callback`, `elicitation_callback`, and `list_roots_callback` protocols now require explicit type parameters.
+
+**Before:**
+
+```python
+from mcp.client.session import SamplingFnT
+
+async def my_sampling(context, params) -> CreateMessageResult:
+    ...
+
+# Type inferred as SamplingFnT
+session = ClientSession(..., sampling_callback=my_sampling)
+```
+
+**After:**
+
+```python
+from mcp.client.session import SamplingFnT, ClientSession
+
+async def my_sampling(
+    context: RequestContext[ClientSession],
+    params: CreateMessageRequestParams
+) -> CreateMessageResult:
+    ...
+
+# Explicit type annotation recommended
+my_sampling_typed: SamplingFnT[ClientSession] = my_sampling
+session = ClientSession(..., sampling_callback=my_sampling_typed)
+```
+
+#### `SessionT` renamed to `SessionT_co`
+
+In `mcp.shared._context` and `mcp.shared.progress`, the `SessionT` TypeVar has been renamed to `SessionT_co` to follow naming conventions for covariant type variables.
+
+**Before:**
+
+```python
+from mcp.shared._context import SessionT
+```
+
+**After:**
+
+```python
+from mcp.shared._context import SessionT_co
+```
+
+#### `AbstractBaseSession` simplified
+
+`AbstractBaseSession` is now a pure abstract interface with no `__init__` method and no `WireMessageT` type parameter. If you were subclassing it directly, you now need to manage all state in your subclass.
+
+**Before:**
+
+```python
+from mcp.shared.session import AbstractBaseSession
+
+class MySession(AbstractBaseSession[MyMessage, ...]):
+    def __init__(self):
+        super().__init__()  # Would set up _response_streams, _task_group
+```
+
+**After:**
+
+```python
+from mcp.shared.session import AbstractBaseSession
+
+class MySession(AbstractBaseSession[...]):
+    def __init__(self):
+        # Manage your own state - no super().__init__() to call
+        self._my_state = {}
+```
+
+#### `BaseClientSession` is now a Protocol
+
+`BaseClientSession` is now a `typing.Protocol` (structural subtyping) instead of an abstract base class. It no longer inherits from `AbstractBaseSession` and requires no inheritance to satisfy.
+
+**Before:**
+
+```python
+from mcp.client.base_client_session import BaseClientSession
+
+class MyClientSession(BaseClientSession):
+    async def initialize(self) -> InitializeResult:
+        ...
+```
+
+**After:**
+
+```python
+from mcp.client.base_client_session import BaseClientSession
+
+class MyClientSession:
+    # Just implement the methods - no inheritance needed
+    async def initialize(self) -> InitializeResult:
+        ...
+
+# Verify protocol satisfaction at runtime
+assert isinstance(MyClientSession(), BaseClientSession)
+```
+
 ## Deprecations
 
 <!-- Add deprecations below -->

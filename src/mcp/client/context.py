@@ -1,8 +1,6 @@
 """Request context for MCP client handlers."""
 
 from mcp.client import BaseClientSession
-
-# from mcp.client.session import ClientSession
 from mcp.shared._context import RequestContext
 
 ClientRequestContext = RequestContext[BaseClientSession]
