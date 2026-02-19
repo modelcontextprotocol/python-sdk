@@ -361,7 +361,7 @@ async def run_cross_app_access_complete_flow(server_url: str) -> None:
     auth_issuer = context.get("auth_issuer", base_url)
     resource_id = context.get("resource_id", server_url)
 
-    logger.debug(f"Cross-app access flow:")
+    logger.debug("Cross-app access flow:")
     logger.debug(f"  IDP Issuer: {idp_issuer}")
     logger.debug(f"  IDP Token Endpoint: {idp_token_endpoint}")
     logger.debug(f"  Auth Issuer: {auth_issuer}")
