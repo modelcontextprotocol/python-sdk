@@ -71,7 +71,7 @@ class TestInitializationStateEnum:
     """Verify the expanded InitializationState enum values."""
 
     def test_all_states_present(self) -> None:
-        expected = {"NotInitialized", "Initializing", "Initialized", "Stateless", "Closing", "Closed", "Error"}
+        expected = {"NotInitialized", "Initializing", "Initialized", "Stateless", "Closing", "Closed"}
         actual = {s.name for s in InitializationState}
         assert actual == expected
 
@@ -94,11 +94,6 @@ class TestValidTransitions:
 
     def test_closed_is_terminal(self) -> None:
         assert _VALID_TRANSITIONS[InitializationState.Closed] == set()
-
-    def test_error_allows_recovery(self) -> None:
-        targets = _VALID_TRANSITIONS[InitializationState.Error]
-        assert InitializationState.Closing in targets
-        assert InitializationState.Closed in targets
 
 
 # ---------------------------------------------------------------------------
@@ -152,21 +147,6 @@ class TestTransitionState:
             for state in InitializationState:
                 with pytest.raises(RuntimeError, match="Invalid session state transition"):
                     session._transition_state(state)
-
-    async def test_error_transition_from_any_active_state(self) -> None:
-        """Error can be reached from active states."""
-        for start_state in (
-            InitializationState.NotInitialized,
-            InitializationState.Initializing,
-            InitializationState.Initialized,
-            InitializationState.Stateless,
-            InitializationState.Closing,
-        ):
-            async with _session_context() as session:
-                # Force the session into the desired start state
-                session._initialization_state = start_state
-                session._transition_state(InitializationState.Error)
-                assert session.initialization_state == InitializationState.Error
 
 
 # ---------------------------------------------------------------------------

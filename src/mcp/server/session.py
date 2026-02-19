@@ -61,7 +61,10 @@ class InitializationState(Enum):
     State transitions:
         NotInitialized -> Initializing -> Initialized -> Closing -> Closed
         Stateless -> Closing -> Closed
-        Any state -> Error (on unrecoverable failure)
+
+    .. note::
+        An ``Error`` state for unrecoverable failures is planned for Phase 2
+        of issue #1691.
     """
 
     NotInitialized = 1
@@ -70,40 +73,31 @@ class InitializationState(Enum):
     Stateless = 4
     Closing = 5
     Closed = 6
-    Error = 7
 
 
 # Valid state transitions: maps each state to the set of states it can transition to.
+# TODO(#1691 Phase 2): add Error state with transitions for unrecoverable failures.
 _VALID_TRANSITIONS: dict[InitializationState, set[InitializationState]] = {
     InitializationState.NotInitialized: {
         InitializationState.Initializing,
         InitializationState.Initialized,  # client may send notification without prior request
         InitializationState.Closing,
-        InitializationState.Error,
     },
     InitializationState.Initializing: {
         InitializationState.Initialized,
         InitializationState.Closing,
-        InitializationState.Error,
     },
     InitializationState.Initialized: {
         InitializationState.Initializing,  # re-initialization
         InitializationState.Closing,
-        InitializationState.Error,
     },
     InitializationState.Stateless: {
         InitializationState.Closing,
-        InitializationState.Error,
     },
     InitializationState.Closing: {
         InitializationState.Closed,
-        InitializationState.Error,
     },
     InitializationState.Closed: set(),
-    InitializationState.Error: {
-        InitializationState.Closing,
-        InitializationState.Closed,
-    },
 }
 
 
