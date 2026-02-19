@@ -50,52 +50,43 @@ class TransportSecurityMiddleware:
         print(host)
         if host in self.settings.allowed_hosts:
             return True
-        
-        for allowed in self.settings.allowed_hosts:
 
+        for allowed in self.settings.allowed_hosts:
             # normalize incoming host
-            host_without_https = (
-                host.replace("https://", "")
-                    .replace("http://", "")
-                    .split("/")[0]
-                    .strip()
-            )
-    
+            host_without_https = host.replace("https://", "").replace("http://", "").split("/")[0].strip()
+
             # split request host + port
             if ":" in host_without_https:
                 request_host, request_port = host_without_https.split(":", 1)
             else:
                 request_host = host_without_https
                 request_port = None
-    
+
             # ---------- CASE 1: wildcard port (example.com:*) ----------
             if allowed.endswith(":*"):
                 base_host = allowed[:-2]
                 print(base_host)
-    
+
                 if request_host == base_host:
                     return True
-    
+
             # ---------- CASE 2: specific port (example.com:443) ----------
             elif ":" in allowed:
                 allowed_host, allowed_port = allowed.split(":", 1)
-    
-                if (
-                    request_host == allowed_host
-                    and request_port == allowed_port
-                ):
+
+                if request_host == allowed_host and request_port == allowed_port:
                     return True
-    
+
             # ---------- CASE 3: host only (allow any port) ----------
             else:
                 if request_host == allowed:
                     return True
-    
+
                 logger.warning(f"Invalid Host header: {host}")
                 return False
-            
+
         logger.warning(f"Invalid Host header: {host}")
-        return False    
+        return False
 
     def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
         """Validate the Origin header against allowed values."""
