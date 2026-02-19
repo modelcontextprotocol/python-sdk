@@ -108,7 +108,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     warn_on_duplicate_prompts: bool
 
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
-    """A async context manager that will be called when the server is started."""
+    """An async context manager that will be called when the server is started."""
 
     auth: AuthSettings | None
 
@@ -388,8 +388,10 @@ class MCPServer(Generic[LifespanResultT]):
         ]
 
     def get_context(self) -> Context[LifespanResultT, Request]:
-        """Returns a Context object. Note that the context will only be valid
-        during a request; outside a request, most methods will error.
+        """Return a Context object.
+
+        Note that the context will only be valid during a request; outside a
+        request, most methods will error.
         """
         try:
             request_context = request_ctx.get()
@@ -475,6 +477,8 @@ class MCPServer(Generic[LifespanResultT]):
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            icons: Optional list of icons for the tool
+            meta: Optional metadata dictionary for the tool
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
@@ -523,6 +527,8 @@ class MCPServer(Generic[LifespanResultT]):
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            icons: Optional list of icons for the tool
+            meta: Optional metadata dictionary for the tool
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
@@ -534,8 +540,8 @@ class MCPServer(Generic[LifespanResultT]):
                 return str(x)
 
             @server.tool()
-            def tool_with_context(x: int, ctx: Context) -> str:
-                ctx.info(f"Processing {x}")
+            async def tool_with_context(x: int, ctx: Context) -> str:
+                await ctx.info(f"Processing {x}")
                 return str(x)
 
             @server.tool()
@@ -636,6 +642,8 @@ class MCPServer(Generic[LifespanResultT]):
             title: Optional human-readable title for the resource
             description: Optional description of the resource
             mime_type: Optional MIME type for the resource
+            icons: Optional list of icons for the resource
+            annotations: Optional annotations for the resource
             meta: Optional metadata dictionary for the resource
 
         Example:
@@ -644,7 +652,7 @@ class MCPServer(Generic[LifespanResultT]):
                 return "Hello, world!"
 
             @server.resource("resource://my-resource")
-            async get_data() -> str:
+            async def get_data() -> str:
                 data = await fetch_data()
                 return f"Hello, world! {data}"
 
@@ -736,6 +744,7 @@ class MCPServer(Generic[LifespanResultT]):
             name: Optional name for the prompt (defaults to function name)
             title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
+            icons: Optional list of icons for the prompt
 
         Example:
             @server.prompt()
@@ -1092,18 +1101,18 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     ```python
     @server.tool()
-    def my_tool(x: int, ctx: Context) -> str:
+    async def my_tool(x: int, ctx: Context) -> str:
         # Log messages to the client
-        ctx.info(f"Processing {x}")
-        ctx.debug("Debug info")
-        ctx.warning("Warning message")
-        ctx.error("Error message")
+        await ctx.info(f"Processing {x}")
+        await ctx.debug("Debug info")
+        await ctx.warning("Warning message")
+        await ctx.error("Error message")
 
         # Report progress
-        ctx.report_progress(50, 100)
+        await ctx.report_progress(50, 100)
 
         # Access resources
-        data = ctx.read_resource("resource://data")
+        data = await ctx.read_resource("resource://data")
 
         # Get request info
         request_id = ctx.request_id
@@ -1149,9 +1158,9 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """Report progress for the current operation.
 
         Args:
-            progress: Current progress value e.g. 24
-            total: Optional total value e.g. 100
-            message: Optional message e.g. Starting render...
+            progress: Current progress value (e.g., 24)
+            total: Optional total value (e.g., 100)
+            message: Optional message (e.g., "Starting render...")
         """
         progress_token = self.request_context.meta.get("progress_token") if self.request_context.meta else None
 
@@ -1187,15 +1196,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         This method can be used to interactively ask for additional information from the
         client within a tool's execution. The client might display the message to the
-        user and collect a response according to the provided schema. Or in case a
-        client is an agent, it might decide how to handle the elicitation -- either by asking
+        user and collect a response according to the provided schema. If the client
+        is an agent, it might decide how to handle the elicitation -- either by asking
         the user or automatically generating a response.
 
         Args:
-            schema: A Pydantic model class defining the expected response structure, according to the specification,
-                    only primitive types are allowed.
-            message: Optional message to present to the user. If not provided, will use
-                    a default message based on the schema
+            message: Message to present to the user
+            schema: A Pydantic model class defining the expected response structure.
+                    According to the specification, only primitive types are allowed.
 
         Returns:
             An ElicitationResult containing the action taken and the data if accepted
@@ -1229,7 +1237,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         The response indicates whether the user consented to navigate to the URL.
         The actual interaction happens out-of-band. When the elicitation completes,
-        call `self.session.send_elicit_complete(elicitation_id)` to notify the client.
+        call `ctx.session.send_elicit_complete(elicitation_id)` to notify the client.
 
         Args:
             message: Human-readable explanation of why the interaction is needed
@@ -1299,7 +1307,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         be replayed when the client reconnects with Last-Event-ID.
 
         Use this to implement polling behavior during long-running operations -
-        client will reconnect after the retry interval specified in the priming event.
+        the client will reconnect after the retry interval specified in the priming event.
 
         Note:
             This is a no-op if not using StreamableHTTP transport with event_store.

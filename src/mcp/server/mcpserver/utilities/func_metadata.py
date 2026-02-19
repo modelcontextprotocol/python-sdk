@@ -46,7 +46,7 @@ class ArgModelBase(BaseModel):
     def model_dump_one_level(self) -> dict[str, Any]:
         """Return a dict of the model's fields, one level deep.
 
-        That is, sub-models etc are not dumped - they are kept as pydantic models.
+        That is, sub-models etc are not dumped - they are kept as Pydantic models.
         """
         kwargs: dict[str, Any] = {}
         for field_name, field_info in self.__class__.model_fields.items():
@@ -89,8 +89,7 @@ class FuncMetadata(BaseModel):
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
     def convert_result(self, result: Any) -> Any:
-        """Convert the result of a function call to the appropriate format for
-         the lowlevel server tool call handler:
+        """Convert a function call result to the format for the lowlevel tool call handler.
 
         - If output_model is None, return the unstructured content directly.
         - If output_model is not None, convert the result to structured output format
@@ -126,11 +125,11 @@ class FuncMetadata(BaseModel):
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Pre-parse data from JSON.
 
-        Return a dict with same keys as input but with values parsed from JSON
+        Return a dict with the same keys as input but with values parsed from JSON
         if appropriate.
 
         This is to handle cases like `["a", "b", "c"]` being passed in as JSON inside
-        a string rather than an actual list. Claude desktop is prone to this - in fact
+        a string rather than an actual list. Claude Desktop is prone to this - in fact
         it seems incapable of NOT doing this. For sub-models, it tends to pass
         dicts (JSON objects) as JSON strings, which can be pre-parsed here.
         """
@@ -173,8 +172,7 @@ def func_metadata(
     skip_names: Sequence[str] = (),
     structured_output: bool | None = None,
 ) -> FuncMetadata:
-    """Given a function, return metadata including a pydantic model representing its
-    signature.
+    """Given a function, return metadata including a Pydantic model representing its signature.
 
     The use case for this is
     ```
@@ -183,11 +181,11 @@ def func_metadata(
     return func(**validated_args.model_dump_one_level())
     ```
 
-    **critically** it also provides pre-parse helper to attempt to parse things from
+    **critically** it also provides a pre-parse helper to attempt to parse things from
     JSON.
 
     Args:
-        func: The function to convert to a pydantic model
+        func: The function to convert to a Pydantic model
         skip_names: A list of parameter names to skip. These will not be included in
             the model.
         structured_output: Controls whether the tool's output is structured or unstructured
@@ -195,8 +193,8 @@ def func_metadata(
             - If True, creates a structured tool (return type annotation permitting)
             - If False, unconditionally creates an unstructured tool
 
-        If structured, creates a Pydantic model for the function's result based on its annotation.
-        Supports various return types:
+            If structured, creates a Pydantic model for the function's result based on its annotation.
+            Supports various return types:
             - BaseModel subclasses (used directly)
             - Primitive types (str, int, float, bool, bytes, None) - wrapped in a
                 model with a 'result' field
@@ -206,9 +204,9 @@ def func_metadata(
 
     Returns:
         A FuncMetadata object containing:
-        - arg_model: A pydantic model representing the function's arguments
-        - output_model: A pydantic model for the return type if output is structured
-        - output_conversion: Records how function output should be converted before returning.
+        - arg_model: A Pydantic model representing the function's arguments
+        - output_model: A Pydantic model for the return type if the output is structured
+        - wrap_output: Whether the function result needs to be wrapped in `{"result": ...}` for structured output.
     """
     try:
         sig = inspect.signature(func, eval_str=True)
@@ -296,7 +294,7 @@ def func_metadata(
                 ]  # pragma: no cover
             else:
                 # We only had `Annotated[CallToolResult, ReturnType]`, treat the original annotation
-                # as beging `ReturnType`:
+                # as being `ReturnType`:
                 original_annotation = return_type_expr
         else:
             return FuncMetadata(arg_model=arguments_model)
@@ -355,7 +353,7 @@ def _try_create_model_and_schema(
         if origin is dict:
             args = get_args(type_expr)
             if len(args) == 2 and args[0] is str:
-                # TODO: should we use the original annotation? We are loosing any potential `Annotated`
+                # TODO: should we use the original annotation? We are losing any potential `Annotated`
                 # metadata for Pydantic here:
                 model = _create_dict_model(func_name, type_expr)
             else:

@@ -83,7 +83,7 @@ class ExperimentalClientFeatures:
                 status = await session.experimental.get_task(task_id)
                 if status.status == "completed":
                     break
-                await asyncio.sleep(0.5)
+                await anyio.sleep(0.5)
 
             # Get result
             final = await session.experimental.get_task_result(task_id, CallToolResult)
@@ -177,7 +177,7 @@ class ExperimentalClientFeatures:
         """Poll a task until it reaches a terminal status.
 
         Yields GetTaskResult for each poll, allowing the caller to react to
-        status changes (e.g., handle input_required). Exits when task reaches
+        status changes (e.g., handle input_required). Exits when the task reaches
         a terminal status (completed, failed, cancelled).
 
         Respects the pollInterval hint from the server.
