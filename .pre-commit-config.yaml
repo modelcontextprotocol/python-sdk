@@ -62,8 +62,8 @@ repos:
         language: fail
         files: ^README\.md$
       - id: readme-snippets
-        name: Check README snippets are up to date
-        entry: uv run --frozen python scripts/update_readme_snippets.py --check
+        name: Check snippets are up to date
+        entry: uv run --frozen python scripts/sync_snippets.py --check
         language: system
-        files: ^(README\.v2\.md|examples/.*\.py|scripts/update_readme_snippets\.py)$
+        files: ^(README\.v2\.md|examples/.*\.py|src/mcp/.*\.py|docs/.*\.md|scripts/sync_snippets\.py)$
         pass_filenames: false
