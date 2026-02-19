@@ -18,11 +18,13 @@ def get_display_name(obj: Tool | Resource | Prompt | ResourceTemplate | Implemen
     For other objects: title > name
 
     Example:
+        ```python
         # In a client displaying available tools
         tools = await session.list_tools()
         for tool in tools.tools:
             display_name = get_display_name(tool)
             print(f"Available tool: {display_name}")
+        ```
 
     Args:
         obj: An MCP object with name and optional title fields

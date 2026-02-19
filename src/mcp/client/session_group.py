@@ -91,13 +91,14 @@ class ClientSessionGroup:
     For auxiliary handlers, such as resource subscription, this is delegated to
     the client and can be accessed via the session.
 
-    Example Usage:
+    Example:
+        ```python
         name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
         async with ClientSessionGroup(component_name_hook=name_fn) as group:
             for server_param in server_params:
                 await group.connect_to_server(server_param)
             ...
-
+        ```
     """
 
     class _ComponentNames(BaseModel):
