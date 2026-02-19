@@ -74,7 +74,9 @@ dev = [
 ]
 docs = [
     "mkdocs>=1.6.1",
+    "mkdocs-gen-files>=0.5.0",
     "mkdocs-glightbox>=0.4.0",
+    "mkdocs-literate-nav>=0.6.1",
     "mkdocs-material[imaging]>=9.5.45",
     "mkdocstrings-python>=2.0.1",
 ]

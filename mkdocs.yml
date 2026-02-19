@@ -25,7 +25,7 @@ nav:
           - Introduction: experimental/tasks.md
           - Server Implementation: experimental/tasks-server.md
           - Client Usage: experimental/tasks-client.md
-  - API Reference: api.md
+  - API Reference: api/
 
 theme:
   name: "material"
@@ -115,10 +115,15 @@ plugins:
   - social:
       enabled: !ENV [ENABLE_SOCIAL_CARDS, false]
   - glightbox
+  - gen-files:
+      scripts:
+        - docs/hooks/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
   - mkdocstrings:
       handlers:
         python:
-          paths: [src/mcp]
+          paths: [src]
           options:
             relative_crossrefs: true
             members_order: source
@@ -126,8 +131,6 @@ plugins:
             show_signature_annotations: true
             signature_crossrefs: true
             group_by_category: false
-            # 3 because docs are in pages with an H2 just above them
-            heading_level: 3
           inventories:
             - url: https://docs.python.org/3/objects.inv
             - url: https://docs.pydantic.dev/latest/objects.inv

@@ -828,6 +828,6 @@ The lowlevel `Server` also now exposes a `session_manager` property to access th
 
 If you encounter issues during migration:
 
-1. Check the [API Reference](api.md) for updated method signatures
+1. Check the [API Reference](api/mcp/index.md) for updated method signatures
 2. Review the [examples](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples) for updated usage patterns
 3. Open an issue on [GitHub](https://github.com/modelcontextprotocol/python-sdk/issues) if you find a bug or need further assistance
