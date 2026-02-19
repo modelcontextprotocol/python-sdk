@@ -266,7 +266,7 @@ class ServerSession(
                 InitializationState.Closing,
             ):
                 self._transition_state(InitializationState.Closing)
-        except RuntimeError:
+        except RuntimeError:  # pragma: no cover
             logger.debug("Could not transition to Closing from %s", self._initialization_state.name)
         try:
             return await super().__aexit__(exc_type, exc_val, exc_tb)

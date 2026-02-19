@@ -220,6 +220,25 @@ async def test_aexit_stateless_transitions_to_closed() -> None:
         assert session.initialization_state == InitializationState.Closed
 
 
+async def test_aexit_already_closing() -> None:
+    """__aexit__ skips Closing transition when already in Closing state."""
+    async with _session_context() as session:
+        async with session:
+            session._transition_state(InitializationState.Closing)
+
+        assert session.initialization_state == InitializationState.Closed
+
+
+async def test_aexit_already_closed() -> None:
+    """__aexit__ handles already-Closed sessions gracefully."""
+    async with _session_context() as session:
+        async with session:
+            session._transition_state(InitializationState.Closing)
+            session._transition_state(InitializationState.Closed)
+
+        assert session.initialization_state == InitializationState.Closed
+
+
 # ---------------------------------------------------------------------------
 # Integration: full handshake lifecycle
 # ---------------------------------------------------------------------------
