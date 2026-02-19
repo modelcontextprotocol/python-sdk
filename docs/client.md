@@ -215,107 +215,9 @@ The `get_display_name()` function implements the proper precedence rules for dis
 
 This ensures your client UI shows the most user-friendly names that servers provide.
 
-## OAuth Authentication for Clients
+## OAuth Authentication
 
-The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for connecting to protected MCP servers:
-
-<!-- snippet-source examples/snippets/clients/oauth_client.py -->
-```python
-"""
-Before running, specify running MCP RS server URL.
-To spin up RS server locally, see
-    examples/servers/simple-auth/README.md
-
-cd to the `examples/snippets` directory and run:
-    uv run oauth-client
-"""
-
-import asyncio
-from urllib.parse import parse_qs, urlparse
-
-import httpx
-from pydantic import AnyUrl
-
-from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-
-
-class InMemoryTokenStorage(TokenStorage):
-    """Demo In-memory token storage implementation."""
-
-    def __init__(self):
-        self.tokens: OAuthToken | None = None
-        self.client_info: OAuthClientInformationFull | None = None
-
-    async def get_tokens(self) -> OAuthToken | None:
-        """Get stored tokens."""
-        return self.tokens
-
-    async def set_tokens(self, tokens: OAuthToken) -> None:
-        """Store tokens."""
-        self.tokens = tokens
-
-    async def get_client_info(self) -> OAuthClientInformationFull | None:
-        """Get stored client information."""
-        return self.client_info
-
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        """Store client information."""
-        self.client_info = client_info
-
-
-async def handle_redirect(auth_url: str) -> None:
-    print(f"Visit: {auth_url}")
-
-
-async def handle_callback() -> tuple[str, str | None]:
-    callback_url = input("Paste callback URL: ")
-    params = parse_qs(urlparse(callback_url).query)
-    return params["code"][0], params.get("state", [None])[0]
-
-
-async def main():
-    """Run the OAuth client example."""
-    oauth_auth = OAuthClientProvider(
-        server_url="http://localhost:8001",
-        client_metadata=OAuthClientMetadata(
-            client_name="Example MCP Client",
-            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
-            grant_types=["authorization_code", "refresh_token"],
-            response_types=["code"],
-            scope="user",
-        ),
-        storage=InMemoryTokenStorage(),
-        redirect_handler=handle_redirect,
-        callback_handler=handle_callback,
-    )
-
-    async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
-        async with streamable_http_client("http://localhost:8001/mcp", http_client=custom_client) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-
-                tools = await session.list_tools()
-                print(f"Available tools: {[tool.name for tool in tools.tools]}")
-
-                resources = await session.list_resources()
-                print(f"Available resources: {[r.uri for r in resources.resources]}")
-
-
-def run():
-    asyncio.run(main())
-
-
-if __name__ == "__main__":
-    run()
-```
-
-_Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
-<!-- /snippet-source -->
-
-For a complete working example, see [`examples/clients/simple-auth-client/`](../examples/clients/simple-auth-client/).
+For OAuth 2.1 client authentication, see [Authorization](authorization.md#client-side-authentication).
 
 ## Roots
 
@@ -324,14 +226,12 @@ For a complete working example, see [`examples/clients/simple-auth-client/`](../
 Clients can provide a `list_roots_callback` so that servers can discover the client's workspace roots (directories, project folders, etc.):
 
 ```python
-from typing import Any
-
 from mcp import ClientSession, types
 from mcp.shared.context import RequestContext
 
 
 async def handle_list_roots(
-    context: RequestContext[ClientSession, Any],
+    context: RequestContext[ClientSession, None],
 ) -> types.ListRootsResult:
     """Return the client's workspace roots."""
     return types.ListRootsResult(

@@ -14,7 +14,9 @@ nav:
   - Introduction: index.md
   - Installation: installation.md
   - Documentation:
-      - Concepts: concepts.md
+      - Building Servers: server.md
+      - Writing Clients: client.md
+      - Protocol Features: protocol.md
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
       - Testing: testing.md
