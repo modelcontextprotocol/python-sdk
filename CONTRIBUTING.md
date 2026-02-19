@@ -64,6 +64,28 @@ pre-commit run --all-files
 
 9. Submit a pull request to the same branch you branched from
 
+## Dependency Update Policy
+
+See [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) for the full dependency update policy.
+
+When bumping a dependency version manually, update the constraint in `pyproject.toml` then run `uv lock --resolution lowest-direct` (see [RELEASE.md](RELEASE.md)).
+
+Security-relevant dependency updates (P0) are applied within 7 days of public disclosure and backported to active release branches.
+
+The SDK currently supports Python 3.10 through 3.13. New CPython releases are supported within one minor SDK release of their stable release date.
+
+## Triage Process
+
+New issues are triaged by a maintainer within 2 business days. Triage means adding an appropriate label and determining whether the issue is valid.
+
+Issues are labeled per the [SDK Tiering System](https://modelcontextprotocol.io/community/sdk-tiers):
+
+- **Type** (pick one): `bug`, `enhancement`, `question`
+- **Status** (pick one): `needs confirmation`, `needs repro`, `ready for work`, `good first issue`, `help wanted`
+- **Priority** (if actionable): `P0`, `P1`, `P2`, `P3`
+
+P0 issues are security vulnerabilities (CVSS ≥ 7.0) or core functionality failures that prevent basic MCP operations (connection establishment, message exchange, or use of core primitives). P0 issues must be resolved within 7 days.
+
 ## Code Style
 
 - We use `ruff` for linting and formatting
