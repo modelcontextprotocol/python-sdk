@@ -6,7 +6,7 @@ from mcp import types
 from mcp.shared.session import ProgressFnT
 from mcp.types._types import RequestParamsMeta
 
-ClientSessionT_contra = TypeVar("ClientSessionT_contra", contravariant=True)
+ClientSessionT_contra = TypeVar("ClientSessionT_contra", bound="BaseClientSession", contravariant=True)
 
 
 @runtime_checkable

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
@@ -10,7 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel, TypeAdapter
-from typing_extensions import Self
+from typing_extensions import Protocol, Self, runtime_checkable
 
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
@@ -36,11 +35,13 @@ from mcp.types import (
     ServerResult,
 )
 
-SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
+SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest, contravariant=True)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
-SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
+SendNotificationT = TypeVar(
+    "SendNotificationT", ClientNotification, ServerNotification, contravariant=True
+)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
-ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel, covariant=True)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
@@ -155,24 +156,20 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
+@runtime_checkable
 class AbstractBaseSession(
-    ABC,
+    Protocol,
     Generic[
         SendRequestT,
         SendNotificationT,
-        SendResultT,
-        ReceiveRequestT,
-        ReceiveNotificationT,
     ],
 ):
     """Pure abstract interface for MCP sessions.
 
-    This class defines the contract that all session implementations must satisfy,
-    without managing any state. Subclasses are responsible for their own initialization
-    and state management.
+    This protocol defines the contract that all session implementations must satisfy,
+    irrespective of the transport used.
     """
 
-    @abstractmethod
     async def send_request(
         self,
         request: SendRequestT,
@@ -188,18 +185,16 @@ class AbstractBaseSession(
 
         Do not use this method to emit notifications! Use send_notification() instead.
         """
-        raise NotImplementedError
+        ...
 
-    @abstractmethod
     async def send_notification(
         self,
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
-        raise NotImplementedError
+        ...
 
-    @abstractmethod
     async def send_progress_notification(
         self,
         progress_token: ProgressToken,
@@ -208,11 +203,15 @@ class AbstractBaseSession(
         message: str | None = None,
     ) -> None:
         """Sends a progress notification for a request that is currently being processed."""
-        raise NotImplementedError
+        ...
 
 
 class BaseSession(
     AbstractBaseSession[
+        SendRequestT,
+        SendNotificationT,
+    ],
+    Generic[
         SendRequestT,
         SendNotificationT,
         SendResultT,

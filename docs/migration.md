@@ -550,9 +550,14 @@ from mcp.shared._context import SessionT
 from mcp.shared._context import SessionT_co
 ```
 
-#### `AbstractBaseSession` simplified
+#### New `AbstractBaseSession` structural interface
 
-`AbstractBaseSession` is now a pure abstract interface with no `__init__` method and no `WireMessageT` type parameter. If you were subclassing it directly, you now need to manage all state in your subclass.
+The session hierarchy now uses a new **runtime-checkable Protocol** called `AbstractBaseSession` to define the shared contract for all MCP sessions. This protocol enables structural subtyping, allowing different transport implementations to be used interchangeably without requiring rigid inheritance.
+
+Key characteristics of `AbstractBaseSession`:
+1.  **Pure Interface**: It is a structural protocol with no implementation state or `__init__` method.
+2.  **Simplified Type Parameters**: It takes two parameters: `AbstractBaseSession[SendRequestT, SendNotificationT]`. Contravariant variance is used for these parameters to ensure that sessions can be used safely in generic contexts (like `RequestContext`).
+3.  **BaseSession Implementation**: The concrete implementation logic (state management, response routing) is provided by the `BaseSession` class, which satisfies the protocol.
 
 **Before:**
 
@@ -573,6 +578,56 @@ class MySession(AbstractBaseSession[...]):
     def __init__(self):
         # Manage your own state - no super().__init__() to call
         self._my_state = {}
+```
+
+#### `SendRequestT` changed to contravariant
+
+The `SendRequestT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol.
+
+**Before:**
+
+```python
+SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
+```
+
+**After:**
+
+```python
+SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest, contravariant=True)
+```
+
+#### `SendNotificationT` changed to contravariant
+
+The `SendNotificationT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol.
+
+**Before:**
+
+```python
+SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
+```
+
+**After:**
+
+```python
+SendNotificationT = TypeVar(
+    "SendNotificationT", ClientNotification, ServerNotification, contravariant=True
+)
+```
+
+#### `ReceiveResultT` changed to covariant
+
+The `ReceiveResultT` TypeVar is now defined as **covariant** to support its use in the `AbstractBaseSession` Protocol.
+
+**Before:**
+
+```python
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
+```
+
+**After:**
+
+```python
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel, covariant=True)
 ```
 
 #### `BaseClientSession` is now a Protocol
