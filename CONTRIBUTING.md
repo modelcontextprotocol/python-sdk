@@ -92,10 +92,10 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-7. Update README snippets if you modified example code:
+7. Update code example snippets if you modified example code:
 
 ```bash
-uv run scripts/update_readme_snippets.py
+uv run scripts/sync_snippets.py
 ```
 
 8. (Optional) Run pre-commit hooks on all files:

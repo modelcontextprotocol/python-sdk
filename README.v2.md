@@ -181,9 +181,9 @@ def greet_user(name: str, style: str = "friendly") -> str:
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", json_response=True)
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/mcpserver_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/mcpserver_quickstart.py)_
-<!-- /snippet-source -->
 
 You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
 
@@ -279,9 +279,9 @@ def query_db(ctx: Context[AppContext]) -> str:
     db = ctx.request_context.lifespan_context.db
     return db.query()
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lifespan_example.py)_
-<!-- /snippet-source -->
 
 ### Resources
 
@@ -310,9 +310,9 @@ def get_settings() -> str:
   "debug": false
 }"""
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/basic_resource.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_resource.py)_
-<!-- /snippet-source -->
 
 ### Tools
 
@@ -337,9 +337,9 @@ def get_weather(city: str, unit: str = "celsius") -> str:
     # This would normally call a weather API
     return f"Weather in {city}: 22degrees{unit[0].upper()}"
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_tool.py)_
-<!-- /snippet-source -->
 
 Tools can optionally receive a Context object by including a parameter with the `Context` type annotation. This context is automatically injected by the MCPServer framework and provides access to MCP capabilities:
 
@@ -367,9 +367,9 @@ async def long_running_task(task_name: str, ctx: Context[ServerSession, None], s
 
     return f"Task '{task_name}' completed"
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
-<!-- /snippet-source -->
 
 #### Structured Output
 
@@ -452,9 +452,9 @@ def empty_result_tool() -> CallToolResult:
     """For empty results, return CallToolResult with empty content."""
     return CallToolResult(content=[])
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/direct_call_tool_result.py)_
-<!-- /snippet-source -->
 
 **Important:** `CallToolResult` must always be returned (no `Optional` or `Union`). For empty results, use `CallToolResult(content=[])`. For optional simple types, use `str | None` without `CallToolResult`.
 
@@ -558,9 +558,9 @@ def get_temperature(city: str) -> float:
     return 22.5
     # Returns: {"result": 22.5}
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/structured_output.py)_
-<!-- /snippet-source -->
 
 ### Prompts
 
@@ -587,9 +587,9 @@ def debug_error(error: str) -> list[base.Message]:
         base.AssistantMessage("I'll help debug that. What have you tried so far?"),
     ]
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_prompt.py)_
-<!-- /snippet-source -->
 
 ### Icons
 
@@ -648,9 +648,9 @@ def create_thumbnail(image_path: str) -> Image:
     img.thumbnail((100, 100))
     return Image(data=img.tobytes(), format="png")
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/images.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/images.py)_
-<!-- /snippet-source -->
 
 ### Context
 
@@ -715,9 +715,9 @@ async def long_running_task(task_name: str, ctx: Context[ServerSession, None], s
 
     return f"Task '{task_name}' completed"
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
-<!-- /snippet-source -->
 
 ### Completions
 
@@ -805,9 +805,10 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/clients/completion_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/completion_client.py)_
-<!-- /snippet-source -->
+
 ### Elicitation
 
 Request additional information from users. This example shows an Elicitation during a Tool Call:
@@ -914,9 +915,9 @@ async def connect_service(service_name: str, ctx: Context[ServerSession, None]) 
         ]
     )
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)_
-<!-- /snippet-source -->
 
 Elicitation schemas support default values for all field types. Default values are automatically included in the JSON schema sent to clients, allowing them to pre-populate forms.
 
@@ -959,9 +960,9 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
         return result.content.text
     return str(result.content)
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_
-<!-- /snippet-source -->
 
 ### Logging and Notifications
 
@@ -989,9 +990,9 @@ async def process_data(data: str, ctx: Context[ServerSession, None]) -> str:
 
     return f"Processed: {data}"
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/notifications.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/notifications.py)_
-<!-- /snippet-source -->
 
 ### Authentication
 
@@ -1049,9 +1050,9 @@ async def get_weather(city: str = "London") -> dict[str, str]:
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", json_response=True)
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
-<!-- /snippet-source -->
 
 For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
 
@@ -1223,9 +1224,9 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/direct_execution.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/direct_execution.py)_
-<!-- /snippet-source -->
 
 Run it with:
 
@@ -1272,9 +1273,9 @@ if __name__ == "__main__":
     # Stateful server with session persistence
     # mcp.run(transport="streamable-http")
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
-<!-- /snippet-source -->
 
 You can mount multiple MCPServer servers in a Starlette application:
 
@@ -1334,9 +1335,9 @@ app = Starlette(
 # echo_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
 # math_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
-<!-- /snippet-source -->
 
 For low level server with Streamable HTTP implementations, see:
 
@@ -1429,9 +1430,9 @@ app = Starlette(
     lifespan=lifespan,
 )
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_basic_mounting.py)_
-<!-- /snippet-source -->
 
 ##### Host-based routing
 
@@ -1476,9 +1477,9 @@ app = Starlette(
     lifespan=lifespan,
 )
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/streamable_http_host_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_host_mounting.py)_
-<!-- /snippet-source -->
 
 ##### Multiple servers with path configuration
 
@@ -1533,9 +1534,9 @@ app = Starlette(
     lifespan=lifespan,
 )
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_multiple_servers.py)_
-<!-- /snippet-source -->
 
 ##### Path configuration at initialization
 
@@ -1573,9 +1574,9 @@ app = Starlette(
     ]
 )
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/streamable_http_path_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_path_config.py)_
-<!-- /snippet-source -->
 
 #### SSE servers
 
@@ -1738,9 +1739,9 @@ if __name__ == "__main__":
 
     asyncio.run(run())
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/lowlevel/lifespan.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/lifespan.py)_
-<!-- /snippet-source -->
 
 The lifespan API provides:
 
@@ -1814,9 +1815,9 @@ async def run():
 if __name__ == "__main__":
     asyncio.run(run())
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/lowlevel/basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/basic.py)_
-<!-- /snippet-source -->
 
 Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-level server.
 
@@ -1907,9 +1908,9 @@ async def run():
 if __name__ == "__main__":
     asyncio.run(run())
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/structured_output.py)_
-<!-- /snippet-source -->
 
 With the low-level server, handlers always return `CallToolResult` directly. You construct both the human-readable `content` and the machine-readable `structured_content` yourself, giving you full control over the response.
 
@@ -1982,9 +1983,9 @@ async def run():
 if __name__ == "__main__":
     asyncio.run(run())
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/lowlevel/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/direct_call_tool_result.py)_
-<!-- /snippet-source -->
 
 ### Pagination (Advanced)
 
@@ -2030,9 +2031,9 @@ async def handle_list_resources(
 
 server = Server("paginated-server", on_list_resources=handle_list_resources)
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
-<!-- /snippet-source -->
 
 #### Client-side Consumption
 
@@ -2078,9 +2079,9 @@ async def list_all_resources() -> None:
 if __name__ == "__main__":
     asyncio.run(list_all_resources())
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/clients/pagination_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/pagination_client.py)_
-<!-- /snippet-source -->
 
 #### Key Points
 
@@ -2178,9 +2179,9 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/clients/stdio_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/stdio_client.py)_
-<!-- /snippet-source -->
 
 Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
 
@@ -2211,9 +2212,9 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
-<!-- /snippet-source -->
 
 ### Client Display Utilities
 
@@ -2288,9 +2289,9 @@ def main():
 if __name__ == "__main__":
     main()
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/clients/display_utilities.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/display_utilities.py)_
-<!-- /snippet-source -->
 
 The `get_display_name()` function implements the proper precedence rules for displaying names:
 
@@ -2394,9 +2395,9 @@ def run():
 if __name__ == "__main__":
     run()
 ```
+<!-- /snippet-source -->
 
 _Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
-<!-- /snippet-source -->
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
 
