@@ -1094,5 +1094,3 @@ async def test_perform_authorization_with_valid_tokens_no_id_jag(mock_token_stor
 
         # Verify it made the IDP token exchange call
         mock_client.post.assert_called_once()
-
-
