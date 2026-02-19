@@ -317,6 +317,115 @@ _Full example: [examples/snippets/clients/oauth_client.py](https://github.com/mo
 
 For a complete working example, see [`examples/clients/simple-auth-client/`](../examples/clients/simple-auth-client/).
 
+## Roots
+
+### Listing Roots
+
+Clients can provide a `list_roots_callback` so that servers can discover the client's workspace roots (directories, project folders, etc.):
+
+```python
+from mcp import ClientSession, types
+from mcp.shared.context import RequestContext
+
+
+async def handle_list_roots(
+    context: RequestContext[ClientSession, None],
+) -> types.ListRootsResult:
+    """Return the client's workspace roots."""
+    return types.ListRootsResult(
+        roots=[
+            types.Root(uri="file:///home/user/project", name="My Project"),
+            types.Root(uri="file:///home/user/data", name="Data Folder"),
+        ]
+    )
+
+
+# Pass the callback when creating the session
+session = ClientSession(
+    read_stream,
+    write_stream,
+    list_roots_callback=handle_list_roots,
+)
+```
+
+When a `list_roots_callback` is provided, the client automatically declares the `roots` capability (with `listChanged=True`) during initialization.
+
+### Roots Change Notifications
+
+When the client's workspace roots change (e.g., a folder is added or removed), notify the server:
+
+```python
+# After roots change, notify the server
+await session.send_roots_list_changed()
+```
+
+## SSE Transport (Legacy)
+
+For servers that use the older SSE transport, use `sse_client()` from `mcp.client.sse`:
+
+```python
+import asyncio
+
+from mcp import ClientSession
+from mcp.client.sse import sse_client
+
+
+async def main():
+    async with sse_client("http://localhost:8000/sse") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            tools = await session.list_tools()
+            print(f"Available tools: {[t.name for t in tools.tools]}")
+
+
+asyncio.run(main())
+```
+
+The `sse_client()` function accepts optional `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters. The SSE transport is considered legacy; prefer [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) for new servers.
+
+## Ping
+
+Send a ping to verify the server is responsive:
+
+```python
+# After session.initialize()
+result = await session.send_ping()
+# Returns EmptyResult on success; raises on timeout
+```
+
+## Logging
+
+### Receiving Log Messages
+
+Pass a `logging_callback` to receive log messages from the server:
+
+```python
+from mcp import ClientSession, types
+
+
+async def handle_log(params: types.LoggingMessageNotificationParams) -> None:
+    """Handle log messages from the server."""
+    print(f"[{params.level}] {params.data}")
+
+
+session = ClientSession(
+    read_stream,
+    write_stream,
+    logging_callback=handle_log,
+)
+```
+
+### Setting the Server Log Level
+
+Request that the server change its minimum log level:
+
+```python
+await session.set_logging_level("debug")
+```
+
+The `level` parameter is a `LoggingLevel` string: `"debug"`, `"info"`, `"notice"`, `"warning"`, `"error"`, `"critical"`, `"alert"`, or `"emergency"`.
+
 ## Parsing Tool Results
 
 When calling tools through MCP, the `CallToolResult` object contains the tool's response in a structured format. Understanding how to parse this result is essential for properly handling tool outputs.
