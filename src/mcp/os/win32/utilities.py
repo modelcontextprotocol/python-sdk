@@ -138,9 +138,9 @@ async def create_windows_process(
 ) -> Process | FallbackProcess:
     """Creates a subprocess in a Windows-compatible way with Job Object support.
 
-    Attempt to use anyio's open_process for async subprocess creation.
-    In some cases this will throw NotImplementedError on Windows, e.g.
-    when using the SelectorEventLoop which does not support async subprocesses.
+    Attempts to use anyio's open_process for async subprocess creation.
+    In some cases this will throw NotImplementedError on Windows, e.g.,
+    when using the SelectorEventLoop, which does not support async subprocesses.
     In that case, we fall back to using subprocess.Popen.
 
     The process is automatically added to a Job Object to ensure all child
@@ -242,8 +242,9 @@ def _create_job_object() -> int | None:
 
 
 def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: JobHandle | None) -> None:
-    """Try to assign a process to a job object. If assignment fails
-    for any reason, the job handle is closed.
+    """Try to assign a process to a job object.
+
+    If assignment fails for any reason, the job handle is closed.
     """
     if not job:
         return
@@ -312,8 +313,8 @@ async def terminate_windows_process(process: Process | FallbackProcess):
 
     Note: On Windows, terminating a process with process.terminate() doesn't
     always guarantee immediate process termination.
-    So we give it 2s to exit, or we call process.kill()
-    which sends a SIGKILL equivalent signal.
+    If the process does not exit within 2 seconds, process.kill() is called
+    to send a SIGKILL-equivalent signal.
 
     Args:
         process: The process to terminate

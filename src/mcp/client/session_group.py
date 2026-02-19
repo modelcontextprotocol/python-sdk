@@ -3,7 +3,7 @@
 Tools, resources, and prompts are aggregated across servers. Servers may
 be connected to or disconnected from at any point after initialization.
 
-This abstractions can handle naming collisions using a custom user-provided hook.
+This abstraction can handle naming collisions using a custom user-provided hook.
 """
 
 import contextlib
@@ -30,7 +30,7 @@ from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
-    """Parameters for initializing a sse_client."""
+    """Parameters for initializing an sse_client."""
 
     # The endpoint URL.
     url: str
@@ -67,8 +67,8 @@ class StreamableHttpParameters(BaseModel):
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
 
 
-# Use dataclass instead of pydantic BaseModel
-# because pydantic BaseModel cannot handle Protocol fields.
+# Use dataclass instead of Pydantic BaseModel
+# because Pydantic BaseModel cannot handle Protocol fields.
 @dataclass
 class ClientSessionParameters:
     """Parameters for establishing a client session to an MCP server."""
@@ -119,7 +119,7 @@ class ClientSessionGroup:
     _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
     # Optional fn consuming (component_name, server_info) for custom names.
-    # This is provide a means to mitigate naming conflicts across servers.
+    # This is to provide a means to mitigate naming conflicts across servers.
     # Example: (tool_name, server_info) => "{result.server_info.name}.{tool_name}"
     _ComponentNameHook: TypeAlias = Callable[[str, types.Implementation], str]
     _component_name_hook: _ComponentNameHook | None

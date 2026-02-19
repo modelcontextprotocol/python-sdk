@@ -17,7 +17,7 @@ MessageStream = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], Mem
 async def create_client_server_memory_streams() -> AsyncGenerator[tuple[MessageStream, MessageStream], None]:
     """Creates a pair of bidirectional memory streams for client-server communication.
 
-    Returns:
+    Yields:
         A tuple of (client_streams, server_streams) where each is a tuple of
         (read_stream, write_stream)
     """

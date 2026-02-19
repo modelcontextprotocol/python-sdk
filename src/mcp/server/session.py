@@ -363,12 +363,12 @@ class ServerSession(
         """Send a form mode elicitation/create request.
 
         Args:
-            message: The message to present to the user
-            requested_schema: Schema defining the expected response structure
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: The message to present to the user.
+            requested_schema: Schema defining the expected response structure.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response
+            The client's response.
 
         Note:
             This method is deprecated in favor of elicit_form(). It remains for
@@ -385,12 +385,12 @@ class ServerSession(
         """Send a form mode elicitation/create request.
 
         Args:
-            message: The message to present to the user
-            requested_schema: Schema defining the expected response structure
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: The message to present to the user.
+            requested_schema: Schema defining the expected response structure.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response with form data
+            The client's response with form data.
 
         Raises:
             StatelessModeNotSupported: If called in stateless HTTP mode.
@@ -421,13 +421,13 @@ class ServerSession(
         like OAuth flows, credential collection, or payment processing.
 
         Args:
-            message: Human-readable explanation of why the interaction is needed
-            url: The URL the user should navigate to
-            elicitation_id: Unique identifier for tracking this elicitation
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: Human-readable explanation of why the interaction is needed.
+            url: The URL the user should navigate to.
+            elicitation_id: Unique identifier for tracking this elicitation.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response indicating acceptance, decline, or cancellation
+            The client's response indicating acceptance, decline, or cancellation.
 
         Raises:
             StatelessModeNotSupported: If called in stateless HTTP mode.
@@ -499,7 +499,7 @@ class ServerSession(
 
         Args:
             elicitation_id: The unique identifier of the completed elicitation
-            related_request_id: Optional ID of the request that triggered this
+            related_request_id: Optional ID of the request that triggered this notification
         """
         await self.send_notification(
             types.ElicitCompleteNotification(
