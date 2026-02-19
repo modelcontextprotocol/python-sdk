@@ -138,5 +138,5 @@ For FastMCP tools, input schemas are derived automatically from function signatu
 
 For pagination details, see:
 
-- Server-side implementation: [Building Servers - Pagination](server.md#pagination-advanced)
-- Client-side consumption: [Building Servers - Client-side Consumption](server.md#client-side-consumption)
+- Server-side implementation: [Low-Level Server - Pagination](low-level-server.md#pagination-advanced)
+- Client-side consumption: [Low-Level Server - Client-side Consumption](low-level-server.md#client-side-consumption)
