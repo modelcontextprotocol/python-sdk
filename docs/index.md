@@ -59,8 +59,11 @@ npx -y @modelcontextprotocol/inspector
 <!-- TODO(Marcelo): automatically generate the follow references with a header on each of those files. -->
 1. **[Install](installation.md)** the MCP SDK
 2. **[Learn concepts](concepts.md)** - understand the three primitives and architecture
-3. **[Explore authorization](authorization.md)** - add security to your servers
-4. **[Use low-level APIs](low-level-server.md)** - for advanced customization
+3. **[Build servers](server.md)** - tools, resources, prompts, transports, ASGI mounting
+4. **[Write clients](client.md)** - connect to servers, use tools/resources/prompts
+5. **[Explore authorization](authorization.md)** - add security to your servers
+6. **[Use low-level APIs](low-level-server.md)** - for advanced customization
+7. **[Protocol features](protocol.md)** - MCP primitives, server capabilities
 
 ## API Reference
 
