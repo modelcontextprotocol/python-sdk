@@ -6,6 +6,7 @@ enterprise SSO integration.
 
 import logging
 from collections.abc import Awaitable, Callable
+from typing import cast
 
 import httpx
 import jwt
@@ -13,7 +14,7 @@ from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
-from mcp.shared.auth import OAuthClientMetadata, OAuthToken
+from mcp.shared.auth import OAuthClientMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -330,9 +331,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
         # Apply client authentication method (handles client_secret_basic vs client_secret_post)
         headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
-        token_data, headers = self.context.prepare_token_auth(token_data, headers)
+        # Cast to dict[str, str] for prepare_token_auth compatibility
+        data_dict = cast(dict[str, str], token_data)
+        data_dict, headers = self.context.prepare_token_auth(data_dict, headers)
 
-        return httpx.Request("POST", token_endpoint, data=token_data, headers=headers)
+        return httpx.Request("POST", token_endpoint, data=data_dict, headers=headers)
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform enterprise authorization flow.

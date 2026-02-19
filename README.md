@@ -2651,7 +2651,7 @@ async def advanced_manual_flow() -> None:
         print(f"Access token obtained, expires in: {access_token.expires_in}s")
 
         # Use the access token for API calls
-        headers = {"Authorization": f"Bearer {access_token.access_token}"}
+        _ = {"Authorization": f"Bearer {access_token.access_token}"}
         # ... make authenticated requests with headers
 
 

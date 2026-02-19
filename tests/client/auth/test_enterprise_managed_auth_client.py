@@ -472,7 +472,7 @@ async def test_perform_authorization_full_flow(mock_token_storage: Any, sample_i
 @pytest.mark.anyio
 async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any, sample_id_jag: str):
     """Test that _perform_authorization uses cached ID-JAG when tokens are valid."""
-    from mcp.shared.auth import OAuthToken, OAuthMetadata
+    from mcp.shared.auth import OAuthMetadata, OAuthToken
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
@@ -1035,7 +1035,7 @@ async def test_exchange_id_jag_with_existing_auth_method(sample_id_jag: str, moc
 @pytest.mark.anyio
 async def test_perform_authorization_with_valid_tokens_no_id_jag(mock_token_storage: Any):
     """Test _perform_authorization when tokens are valid but no cached ID-JAG (covers branch 354->360)."""
-    from mcp.shared.auth import OAuthToken, OAuthMetadata
+    from mcp.shared.auth import OAuthMetadata, OAuthToken
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
