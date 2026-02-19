@@ -170,7 +170,6 @@ The [Model Context Protocol (MCP)](https://modelcontextprotocol.io) lets you bui
 - [Authorization](docs/authorization.md) -- OAuth 2.1, token verification, client authentication
 - [Low-Level Server](docs/low-level-server.md) -- direct handler registration for advanced use cases
 - [Protocol Features](docs/protocol.md) -- MCP primitives, server capabilities
-- [Concepts](docs/concepts.md) -- architecture overview
 - [Testing](docs/testing.md) -- in-memory transport testing with pytest
 - [API Reference](https://modelcontextprotocol.github.io/python-sdk/api/)
 - [Experimental Features (Tasks)](https://modelcontextprotocol.github.io/python-sdk/experimental/tasks/)
