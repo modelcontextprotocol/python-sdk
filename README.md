@@ -2584,11 +2584,7 @@ async def main() -> None:
     client = httpx.AsyncClient(auth=enterprise_auth, timeout=30.0)
 
     # Step 5: Connect to MCP server with authenticated client
-    async with streamable_http_client(url="https://mcp-server.example.com", http_client=client) as (
-        read,
-        write,
-        _,
-    ):
+    async with streamable_http_client(url="https://mcp-server.example.com", http_client=client) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
 
