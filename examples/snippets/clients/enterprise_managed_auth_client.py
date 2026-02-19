@@ -1,19 +1,16 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
-from typing import Any
 
 import httpx
 from pydantic import AnyUrl
 
 from mcp import ClientSession
-from mcp.client.auth import OAuthTokenError, TokenStorage
+from mcp.client.auth import TokenStorage
 from mcp.client.auth.extensions import (
     EnterpriseAuthOAuthClientProvider,
     TokenExchangeParameters,
 )
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
-from mcp.types import CallToolResult
 
 
 # Placeholder function for IdP authentication
@@ -44,73 +41,15 @@ class SimpleTokenStorage(TokenStorage):
         self._client_info = client_info
 
 
-def is_token_expired(access_token: OAuthToken) -> bool:
-    """Check if the access token has expired."""
-    if access_token.expires_in:
-        # Calculate expiration time
-        issued_at = datetime.now(timezone.utc)
-        expiration_time = issued_at + timedelta(seconds=access_token.expires_in)
-        return datetime.now(timezone.utc) >= expiration_time
-    return False
-
-
-async def refresh_access_token(
-    enterprise_auth: EnterpriseAuthOAuthClientProvider,
-    client: httpx.AsyncClient,
-    id_token: str,
-) -> OAuthToken:
-    """Refresh the access token when it expires."""
-    try:
-        # Update token exchange parameters with fresh ID token
-        enterprise_auth.token_exchange_params.subject_token = id_token
-
-        # Re-exchange for new ID-JAG
-        id_jag = await enterprise_auth.exchange_token_for_id_jag(client)
-
-        # Get new access token
-        access_token = await enterprise_auth.exchange_id_jag_for_access_token(client, id_jag)
-        return access_token
-    except Exception as e:
-        print(f"Token refresh failed: {e}")
-        # Re-authenticate with IdP if ID token is also expired
-        id_token = await get_id_token_from_idp()
-        return await refresh_access_token(enterprise_auth, client, id_token)
-
-
-async def call_tool_with_retry(
-    session: ClientSession,
-    tool_name: str,
-    arguments: dict[str, Any],
-    enterprise_auth: EnterpriseAuthOAuthClientProvider,
-    client: httpx.AsyncClient,
-    id_token: str,
-) -> CallToolResult | None:
-    """Call a tool with automatic retry on token expiration."""
-    max_retries = 1
-
-    for attempt in range(max_retries + 1):
-        try:
-            result = await session.call_tool(tool_name, arguments)
-            return result
-        except OAuthTokenError:
-            if attempt < max_retries:
-                print("Token expired, refreshing...")
-                # Refresh token and reconnect
-                _access_token = await refresh_access_token(enterprise_auth, client, id_token)
-                # Note: In production, you'd need to reconnect the session here
-            else:
-                raise
-    return None
-
-
 async def main() -> None:
-    # Step 1: Get ID token from your IdP (example with Okta)
-    id_token = await get_id_token_from_idp()  # Your IdP authentication
+    """Example demonstrating enterprise managed authorization with MCP."""
+    # Step 1: Get ID token from your IdP (e.g., Okta, Azure AD)
+    id_token = await get_id_token_from_idp()
 
     # Step 2: Configure token exchange parameters
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=id_token,
-        mcp_server_auth_issuer="https://your-idp.com",  # IdP issuer URL
+        mcp_server_auth_issuer="https://auth.mcp-server.example.com",  # MCP server's auth issuer
         mcp_server_resource_id="https://mcp-server.example.com",  # MCP server resource ID
         scope="mcp:tools mcp:resources",  # Optional scopes
     )
@@ -125,79 +64,86 @@ async def main() -> None:
             response_types=["token"],
         ),
         storage=SimpleTokenStorage(),
+        idp_token_endpoint="https://your-idp.com/oauth2/v1/token",  # Your IdP's token endpoint
+        token_exchange_params=token_exchange_params,
+    )
+
+    # Step 4: Create authenticated HTTP client
+    # The auth provider automatically handles the two-step token exchange:
+    # 1. ID Token → ID-JAG (via IDP)
+    # 2. ID-JAG → Access Token (via MCP server)
+    client = httpx.AsyncClient(auth=enterprise_auth, timeout=30.0)
+
+    # Step 5: Connect to MCP server with authenticated client
+    async with streamable_http_client(url="https://mcp-server.example.com", http_client=client) as (
+        read,
+        write,
+        _,
+    ):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            # List available tools
+            tools_result = await session.list_tools()
+            print(f"Available tools: {[t.name for t in tools_result.tools]}")
+
+            # Call a tool - auth tokens are automatically managed
+            if tools_result.tools:
+                tool_name = tools_result.tools[0].name
+                result = await session.call_tool(tool_name, {})
+                print(f"Tool result: {result.content}")
+
+            # List available resources
+            resources = await session.list_resources()
+            for resource in resources.resources:
+                print(f"Resource: {resource.uri}")
+
+
+async def advanced_manual_flow() -> None:
+    """Advanced example showing manual token exchange (for special use cases)."""
+    id_token = await get_id_token_from_idp()
+
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token=id_token,
+        mcp_server_auth_issuer="https://auth.mcp-server.example.com",
+        mcp_server_resource_id="https://mcp-server.example.com",
+    )
+
+    enterprise_auth = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example.com",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+        ),
+        storage=SimpleTokenStorage(),
         idp_token_endpoint="https://your-idp.com/oauth2/v1/token",
         token_exchange_params=token_exchange_params,
     )
 
+    # Manual token exchange (for debugging or special use cases)
     async with httpx.AsyncClient() as client:
-        # Step 4: Exchange ID token for ID-JAG
+        # Step 1: Exchange ID token for ID-JAG
         id_jag = await enterprise_auth.exchange_token_for_id_jag(client)
         print(f"Obtained ID-JAG: {id_jag[:50]}...")
 
-        # Step 5: Exchange ID-JAG for access token
-        access_token = await enterprise_auth.exchange_id_jag_for_access_token(client, id_jag)
+        # Step 2: Build JWT bearer grant request
+        jwt_bearer_request = await enterprise_auth.exchange_id_jag_for_access_token(id_jag)
+        print(f"Built JWT bearer grant request to: {jwt_bearer_request.url}")
+
+        # Step 3: Execute the request to get access token
+        response = await client.send(jwt_bearer_request)
+        response.raise_for_status()
+        token_data = response.json()
+
+        access_token = OAuthToken(
+            access_token=token_data["access_token"],
+            token_type=token_data["token_type"],
+            expires_in=token_data.get("expires_in"),
+        )
         print(f"Access token obtained, expires in: {access_token.expires_in}s")
 
-        # Step 6: Check if token is expired (for demonstration)
-        if is_token_expired(access_token):
-            print("Token is expired, refreshing...")
-            access_token = await refresh_access_token(enterprise_auth, client, id_token)
-
-        # Step 7: Use the access token to connect to MCP server
+        # Use the access token for API calls
         headers = {"Authorization": f"Bearer {access_token.access_token}"}
-
-        async with sse_client(url="https://mcp-server.example.com", headers=headers) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-
-                # Call tools with automatic retry on token expiration
-                result = await call_tool_with_retry(
-                    session, "enterprise_tool", {"param": "value"}, enterprise_auth, client, id_token
-                )
-                if result:
-                    print(f"Tool result: {result.content}")
-
-                # List available resources
-                resources = await session.list_resources()
-                for resource in resources.resources:
-                    print(f"Resource: {resource.uri}")
-
-
-async def maintain_active_session(
-    enterprise_auth: EnterpriseAuthOAuthClientProvider,
-    mcp_server_url: str,
-) -> None:
-    """Maintain an active session with automatic token refresh."""
-    id_token_var = await get_id_token_from_idp()
-
-    async with httpx.AsyncClient() as client:
-        while True:
-            try:
-                # Update token exchange params with current ID token
-                enterprise_auth.token_exchange_params.subject_token = id_token_var
-
-                # Get access token
-                id_jag = await enterprise_auth.exchange_token_for_id_jag(client)
-                access_token = await enterprise_auth.exchange_id_jag_for_access_token(client, id_jag)
-
-                # Calculate refresh time (refresh before expiration)
-                refresh_in = access_token.expires_in - 60 if access_token.expires_in else 300
-
-                # Use the token for MCP operations
-                headers = {"Authorization": f"Bearer {access_token.access_token}"}
-                async with sse_client(mcp_server_url, headers=headers) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-
-                        # Perform operations...
-                        # Schedule refresh before token expires
-                        await asyncio.sleep(refresh_in)
-
-            except Exception as e:
-                print(f"Session error: {e}")
-                # Re-authenticate with IdP
-                id_token_var = await get_id_token_from_idp()
-                await asyncio.sleep(5)  # Wait before retry
+        # ... make authenticated requests with headers
 
 
 if __name__ == "__main__":
