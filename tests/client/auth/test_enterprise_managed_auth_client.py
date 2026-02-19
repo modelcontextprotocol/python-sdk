@@ -377,10 +377,10 @@ async def test_exchange_id_jag_for_access_token_success(sample_id_jag: str, mock
 
     # Parse the request body
     import urllib.parse
+
     body_params = urllib.parse.parse_qs(request.content.decode())
     assert body_params["grant_type"][0] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
     assert body_params["assertion"][0] == sample_id_jag
-
 
 
 @pytest.mark.anyio
@@ -464,6 +464,7 @@ async def test_perform_authorization_full_flow(mock_token_storage: Any, sample_i
 
         # Verify the request contains JWT bearer grant
         import urllib.parse
+
         body_params = urllib.parse.parse_qs(request.content.decode())
         assert body_params["grant_type"][0] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
         assert body_params["assertion"][0] == sample_id_jag
@@ -514,6 +515,7 @@ async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any, 
 
     # Verify it uses the cached ID-JAG
     import urllib.parse
+
     body_params = urllib.parse.parse_qs(request.content.decode())
     assert body_params["assertion"][0] == sample_id_jag
 
@@ -786,12 +788,12 @@ async def test_exchange_id_jag_with_client_authentication(sample_id_jag: str, mo
 
     # Verify client credentials were included in request body
     import urllib.parse
+
     body_params = urllib.parse.parse_qs(request.content.decode())
     assert body_params["client_id"][0] == "test-client-id"
     # With client_secret_basic (default), credentials should be in Authorization header
     assert "Authorization" in request.headers
     assert request.headers["Authorization"].startswith("Basic ")
-
 
 
 @pytest.mark.anyio
@@ -837,13 +839,12 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag: str, mock_toke
 
     # Verify client_id was included but NOT client_secret
     import urllib.parse
+
     body_params = urllib.parse.parse_qs(request.content.decode())
     assert body_params["client_id"][0] == "test-client-id"
     assert "client_secret" not in body_params
     # With no client_secret, there should be no Authorization header either
     assert "Authorization" not in request.headers or not request.headers["Authorization"].startswith("Basic ")
-
-
 
 
 @pytest.mark.anyio
@@ -950,9 +951,9 @@ async def test_exchange_id_jag_with_client_info_but_no_client_id(sample_id_jag: 
 
     # Verify client_id was not included (None), but client_secret should be handled
     import urllib.parse
+
     body_params = urllib.parse.parse_qs(request.content.decode())
     assert "client_id" not in body_params or body_params["client_id"][0] == ""
-
 
 
 def test_validate_token_exchange_params_missing_audience():
@@ -1025,6 +1026,7 @@ async def test_exchange_id_jag_with_existing_auth_method(sample_id_jag: str, moc
 
     # Verify it used client_secret_post (in body, not header)
     import urllib.parse
+
     body_params = urllib.parse.parse_qs(request.content.decode())
     assert body_params["client_id"][0] == "test-client-id"
     assert body_params["client_secret"][0] == "test-client-secret"
