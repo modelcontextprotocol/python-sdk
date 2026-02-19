@@ -374,8 +374,6 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         return jwt_bearer_request
 
 
-
-
 def decode_id_jag(id_jag: str) -> IDJAGClaims:
     """Decode an ID-JAG token without verification.
 
