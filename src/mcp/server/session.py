@@ -123,6 +123,17 @@ class ServerSession(
         types.ClientNotification,
     ]
 ):
+    """Server-side MCP session.
+
+    Concurrency model: incoming messages are processed sequentially by a single
+    ``_receive_loop`` task spawned in ``BaseSession.__aenter__``.  All state
+    transitions driven by messages (``_received_request``, ``_received_notification``)
+    therefore execute without concurrent interleaving.  The only other code path
+    that mutates ``_initialization_state`` is ``__aexit__``, which may overlap
+    briefly with the receive loop before the task group is cancelled; that path
+    already handles transition failures gracefully.
+    """
+
     _initialization_state: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
     _experimental_features: ExperimentalServerSessionFeatures | None = None
@@ -171,6 +182,12 @@ class ServerSession(
 
     def _transition_state(self, new_state: InitializationState) -> None:
         """Transition the session to a new state, validating the transition.
+
+        This method is intentionally synchronous (no ``await``), so under
+        cooperative scheduling no task switch can occur between the validity
+        check and the state assignment.  External synchronization is therefore
+        unnecessary as long as the single-consumer invariant documented on the
+        class holds.
 
         Args:
             new_state: The target state to transition to.
