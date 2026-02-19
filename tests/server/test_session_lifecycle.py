@@ -67,17 +67,16 @@ async def _session_context(
 # ---------------------------------------------------------------------------
 
 
-class TestInitializationStateEnum:
-    """Verify the expanded InitializationState enum values."""
+def test_enum_all_states_present() -> None:
+    """Verify the expanded InitializationState enum has all expected members."""
+    expected = {"NotInitialized", "Initializing", "Initialized", "Stateless", "Closing", "Closed"}
+    actual = {s.name for s in InitializationState}
+    assert actual == expected
 
-    def test_all_states_present(self) -> None:
-        expected = {"NotInitialized", "Initializing", "Initialized", "Stateless", "Closing", "Closed"}
-        actual = {s.name for s in InitializationState}
-        assert actual == expected
 
-    def test_values_are_distinct(self) -> None:
-        values = [s.value for s in InitializationState]
-        assert len(values) == len(set(values))
+def test_enum_values_are_distinct() -> None:
+    values = [s.value for s in InitializationState]
+    assert len(values) == len(set(values))
 
 
 # ---------------------------------------------------------------------------
@@ -85,15 +84,13 @@ class TestInitializationStateEnum:
 # ---------------------------------------------------------------------------
 
 
-class TestValidTransitions:
-    """Verify the _VALID_TRANSITIONS table is complete and correct."""
+def test_transitions_all_states_have_entry() -> None:
+    for state in InitializationState:
+        assert state in _VALID_TRANSITIONS, f"Missing entry for {state.name}"
 
-    def test_all_states_have_entry(self) -> None:
-        for state in InitializationState:
-            assert state in _VALID_TRANSITIONS, f"Missing entry for {state.name}"
 
-    def test_closed_is_terminal(self) -> None:
-        assert _VALID_TRANSITIONS[InitializationState.Closed] == set()
+def test_transitions_closed_is_terminal() -> None:
+    assert _VALID_TRANSITIONS[InitializationState.Closed] == set()
 
 
 # ---------------------------------------------------------------------------
@@ -101,52 +98,52 @@ class TestValidTransitions:
 # ---------------------------------------------------------------------------
 
 
-class TestTransitionState:
-    """Unit tests for ServerSession._transition_state."""
+async def test_transition_valid_stateful_lifecycle() -> None:
+    """NotInitialized -> Initializing -> Initialized -> Closing -> Closed."""
+    async with _session_context() as session:
+        assert session.initialization_state == InitializationState.NotInitialized
 
-    async def test_valid_stateful_lifecycle(self) -> None:
-        """NotInitialized -> Initializing -> Initialized -> Closing -> Closed."""
-        async with _session_context() as session:
-            assert session.initialization_state == InitializationState.NotInitialized
+        session._transition_state(InitializationState.Initializing)
+        assert session.initialization_state == InitializationState.Initializing
 
-            session._transition_state(InitializationState.Initializing)
-            assert session.initialization_state == InitializationState.Initializing
+        session._transition_state(InitializationState.Initialized)
+        assert session.initialization_state == InitializationState.Initialized
 
-            session._transition_state(InitializationState.Initialized)
-            assert session.initialization_state == InitializationState.Initialized
+        session._transition_state(InitializationState.Closing)
+        assert session.initialization_state == InitializationState.Closing
 
-            session._transition_state(InitializationState.Closing)
-            assert session.initialization_state == InitializationState.Closing
+        session._transition_state(InitializationState.Closed)
+        assert session.initialization_state == InitializationState.Closed
 
+
+async def test_transition_valid_stateless_lifecycle() -> None:
+    """Stateless -> Closing -> Closed."""
+    async with _session_context(stateless=True) as session:
+        assert session.initialization_state == InitializationState.Stateless
+
+        session._transition_state(InitializationState.Closing)
+        assert session.initialization_state == InitializationState.Closing
+
+        session._transition_state(InitializationState.Closed)
+        assert session.initialization_state == InitializationState.Closed
+
+
+async def test_transition_invalid_raises() -> None:
+    """Attempting an invalid transition raises RuntimeError."""
+    async with _session_context() as session:
+        with pytest.raises(RuntimeError, match="Invalid session state transition"):
             session._transition_state(InitializationState.Closed)
-            assert session.initialization_state == InitializationState.Closed
 
-    async def test_valid_stateless_lifecycle(self) -> None:
-        """Stateless -> Closing -> Closed."""
-        async with _session_context(stateless=True) as session:
-            assert session.initialization_state == InitializationState.Stateless
 
-            session._transition_state(InitializationState.Closing)
-            assert session.initialization_state == InitializationState.Closing
+async def test_transition_closed_to_anything_raises() -> None:
+    """Closed is terminal — no transitions allowed."""
+    async with _session_context() as session:
+        session._transition_state(InitializationState.Closing)
+        session._transition_state(InitializationState.Closed)
 
-            session._transition_state(InitializationState.Closed)
-            assert session.initialization_state == InitializationState.Closed
-
-    async def test_invalid_transition_raises(self) -> None:
-        """Attempting an invalid transition raises RuntimeError."""
-        async with _session_context() as session:
+        for state in InitializationState:
             with pytest.raises(RuntimeError, match="Invalid session state transition"):
-                session._transition_state(InitializationState.Closed)
-
-    async def test_closed_to_anything_raises(self) -> None:
-        """Closed is terminal — no transitions allowed."""
-        async with _session_context() as session:
-            session._transition_state(InitializationState.Closing)
-            session._transition_state(InitializationState.Closed)
-
-            for state in InitializationState:
-                with pytest.raises(RuntimeError, match="Invalid session state transition"):
-                    session._transition_state(state)
+                session._transition_state(state)
 
 
 # ---------------------------------------------------------------------------
@@ -154,38 +151,39 @@ class TestTransitionState:
 # ---------------------------------------------------------------------------
 
 
-class TestIsInitialized:
-    """Tests for the is_initialized property."""
+@pytest.mark.parametrize(
+    ("stateless", "expected_state"),
+    [
+        (False, InitializationState.NotInitialized),
+        (True, InitializationState.Stateless),
+    ],
+)
+async def test_is_initialized_initial_state(stateless: bool, expected_state: InitializationState) -> None:
+    async with _session_context(stateless=stateless) as session:
+        assert session.initialization_state == expected_state
 
-    @pytest.mark.parametrize(
-        ("stateless", "expected_state"),
-        [
-            (False, InitializationState.NotInitialized),
-            (True, InitializationState.Stateless),
-        ],
-    )
-    async def test_initial_state(self, stateless: bool, expected_state: InitializationState) -> None:
-        async with _session_context(stateless=stateless) as session:
-            assert session.initialization_state == expected_state
 
-    async def test_not_initialized_returns_false(self) -> None:
-        async with _session_context() as session:
-            assert not session.is_initialized
+async def test_is_initialized_not_initialized_returns_false() -> None:
+    async with _session_context() as session:
+        assert not session.is_initialized
 
-    async def test_initializing_returns_false(self) -> None:
-        async with _session_context() as session:
-            session._transition_state(InitializationState.Initializing)
-            assert not session.is_initialized
 
-    async def test_initialized_returns_true(self) -> None:
-        async with _session_context() as session:
-            session._transition_state(InitializationState.Initializing)
-            session._transition_state(InitializationState.Initialized)
-            assert session.is_initialized
+async def test_is_initialized_initializing_returns_false() -> None:
+    async with _session_context() as session:
+        session._transition_state(InitializationState.Initializing)
+        assert not session.is_initialized
 
-    async def test_stateless_returns_true(self) -> None:
-        async with _session_context(stateless=True) as session:
-            assert session.is_initialized
+
+async def test_is_initialized_initialized_returns_true() -> None:
+    async with _session_context() as session:
+        session._transition_state(InitializationState.Initializing)
+        session._transition_state(InitializationState.Initialized)
+        assert session.is_initialized
+
+
+async def test_is_initialized_stateless_returns_true() -> None:
+    async with _session_context(stateless=True) as session:
+        assert session.is_initialized
 
 
 # ---------------------------------------------------------------------------
@@ -193,34 +191,33 @@ class TestIsInitialized:
 # ---------------------------------------------------------------------------
 
 
-class TestSessionExit:
-    """Test that __aexit__ transitions to Closing -> Closed."""
+async def test_aexit_transitions_to_closed() -> None:
+    """Normal exit transitions through Closing -> Closed."""
+    async with _session_context() as session:
+        async with session:
+            assert session.initialization_state == InitializationState.NotInitialized
 
-    async def test_aexit_transitions_to_closed(self) -> None:
-        """Normal exit transitions through Closing -> Closed."""
-        async with _session_context() as session:
-            async with session:
-                assert session.initialization_state == InitializationState.NotInitialized
+        assert session.initialization_state == InitializationState.Closed
 
-            assert session.initialization_state == InitializationState.Closed
 
-    async def test_aexit_from_initialized(self) -> None:
-        """Session transitions to Closed even when initialized."""
-        async with _session_context() as session:
-            async with session:
-                session._transition_state(InitializationState.Initializing)
-                session._transition_state(InitializationState.Initialized)
-                assert session.is_initialized
+async def test_aexit_from_initialized() -> None:
+    """Session transitions to Closed even when initialized."""
+    async with _session_context() as session:
+        async with session:
+            session._transition_state(InitializationState.Initializing)
+            session._transition_state(InitializationState.Initialized)
+            assert session.is_initialized
 
-            assert session.initialization_state == InitializationState.Closed
+        assert session.initialization_state == InitializationState.Closed
 
-    async def test_aexit_stateless_transitions_to_closed(self) -> None:
-        """Stateless sessions also transition to Closed on exit."""
-        async with _session_context(stateless=True) as session:
-            async with session:
-                assert session.initialization_state == InitializationState.Stateless
 
-            assert session.initialization_state == InitializationState.Closed
+async def test_aexit_stateless_transitions_to_closed() -> None:
+    """Stateless sessions also transition to Closed on exit."""
+    async with _session_context(stateless=True) as session:
+        async with session:
+            assert session.initialization_state == InitializationState.Stateless
+
+        assert session.initialization_state == InitializationState.Closed
 
 
 # ---------------------------------------------------------------------------
@@ -228,56 +225,49 @@ class TestSessionExit:
 # ---------------------------------------------------------------------------
 
 
-class TestFullHandshakeLifecycle:
-    """Integration test: client/server handshake uses state transitions correctly."""
+async def test_stateful_handshake() -> None:
+    """Stateful handshake transitions NotInitialized -> Initializing -> Initialized."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
-    async def test_stateful_handshake(self) -> None:
-        """Stateful handshake transitions NotInitialized -> Initializing -> Initialized."""
-        server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage | Exception](
-            1
-        )
-        client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](
-            1
-        )
+    received_initialized = False
 
-        received_initialized = False
+    async def run_server() -> None:
+        nonlocal received_initialized
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            _DEFAULT_INIT_OPTIONS,
+        ) as server_session:
+            async for message in server_session.incoming_messages:  # pragma: no branch
+                if isinstance(message, Exception):  # pragma: no cover
+                    raise message
+                if isinstance(message, InitializedNotification):  # pragma: no branch
+                    assert server_session.is_initialized
+                    assert server_session.initialization_state == InitializationState.Initialized
+                    received_initialized = True
+                    return
 
-        async def run_server() -> None:
-            nonlocal received_initialized
-            async with ServerSession(
-                client_to_server_receive,
-                server_to_client_send,
-                _DEFAULT_INIT_OPTIONS,
-            ) as server_session:
-                async for message in server_session.incoming_messages:  # pragma: no branch
-                    if isinstance(message, Exception):  # pragma: no cover
-                        raise message
-                    if isinstance(message, InitializedNotification):  # pragma: no branch
-                        assert server_session.is_initialized
-                        assert server_session.initialization_state == InitializationState.Initialized
-                        received_initialized = True
-                        return
+    async def message_handler(  # pragma: no cover
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            raise message
 
-        async def message_handler(  # pragma: no cover
-            message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
-        ) -> None:
-            if isinstance(message, Exception):
-                raise message
-
-        try:
-            async with (
+    try:
+        async with (
+            server_to_client_receive,
+            client_to_server_send,
+            ClientSession(
                 server_to_client_receive,
                 client_to_server_send,
-                ClientSession(
-                    server_to_client_receive,
-                    client_to_server_send,
-                    message_handler=message_handler,
-                ) as client_session,
-                anyio.create_task_group() as tg,
-            ):
-                tg.start_soon(run_server)
-                await client_session.initialize()
-        except anyio.ClosedResourceError:  # pragma: no cover
-            pass
+                message_handler=message_handler,
+            ) as client_session,
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(run_server)
+            await client_session.initialize()
+    except anyio.ClosedResourceError:  # pragma: no cover
+        pass
 
-        assert received_initialized
+    assert received_initialized
