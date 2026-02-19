@@ -47,20 +47,55 @@ class TransportSecurityMiddleware:
             return False
 
         # Check exact match first
+        print(host)
         if host in self.settings.allowed_hosts:
             return True
-
-        # Check wildcard port patterns
+        
         for allowed in self.settings.allowed_hosts:
-            if allowed.endswith(":*"):
-                # Extract base host from pattern
-                base_host = allowed[:-2]
-                # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
-                    return True
 
+            # normalize incoming host
+            host_without_https = (
+                host.replace("https://", "")
+                    .replace("http://", "")
+                    .split("/")[0]
+                    .strip()
+            )
+    
+            # split request host + port
+            if ":" in host_without_https:
+                request_host, request_port = host_without_https.split(":", 1)
+            else:
+                request_host = host_without_https
+                request_port = None
+    
+            # ---------- CASE 1: wildcard port (example.com:*) ----------
+            if allowed.endswith(":*"):
+                base_host = allowed[:-2]
+                print(base_host)
+    
+                if request_host == base_host:
+                    return True
+    
+            # ---------- CASE 2: specific port (example.com:443) ----------
+            elif ":" in allowed:
+                allowed_host, allowed_port = allowed.split(":", 1)
+    
+                if (
+                    request_host == allowed_host
+                    and request_port == allowed_port
+                ):
+                    return True
+    
+            # ---------- CASE 3: host only (allow any port) ----------
+            else:
+                if request_host == allowed:
+                    return True
+    
+                logger.warning(f"Invalid Host header: {host}")
+                return False
+            
         logger.warning(f"Invalid Host header: {host}")
-        return False
+        return False    
 
     def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
         """Validate the Origin header against allowed values."""
