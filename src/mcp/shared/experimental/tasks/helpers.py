@@ -50,6 +50,7 @@ def is_terminal(status: TaskStatus) -> bool:
 async def cancel_task(
     store: TaskStore,
     task_id: str,
+    session_id: str | None = None,
 ) -> CancelTaskResult:
     """Cancel a task with spec-compliant validation.
 
@@ -62,20 +63,21 @@ async def cancel_task(
     Args:
         store: The task store
         task_id: The task identifier to cancel
+        session_id: Optional session identifier for access control.
 
     Returns:
         CancelTaskResult with the cancelled task state
 
     Raises:
         MCPError: With INVALID_PARAMS (-32602) if:
-            - Task does not exist
+            - Task does not exist or is not accessible by this session
             - Task is already in a terminal state (completed, failed, cancelled)
 
     Example:
         async def handle_cancel(ctx, params: CancelTaskRequestParams) -> CancelTaskResult:
             return await cancel_task(store, params.task_id)
     """
-    task = await store.get_task(task_id)
+    task = await store.get_task(task_id, session_id=session_id)
     if task is None:
         raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
@@ -83,7 +85,7 @@ async def cancel_task(
         raise MCPError(code=INVALID_PARAMS, message=f"Cannot cancel task in terminal state '{task.status}'")
 
     # Update task to cancelled status
-    cancelled_task = await store.update_task(task_id, status=TASK_STATUS_CANCELLED)
+    cancelled_task = await store.update_task(task_id, status=TASK_STATUS_CANCELLED, session_id=session_id)
     return CancelTaskResult(**cancelled_task.model_dump())
 
 

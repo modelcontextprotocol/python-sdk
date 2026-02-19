@@ -19,12 +19,15 @@ class TaskStore(ABC):
         self,
         metadata: TaskMetadata,
         task_id: str | None = None,
+        session_id: str | None = None,
     ) -> Task:
         """Create a new task.
 
         Args:
             metadata: Task metadata (ttl, etc.)
             task_id: Optional task ID. If None, implementation should generate one.
+            session_id: Optional session identifier. When provided, the task is
+                bound to this session for isolation purposes.
 
         Returns:
             The created Task with status="working"
@@ -34,14 +37,15 @@ class TaskStore(ABC):
         """
 
     @abstractmethod
-    async def get_task(self, task_id: str) -> Task | None:
+    async def get_task(self, task_id: str, session_id: str | None = None) -> Task | None:
         """Get a task by ID.
 
         Args:
             task_id: The task identifier
+            session_id: Optional session identifier for access control.
 
         Returns:
-            The Task, or None if not found
+            The Task, or None if not found or not accessible by this session.
         """
 
     @abstractmethod
@@ -50,6 +54,7 @@ class TaskStore(ABC):
         task_id: str,
         status: TaskStatus | None = None,
         status_message: str | None = None,
+        session_id: str | None = None,
     ) -> Task:
         """Update a task's status and/or message.
 
@@ -57,63 +62,70 @@ class TaskStore(ABC):
             task_id: The task identifier
             status: New status (if changing)
             status_message: New status message (if changing)
+            session_id: Optional session identifier for access control.
 
         Returns:
             The updated Task
 
         Raises:
-            ValueError: If task not found
+            ValueError: If task not found or not accessible by this session.
             ValueError: If attempting to transition from a terminal status
                 (completed, failed, cancelled). Per spec, terminal states
                 MUST NOT transition to any other status.
         """
 
     @abstractmethod
-    async def store_result(self, task_id: str, result: Result) -> None:
+    async def store_result(self, task_id: str, result: Result, session_id: str | None = None) -> None:
         """Store the result for a task.
 
         Args:
             task_id: The task identifier
             result: The result to store
+            session_id: Optional session identifier for access control.
 
         Raises:
-            ValueError: If task not found
+            ValueError: If task not found or not accessible by this session.
         """
 
     @abstractmethod
-    async def get_result(self, task_id: str) -> Result | None:
+    async def get_result(self, task_id: str, session_id: str | None = None) -> Result | None:
         """Get the stored result for a task.
 
         Args:
             task_id: The task identifier
+            session_id: Optional session identifier for access control.
 
         Returns:
-            The stored Result, or None if not available
+            The stored Result, or None if not available.
         """
 
     @abstractmethod
     async def list_tasks(
         self,
         cursor: str | None = None,
+        session_id: str | None = None,
     ) -> tuple[list[Task], str | None]:
         """List tasks with pagination.
 
         Args:
             cursor: Optional cursor for pagination
+            session_id: Optional session identifier. When provided, only tasks
+                belonging to this session are returned.
 
         Returns:
             Tuple of (tasks, next_cursor). next_cursor is None if no more pages.
         """
 
     @abstractmethod
-    async def delete_task(self, task_id: str) -> bool:
+    async def delete_task(self, task_id: str, session_id: str | None = None) -> bool:
         """Delete a task.
 
         Args:
             task_id: The task identifier
+            session_id: Optional session identifier for access control.
 
         Returns:
-            True if deleted, False if not found
+            True if deleted, False if not found or not accessible by this session.
         """
 
     @abstractmethod

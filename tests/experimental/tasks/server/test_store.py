@@ -404,3 +404,157 @@ async def test_cancel_task_succeeds_for_input_required_task(store: InMemoryTaskS
 
     assert result.task_id == task.task_id
     assert result.status == "cancelled"
+
+
+# --- Session isolation tests ---
+
+
+@pytest.mark.anyio
+async def test_session_b_cannot_list_tasks_created_by_session_a(store: InMemoryTaskStore) -> None:
+    """Test that session-b cannot list tasks created by session-a."""
+    await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+    await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    tasks, _ = await store.list_tasks(session_id="session-b")
+    assert len(tasks) == 0
+
+
+@pytest.mark.anyio
+async def test_session_b_cannot_read_task_created_by_session_a(store: InMemoryTaskStore) -> None:
+    """Test that session-b cannot read a task created by session-a."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    result = await store.get_task(task.task_id, session_id="session-b")
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_session_b_cannot_update_task_created_by_session_a(store: InMemoryTaskStore) -> None:
+    """Test that session-b cannot update a task created by session-a."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    with pytest.raises(ValueError, match="not found"):
+        await store.update_task(task.task_id, status="cancelled", session_id="session-b")
+
+
+@pytest.mark.anyio
+async def test_session_b_cannot_store_result_on_session_a_task(store: InMemoryTaskStore) -> None:
+    """Test that session-b cannot store a result on session-a's task."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+    result = CallToolResult(content=[TextContent(type="text", text="secret")])
+
+    with pytest.raises(ValueError, match="not found"):
+        await store.store_result(task.task_id, result, session_id="session-b")
+
+
+@pytest.mark.anyio
+async def test_session_b_cannot_get_result_of_session_a_task(store: InMemoryTaskStore) -> None:
+    """Test that session-b cannot get the result of session-a's task."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+    result = CallToolResult(content=[TextContent(type="text", text="secret")])
+    await store.store_result(task.task_id, result, session_id="session-a")
+
+    retrieved = await store.get_result(task.task_id, session_id="session-b")
+    assert retrieved is None
+
+
+@pytest.mark.anyio
+async def test_session_b_cannot_delete_task_created_by_session_a(store: InMemoryTaskStore) -> None:
+    """Test that session-b cannot delete a task created by session-a."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    deleted = await store.delete_task(task.task_id, session_id="session-b")
+    assert deleted is False
+
+    # Task should still exist for session-a
+    retrieved = await store.get_task(task.task_id, session_id="session-a")
+    assert retrieved is not None
+
+
+@pytest.mark.anyio
+async def test_owning_session_can_access_its_own_tasks(store: InMemoryTaskStore) -> None:
+    """Test that the owning session can access its own tasks."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    retrieved = await store.get_task(task.task_id, session_id="session-a")
+    assert retrieved is not None
+    assert retrieved.task_id == task.task_id
+
+
+@pytest.mark.anyio
+async def test_list_only_tasks_belonging_to_requesting_session(store: InMemoryTaskStore) -> None:
+    """Test that list_tasks returns only tasks belonging to the requesting session."""
+    await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+    await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-b")
+    await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    tasks_a, _ = await store.list_tasks(session_id="session-a")
+    assert len(tasks_a) == 2
+
+    tasks_b, _ = await store.list_tasks(session_id="session-b")
+    assert len(tasks_b) == 1
+
+
+@pytest.mark.anyio
+async def test_no_session_id_allows_access_backward_compat(store: InMemoryTaskStore) -> None:
+    """Test backward compatibility: no session_id on read allows access to all tasks."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    # No session_id on read = no filtering
+    retrieved = await store.get_task(task.task_id)
+    assert retrieved is not None
+
+
+@pytest.mark.anyio
+async def test_task_created_without_session_id_accessible_by_any_session(store: InMemoryTaskStore) -> None:
+    """Test that tasks created without session_id are accessible by any session."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+
+    # Any session_id on read should still see the task
+    retrieved = await store.get_task(task.task_id, session_id="session-b")
+    assert retrieved is not None
+
+
+@pytest.mark.anyio
+async def test_session_isolation_pagination() -> None:
+    """Test that pagination works correctly within a session."""
+    store = InMemoryTaskStore(page_size=10)
+
+    # Create 15 tasks for session-a, 5 for session-b
+    for _ in range(15):
+        await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+    for _ in range(5):
+        await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-b")
+
+    # First page for session-a should have 10
+    page1, next_cursor = await store.list_tasks(session_id="session-a")
+    assert len(page1) == 10
+    assert next_cursor is not None
+
+    # Second page for session-a should have 5
+    page2, next_cursor = await store.list_tasks(cursor=next_cursor, session_id="session-a")
+    assert len(page2) == 5
+    assert next_cursor is None
+
+    # session-b should only see its 5
+    tasks_b, next_cursor = await store.list_tasks(session_id="session-b")
+    assert len(tasks_b) == 5
+    assert next_cursor is None
+
+    store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_cancel_task_with_session_isolation(store: InMemoryTaskStore) -> None:
+    """Test that cancel_task respects session isolation."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="session-a")
+
+    # session-b should not be able to cancel session-a's task
+    with pytest.raises(MCPError) as exc_info:
+        await cancel_task(store, task.task_id, session_id="session-b")
+    assert exc_info.value.error.code == INVALID_PARAMS
+    assert "not found" in exc_info.value.error.message
+
+    # session-a should be able to cancel its own task
+    result = await cancel_task(store, task.task_id, session_id="session-a")
+    assert result.status == "cancelled"
