@@ -229,11 +229,18 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         """
         logger.info("Starting token exchange for ID-JAG")
 
+        # Use the actual OAuth metadata issuer as audience if available
+        # This ensures the ID-JAG's aud claim matches what the auth server expects
+        audience = self.token_exchange_params.audience
+        if self.context.oauth_metadata and self.context.oauth_metadata.issuer:
+            audience = str(self.context.oauth_metadata.issuer)
+            logger.debug(f"Using OAuth metadata issuer as ID-JAG audience: {audience}")
+
         # Build token exchange request
         token_data: TokenExchangeRequestData = {
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "requested_token_type": self.token_exchange_params.requested_token_type,
-            "audience": self.token_exchange_params.audience,
+            "audience": audience,
             "resource": self.token_exchange_params.resource,
             "subject_token": self.token_exchange_params.subject_token,
             "subject_token_type": self.token_exchange_params.subject_token_type,
@@ -283,22 +290,20 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
     async def exchange_id_jag_for_access_token(
         self,
-        client: httpx.AsyncClient,
         id_jag: str,
-    ) -> OAuthToken:
-        """Exchange ID-JAG for access token using RFC 7523 JWT Bearer Grant.
+    ) -> httpx.Request:
+        """Build JWT bearer grant request to exchange ID-JAG for access token (RFC 7523).
 
         Args:
-            client: HTTP client for making requests
             id_jag: The ID-JAG token
 
         Returns:
-            OAuth access token
+            httpx.Request for the JWT bearer grant
 
         Raises:
-            OAuthTokenError: If JWT bearer grant fails
+            OAuthFlowError: If OAuth metadata not discovered
         """
-        logger.info("Exchanging ID-JAG for access token")
+        logger.info("Building JWT bearer grant request for ID-JAG")
 
         # Discover token endpoint from MCP server if not already done
         if not self.context.oauth_metadata or not self.context.oauth_metadata.token_endpoint:
@@ -314,57 +319,58 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
         # Add client authentication
         if self.context.client_info:
+            # Default to client_secret_basic if not specified (per OAuth 2.0 spec)
+            if self.context.client_info.token_endpoint_auth_method is None:
+                self.context.client_info.token_endpoint_auth_method = "client_secret_basic"
+
             if self.context.client_info.client_id is not None:
                 token_data["client_id"] = self.context.client_info.client_id
             if self.context.client_info.client_secret is not None:
                 token_data["client_secret"] = self.context.client_info.client_secret
 
-        try:
-            response = await client.post(
-                token_endpoint,
-                data=token_data,
-                timeout=self.context.timeout,
-            )
+        # Apply client authentication method (handles client_secret_basic vs client_secret_post)
+        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
-            if response.status_code != 200:
-                error_data: dict[str, str] = (
-                    response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-                )
-                error: str = error_data.get("error", "unknown_error")
-                error_description: str = error_data.get("error_description", "JWT bearer grant failed")
-                raise OAuthTokenError(f"JWT bearer grant failed: {error} - {error_description}")
-
-            # Parse OAuth token response
-            token = OAuthToken.model_validate_json(response.content)
-
-            # Store tokens
-            self.context.current_tokens = token
-            self.context.update_token_expiry(token)
-            await self.context.storage.set_tokens(token)
-
-            logger.info("Successfully obtained access token via ID-JAG")
-            return token
-
-        except httpx.HTTPError as e:
-            raise OAuthTokenError(f"HTTP error during JWT bearer grant: {e}") from e
+        return httpx.Request("POST", token_endpoint, data=token_data, headers=headers)
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform enterprise authorization flow.
 
         Overrides parent method to use token exchange + JWT bearer grant
         instead of standard authorization code flow.
+
+        This method:
+        1. Exchanges IDP ID token for ID-JAG at the IDP server (direct HTTP call)
+        2. Returns an httpx.Request for JWT bearer grant (ID-JAG → Access token)
+
+        Returns:
+            httpx.Request for the JWT bearer grant to the MCP authorization server
         """
         # Check if we already have valid tokens
         if self.context.is_token_valid():
-            # Return a dummy request - we don't need to make any request
-            return httpx.Request("GET", self.context.server_url)
+            # Need to return a request, so return the JWT bearer grant with current tokens
+            # This shouldn't normally happen, but if it does, we'll just refresh
+            if self._id_jag:
+                return await self.exchange_id_jag_for_access_token(self._id_jag)
+            # No ID-JAG stored, fall through to do the full flow
 
-        # For now, raise NotImplementedError as this requires integration
-        # with the full httpx auth flow
-        raise NotImplementedError(
-            "Full enterprise auth flow integration not yet implemented. "
-            "Use exchange_token_for_id_jag and exchange_id_jag_for_access_token directly."
-        )
+        # Step 1: Exchange IDP ID token for ID-JAG (RFC 8693)
+        # This is an external call to the IDP, so we make it directly
+        async with httpx.AsyncClient(timeout=self.context.timeout) as client:
+            id_jag = await self.exchange_token_for_id_jag(client)
+            # Cache the ID-JAG for potential reuse
+            self._id_jag = id_jag
+
+        # Step 2: Build JWT bearer grant request (RFC 7523)
+        # This request will be yielded by the parent's async_auth_flow
+        # and the response will be handled by _handle_token_response
+        jwt_bearer_request = await self.exchange_id_jag_for_access_token(id_jag)
+
+        logger.debug("Returning JWT bearer grant request to async_auth_flow")
+        return jwt_bearer_request
+
+
 
 
 def decode_id_jag(id_jag: str) -> IDJAGClaims:

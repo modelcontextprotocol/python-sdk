@@ -5,7 +5,7 @@ It handles all conformance test scenarios via environment variables and CLI argu
 
 Contract:
     - MCP_CONFORMANCE_SCENARIO env var -> scenario name
-    - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for client-credentials scenarios)
+    - MCP_CONFORMANCE_CONTEXT env var -> optional JSON (for auth scenarios)
     - Server URL as last CLI argument (sys.argv[1])
     - Must exit 0 within 30 seconds
 
@@ -16,10 +16,19 @@ Scenarios:
     elicitation-sep1034-client-defaults     - Elicitation with default accept callback
     auth/client-credentials-jwt             - Client credentials with private_key_jwt
     auth/client-credentials-basic           - Client credentials with client_secret_basic
-    auth/enterprise-token-exchange          - Enterprise auth with OIDC ID token (SEP-990)
-    auth/enterprise-saml-exchange           - Enterprise auth with SAML assertion (SEP-990)
-    auth/enterprise-id-jag-validation       - Validate ID-JAG token structure (SEP-990)
+    auth/cross-app-access-complete-flow     - Enterprise managed OAuth (SEP-990) - v0.1.14+
+    auth/enterprise-token-exchange          - Enterprise auth with OIDC ID token (legacy name)
+    auth/enterprise-saml-exchange           - Enterprise auth with SAML assertion (legacy name)
+    auth/enterprise-id-jag-validation       - Validate ID-JAG token structure (legacy name)
     auth/*                                  - Authorization code flow (default for auth scenarios)
+
+Enterprise Auth (SEP-990):
+    The conformance package v0.1.14+ (https://github.com/modelcontextprotocol/conformance/pull/110)
+    provides the scenario 'auth/cross-app-access-complete-flow' which tests the complete
+    enterprise managed OAuth flow: IDP ID token → ID-JAG → access token.
+
+    The client receives test context (idp_id_token, idp_token_endpoint, etc.) via
+    MCP_CONFORMANCE_CONTEXT environment variable and performs the token exchange flows automatically.
 """
 
 import asyncio
@@ -317,9 +326,98 @@ async def run_auth_code_client(server_url: str) -> None:
     await _run_auth_session(server_url, oauth_auth)
 
 
+@register("auth/cross-app-access-complete-flow")
+async def run_cross_app_access_complete_flow(server_url: str) -> None:
+    """Enterprise managed auth: Complete SEP-990 flow (OIDC ID token → ID-JAG → access token).
+
+    This scenario is provided by @modelcontextprotocol/conformance@0.1.14+ (PR #110).
+    It tests the complete enterprise managed OAuth flow using token exchange (RFC 8693)
+    and JWT bearer grant (RFC 7523).
+    """
+    from mcp.client.auth.extensions.enterprise_managed_auth import (
+        EnterpriseAuthOAuthClientProvider,
+        TokenExchangeParameters,
+    )
+
+    context = get_conformance_context()
+    # The conformance package provides these fields
+    idp_id_token = context.get("idp_id_token")
+    idp_token_endpoint = context.get("idp_token_endpoint")
+    idp_issuer = context.get("idp_issuer")
+
+    # For cross-app access, we need to determine the MCP server's resource ID and auth issuer
+    # The conformance package sets up the auth server, and the MCP server URL is passed to us
+
+    if not idp_id_token:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_id_token'")
+    if not idp_token_endpoint:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_token_endpoint'")
+    if not idp_issuer:
+        raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_issuer'")
+
+    # Extract base URL and construct auth issuer and resource ID
+    # The conformance test sets up auth server at a known location
+    base_url = server_url.replace("/mcp", "")
+    auth_issuer = context.get("auth_issuer", base_url)
+    resource_id = context.get("resource_id", server_url)
+
+    logger.debug(f"Cross-app access flow:")
+    logger.debug(f"  IDP Issuer: {idp_issuer}")
+    logger.debug(f"  IDP Token Endpoint: {idp_token_endpoint}")
+    logger.debug(f"  Auth Issuer: {auth_issuer}")
+    logger.debug(f"  Resource ID: {resource_id}")
+
+    # Create token exchange parameters from IDP ID token
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token=idp_id_token,
+        mcp_server_auth_issuer=auth_issuer,
+        mcp_server_resource_id=resource_id,
+        scope=context.get("scope"),
+    )
+
+    # Get pre-configured client credentials from context (if provided)
+    client_id = context.get("client_id")
+    client_secret = context.get("client_secret")
+
+    # Create storage and pre-configure client info if credentials are provided
+    storage = InMemoryTokenStorage()
+
+    # Create enterprise auth provider
+    enterprise_auth = EnterpriseAuthOAuthClientProvider(
+        server_url=server_url,
+        client_metadata=OAuthClientMetadata(
+            client_name="conformance-cross-app-client",
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            response_types=["token"],
+        ),
+        storage=storage,
+        idp_token_endpoint=idp_token_endpoint,
+        token_exchange_params=token_exchange_params,
+    )
+
+    # If client credentials are provided in context, use them instead of dynamic registration
+    if client_id and client_secret:
+        from mcp.shared.auth import OAuthClientInformationFull
+
+        logger.debug(f"Using pre-configured client credentials: {client_id}")
+        client_info = OAuthClientInformationFull(
+            client_id=client_id,
+            client_secret=client_secret,
+            token_endpoint_auth_method="client_secret_basic",
+            grant_types=["urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            response_types=["token"],
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+        )
+        enterprise_auth.context.client_info = client_info
+        await storage.set_client_info(client_info)
+
+    await _run_auth_session(server_url, enterprise_auth)
+
+
 @register("auth/enterprise-token-exchange")
 async def run_enterprise_token_exchange(server_url: str) -> None:
-    """Enterprise managed auth: Token exchange flow (RFC 8693)."""
+    """Enterprise managed auth: Token exchange flow (RFC 8693) with OIDC ID token."""
     from mcp.client.auth.extensions.enterprise_managed_auth import (
         EnterpriseAuthOAuthClientProvider,
         TokenExchangeParameters,
@@ -363,51 +461,12 @@ async def run_enterprise_token_exchange(server_url: str) -> None:
         token_exchange_params=token_exchange_params,
     )
 
-    # Perform token exchange flow
-    async with httpx.AsyncClient() as client:
-        # Step 1: Set OAuth metadata manually (since we're not going through full OAuth flow)
-        logger.debug(f"Setting OAuth metadata for {server_url}")
-        from pydantic import AnyUrl as PydanticAnyUrl
-
-        from mcp.shared.auth import OAuthMetadata
-
-        # Extract base URL from server_url
-        base_url = server_url.replace("/mcp", "")
-        token_endpoint_url = f"{base_url}/oauth/token"
-        auth_endpoint_url = f"{base_url}/oauth/authorize"
-
-        enterprise_auth.context.oauth_metadata = OAuthMetadata(
-            issuer=mcp_server_auth_issuer,
-            authorization_endpoint=PydanticAnyUrl(auth_endpoint_url),
-            token_endpoint=PydanticAnyUrl(token_endpoint_url),
-        )
-        logger.debug(f"OAuth metadata set, token_endpoint: {token_endpoint_url}")
-
-        # Step 2: Exchange ID token for ID-JAG
-        logger.debug("Exchanging ID token for ID-JAG")
-        id_jag = await enterprise_auth.exchange_token_for_id_jag(client)
-        logger.debug(f"Obtained ID-JAG: {id_jag[:50]}...")
-
-        # Step 3: Exchange ID-JAG for access token
-        logger.debug("Exchanging ID-JAG for access token")
-        access_token = await enterprise_auth.exchange_id_jag_for_access_token(client, id_jag)
-        logger.debug(f"Obtained access token, expires in: {access_token.expires_in}s")
-
-        # Step 4: Verify we can make authenticated requests
-        logger.debug("Verifying access token with MCP endpoint")
-        auth_client = httpx.AsyncClient(headers={"Authorization": f"Bearer {access_token.access_token}"})
-        response = await auth_client.get(server_url.replace("/mcp", "") + "/mcp")
-        if response.status_code == 200:
-            logger.debug(f"Successfully authenticated with MCP server: {response.json()}")
-        else:
-            logger.warning(f"MCP server returned {response.status_code}")
-
-    logger.debug("Enterprise auth flow completed successfully")
+    await _run_auth_session(server_url, enterprise_auth)
 
 
 @register("auth/enterprise-saml-exchange")
 async def run_enterprise_saml_exchange(server_url: str) -> None:
-    """Enterprise managed auth: SAML assertion exchange flow."""
+    """Enterprise managed auth: SAML assertion exchange flow (RFC 8693)."""
     from mcp.client.auth.extensions.enterprise_managed_auth import (
         EnterpriseAuthOAuthClientProvider,
         TokenExchangeParameters,
@@ -451,51 +510,12 @@ async def run_enterprise_saml_exchange(server_url: str) -> None:
         token_exchange_params=token_exchange_params,
     )
 
-    # Perform token exchange flow
-    async with httpx.AsyncClient() as client:
-        # Step 1: Set OAuth metadata manually (since we're not going through full OAuth flow)
-        logger.debug(f"Setting OAuth metadata for {server_url}")
-        from pydantic import AnyUrl as PydanticAnyUrl
-
-        from mcp.shared.auth import OAuthMetadata
-
-        # Extract base URL from server_url
-        base_url = server_url.replace("/mcp", "")
-        token_endpoint_url = f"{base_url}/oauth/token"
-        auth_endpoint_url = f"{base_url}/oauth/authorize"
-
-        enterprise_auth.context.oauth_metadata = OAuthMetadata(
-            issuer=mcp_server_auth_issuer,
-            authorization_endpoint=PydanticAnyUrl(auth_endpoint_url),
-            token_endpoint=PydanticAnyUrl(token_endpoint_url),
-        )
-        logger.debug(f"OAuth metadata set, token_endpoint: {token_endpoint_url}")
-
-        # Step 2: Exchange SAML assertion for ID-JAG
-        logger.debug("Exchanging SAML assertion for ID-JAG")
-        id_jag = await enterprise_auth.exchange_token_for_id_jag(client)
-        logger.debug(f"Obtained ID-JAG from SAML: {id_jag[:50]}...")
-
-        # Step 3: Exchange ID-JAG for access token
-        logger.debug("Exchanging ID-JAG for access token")
-        access_token = await enterprise_auth.exchange_id_jag_for_access_token(client, id_jag)
-        logger.debug(f"Obtained access token, expires in: {access_token.expires_in}s")
-
-        # Step 4: Verify we can make authenticated requests
-        logger.debug("Verifying access token with MCP endpoint")
-        auth_client = httpx.AsyncClient(headers={"Authorization": f"Bearer {access_token.access_token}"})
-        response = await auth_client.get(server_url.replace("/mcp", "") + "/mcp")
-        if response.status_code == 200:
-            logger.debug(f"Successfully authenticated with MCP server: {response.json()}")
-        else:
-            logger.warning(f"MCP server returned {response.status_code}")
-
-    logger.debug("SAML enterprise auth flow completed successfully")
+    await _run_auth_session(server_url, enterprise_auth)
 
 
 @register("auth/enterprise-id-jag-validation")
 async def run_id_jag_validation(server_url: str) -> None:
-    """Validate ID-JAG token structure and claims."""
+    """Validate ID-JAG token structure and claims (SEP-990)."""
     from mcp.client.auth.extensions.enterprise_managed_auth import (
         EnterpriseAuthOAuthClientProvider,
         TokenExchangeParameters,
@@ -549,7 +569,7 @@ async def run_id_jag_validation(server_url: str) -> None:
         # Validate required claims
         assert claims.typ == "oauth-id-jag+jwt", f"Invalid typ: {claims.typ}"
         assert claims.jti, "Missing jti claim"
-        assert claims.iss == mcp_server_auth_issuer or claims.iss, "Missing or invalid iss claim"
+        assert claims.iss, "Missing iss claim"
         assert claims.sub, "Missing sub claim"
         assert claims.aud, "Missing aud claim"
         assert claims.resource == mcp_server_resource_id, f"Invalid resource: {claims.resource}"

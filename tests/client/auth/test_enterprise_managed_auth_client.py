@@ -341,7 +341,7 @@ async def test_exchange_token_for_id_jag_unexpected_token_type(sample_id_token: 
 
 @pytest.mark.anyio
 async def test_exchange_id_jag_for_access_token_success(sample_id_jag: str, mock_token_storage: Any):
-    """Test successful JWT bearer grant to get access token."""
+    """Test building JWT bearer grant request."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -367,36 +367,20 @@ async def test_exchange_id_jag_for_access_token_success(sample_id_jag: str, mock
         token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
-    # Mock HTTP response
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "token_type": "Bearer",
-            "access_token": "mcp-access-token-12345",
-            "expires_in": 3600,
-            "scope": "read write",
-        },
-    )
+    # Build JWT bearer grant request
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
 
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
+    # Verify the request was built correctly
+    assert isinstance(request, httpx.Request)
+    assert request.method == "POST"
+    assert str(request.url) == "https://auth.mcp-server.example/oauth2/token"
 
-    # Perform JWT bearer grant
-    token = await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
+    # Parse the request body
+    import urllib.parse
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert body_params["grant_type"][0] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
+    assert body_params["assertion"][0] == sample_id_jag
 
-    # Verify
-    assert token.access_token == "mcp-access-token-12345"
-    assert token.token_type == "Bearer"
-    assert token.expires_in == 3600
-
-    # Verify tokens were stored
-    mock_token_storage.set_tokens.assert_called_once()
-
-    # Verify request was made correctly
-    mock_client.post.assert_called_once()
-    call_args = mock_client.post.call_args
-    assert call_args[1]["data"]["grant_type"] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
-    assert call_args[1]["data"]["assertion"] == sample_id_jag
 
 
 @pytest.mark.anyio
@@ -419,18 +403,17 @@ async def test_exchange_id_jag_for_access_token_no_metadata(sample_id_jag: str, 
     )
 
     # No OAuth metadata set
-    mock_client = Mock(spec=httpx.AsyncClient)
 
     # Should raise OAuthFlowError
     from mcp.client.auth import OAuthFlowError
 
     with pytest.raises(OAuthFlowError, match="token endpoint not discovered"):
-        await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
+        await provider.exchange_id_jag_for_access_token(sample_id_jag)
 
 
 @pytest.mark.anyio
-async def test_perform_authorization_not_implemented(mock_token_storage: Any):
-    """Test that _perform_authorization raises NotImplementedError."""
+async def test_perform_authorization_full_flow(mock_token_storage: Any, sample_id_jag: str):
+    """Test that _perform_authorization performs token exchange and builds JWT bearer request."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -447,15 +430,49 @@ async def test_perform_authorization_not_implemented(mock_token_storage: Any):
         token_exchange_params=token_exchange_params,
     )
 
-    # Should raise NotImplementedError
-    with pytest.raises(NotImplementedError, match="not yet implemented"):
-        await provider._perform_authorization()
+    # Set up OAuth metadata
+    from mcp.shared.auth import OAuthMetadata
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # Mock the IDP token exchange response
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+
+        mock_response = httpx.Response(
+            status_code=200,
+            json={
+                "issued_token_type": "urn:ietf:params:oauth:token-type:id-jag",
+                "access_token": sample_id_jag,
+                "token_type": "N_A",
+            },
+        )
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        # Perform authorization
+        request = await provider._perform_authorization()
+
+        # Verify it returns an httpx.Request for JWT bearer grant
+        assert isinstance(request, httpx.Request)
+        assert request.method == "POST"
+        assert str(request.url) == "https://auth.mcp-server.example/oauth2/token"
+
+        # Verify the request contains JWT bearer grant
+        import urllib.parse
+        body_params = urllib.parse.parse_qs(request.content.decode())
+        assert body_params["grant_type"][0] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
+        assert body_params["assertion"][0] == sample_id_jag
 
 
 @pytest.mark.anyio
-async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any):
-    """Test that _perform_authorization returns dummy request when tokens are valid."""
-    from mcp.shared.auth import OAuthToken
+async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any, sample_id_jag: str):
+    """Test that _perform_authorization uses cached ID-JAG when tokens are valid."""
+    from mcp.shared.auth import OAuthToken, OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
@@ -473,18 +490,32 @@ async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any):
         token_exchange_params=token_exchange_params,
     )
 
-    # Set valid tokens
+    # Set up OAuth metadata
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # Set valid tokens and cached ID-JAG
     provider.context.current_tokens = OAuthToken(
         token_type="Bearer",
         access_token="valid-token",
         expires_in=3600,
     )
     provider.context.token_expiry_time = time.time() + 3600
+    provider._id_jag = sample_id_jag
 
-    # Should return a dummy request
+    # Should return a JWT bearer grant request using cached ID-JAG
     request = await provider._perform_authorization()
-    assert request.method == "GET"
-    assert str(request.url) == "https://mcp-server.example/"
+    assert isinstance(request, httpx.Request)
+    assert request.method == "POST"
+    assert str(request.url) == "https://auth.mcp-server.example/oauth2/token"
+
+    # Verify it uses the cached ID-JAG
+    import urllib.parse
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert body_params["assertion"][0] == sample_id_jag
 
 
 @pytest.mark.anyio
@@ -713,7 +744,7 @@ async def test_exchange_token_warning_for_non_na_token_type(
 
 @pytest.mark.anyio
 async def test_exchange_id_jag_with_client_authentication(sample_id_jag: str, mock_token_storage: Any):
-    """Test JWT bearer grant with client authentication."""
+    """Test JWT bearer grant request building with client authentication."""
     from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -746,35 +777,26 @@ async def test_exchange_id_jag_with_client_authentication(sample_id_jag: str, mo
         token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
-    # Mock HTTP response
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "token_type": "Bearer",
-            "access_token": "mcp-access-token-12345",
-            "expires_in": 3600,
-            "scope": "read write",
-        },
-    )
+    # Build JWT bearer grant request
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
 
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
+    # Verify request was built correctly
+    assert isinstance(request, httpx.Request)
+    assert request.method == "POST"
 
-    # Perform JWT bearer grant
-    token = await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
+    # Verify client credentials were included in request body
+    import urllib.parse
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert body_params["client_id"][0] == "test-client-id"
+    # With client_secret_basic (default), credentials should be in Authorization header
+    assert "Authorization" in request.headers
+    assert request.headers["Authorization"].startswith("Basic ")
 
-    # Verify token was returned
-    assert token.access_token == "mcp-access-token-12345"
-
-    # Verify client credentials were included
-    call_args = mock_client.post.call_args
-    assert call_args[1]["data"]["client_id"] == "test-client-id"
-    assert call_args[1]["data"]["client_secret"] == "test-client-secret"
 
 
 @pytest.mark.anyio
 async def test_exchange_id_jag_with_client_id_only(sample_id_jag: str, mock_token_storage: Any):
-    """Test JWT bearer grant with client_id but no client_secret (covers branch 304->307)."""
+    """Test JWT bearer grant request building with client_id but no client_secret."""
     from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
 
     token_exchange_params = TokenExchangeParameters.from_id_token(
@@ -807,155 +829,21 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag: str, mock_toke
         token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
-    # Mock HTTP response
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "token_type": "Bearer",
-            "access_token": "mcp-access-token-12345",
-            "expires_in": 3600,
-            "scope": "read write",
-        },
-    )
+    # Build JWT bearer grant request
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
 
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Perform JWT bearer grant
-    token = await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
-
-    # Verify token was returned correctly
-    assert token.access_token == "mcp-access-token-12345"
-    assert token.token_type == "Bearer"
+    # Verify request was built correctly
+    assert isinstance(request, httpx.Request)
 
     # Verify client_id was included but NOT client_secret
-    call_args = mock_client.post.call_args
-    assert call_args[1]["data"]["client_id"] == "test-client-id"
-    assert "client_secret" not in call_args[1]["data"]
+    import urllib.parse
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert body_params["client_id"][0] == "test-client-id"
+    assert "client_secret" not in body_params
+    # With no client_secret, there should be no Authorization header either
+    assert "Authorization" not in request.headers or not request.headers["Authorization"].startswith("Basic ")
 
 
-@pytest.mark.anyio
-async def test_exchange_id_jag_error_response(sample_id_jag: str, mock_token_storage: Any):
-    """Test JWT bearer grant with error response."""
-    from mcp.shared.auth import OAuthMetadata
-
-    token_exchange_params = TokenExchangeParameters.from_id_token(
-        id_token="dummy-token",
-        mcp_server_auth_issuer="https://auth.mcp-server.example/",
-        mcp_server_resource_id="https://mcp-server.example/",
-    )
-
-    provider = EnterpriseAuthOAuthClientProvider(
-        server_url="https://mcp-server.example/",
-        client_metadata=OAuthClientMetadata(
-            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
-        ),
-        storage=mock_token_storage,
-        idp_token_endpoint="https://idp.example.com/oauth2/token",
-        token_exchange_params=token_exchange_params,
-    )
-
-    # Set up OAuth metadata
-    provider.context.oauth_metadata = OAuthMetadata(
-        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
-    )
-
-    # Mock error response
-    mock_response = httpx.Response(
-        status_code=400,
-        json={
-            "error": "invalid_grant",
-            "error_description": "Invalid assertion",
-        },
-    )
-
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Should raise OAuthTokenError
-    with pytest.raises(OAuthTokenError, match="JWT bearer grant failed"):
-        await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
-
-
-@pytest.mark.anyio
-async def test_exchange_id_jag_non_json_error(sample_id_jag: str, mock_token_storage: Any):
-    """Test JWT bearer grant with non-JSON error response."""
-    from mcp.shared.auth import OAuthMetadata
-
-    token_exchange_params = TokenExchangeParameters.from_id_token(
-        id_token="dummy-token",
-        mcp_server_auth_issuer="https://auth.mcp-server.example/",
-        mcp_server_resource_id="https://mcp-server.example/",
-    )
-
-    provider = EnterpriseAuthOAuthClientProvider(
-        server_url="https://mcp-server.example/",
-        client_metadata=OAuthClientMetadata(
-            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
-        ),
-        storage=mock_token_storage,
-        idp_token_endpoint="https://idp.example.com/oauth2/token",
-        token_exchange_params=token_exchange_params,
-    )
-
-    # Set up OAuth metadata
-    provider.context.oauth_metadata = OAuthMetadata(
-        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
-    )
-
-    # Mock error response with non-JSON content
-    mock_response = httpx.Response(
-        status_code=503,
-        content=b"Service Unavailable",
-        headers={"content-type": "text/html"},
-    )
-
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Should raise OAuthTokenError with default error
-    with pytest.raises(OAuthTokenError, match="JWT bearer grant failed: unknown_error"):
-        await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
-
-
-@pytest.mark.anyio
-async def test_exchange_id_jag_http_error(sample_id_jag: str, mock_token_storage: Any):
-    """Test JWT bearer grant with HTTP error."""
-    from mcp.shared.auth import OAuthMetadata
-
-    token_exchange_params = TokenExchangeParameters.from_id_token(
-        id_token="dummy-token",
-        mcp_server_auth_issuer="https://auth.mcp-server.example/",
-        mcp_server_resource_id="https://mcp-server.example/",
-    )
-
-    provider = EnterpriseAuthOAuthClientProvider(
-        server_url="https://mcp-server.example/",
-        client_metadata=OAuthClientMetadata(
-            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
-        ),
-        storage=mock_token_storage,
-        idp_token_endpoint="https://idp.example.com/oauth2/token",
-        token_exchange_params=token_exchange_params,
-    )
-
-    # Set up OAuth metadata
-    provider.context.oauth_metadata = OAuthMetadata(
-        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
-        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
-        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
-    )
-
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(side_effect=httpx.ReadTimeout("Request timeout"))
-
-    # Should raise OAuthTokenError
-    with pytest.raises(OAuthTokenError, match="HTTP error during JWT bearer grant"):
-        await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
 
 
 @pytest.mark.anyio
@@ -1019,7 +907,7 @@ async def test_exchange_token_with_client_info_but_no_client_id(
 
 @pytest.mark.anyio
 async def test_exchange_id_jag_with_client_info_but_no_client_id(sample_id_jag: str, mock_token_storage: Any):
-    """Test ID-JAG exchange when client_info exists but client_id is None (covers line 302)."""
+    """Test ID-JAG exchange request building when client_info exists but client_id is None."""
     from pydantic import AnyHttpUrl
 
     from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
@@ -1054,32 +942,17 @@ async def test_exchange_id_jag_with_client_info_but_no_client_id(sample_id_jag: 
         redirect_uris=[AnyUrl("http://localhost:8080/callback")],
     )
 
-    # Mock HTTP response
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "token_type": "Bearer",
-            "access_token": "mcp-access-token-12345",
-            "expires_in": 3600,
-            "scope": "read write",
-        },
-    )
+    # Build JWT bearer grant request
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
 
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
+    # Verify request was built correctly
+    assert isinstance(request, httpx.Request)
 
-    # Perform JWT bearer grant
-    token = await provider.exchange_id_jag_for_access_token(mock_client, sample_id_jag)
+    # Verify client_id was not included (None), but client_secret should be handled
+    import urllib.parse
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert "client_id" not in body_params or body_params["client_id"][0] == ""
 
-    # Verify
-    assert token.access_token == "mcp-access-token-12345"
-    assert token.token_type == "Bearer"
-    assert token.expires_in == 3600
-
-    # Verify client_id was not included (None), but client_secret was included
-    call_args = mock_client.post.call_args
-    assert "client_id" not in call_args[1]["data"]
-    assert call_args[1]["data"]["client_secret"] == "test-secret"
 
 
 def test_validate_token_exchange_params_missing_audience():
@@ -1106,3 +979,120 @@ def test_validate_token_exchange_params_missing_resource():
 
     with pytest.raises(ValueError, match="resource is required"):
         validate_token_exchange_params(params)
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_with_existing_auth_method(sample_id_jag: str, mock_token_storage: Any):
+    """Test JWT bearer grant when token_endpoint_auth_method is already set (covers branch 323->326)."""
+    from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata
+
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    # Set client info WITH auth method already set
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="test-client-id",
+        client_secret="test-client-secret",
+        token_endpoint_auth_method="client_secret_post",  # Already set
+        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+    )
+
+    # Set up OAuth metadata
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # Build JWT bearer grant request
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+
+    # Verify request was built correctly
+    assert isinstance(request, httpx.Request)
+
+    # Verify it used client_secret_post (in body, not header)
+    import urllib.parse
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert body_params["client_id"][0] == "test-client-id"
+    assert body_params["client_secret"][0] == "test-client-secret"
+    # Should NOT have Authorization header for client_secret_post
+    assert "Authorization" not in request.headers or not request.headers["Authorization"].startswith("Basic ")
+
+
+@pytest.mark.anyio
+async def test_perform_authorization_with_valid_tokens_no_id_jag(mock_token_storage: Any):
+    """Test _perform_authorization when tokens are valid but no cached ID-JAG (covers branch 354->360)."""
+    from mcp.shared.auth import OAuthToken, OAuthMetadata
+
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    # Set up OAuth metadata
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # Set valid tokens but NO cached ID-JAG
+    provider.context.current_tokens = OAuthToken(
+        token_type="Bearer",
+        access_token="valid-token",
+        expires_in=3600,
+    )
+    provider.context.token_expiry_time = time.time() + 3600
+    provider._id_jag = None  # No cached ID-JAG
+
+    # Mock the IDP token exchange response
+    sample_id_jag = "test-id-jag-token"
+    with patch("httpx.AsyncClient") as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client_class.return_value.__aenter__.return_value = mock_client
+
+        mock_response = httpx.Response(
+            status_code=200,
+            json={
+                "issued_token_type": "urn:ietf:params:oauth:token-type:id-jag",
+                "access_token": sample_id_jag,
+                "token_type": "N_A",
+            },
+        )
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        # Should fall through and perform full flow
+        request = await provider._perform_authorization()
+
+        # Verify it returns a JWT bearer grant request
+        assert isinstance(request, httpx.Request)
+        assert request.method == "POST"
+
+        # Verify it made the IDP token exchange call
+        mock_client.post.assert_called_once()
+
+
