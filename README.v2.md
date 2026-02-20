@@ -2405,8 +2405,8 @@ For a complete working example, see [`examples/clients/simple-auth-client/`](exa
 
 The SDK includes support for Enterprise Managed Authorization (SEP-990), which enables MCP clients to connect to protected servers using enterprise Single Sign-On (SSO) systems. This implementation supports:
 
-- **RFC 8693**: OAuth 2.0 Token Exchange (ID Token → ID-JAG)
-- **RFC 7523**: JSON Web Token (JWT) Profile for OAuth 2.0 Authorization Grants (ID-JAG → Access Token)
+- **RFC 8693**: OAuth 2.0 Token Exchange (ID Token -> ID-JAG)
+- **RFC 7523**: JSON Web Token (JWT) Profile for OAuth 2.0 Authorization Grants (ID-JAG -> Access Token)
 - Integration with enterprise identity providers (Okta, Azure AD, etc.)
 
 **Key Components:**
@@ -2517,8 +2517,8 @@ async def main() -> None:
 
     # Step 4: Create authenticated HTTP client
     # The auth provider automatically handles the two-step token exchange:
-    # 1. ID Token → ID-JAG (via IDP)
-    # 2. ID-JAG → Access Token (via MCP server)
+    # 1. ID Token -> ID-JAG (via IDP)
+    # 2. ID-JAG -> Access Token (via MCP server)
     client = httpx.AsyncClient(auth=enterprise_auth, timeout=30.0)
 
     # Step 5: Connect to MCP server with authenticated client

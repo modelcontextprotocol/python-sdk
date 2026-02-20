@@ -70,7 +70,6 @@ dev = [
     "dirty-equals>=0.9.0",
     "coverage[toml]>=7.10.7,<=7.13",
     "pillow>=12.0",
-    "fastapi>=0.115.0",  # For enterprise auth conformance test mock server
     "strict-no-cover",
 ]
 docs = [
