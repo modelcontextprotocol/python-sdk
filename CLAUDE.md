@@ -158,6 +158,20 @@ After editing a companion file, run `uv run --frozen pyright` to verify types, t
 `uv run python scripts/sync_snippets.py` to sync into docstrings. Use `--check` to
 verify sync without modifying files.
 
+## Markdown Code Examples
+
+The `sync_snippets.py` script also syncs snippets to `docs/**/*.md` and `README.v2.md`.
+These files use explicit paths with optional `#Region` markers for `snippet-source`
+(path-less `#Region` markers are only supported in `src/` files):
+
+````markdown
+<!-- snippet-source examples/snippets/servers/foo.py -->
+```python
+# contents of examples/snippets/servers/foo.py
+```
+<!-- /snippet-source -->
+````
+
 ## Error Resolution
 
 1. CI Failures
