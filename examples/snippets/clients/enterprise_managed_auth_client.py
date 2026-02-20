@@ -70,8 +70,8 @@ async def main() -> None:
 
     # Step 4: Create authenticated HTTP client
     # The auth provider automatically handles the two-step token exchange:
-    # 1. ID Token → ID-JAG (via IDP)
-    # 2. ID-JAG → Access Token (via MCP server)
+    # 1. ID Token -> ID-JAG (via IDP)
+    # 2. ID-JAG -> Access Token (via MCP server)
     client = httpx.AsyncClient(auth=enterprise_auth, timeout=30.0)
 
     # Step 5: Connect to MCP server with authenticated client
