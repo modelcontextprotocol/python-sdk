@@ -37,7 +37,7 @@ def create_ask_user_tool(mcp: MCPServer):
 
 async def call_tool_and_assert(
     mcp: MCPServer,
-    elicitation_callback: ElicitationFnT,
+    elicitation_callback: ElicitationFnT[ClientSession],
     tool_name: str,
     args: dict[str, Any],
     expected_text: str | None = None,
