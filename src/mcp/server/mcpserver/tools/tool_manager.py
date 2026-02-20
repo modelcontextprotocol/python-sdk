@@ -23,6 +23,7 @@ class ToolManager:
         warn_on_duplicate_tools: bool = True,
         *,
         tools: list[Tool] | None = None,
+        dependency_overrides: dict[Callable[..., Any], Callable[..., Any]] | None = None,
     ):
         self._tools: dict[str, Tool] = {}
         if tools is not None:
@@ -32,6 +33,7 @@ class ToolManager:
                 self._tools[tool.name] = tool
 
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
+        self.dependency_overrides = dependency_overrides if dependency_overrides is not None else {}
 
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name."""
@@ -89,4 +91,13 @@ class ToolManager:
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
 
-        return await tool.run(arguments, context=context, convert_result=convert_result)
+        # Create dependency resolver if tool has dependencies
+        dependency_resolver = None
+        if tool.dependency_kwarg_names:
+            from mcp.server.mcpserver.utilities.dependency_resolver import DependencyResolver
+
+            dependency_resolver = DependencyResolver(context=context, overrides=self.dependency_overrides)
+
+        return await tool.run(
+            arguments, context=context, convert_result=convert_result, dependency_resolver=dependency_resolver
+        )

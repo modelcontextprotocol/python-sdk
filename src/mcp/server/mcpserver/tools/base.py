@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+from mcp.server.mcpserver.utilities.dependencies import find_dependency_parameters
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -33,6 +34,10 @@ class Tool(BaseModel):
     )
     is_async: bool = Field(description="Whether the tool is async")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    dependency_kwarg_names: list[str] = Field(
+        default_factory=list,
+        description="Names of kwargs that receive dependencies",
+    )
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
@@ -68,9 +73,19 @@ class Tool(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
+        # Find dependency parameters
+        dependency_params = find_dependency_parameters(fn)
+        dependency_kwarg_names = list(dependency_params.keys())
+
+        # Skip both context and dependency params from arg_model
+        skip_names: list[str] = []
+        if context_kwarg:
+            skip_names.append(context_kwarg)
+        skip_names.extend(dependency_kwarg_names)
+
         func_arg_metadata = func_metadata(
             fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            skip_names=skip_names,
             structured_output=structured_output,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
@@ -84,6 +99,7 @@ class Tool(BaseModel):
             fn_metadata=func_arg_metadata,
             is_async=is_async,
             context_kwarg=context_kwarg,
+            dependency_kwarg_names=dependency_kwarg_names,
             annotations=annotations,
             icons=icons,
             meta=meta,
@@ -94,14 +110,32 @@ class Tool(BaseModel):
         arguments: dict[str, Any],
         context: Context[LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
+        dependency_resolver: Any = None,
     ) -> Any:
         """Run the tool with arguments."""
         try:
+            # Build direct args (context and dependencies)
+            direct_args: dict[str, Any] = {}
+            if self.context_kwarg is not None:
+                direct_args[self.context_kwarg] = context
+
+            # Resolve dependencies if a resolver is provided
+            if self.dependency_kwarg_names and dependency_resolver:
+                from mcp.server.mcpserver.utilities.dependencies import find_dependency_parameters
+
+                deps = find_dependency_parameters(self.fn)
+                for dep_name in self.dependency_kwarg_names:
+                    if dep_name in deps:
+                        direct_args[dep_name] = await dependency_resolver.resolve(dep_name, deps[dep_name])
+                    else:
+                        # Defensive: should never happen since dependency_kwarg_names is built from deps
+                        continue  # pragma: no cover
+
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,
                 self.is_async,
                 arguments,
-                {self.context_kwarg: context} if self.context_kwarg is not None else None,
+                direct_args if direct_args else None,
             )
 
             if convert_result:

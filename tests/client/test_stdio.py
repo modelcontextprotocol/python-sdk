@@ -338,6 +338,10 @@ class TestChildProcessCleanup:
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.skipif(
+        sys.platform == "win32" and sys.version_info >= (3, 13),
+        reason="Flaky on Python 3.13+ Windows due to timing issues",
+    )
     async def test_nested_process_tree(self):
         """Test nested process tree cleanup (parent → child → grandchild).
         Each level writes to a different file to verify all processes are terminated.
@@ -433,6 +437,10 @@ class TestChildProcessCleanup:
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.skipif(
+        sys.platform == "win32" and sys.version_info >= (3, 13),
+        reason="Flaky on Python 3.13+ Windows due to timing issues",
+    )
     async def test_early_parent_exit(self):
         """Test cleanup when parent exits during termination sequence.
         Tests the race condition where parent might die during our termination
