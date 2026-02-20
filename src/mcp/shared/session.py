@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from abc import ABC, abstractmethod
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
@@ -10,10 +9,10 @@ from typing import Any, Generic, Protocol, TypeVar
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel, TypeAdapter
-from typing_extensions import Self
+from typing_extensions import Protocol, Self, runtime_checkable
 
 from mcp.shared.exceptions import MCPError
-from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage, WireMessageT
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
@@ -36,11 +35,13 @@ from mcp.types import (
     ServerResult,
 )
 
-SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
+SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest, contravariant=True)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
-SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
+SendNotificationT = TypeVar(
+    "SendNotificationT", ClientNotification, ServerNotification, contravariant=True
+)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
-ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
+ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel, covariant=True)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
@@ -155,40 +156,20 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
+@runtime_checkable
 class AbstractBaseSession(
-    ABC,
+    Protocol,
     Generic[
-        WireMessageT,
         SendRequestT,
         SendNotificationT,
-        SendResultT,
-        ReceiveRequestT,
-        ReceiveNotificationT,
     ],
 ):
-    """Common base class for sessions agnostic to message types.
+    """Pure abstract interface for MCP sessions.
 
-    The class optionally takes in read and write streams, to provide flexibility without streams for transports that
-    don't require them.
-
-    Sessions that do require read-write streams can inherit from this class, and impose the mandatory streams in their
-    respective constructors.
+    This protocol defines the contract that all session implementations must satisfy,
+    irrespective of the transport used.
     """
 
-    def __init__(
-        self,
-        read_stream: MemoryObjectReceiveStream[WireMessageT | Exception] | None = None,
-        write_stream: MemoryObjectSendStream[WireMessageT] | None = None,
-        # If none, reading will never time out
-        read_timeout_seconds: float | None = None,
-    ) -> None:
-        self._read_stream = read_stream
-        self._write_stream = write_stream
-        self._session_read_timeout_seconds = read_timeout_seconds
-        self._response_streams = {}
-        self._task_group = anyio.create_task_group()
-
-    @abstractmethod
     async def send_request(
         self,
         request: SendRequestT,
@@ -204,18 +185,16 @@ class AbstractBaseSession(
 
         Do not use this method to emit notifications! Use send_notification() instead.
         """
-        raise NotImplementedError
+        ...
 
-    @abstractmethod
     async def send_notification(
         self,
         notification: SendNotificationT,
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
-        raise NotImplementedError
+        ...
 
-    @abstractmethod
     async def send_progress_notification(
         self,
         progress_token: ProgressToken,
@@ -224,12 +203,15 @@ class AbstractBaseSession(
         message: str | None = None,
     ) -> None:
         """Sends a progress notification for a request that is currently being processed."""
-        raise NotImplementedError
+        ...
 
 
 class BaseSession(
     AbstractBaseSession[
-        SessionMessage,
+        SendRequestT,
+        SendNotificationT,
+    ],
+    Generic[
         SendRequestT,
         SendNotificationT,
         SendResultT,
@@ -259,12 +241,14 @@ class BaseSession(
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, read_timeout_seconds)
-        self._response_streams = {}
+        self._read_stream = read_stream
+        self._write_stream = write_stream
+        self._session_read_timeout_seconds = read_timeout_seconds
+        self._response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]] = {}
         self._request_id = 0
-        self._in_flight = {}
-        self._progress_callbacks = {}
-        self._response_routers = []
+        self._in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]] = {}
+        self._progress_callbacks: dict[RequestId, ProgressFnT] = {}
+        self._response_routers: list[ResponseRouter] = []
         self._exit_stack = AsyncExitStack()
 
     def add_response_router(self, router: ResponseRouter) -> None:
