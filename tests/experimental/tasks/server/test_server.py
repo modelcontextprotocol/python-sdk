@@ -400,6 +400,53 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 
 
 @pytest.mark.anyio
+async def test_default_task_handlers_require_session_id() -> None:
+    """Test that default task handlers reject requests when session has no session_id."""
+    server = Server("test-no-session-id")
+    server.experimental.enable_tasks()
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def message_handler(
+        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
+    ) -> None: ...  # pragma: no branch
+
+    async def run_server() -> None:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        ) as server_session:
+            # session_id is None (no session_id passed)
+            async for message in server_session.incoming_messages:
+                await server._handle_message(message, server_session, {}, False)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_server)
+
+        async with ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session:
+            await client_session.initialize()
+
+            # All default task handlers should fail with "Session ID is required"
+            with pytest.raises(MCPError, match="Session ID is required"):
+                await client_session.experimental.list_tasks()
+
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
 async def test_build_elicit_form_request() -> None:
     """Test that _build_elicit_form_request builds a proper elicitation request."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)

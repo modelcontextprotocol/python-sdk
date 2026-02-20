@@ -725,3 +725,19 @@ async def test_create_message_as_task_raises_without_handler() -> None:
         )
 
     store.cleanup()
+
+
+@pytest.mark.anyio
+async def test_server_task_context_requires_session_id() -> None:
+    """Test that ServerTaskContext raises when session has no session_id."""
+    store = InMemoryTaskStore()
+    queue = InMemoryTaskMessageQueue()
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
+
+    mock_session = Mock()
+    mock_session.session_id = None
+
+    with pytest.raises(RuntimeError, match="Session ID is required for task operations"):
+        ServerTaskContext(task=task, store=store, session=mock_session, queue=queue)
+
+    store.cleanup()
