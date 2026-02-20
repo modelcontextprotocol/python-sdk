@@ -42,21 +42,28 @@ Both return an `EmptyResult` on success. If the remote side does not respond wit
 
 Either side can cancel a previously-issued request by sending a `CancelledNotification`:
 
+<!-- snippet-source examples/snippets/clients/cancellation.py -->
 ```python
 import mcp.types as types
+from mcp import ClientSession
 
-# Send a cancellation notification
-await session.send_notification(
-    types.ClientNotification(
-        types.CancelledNotification(
-            params=types.CancelledNotificationParams(
-                requestId="request-id-to-cancel",
-                reason="User navigated away",
+
+async def cancel_request(session: ClientSession) -> None:
+    """Send a cancellation notification for a previously-issued request."""
+    await session.send_notification(
+        types.ClientNotification(
+            types.CancelledNotification(
+                params=types.CancelledNotificationParams(
+                    requestId="request-id-to-cancel",
+                    reason="User navigated away",
+                )
             )
         )
     )
-)
 ```
+
+_Full example: [examples/snippets/clients/cancellation.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/cancellation.py)_
+<!-- /snippet-source -->
 
 The `CancelledNotificationParams` fields:
 
@@ -106,6 +113,7 @@ During initialization, the client sends `LATEST_PROTOCOL_VERSION`. If the server
 
 MCP uses [JSON Schema 2020-12](https://json-schema.org/draft/2020-12) for tool input schemas, output schemas, and elicitation schemas. When using Pydantic models, schemas are generated automatically via `model_json_schema()`:
 
+<!-- snippet-source examples/snippets/servers/json_schema_example.py -->
 ```python
 from pydantic import BaseModel, Field
 
@@ -131,6 +139,9 @@ schema = SearchParams.model_json_schema()
 #     "type": "object",
 # }
 ```
+
+_Full example: [examples/snippets/servers/json_schema_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/json_schema_example.py)_
+<!-- /snippet-source -->
 
 For FastMCP tools, input schemas are derived automatically from function signatures. For structured output, the output schema is derived from the return type annotation.
 

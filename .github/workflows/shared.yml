@@ -61,7 +61,7 @@ jobs:
           uv run --frozen --no-sync coverage combine
           uv run --frozen --no-sync coverage report
 
-  readme-snippets:
+  doc-snippets:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -74,5 +74,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --python 3.10
 
-      - name: Check README snippets are up to date
-        run: uv run --frozen scripts/update_readme_snippets.py --check
+      - name: Check doc snippets are up to date
+        run: uv run --frozen scripts/update_doc_snippets.py --check
