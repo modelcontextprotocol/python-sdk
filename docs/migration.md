@@ -772,24 +772,25 @@ The session hierarchy has been refactored to support pluggable transport impleme
 
 #### New `AbstractBaseSession` Protocol
 
-A new runtime-checkable Protocol, AbstractBaseSession, establishes a transport-agnostic contract for all MCP sessions. It ensures that client and server sessions share a consistent communication interface regardless of the transport used.
+A new runtime-checkable Protocol, `AbstractBaseSession`, establishes a transport-agnostic contract for all MCP sessions. It ensures that client and server sessions share a consistent communication interface regardless of the transport used.
 
-**Key characteristics of `AbstractBaseSession`:**
+##### Key characteristics of `AbstractBaseSession`
 
-To maintain a clean architectural boundary, AbstractBaseSession is a pure interface—it defines what methods must exist but does not manage how they work.
+To maintain a clean architectural boundary, `AbstractBaseSession` is a pure interface—it defines what methods must exist but does not manage how they work.
 
 * **No State Management**: The protocol does not handle internal machinery like task groups, response streams, or buffers.
 
-* **Implementation Ownership**: The concrete class is now fully responsible for managing its own state and lifecycle for how it sends and receives data.
+* **Implementation Ownership**: The concrete class is fully responsible for managing its own state and lifecycle for how it sends and receives data.
 
-* **No Inheritance Needed**: As a structural protocol, you no longer need to call super().**init**() or inherit from a base class to satisfy the contract.
+* **No Inheritance Needed**: As a structural protocol, you no longer need to call **super().\_\_init\_\_()** or inherit from a base class to satisfy the contract.
 
-**Motivation: Interface vs. Implementation**
-Previously, all custom sessions were required to inherit from BaseSession, which locked them into a specific architecture involving memory streams and JSON-RPC message routing, but now users have the flexibility to implement their own transport logic.
+##### Motivation: Interface vs. Implementation
 
-BaseSession (Implementation): Remains available for transports that follow the standard pattern of reading and writing JSON-RPC messages over streams. You can continue to inherit from this if you want the SDK to handle message linking and routing for you.
+Previously, all custom sessions were required to inherit from BaseSession, which locked them into a specific architecture involving memory streams and JSON-RPC message routing, but with this change, users have the flexibility to implement their own transport logic with either of the following options:
 
-AbstractBaseSession (Interface): A new stateless protocol for transports that do not use standard streams or JSON-RPC. It defines the "what" (method signatures) without enforcing the "how" (internal machinery).
+* **BaseSession (Implementation)**: Remains available for transports that follow the standard pattern of reading and writing JSON-RPC messages over streams. You can continue to inherit from this if you want the SDK to handle message linking and routing for you.
+
+* **AbstractBaseSession (Interface)**: A new stateless protocol for transports that do not use standard streams or JSON-RPC. It defines the "what" (method signatures) without enforcing the "how" (internal machinery).
 
 **Before:**
 
