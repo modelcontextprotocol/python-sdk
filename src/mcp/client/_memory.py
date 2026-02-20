@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from types import TracebackType
@@ -50,12 +51,14 @@ class InMemoryTransport:
 
             async with anyio.create_task_group() as tg:
                 # Start server in background
+                memory_session_id = uuid.uuid4().hex
                 tg.start_soon(
                     lambda: actual_server.run(
                         server_read,
                         server_write,
                         actual_server.create_initialization_options(),
                         raise_exceptions=self._raise_exceptions,
+                        session_id=memory_session_id,
                     )
                 )
 

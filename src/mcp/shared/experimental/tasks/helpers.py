@@ -50,6 +50,8 @@ def is_terminal(status: TaskStatus) -> bool:
 async def cancel_task(
     store: TaskStore,
     task_id: str,
+    *,
+    session_id: str,
 ) -> CancelTaskResult:
     """Cancel a task with spec-compliant validation.
 
@@ -62,22 +64,23 @@ async def cancel_task(
     Args:
         store: The task store
         task_id: The task identifier to cancel
+        session_id: Session identifier for access control.
 
     Returns:
         CancelTaskResult with the cancelled task state
 
     Raises:
         MCPError: With INVALID_PARAMS (-32602) if:
-            - Task does not exist
+            - Task does not exist or is not accessible by this session
             - Task is already in a terminal state (completed, failed, cancelled)
 
     Example:
         ```python
         async def handle_cancel(ctx, params: CancelTaskRequestParams) -> CancelTaskResult:
-            return await cancel_task(store, params.task_id)
+            return await cancel_task(store, params.task_id, session_id=ctx.session.session_id)
         ```
     """
-    task = await store.get_task(task_id)
+    task = await store.get_task(task_id, session_id=session_id)
     if task is None:
         raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
@@ -85,7 +88,7 @@ async def cancel_task(
         raise MCPError(code=INVALID_PARAMS, message=f"Cannot cancel task in terminal state '{task.status}'")
 
     # Update task to cancelled status
-    cancelled_task = await store.update_task(task_id, status=TASK_STATUS_CANCELLED)
+    cancelled_task = await store.update_task(task_id, status=TASK_STATUS_CANCELLED, session_id=session_id)
     return CancelTaskResult(**cancelled_task.model_dump())
 
 
@@ -124,6 +127,8 @@ def create_task_state(
 async def task_execution(
     task_id: str,
     store: TaskStore,
+    *,
+    session_id: str,
 ) -> AsyncIterator[TaskContext]:
     """Context manager for safe task execution (pure, no server dependencies).
 
@@ -136,6 +141,7 @@ async def task_execution(
     Args:
         task_id: The task identifier to execute
         store: The task store (must be accessible by the worker)
+        session_id: Session identifier for access control.
 
     Yields:
         TaskContext for updating status and completing/failing the task
@@ -144,18 +150,18 @@ async def task_execution(
         ValueError: If the task is not found in the store
 
     Example (distributed worker):
-        async def worker_process(task_id: str):
+        async def worker_process(task_id: str, session_id: str):
             store = RedisTaskStore(redis_url)
-            async with task_execution(task_id, store) as ctx:
+            async with task_execution(task_id, store, session_id=session_id) as ctx:
                 await ctx.update_status("Working...")
                 result = await do_work()
                 await ctx.complete(result)
     """
-    task = await store.get_task(task_id)
+    task = await store.get_task(task_id, session_id=session_id)
     if task is None:
         raise ValueError(f"Task {task_id} not found")
 
-    ctx = TaskContext(task, store)
+    ctx = TaskContext(task, store, session_id=session_id)
     try:
         yield ctx
     except Exception as e:
