@@ -109,20 +109,19 @@ rather than adding new standalone sections.
      - Update config rev
      - Commit config first
 
-## Docstring Code Examples
+## Code Snippet System
 
-Code examples in `src/mcp/` docstrings are type-checked via companion files in
-`examples/snippets/docstrings/mcp/`, mirroring the source tree
-(`src/mcp/foo/bar.py` → `examples/snippets/docstrings/mcp/foo/bar.py`).
-Companion files are standalone scripts (not packages) starting with
-`from __future__ import annotations`. The companion file is the source of truth —
-always edit examples there, never directly in the docstring.
+`scripts/sync_snippets.py` replaces the content between
+`<!-- snippet-source ... -->` / `<!-- /snippet-source -->` markers with code
+from the referenced source file. The source file is the source of truth —
+never edit synced content directly in the target.
 
-Each example lives in a named function (returning `-> None`) wrapping
-`# region Name` / `# endregion Name` markers. Names follow
-`ClassName_methodName_variant` for methods, `functionName_variant` for standalone
-functions, or `module_overview` for module docstrings. Pick a descriptive variant
-suffix (`_basic`, `_sync`/`_async`, `_with_context`, etc.). In the companion file:
+To sync only part of a file, append `#RegionName` to the path. Regions are
+delimited in source files by `# region Name` / `# endregion Name` markers.
+Each example lives in a named function (returning `-> None`) wrapping a region.
+Names follow `ClassName_methodName_variant` for methods, `functionName_variant`
+for standalone functions, or `module_overview` for module docstrings. Pick a
+descriptive variant suffix (`_basic`, `_sync`/`_async`, `_with_context`, etc.):
 
 ````python
 def MyClass_do_thing_basic(obj: MyClass) -> None:
@@ -132,11 +131,41 @@ def MyClass_do_thing_basic(obj: MyClass) -> None:
     # endregion MyClass_do_thing_basic
 ````
 
-The sync script wraps region content in a fenced code block between
-`<!-- snippet-source #RegionName -->` and `<!-- /snippet-source -->` markers.
-In the source docstring:
+Function parameters supply typed dependencies the example needs but does not create
+(e.g., `server: MCPServer`); module-level stubs are only for truly undefined references
+(e.g., `async def fetch_data() -> str: ...`).
 
+NEVER put `# type: ignore`, `# pyright: ignore`, or `# noqa` inside a region — these
+sync verbatim into the target. Restructure the code to address the errors instead.
+
+After editing an example file, run `uv run --frozen pyright` to verify types, then
+`uv run python scripts/sync_snippets.py` to sync. Use `--check` to verify without
+modifying files.
+
+### Markdown Code Examples
+
+Code examples in `README.v2.md` and `docs/**/*.md` use explicit paths relative
+to the repo root:
+
+````markdown
+<!-- snippet-source examples/snippets/servers/basic_tool.py -->
+```python
+# replaced by sync script
+```
+<!-- /snippet-source -->
 ````
+
+### Docstring Code Examples
+
+Code examples in `src/` docstrings use companion files in
+`examples/snippets/docstrings/`, mirroring the source tree
+(`src/mcp/foo/bar.py` → `examples/snippets/docstrings/mcp/foo/bar.py`).
+Companion files are standalone scripts (not packages) starting with
+`from __future__ import annotations`.
+
+Docstrings use path-less `#Region` markers (only supported in `src/` files):
+
+````text
     Example:
         <!-- snippet-source #MyClass_do_thing_basic -->
         ```python
@@ -144,32 +173,6 @@ In the source docstring:
         print(result)
         ```
         <!-- /snippet-source -->
-````
-
-Function parameters supply typed dependencies the example needs but does not create
-(e.g., `server: MCPServer`); module-level stubs are only for truly undefined references
-(e.g., `async def fetch_data() -> str: ...`).
-
-NEVER put `# type: ignore`, `# pyright: ignore`, or `# noqa` inside a region — these
-sync verbatim into the docstring. Restructure the code or move problematic lines outside
-the region instead.
-
-After editing a companion file, run `uv run --frozen pyright` to verify types, then
-`uv run python scripts/sync_snippets.py` to sync into docstrings. Use `--check` to
-verify sync without modifying files.
-
-## Markdown Code Examples
-
-The `sync_snippets.py` script also syncs snippets to `docs/**/*.md` and `README.v2.md`.
-These files use explicit paths with optional `#Region` markers for `snippet-source`
-(path-less `#Region` markers are only supported in `src/` files):
-
-````markdown
-<!-- snippet-source examples/snippets/servers/foo.py -->
-```python
-# contents of examples/snippets/servers/foo.py
-```
-<!-- /snippet-source -->
 ````
 
 ## Error Resolution
