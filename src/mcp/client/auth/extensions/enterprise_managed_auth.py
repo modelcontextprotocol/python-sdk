@@ -5,7 +5,6 @@ enterprise SSO integration.
 """
 
 import logging
-from collections.abc import Awaitable, Callable
 from typing import cast
 
 import httpx
@@ -185,8 +184,6 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         storage: TokenStorage,
         idp_token_endpoint: str,
         token_exchange_params: TokenExchangeParameters,
-        redirect_handler: Callable[[str], Awaitable[None]] | None = None,
-        callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
     ) -> None:
         """Initialize Enterprise Auth OAuth Client.
@@ -197,16 +194,12 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             storage: Token storage implementation
             idp_token_endpoint: Enterprise IdP token endpoint URL
             token_exchange_params: Token exchange parameters
-            redirect_handler: Optional redirect handler
-            callback_handler: Optional callback handler
             timeout: Request timeout in seconds
         """
         super().__init__(
             server_url=server_url,
             client_metadata=client_metadata,
             storage=storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
             timeout=timeout,
         )
         self.idp_token_endpoint = idp_token_endpoint
@@ -384,7 +377,7 @@ def decode_id_jag(id_jag: str) -> IDJAGClaims:
         Decoded ID-JAG claims
 
     Note:
-        For verification, use server-side validation instead.
+        This function does not verify the JWT, instead relying on the receiving server to validate it.
     """
     # Decode without verification for inspection
     claims = jwt.decode(id_jag, options={"verify_signature": False})
