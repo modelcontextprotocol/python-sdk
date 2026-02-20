@@ -172,7 +172,7 @@ class StreamableHTTPSessionManager:
                         write_stream,
                         self.app.create_initialization_options(),
                         stateless=True,
-                        session_id=http_transport.mcp_session_id,
+                        session_id=None,  # No session in stateless mode
                     )
                 except Exception:  # pragma: no cover
                     logger.exception("Stateless session crashed")
