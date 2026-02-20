@@ -4,11 +4,12 @@ import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel, TypeAdapter
+from typing_extensions import Self
 
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
