@@ -88,9 +88,6 @@ class NotificationOptions:
 async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
 
-    Args:
-        server: The server instance this lifespan is managing
-
     Returns:
         An empty context object
     """

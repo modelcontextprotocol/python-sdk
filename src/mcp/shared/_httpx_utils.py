@@ -44,26 +44,38 @@ def create_mcp_http_client(
         The returned AsyncClient must be used as a context manager to ensure
         proper cleanup of connections.
 
-    Examples:
-        # Basic usage with MCP defaults
+    Example:
+        Basic usage with MCP defaults:
+
+        ```python
         async with create_mcp_http_client() as client:
             response = await client.get("https://api.example.com")
+        ```
 
-        # With custom headers
+        With custom headers:
+
+        ```python
         headers = {"Authorization": "Bearer token"}
         async with create_mcp_http_client(headers) as client:
             response = await client.get("/endpoint")
+        ```
 
-        # With both custom headers and timeout
+        With both custom headers and timeout:
+
+        ```python
         timeout = httpx.Timeout(60.0, read=300.0)
         async with create_mcp_http_client(headers, timeout) as client:
             response = await client.get("/long-request")
+        ```
 
-        # With authentication
+        With authentication:
+
+        ```python
         from httpx import BasicAuth
         auth = BasicAuth(username="user", password="pass")
         async with create_mcp_http_client(headers, timeout, auth) as client:
             response = await client.get("/protected-endpoint")
+        ```
     """
     # Set MCP defaults
     kwargs: dict[str, Any] = {"follow_redirects": True}

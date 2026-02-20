@@ -15,7 +15,7 @@ from mcp.server.auth.provider import AccessToken, OAuthAuthorizationServerProvid
 
 
 class RevocationRequest(BaseModel):
-    """# See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1"""
+    """See https://datatracker.ietf.org/doc/html/rfc7009#section-2.1"""
 
     token: str
     token_type_hint: Literal["access_token", "refresh_token"] | None = None

@@ -25,10 +25,10 @@ def validate_issuer_url(url: AnyHttpUrl):
     """Validate that the issuer URL meets OAuth 2.0 requirements.
 
     Args:
-        url: The issuer URL to validate
+        url: The issuer URL to validate.
 
     Raises:
-        ValueError: If the issuer URL is invalid
+        ValueError: If the issuer URL is invalid.
     """
 
     # RFC 8414 requires HTTPS, but we allow loopback/localhost HTTP for testing
@@ -213,6 +213,8 @@ def create_protected_resource_routes(
         resource_url: The URL of this resource server
         authorization_servers: List of authorization servers that can issue tokens
         scopes_supported: Optional list of scopes supported by this resource
+        resource_name: Optional human-readable name for this resource
+        resource_documentation: Optional URL to documentation for this resource
 
     Returns:
         List of Starlette routes for protected resource metadata

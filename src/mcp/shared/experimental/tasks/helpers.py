@@ -75,8 +75,10 @@ async def cancel_task(
             - Task is already in a terminal state (completed, failed, cancelled)
 
     Example:
+        ```python
         async def handle_cancel(ctx, params: CancelTaskRequestParams) -> CancelTaskResult:
             return await cancel_task(store, params.task_id, session_id=ctx.session.session_id)
+        ```
     """
     task = await store.get_task(task_id, session_id=session_id)
     if task is None:

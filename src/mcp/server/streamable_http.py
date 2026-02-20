@@ -89,7 +89,7 @@ class EventStore(ABC):
             message: The JSON-RPC message to store, or None for priming events
 
         Returns:
-            The generated event ID for the stored event
+            The generated event ID for the stored event.
         """
         pass  # pragma: no cover
 
@@ -106,7 +106,7 @@ class EventStore(ABC):
             send_callback: A callback function to send events to the client
 
         Returns:
-            The stream ID of the replayed events
+            The stream ID of the replayed events, or None if no events were found.
         """
         pass  # pragma: no cover
 
@@ -185,7 +185,7 @@ class StreamableHTTPServerTransport:
         be replayed when the client reconnects with Last-Event-ID.
 
         Use this to implement polling behavior during long-running operations -
-        client will reconnect after the retry interval specified in the priming event.
+        the client will reconnect after the retry interval specified in the priming event.
 
         Args:
             request_id: The request ID whose SSE stream should be closed.
@@ -213,7 +213,7 @@ class StreamableHTTPServerTransport:
         with Last-Event-ID to resume receiving notifications.
 
         Use this to implement polling behavior for the notification stream -
-        client will reconnect after the retry interval specified in the priming event.
+        the client will reconnect after the retry interval specified in the priming event.
 
         Note:
             This is a no-op if there is no active standalone SSE stream.
@@ -316,7 +316,7 @@ class StreamableHTTPServerTransport:
         status_code: HTTPStatus = HTTPStatus.OK,
         headers: dict[str, str] | None = None,
     ) -> Response:
-        """Create a JSON response from a JSONRPCMessage"""
+        """Create a JSON response from a JSONRPCMessage."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
         if headers:  # pragma: lax no cover
             response_headers.update(headers)
@@ -362,7 +362,7 @@ class StreamableHTTPServerTransport:
                 self._request_streams.pop(request_id, None)
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Application entry point that handles all HTTP requests"""
+        """Application entry point that handles all HTTP requests."""
         request = Request(scope, receive)
 
         # Validate request headers for DNS rebinding protection
@@ -536,7 +536,7 @@ class StreamableHTTPServerTransport:
                         if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                             response_message = event_message.message
                             break
-                        # For notifications and request, keep waiting
+                        # For notifications and requests, keep waiting
                         else:  # pragma: no cover
                             logger.debug(f"received: {event_message.message.method}")
 
@@ -860,6 +860,7 @@ class StreamableHTTPServerTransport:
 
     async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:  # pragma: no cover
         """Replays events that would have been sent after the specified event ID.
+
         Only used when resumability is enabled.
         """
         event_store = self._event_store
