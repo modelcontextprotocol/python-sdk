@@ -61,10 +61,10 @@ if __name__ == "__main__":
     mcp.run(transport="streamable-http")
 ```
 
-_Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
+_Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/oauth_server.py)_
 <!-- /snippet-source -->
 
-For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x/examples/servers/simple-auth).
 
 **Architecture:**
 
@@ -72,7 +72,7 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
-See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
+See [TokenVerifier](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ## Client-Side Authentication
 
@@ -171,7 +171,7 @@ if __name__ == "__main__":
     run()
 ```
 
-_Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
+_Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/oauth_client.py)_
 <!-- /snippet-source -->
 
-For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+For a complete working example, see [`examples/clients/simple-auth-client/`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x/examples/clients/simple-auth-client).
