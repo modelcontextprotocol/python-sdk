@@ -109,6 +109,55 @@ rather than adding new standalone sections.
      - Update config rev
      - Commit config first
 
+## Docstring Code Examples
+
+Code examples in `src/mcp/` docstrings are type-checked via companion files in
+`examples/snippets/docstrings/mcp/`, mirroring the source tree
+(`src/mcp/foo/bar.py` → `examples/snippets/docstrings/mcp/foo/bar.py`).
+Companion files are standalone scripts (not packages) starting with
+`from __future__ import annotations`. The companion file is the source of truth —
+always edit examples there, never directly in the docstring.
+
+Each example lives in a named function (returning `-> None`) wrapping
+`# region Name` / `# endregion Name` markers. Names follow
+`ClassName_methodName_variant` for methods, `functionName_variant` for standalone
+functions, or `module_overview` for module docstrings. Pick a descriptive variant
+suffix (`_basic`, `_sync`/`_async`, `_with_context`, etc.). In the companion file:
+
+````python
+def MyClass_do_thing_basic(obj: MyClass) -> None:
+    # region MyClass_do_thing_basic
+    result = obj.do_thing("arg")
+    print(result)
+    # endregion MyClass_do_thing_basic
+````
+
+The sync script wraps region content in a fenced code block between
+`<!-- snippet-source #RegionName -->` and `<!-- /snippet-source -->` markers.
+In the source docstring:
+
+````
+    Example:
+        <!-- snippet-source #MyClass_do_thing_basic -->
+        ```python
+        result = obj.do_thing("arg")
+        print(result)
+        ```
+        <!-- /snippet-source -->
+````
+
+Function parameters supply typed dependencies the example needs but does not create
+(e.g., `server: MCPServer`); module-level stubs are only for truly undefined references
+(e.g., `async def fetch_data() -> str: ...`).
+
+NEVER put `# type: ignore`, `# pyright: ignore`, or `# noqa` inside a region — these
+sync verbatim into the docstring. Restructure the code or move problematic lines outside
+the region instead.
+
+After editing a companion file, run `uv run --frozen pyright` to verify types, then
+`uv run python scripts/sync_snippets.py` to sync into docstrings. Use `--check` to
+verify sync without modifying files.
+
 ## Error Resolution
 
 1. CI Failures
