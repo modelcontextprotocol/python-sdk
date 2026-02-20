@@ -26,6 +26,17 @@ With region extraction:
     ```
     <!-- /snippet-source -->
 
+Path-less region markers (for src/ files only):
+
+    <!-- snippet-source #region_name -->
+    ```python
+    # content replaced by script
+    ```
+    <!-- /snippet-source -->
+
+    The companion file path is derived from the target file's location:
+    src/mcp/foo/bar.py → examples/snippets/docstrings/mcp/foo/bar.py
+
 The code fence language is inferred from the source file extension.
 
 Region markers in example files:
@@ -36,6 +47,7 @@ Region markers in example files:
 
 Path resolution:
 - All paths are relative to the repository root
+- Path-less markers (#region) resolve via: src/X → COMPANION_BASE/X
 
 Usage:
     uv run python scripts/sync_snippets.py          # Sync all snippets
@@ -63,6 +75,12 @@ SNIPPET_PATTERN = re.compile(
 # Region markers in example files.
 REGION_START_PATTERN = re.compile(r"^(?P<indent>\s*)# region (?P<name>\S+)\s*$")
 REGION_END_PATTERN = re.compile(r"^\s*# endregion (?P<name>\S+)\s*$")
+
+# Base directory for companion example files (relative to repo root).
+COMPANION_BASE = Path("examples/snippets/docstrings")
+
+# Source prefix stripped when deriving companion paths.
+SOURCE_PREFIX = Path("src")
 
 
 def find_repo_root() -> Path:
@@ -148,6 +166,28 @@ class SnippetSyncer:
         self._file_cache: dict[str, str] = {}
         self._region_cache: dict[str, str] = {}
 
+    def derive_companion_path(self, target_file: Path) -> str:
+        """Derive the companion example file path from a source file path.
+
+        Maps src/mcp/X → examples/snippets/docstrings/mcp/X
+        """
+        rel = target_file.relative_to(self.repo_root)
+        try:
+            sub = rel.relative_to(SOURCE_PREFIX)
+        except ValueError:
+            raise ValueError(
+                f"Cannot derive companion path for {rel}: "
+                f"path-less #region markers are only supported in {SOURCE_PREFIX}/ files"
+            ) from None
+        return str(COMPANION_BASE / sub)
+
+    def resolve_source_ref(self, source_ref: str, target_file: Path) -> str:
+        """Resolve a source reference, expanding path-less #region markers."""
+        if source_ref.startswith("#"):
+            companion = self.derive_companion_path(target_file)
+            return f"{companion}{source_ref}"
+        return source_ref
+
     def get_file_content(self, resolved_path: Path) -> str:
         """Get file content, using cache."""
         key = str(resolved_path)
@@ -188,7 +228,8 @@ class SnippetSyncer:
             source_ref = match.group("source")
 
             try:
-                code = self.get_source_content(source_ref)
+                resolved_ref = self.resolve_source_ref(source_ref, file_path)
+                code = self.get_source_content(resolved_ref)
             except (FileNotFoundError, ValueError) as e:
                 result.errors.append(f"{file_path}: {e}")
                 return match.group(0)
@@ -196,7 +237,7 @@ class SnippetSyncer:
             result.snippets_processed += 1
 
             # Infer language from file extension
-            raw_path = source_ref.split("#")[0]
+            raw_path = resolved_ref.split("#")[0]
             ext = Path(raw_path).suffix.lstrip(".")
             lang = {"py": "python", "yml": "yaml"}.get(ext, ext)
 
