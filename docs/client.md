@@ -225,6 +225,7 @@ For OAuth 2.1 client authentication, see [Authorization](authorization.md#client
 
 Clients can provide a `list_roots_callback` so that servers can discover the client's workspace roots (directories, project folders, etc.):
 
+<!-- snippet-source examples/snippets/clients/roots_example.py -->
 ```python
 from mcp import ClientSession, types
 from mcp.shared.context import RequestContext
@@ -250,6 +251,9 @@ session = ClientSession(
 )
 ```
 
+_Full example: [examples/snippets/clients/roots_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/roots_example.py)_
+<!-- /snippet-source -->
+
 When a `list_roots_callback` is provided, the client automatically declares the `roots` capability (with `listChanged=True`) during initialization.
 
 ### Roots Change Notifications
@@ -265,6 +269,7 @@ await session.send_roots_list_changed()
 
 For servers that use the older SSE transport, use `sse_client()` from `mcp.client.sse`:
 
+<!-- snippet-source examples/snippets/clients/sse_client.py -->
 ```python
 import asyncio
 
@@ -284,6 +289,9 @@ async def main():
 asyncio.run(main())
 ```
 
+_Full example: [examples/snippets/clients/sse_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/sse_client.py)_
+<!-- /snippet-source -->
+
 The `sse_client()` function accepts optional `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters. The SSE transport is considered legacy; prefer [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) for new servers.
 
 ## Ping
@@ -302,6 +310,7 @@ result = await session.send_ping()
 
 Pass a `logging_callback` to receive log messages from the server:
 
+<!-- snippet-source examples/snippets/clients/logging_client.py -->
 ```python
 from mcp import ClientSession, types
 
@@ -317,6 +326,9 @@ session = ClientSession(
     logging_callback=handle_log,
 )
 ```
+
+_Full example: [examples/snippets/clients/logging_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/logging_client.py)_
+<!-- /snippet-source -->
 
 ### Setting the Server Log Level
 
