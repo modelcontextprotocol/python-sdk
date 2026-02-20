@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from mcp import types
@@ -9,6 +11,8 @@ from mcp.client import BaseClientSession
 from mcp.client.client import Client
 from mcp.client.session import ClientSession
 from mcp.server.mcpserver import MCPServer
+from mcp.shared.session import ProgressFnT
+from mcp.types._types import RequestParamsMeta
 
 pytestmark = pytest.mark.anyio
 
@@ -44,7 +48,9 @@ async def test_base_client_session_e2e_via_client():
         result = await session.call_tool("echo", {"text": "hello"})
         assert result.is_error is False
         assert len(result.content) == 1
-        assert result.content[0].text == "hello"
+        first_content = result.content[0]
+        assert isinstance(first_content, types.TextContent)
+        assert first_content.text == "hello"
 
         # List tools through the Protocol interface
         tools_result = await session.list_tools()
@@ -78,56 +84,103 @@ class StubClientSession:
     """Minimal stub that satisfies BaseClientSession protocol."""
 
     async def send_request(
-        self, request, result_type, request_read_timeout_seconds=None, metadata=None, progress_callback=None
-    ):
+        self,
+        request: types.ClientRequest,
+        result_type: type[Any],
+        request_read_timeout_seconds: float | None = None,
+        metadata: Any = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> Any:
         return types.EmptyResult()
 
-    async def send_notification(self, notification, related_request_id=None):
+    async def send_notification(
+        self,
+        notification: types.ClientNotification,
+        related_request_id: Any = None,
+    ) -> None:
         pass
 
-    async def send_progress_notification(self, progress_token, progress, total=None, message=None, *, meta=None):
+    async def send_progress_notification(
+        self,
+        progress_token: types.ProgressToken,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> None:
         pass
 
-    async def initialize(self):
-        return types.InitializeResult()
+    async def initialize(self) -> types.InitializeResult:
+        return types.InitializeResult(
+            protocol_version="2024-11-05",
+            capabilities=types.ServerCapabilities(),
+            server_info=types.Implementation(name="stub", version="0"),
+        )
 
-    async def send_ping(self, *, meta=None):
+    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         return types.EmptyResult()
 
-    async def list_resources(self, *, params=None):
-        return types.ListResourcesResult()
+    async def list_resources(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListResourcesResult:
+        return types.ListResourcesResult(resources=[])
 
-    async def list_resource_templates(self, *, params=None):
-        return types.ListResourceTemplatesResult()
+    async def list_resource_templates(
+        self, *, params: types.PaginatedRequestParams | None = None
+    ) -> types.ListResourceTemplatesResult:
+        return types.ListResourceTemplatesResult(resource_templates=[])
 
-    async def read_resource(self, uri, *, meta=None):
-        return types.ReadResourceResult()
+    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.ReadResourceResult:
+        return types.ReadResourceResult(contents=[])
 
-    async def subscribe_resource(self, uri, *, meta=None):
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         return types.EmptyResult()
 
-    async def unsubscribe_resource(self, uri, *, meta=None):
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         return types.EmptyResult()
 
-    async def call_tool(self, name, arguments=None, read_timeout_seconds=None, progress_callback=None, *, meta=None):
-        return types.CallToolResult()
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.CallToolResult:
+        return types.CallToolResult(content=[])
 
-    async def list_prompts(self, *, params=None):
-        return types.ListPromptsResult()
+    async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
+        return types.ListPromptsResult(prompts=[])
 
-    async def get_prompt(self, name, arguments=None, *, meta=None):
-        return types.GetPromptResult()
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.GetPromptResult:
+        return types.GetPromptResult(messages=[])
 
-    async def list_tools(self, *, params=None):
-        return types.ListToolsResult()
+    async def list_tools(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[])
 
-    async def complete(self, ref, argument, context_arguments=None):
-        return types.CompleteResult()
+    async def complete(
+        self,
+        ref: types.ResourceTemplateReference | types.PromptReference,
+        argument: dict[str, str],
+        context_arguments: dict[str, str] | None = None,
+    ) -> types.CompleteResult:
+        return types.CompleteResult(completion=types.Completion(values=[]))
 
-    async def set_logging_level(self, level, *, meta=None):
+    async def set_logging_level(
+        self,
+        level: types.LoggingLevel,
+        *,
+        meta: RequestParamsMeta | None = None,
+    ) -> types.EmptyResult:
         return types.EmptyResult()
 
-    async def send_roots_list_changed(self):
+    async def send_roots_list_changed(self) -> None:
         pass
 
 
