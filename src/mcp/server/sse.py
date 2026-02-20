@@ -3,9 +3,21 @@
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 
 Example:
+    <!-- snippet-source #module_overview -->
     ```python
     # Create an SSE transport at an endpoint
     sse = SseServerTransport("/messages/")
+
+    # Define handler functions
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(
+            request.scope,
+            request.receive,
+            request._send,
+        ) as streams:
+            await app.run(streams[0], streams[1], app.create_initialization_options())
+        # Return empty response to avoid NoneType error
+        return Response()
 
     # Create Starlette routes for SSE and message handling
     routes = [
@@ -13,21 +25,11 @@ Example:
         Mount("/messages/", app=sse.handle_post_message),
     ]
 
-    # Define handler functions
-    async def handle_sse(request):
-        async with sse.connect_sse(
-            request.scope, request.receive, request._send
-        ) as streams:
-            await app.run(
-                streams[0], streams[1], app.create_initialization_options()
-            )
-        # Return empty response to avoid NoneType error
-        return Response()
-
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
     ```
+    <!-- /snippet-source -->
 
 Note: The handle_sse function must return a Response to avoid a
 "TypeError: 'NoneType' object is not callable" error when client disconnects. The example above returns

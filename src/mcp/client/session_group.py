@@ -92,13 +92,17 @@ class ClientSessionGroup:
     the client and can be accessed via the session.
 
     Example:
+        <!-- snippet-source #ClientSessionGroup_usage -->
         ```python
-        name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
+        def name_fn(name: str, server_info: Any) -> str:
+            return f"{server_info.name}_{name}"
+
         async with ClientSessionGroup(component_name_hook=name_fn) as group:
             for server_param in server_params:
                 await group.connect_to_server(server_param)
             ...
         ```
+        <!-- /snippet-source -->
     """
 
     class _ComponentNames(BaseModel):
