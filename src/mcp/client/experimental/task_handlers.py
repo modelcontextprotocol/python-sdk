@@ -187,13 +187,15 @@ class ExperimentalTaskHandlers:
     WARNING: These APIs are experimental and may change without notice.
 
     Example:
+        <!-- snippet-source #ExperimentalTaskHandlers_usage -->
         ```python
         handlers = ExperimentalTaskHandlers(
             get_task=my_get_task_handler,
             list_tasks=my_list_tasks_handler,
         )
-        session = ClientSession(..., experimental_task_handlers=handlers)
+        session = ClientSession(read_stream, write_stream, experimental_task_handlers=handlers)
         ```
+        <!-- /snippet-source -->
     """
 
     # Pure task request handlers

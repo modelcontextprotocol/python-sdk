@@ -28,6 +28,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
     Use this when you already have client credentials (client_id and client_secret).
 
     Example:
+        <!-- snippet-source #ClientCredentialsOAuthProvider_init -->
         ```python
         provider = ClientCredentialsOAuthProvider(
             server_url="https://api.example.com",
@@ -36,6 +37,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             client_secret="my-client-secret",
         )
         ```
+        <!-- /snippet-source -->
     """
 
     def __init__(
@@ -114,6 +116,7 @@ def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
     that doesn't need the audience parameter.
 
     Example:
+        <!-- snippet-source #static_assertion_provider_usage -->
         ```python
         provider = PrivateKeyJWTOAuthProvider(
             server_url="https://api.example.com",
@@ -122,6 +125,7 @@ def static_assertion_provider(token: str) -> Callable[[str], Awaitable[str]]:
             assertion_provider=static_assertion_provider(my_prebuilt_jwt),
         )
         ```
+        <!-- /snippet-source -->
 
     Args:
         token: The pre-built JWT assertion string.
@@ -143,6 +147,7 @@ class SignedJWTParameters(BaseModel):
     for use with `PrivateKeyJWTOAuthProvider`.
 
     Example:
+        <!-- snippet-source #SignedJWTParameters_usage -->
         ```python
         jwt_params = SignedJWTParameters(
             issuer="my-client-id",
@@ -156,6 +161,7 @@ class SignedJWTParameters(BaseModel):
             assertion_provider=jwt_params.create_assertion_provider(),
         )
         ```
+        <!-- /snippet-source -->
     """
 
     issuer: str = Field(description="Issuer for JWT assertions (typically client_id).")
@@ -205,6 +211,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
     In production scenarios, the JWT assertion is typically obtained from a workload
     identity provider (e.g., GCP, AWS IAM, Azure AD):
 
+        <!-- snippet-source #PrivateKeyJWTOAuthProvider_workloadIdentity -->
         ```python
         async def get_workload_identity_token(audience: str) -> str:
             # Fetch JWT from your identity provider
@@ -218,11 +225,13 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             assertion_provider=get_workload_identity_token,
         )
         ```
+        <!-- /snippet-source -->
 
     **Option 2: Static pre-built JWT**
 
     If you have a static JWT that doesn't need the audience parameter:
 
+        <!-- snippet-source #PrivateKeyJWTOAuthProvider_staticJWT -->
         ```python
         provider = PrivateKeyJWTOAuthProvider(
             server_url="https://api.example.com",
@@ -231,11 +240,13 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             assertion_provider=static_assertion_provider(my_prebuilt_jwt),
         )
         ```
+        <!-- /snippet-source -->
 
     **Option 3: SDK-signed JWT (for testing/simple setups)**
 
     For testing or simple deployments, use `SignedJWTParameters.create_assertion_provider()`:
 
+        <!-- snippet-source #PrivateKeyJWTOAuthProvider_sdkSigned -->
         ```python
         jwt_params = SignedJWTParameters(
             issuer="my-client-id",
@@ -249,6 +260,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             assertion_provider=jwt_params.create_assertion_provider(),
         )
         ```
+        <!-- /snippet-source -->
     """
 
     def __init__(
