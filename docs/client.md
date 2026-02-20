@@ -89,7 +89,7 @@ if __name__ == "__main__":
     main()
 ```
 
-_Full example: [examples/snippets/clients/stdio_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/stdio_client.py)_
+_Full example: [examples/snippets/clients/stdio_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/stdio_client.py)_
 <!-- /snippet-source -->
 
 Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http):
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-_Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
+_Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/streamable_basic.py)_
 <!-- /snippet-source -->
 
 ## Client Display Utilities
@@ -205,7 +205,7 @@ if __name__ == "__main__":
     main()
 ```
 
-_Full example: [examples/snippets/clients/display_utilities.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/display_utilities.py)_
+_Full example: [examples/snippets/clients/display_utilities.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/display_utilities.py)_
 <!-- /snippet-source -->
 
 The `get_display_name()` function implements the proper precedence rules for displaying names:
