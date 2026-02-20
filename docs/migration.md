@@ -555,9 +555,10 @@ from mcp.shared._context import SessionT_co
 The session hierarchy now uses a new **runtime-checkable Protocol** called `AbstractBaseSession` to define the shared contract for all MCP sessions. This protocol enables structural subtyping, allowing different transport implementations to be used interchangeably without requiring rigid inheritance.
 
 Key characteristics of `AbstractBaseSession`:
-1.  **Pure Interface**: It is a structural protocol with no implementation state or `__init__` method.
-2.  **Simplified Type Parameters**: It takes two parameters: `AbstractBaseSession[SendRequestT_contra, SendNotificationT_contra]`. Contravariant variance is used for these parameters to ensure that sessions can be used safely in generic contexts (like `RequestContext`).
-3.  **BaseSession Implementation**: The concrete implementation logic (state management, response routing) is provided by the `BaseSession` class, which satisfies the protocol.
+
+1. **Pure Interface**: It is a structural protocol with no implementation state or `__init__` method.
+2. **Simplified Type Parameters**: It takes two parameters: `AbstractBaseSession[SendRequestT_contra, SendNotificationT_contra]`. Contravariant variance is used for these parameters to ensure that sessions can be used safely in generic contexts (like `RequestContext`).
+3. **BaseSession Implementation**: The concrete implementation logic (state management, response routing) is provided by the `BaseSession` class, which satisfies the protocol.
 
 **Before:**
 
@@ -627,7 +628,8 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 **After:**
 
 ```python
-ReceiveResultT_co = TypeVar("ReceiveResultT_co", bound=BaseModel, covariant=True)
+ReceiveResultT_co =
+TypeVar("ReceiveResultT_co", bound=BaseModel, covariant=True)
 ```
 
 #### `BaseClientSession` is now a Protocol
