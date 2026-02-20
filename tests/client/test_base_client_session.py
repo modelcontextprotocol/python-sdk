@@ -22,8 +22,7 @@ async def test_client_session_satisfies_base_client_session_protocol():
     server = MCPServer(name="test")
 
     @server.tool()
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
+    def greet(name: str) -> str: ...
 
     async with Client(server) as client:
         # Verify isinstance works with @runtime_checkable Protocol
@@ -63,8 +62,7 @@ async def test_base_client_session_complete_and_set_logging_level():
     server = MCPServer(name="test")
 
     @server.prompt()
-    def greeting(name: str) -> str:
-        return f"Hello {name}!"
+    def greeting(name: str) -> str: ...
 
     async with Client(server) as client:
         session: BaseClientSession = client.session
@@ -90,15 +88,13 @@ class StubClientSession:
         request_read_timeout_seconds: float | None = None,
         metadata: Any = None,
         progress_callback: ProgressFnT | None = None,
-    ) -> Any:
-        return types.EmptyResult()
+    ) -> Any: ...
 
     async def send_notification(
         self,
         notification: types.ClientNotification,
         related_request_id: Any = None,
-    ) -> None:
-        pass
+    ) -> None: ...
 
     async def send_progress_notification(
         self,
@@ -108,35 +104,25 @@ class StubClientSession:
         message: str | None = None,
         *,
         meta: RequestParamsMeta | None = None,
-    ) -> None:
-        pass
+    ) -> None: ...
 
-    async def initialize(self) -> types.InitializeResult:
-        return types.InitializeResult(
-            protocol_version="2024-11-05",
-            capabilities=types.ServerCapabilities(),
-            server_info=types.Implementation(name="stub", version="0"),
-        )
+    async def initialize(self) -> types.InitializeResult: ...
 
-    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
-        return types.EmptyResult()
+    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult: ...
 
-    async def list_resources(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListResourcesResult:
-        return types.ListResourcesResult(resources=[])
+    async def list_resources(
+        self, *, params: types.PaginatedRequestParams | None = None
+    ) -> types.ListResourcesResult: ...
 
     async def list_resource_templates(
         self, *, params: types.PaginatedRequestParams | None = None
-    ) -> types.ListResourceTemplatesResult:
-        return types.ListResourceTemplatesResult(resource_templates=[])
+    ) -> types.ListResourceTemplatesResult: ...
 
-    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.ReadResourceResult:
-        return types.ReadResourceResult(contents=[])
+    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.ReadResourceResult: ...
 
-    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
-        return types.EmptyResult()
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult: ...
 
-    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
-        return types.EmptyResult()
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult: ...
 
     async def call_tool(
         self,
@@ -146,11 +132,9 @@ class StubClientSession:
         progress_callback: ProgressFnT | None = None,
         *,
         meta: RequestParamsMeta | None = None,
-    ) -> types.CallToolResult:
-        return types.CallToolResult(content=[])
+    ) -> types.CallToolResult: ...
 
-    async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult:
-        return types.ListPromptsResult(prompts=[])
+    async def list_prompts(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListPromptsResult: ...
 
     async def get_prompt(
         self,
@@ -158,30 +142,25 @@ class StubClientSession:
         arguments: dict[str, str] | None = None,
         *,
         meta: RequestParamsMeta | None = None,
-    ) -> types.GetPromptResult:
-        return types.GetPromptResult(messages=[])
+    ) -> types.GetPromptResult: ...
 
-    async def list_tools(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[])
+    async def list_tools(self, *, params: types.PaginatedRequestParams | None = None) -> types.ListToolsResult: ...
 
     async def complete(
         self,
         ref: types.ResourceTemplateReference | types.PromptReference,
         argument: dict[str, str],
         context_arguments: dict[str, str] | None = None,
-    ) -> types.CompleteResult:
-        return types.CompleteResult(completion=types.Completion(values=[]))
+    ) -> types.CompleteResult: ...
 
     async def set_logging_level(
         self,
         level: types.LoggingLevel,
         *,
         meta: RequestParamsMeta | None = None,
-    ) -> types.EmptyResult:
-        return types.EmptyResult()
+    ) -> types.EmptyResult: ...
 
-    async def send_roots_list_changed(self) -> None:
-        pass
+    async def send_roots_list_changed(self) -> None: ...
 
 
 def test_custom_session_satisfies_protocol():

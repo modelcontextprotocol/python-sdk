@@ -223,6 +223,7 @@ exclude_lines = [
     "@overload",
     "raise NotImplementedError",
     "^\\s*\\.\\.\\.\\s*$",
+    "\\.\\.\\.",
 ]
 
 # https://coverage.readthedocs.io/en/latest/config.html#paths
