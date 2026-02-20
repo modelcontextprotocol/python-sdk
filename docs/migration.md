@@ -556,7 +556,7 @@ The session hierarchy now uses a new **runtime-checkable Protocol** called `Abst
 
 Key characteristics of `AbstractBaseSession`:
 1.  **Pure Interface**: It is a structural protocol with no implementation state or `__init__` method.
-2.  **Simplified Type Parameters**: It takes two parameters: `AbstractBaseSession[SendRequestT, SendNotificationT]`. Contravariant variance is used for these parameters to ensure that sessions can be used safely in generic contexts (like `RequestContext`).
+2.  **Simplified Type Parameters**: It takes two parameters: `AbstractBaseSession[SendRequestT_contra, SendNotificationT_contra]`. Contravariant variance is used for these parameters to ensure that sessions can be used safely in generic contexts (like `RequestContext`).
 3.  **BaseSession Implementation**: The concrete implementation logic (state management, response routing) is provided by the `BaseSession` class, which satisfies the protocol.
 
 **Before:**
@@ -580,9 +580,9 @@ class MySession(AbstractBaseSession[...]):
         self._my_state = {}
 ```
 
-#### `SendRequestT` changed to contravariant
+#### `SendRequestT` renamed to `SendRequestT_contra`
 
-The `SendRequestT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol.
+The `SendRequestT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol and renamed accordingly to follow naming conventions for contravariant type variables.
 
 **Before:**
 
@@ -593,12 +593,12 @@ SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 **After:**
 
 ```python
-SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest, contravariant=True)
+SendRequestT_contra = TypeVar("SendRequestT_contra", ClientRequest, ServerRequest, contravariant=True)
 ```
 
-#### `SendNotificationT` changed to contravariant
+#### `SendNotificationT` renamed to `SendNotificationT_contra`
 
-The `SendNotificationT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol.
+The `SendNotificationT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol and renamed accordingly to follow naming conventions for contravariant type variables.
 
 **Before:**
 
@@ -609,14 +609,14 @@ SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotif
 **After:**
 
 ```python
-SendNotificationT = TypeVar(
-    "SendNotificationT", ClientNotification, ServerNotification, contravariant=True
+SendNotificationT_contra = TypeVar(
+    "SendNotificationT_contra", ClientNotification, ServerNotification, contravariant=True
 )
 ```
 
-#### `ReceiveResultT` changed to covariant
+#### `ReceiveResultT` renamed to `ReceiveResultT_co`
 
-The `ReceiveResultT` TypeVar is now defined as **covariant** to support its use in the `AbstractBaseSession` Protocol.
+The `ReceiveResultT` TypeVar is now defined as **covariant** to support its use in the `AbstractBaseSession` Protocol and renamed accordingly to follow naming conventions for covariant type variables.
 
 **Before:**
 
@@ -627,7 +627,7 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 **After:**
 
 ```python
-ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel, covariant=True)
+ReceiveResultT_co = TypeVar("ReceiveResultT_co", bound=BaseModel, covariant=True)
 ```
 
 #### `BaseClientSession` is now a Protocol

@@ -4,12 +4,11 @@ import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import BaseModel, TypeAdapter
-from typing_extensions import Protocol, Self, runtime_checkable
 
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
@@ -35,13 +34,13 @@ from mcp.types import (
     ServerResult,
 )
 
-SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest, contravariant=True)
+SendRequestT_contra = TypeVar("SendRequestT_contra", ClientRequest, ServerRequest, contravariant=True)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
-SendNotificationT = TypeVar(
-    "SendNotificationT", ClientNotification, ServerNotification, contravariant=True
+SendNotificationT_contra = TypeVar(
+    "SendNotificationT_contra", ClientNotification, ServerNotification, contravariant=True
 )
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
-ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel, covariant=True)
+ReceiveResultT_co = TypeVar("ReceiveResultT_co", bound=BaseModel, covariant=True)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
@@ -76,7 +75,9 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParamsMeta | None,
         request: ReceiveRequestT,
-        session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
+        session: BaseSession[
+            SendRequestT_contra, SendNotificationT_contra, SendResultT, ReceiveRequestT, ReceiveNotificationT
+        ],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
     ) -> None:
@@ -160,8 +161,8 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 class AbstractBaseSession(
     Protocol,
     Generic[
-        SendRequestT,
-        SendNotificationT,
+        SendRequestT_contra,
+        SendNotificationT_contra,
     ],
 ):
     """Pure abstract interface for MCP sessions.
@@ -172,12 +173,12 @@ class AbstractBaseSession(
 
     async def send_request(
         self,
-        request: SendRequestT,
-        result_type: type[ReceiveResultT],
+        request: SendRequestT_contra,
+        result_type: type[ReceiveResultT_co],
         request_read_timeout_seconds: float | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
-    ) -> ReceiveResultT:
+    ) -> ReceiveResultT_co:
         """Sends a request and wait for a response.
 
         Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
@@ -189,7 +190,7 @@ class AbstractBaseSession(
 
     async def send_notification(
         self,
-        notification: SendNotificationT,
+        notification: SendNotificationT_contra,
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
@@ -208,12 +209,12 @@ class AbstractBaseSession(
 
 class BaseSession(
     AbstractBaseSession[
-        SendRequestT,
-        SendNotificationT,
+        SendRequestT_contra,
+        SendNotificationT_contra,
     ],
     Generic[
-        SendRequestT,
-        SendNotificationT,
+        SendRequestT_contra,
+        SendNotificationT_contra,
         SendResultT,
         ReceiveRequestT,
         ReceiveNotificationT,
@@ -287,12 +288,12 @@ class BaseSession(
 
     async def send_request(
         self,
-        request: SendRequestT,
-        result_type: type[ReceiveResultT],
+        request: SendRequestT_contra,
+        result_type: type[ReceiveResultT_co],
         request_read_timeout_seconds: float | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
-    ) -> ReceiveResultT:
+    ) -> ReceiveResultT_co:
         """Sends a request and wait for a response.
 
         Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
@@ -346,7 +347,7 @@ class BaseSession(
 
     async def send_notification(
         self,
-        notification: SendNotificationT,
+        notification: SendNotificationT_contra,
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
