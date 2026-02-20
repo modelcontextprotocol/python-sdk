@@ -34,8 +34,9 @@ async def test_server_task_context_properties() -> None:
     """Test ServerTaskContext property accessors."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-123")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-123", session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -56,8 +57,9 @@ async def test_server_task_context_request_cancellation() -> None:
     """Test ServerTaskContext.request_cancellation()."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -78,9 +80,10 @@ async def test_server_task_context_update_status_with_notify() -> None:
     """Test update_status sends notification when notify=True."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.send_notification = AsyncMock()
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -100,9 +103,10 @@ async def test_server_task_context_update_status_without_notify() -> None:
     """Test update_status skips notification when notify=False."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.send_notification = AsyncMock()
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -122,9 +126,10 @@ async def test_server_task_context_complete_with_notify() -> None:
     """Test complete sends notification when notify=True."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.send_notification = AsyncMock()
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -145,9 +150,10 @@ async def test_server_task_context_fail_with_notify() -> None:
     """Test fail sends notification when notify=True."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.send_notification = AsyncMock()
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -167,10 +173,11 @@ async def test_elicit_raises_when_client_lacks_capability() -> None:
     """Test that elicit() raises MCPError when client doesn't support elicitation."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=False)
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -193,10 +200,11 @@ async def test_create_message_raises_when_client_lacks_capability() -> None:
     """Test that create_message() raises MCPError when client doesn't support sampling."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=False)
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -219,9 +227,10 @@ async def test_elicit_raises_without_handler() -> None:
     """Test that elicit() raises when handler is not provided."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -242,9 +251,10 @@ async def test_elicit_url_raises_without_handler() -> None:
     """Test that elicit_url() raises when handler is not provided."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -269,9 +279,10 @@ async def test_create_message_raises_without_handler() -> None:
     """Test that create_message() raises when handler is not provided."""
     store = InMemoryTaskStore()
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     ctx = ServerTaskContext(
         task=task,
@@ -293,9 +304,10 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     mock_session._build_elicit_form_request = Mock(
         return_value=JSONRPCRequest(
@@ -330,7 +342,7 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
         await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.task_id)
+        updated_task = await store.get_task(task.task_id, session_id="test-session")
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
@@ -348,7 +360,7 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
     assert elicit_result.content == {"name": "Alice"}
 
     # Verify task is back to working
-    final_task = await store.get_task(task.task_id)
+    final_task = await store.get_task(task.task_id, session_id="test-session")
     assert final_task is not None
     assert final_task.status == "working"
 
@@ -361,9 +373,10 @@ async def test_elicit_url_queues_request_and_waits_for_response() -> None:
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     mock_session._build_elicit_url_request = Mock(
         return_value=JSONRPCRequest(
@@ -399,7 +412,7 @@ async def test_elicit_url_queues_request_and_waits_for_response() -> None:
         await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.task_id)
+        updated_task = await store.get_task(task.task_id, session_id="test-session")
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
@@ -416,7 +429,7 @@ async def test_elicit_url_queues_request_and_waits_for_response() -> None:
     assert elicit_result.action == "accept"
 
     # Verify task is back to working
-    final_task = await store.get_task(task.task_id)
+    final_task = await store.get_task(task.task_id, session_id="test-session")
     assert final_task is not None
     assert final_task.status == "working"
 
@@ -429,9 +442,10 @@ async def test_create_message_queues_request_and_waits_for_response() -> None:
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     mock_session._build_create_message_request = Mock(
         return_value=JSONRPCRequest(
@@ -466,7 +480,7 @@ async def test_create_message_queues_request_and_waits_for_response() -> None:
         await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.task_id)
+        updated_task = await store.get_task(task.task_id, session_id="test-session")
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
@@ -491,7 +505,7 @@ async def test_create_message_queues_request_and_waits_for_response() -> None:
     assert sampling_result.model == "test-model"
 
     # Verify task is back to working
-    final_task = await store.get_task(task.task_id)
+    final_task = await store.get_task(task.task_id, session_id="test-session")
     assert final_task is not None
     assert final_task.status == "working"
 
@@ -504,9 +518,10 @@ async def test_elicit_restores_status_on_cancellation() -> None:
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     mock_session._build_elicit_form_request = Mock(
         return_value=JSONRPCRequest(
@@ -546,7 +561,7 @@ async def test_elicit_restores_status_on_cancellation() -> None:
         await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.task_id)
+        updated_task = await store.get_task(task.task_id, session_id="test-session")
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
@@ -559,7 +574,7 @@ async def test_elicit_restores_status_on_cancellation() -> None:
         msg.resolver.set_exception(asyncio.CancelledError())
 
     # Verify task is back to working after cancellation
-    final_task = await store.get_task(task.task_id)
+    final_task = await store.get_task(task.task_id, session_id="test-session")
     assert final_task is not None
     assert final_task.status == "working"
     assert cancelled_error_raised
@@ -573,9 +588,10 @@ async def test_create_message_restores_status_on_cancellation() -> None:
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
     handler = TaskResultHandler(store, queue)
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.check_client_capability = Mock(return_value=True)
     mock_session._build_create_message_request = Mock(
         return_value=JSONRPCRequest(
@@ -615,7 +631,7 @@ async def test_create_message_restores_status_on_cancellation() -> None:
         await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.task_id)
+        updated_task = await store.get_task(task.task_id, session_id="test-session")
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
@@ -628,7 +644,7 @@ async def test_create_message_restores_status_on_cancellation() -> None:
         msg.resolver.set_exception(asyncio.CancelledError())
 
     # Verify task is back to working after cancellation
-    final_task = await store.get_task(task.task_id)
+    final_task = await store.get_task(task.task_id, session_id="test-session")
     assert final_task is not None
     assert final_task.status == "working"
     assert cancelled_error_raised
@@ -641,10 +657,11 @@ async def test_elicit_as_task_raises_without_handler() -> None:
     """Test that elicit_as_task() raises when handler is not provided."""
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     # Create mock session with proper client capabilities
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.client_params = InitializeRequestParams(
         protocol_version="2025-01-01",
         capabilities=ClientCapabilities(
@@ -676,10 +693,11 @@ async def test_create_message_as_task_raises_without_handler() -> None:
     """Test that create_message_as_task() raises when handler is not provided."""
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000))
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
     # Create mock session with proper client capabilities
     mock_session = Mock()
+    mock_session.session_id = "test-session"
     mock_session.client_params = InitializeRequestParams(
         protocol_version="2025-01-01",
         capabilities=ClientCapabilities(

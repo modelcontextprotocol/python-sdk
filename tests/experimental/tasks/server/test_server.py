@@ -340,6 +340,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
                         experimental_capabilities={},
                     ),
                 ),
+                session_id="test-session",
             ) as server_session:
                 task_support.configure_session(server_session)
                 async for message in server_session.incoming_messages:
@@ -356,7 +357,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             await client_session.initialize()
 
             # Create a task directly in the store for testing
-            task = await store.create_task(TaskMetadata(ttl=60000))
+            task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
             # Test list_tasks (default handler)
             list_result = await client_session.experimental.list_tasks()
@@ -373,11 +374,13 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
                 await client_session.experimental.get_task("nonexistent-task")
 
             # Create a completed task to test get_task_result
-            completed_task = await store.create_task(TaskMetadata(ttl=60000))
+            completed_task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
             await store.store_result(
-                completed_task.task_id, CallToolResult(content=[TextContent(type="text", text="Test result")])
+                completed_task.task_id,
+                CallToolResult(content=[TextContent(type="text", text="Test result")]),
+                session_id="test-session",
             )
-            await store.update_task(completed_task.task_id, status="completed")
+            await store.update_task(completed_task.task_id, status="completed", session_id="test-session")
 
             # Test get_task_result (default handler)
             payload_result = await client_session.send_request(

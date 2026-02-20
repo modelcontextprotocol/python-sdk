@@ -188,6 +188,8 @@ class Experimental:
         task_group = support.task_group
 
         session_id = self._session.session_id
+        if session_id is None:
+            raise RuntimeError("Session ID is required for task operations but session has no ID.")
         task = await support.store.create_task(self.task_metadata, task_id, session_id=session_id)
 
         task_ctx = ServerTaskContext(

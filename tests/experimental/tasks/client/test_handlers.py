@@ -118,7 +118,7 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
         ) -> GetTaskResult | ErrorData:
             nonlocal received_task_id
             received_task_id = params.task_id
-            task = await store.get_task(params.task_id)
+            task = await store.get_task(params.task_id, session_id="test-session")
             assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
                 task_id=task.task_id,
@@ -130,7 +130,7 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
                 poll_interval=task.poll_interval,
             )
 
-        await store.create_task(TaskMetadata(ttl=60000), task_id="test-task-123")
+        await store.create_task(TaskMetadata(ttl=60000), task_id="test-task-123", session_id="test-session")
 
         task_handlers = ExperimentalTaskHandlers(get_task=get_task_handler)
         client_ready = anyio.Event()
@@ -179,17 +179,18 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
             context: RequestContext[ClientSession],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.task_id)
+            result = await store.get_result(params.task_id, session_id="test-session")
             assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, types.CallToolResult)
             return GetTaskPayloadResult(**result.model_dump())
 
-        await store.create_task(TaskMetadata(ttl=60000), task_id="test-task-456")
+        await store.create_task(TaskMetadata(ttl=60000), task_id="test-task-456", session_id="test-session")
         await store.store_result(
             "test-task-456",
             types.CallToolResult(content=[TextContent(type="text", text="Task completed successfully!")]),
+            session_id="test-session",
         )
-        await store.update_task("test-task-456", status="completed")
+        await store.update_task("test-task-456", status="completed", session_id="test-session")
 
         task_handlers = ExperimentalTaskHandlers(get_task_result=get_task_result_handler)
         client_ready = anyio.Event()
@@ -243,11 +244,11 @@ async def test_client_handles_list_tasks_request(client_streams: ClientTestStrea
             params: types.PaginatedRequestParams | None,
         ) -> ListTasksResult | ErrorData:
             cursor = params.cursor if params else None
-            tasks_list, next_cursor = await store.list_tasks(cursor=cursor)
+            tasks_list, next_cursor = await store.list_tasks(cursor=cursor, session_id="test-session")
             return ListTasksResult(tasks=tasks_list, next_cursor=next_cursor)
 
-        await store.create_task(TaskMetadata(ttl=60000), task_id="task-1")
-        await store.create_task(TaskMetadata(ttl=60000), task_id="task-2")
+        await store.create_task(TaskMetadata(ttl=60000), task_id="task-1", session_id="test-session")
+        await store.create_task(TaskMetadata(ttl=60000), task_id="task-2", session_id="test-session")
 
         task_handlers = ExperimentalTaskHandlers(list_tasks=list_tasks_handler)
         client_ready = anyio.Event()
@@ -297,10 +298,10 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
             context: RequestContext[ClientSession],
             params: CancelTaskRequestParams,
         ) -> CancelTaskResult | ErrorData:
-            task = await store.get_task(params.task_id)
+            task = await store.get_task(params.task_id, session_id="test-session")
             assert task is not None, f"Test setup error: task {params.task_id} should exist"
-            await store.update_task(params.task_id, status="cancelled")
-            updated = await store.get_task(params.task_id)
+            await store.update_task(params.task_id, status="cancelled", session_id="test-session")
+            updated = await store.get_task(params.task_id, session_id="test-session")
             assert updated is not None
             return CancelTaskResult(
                 task_id=updated.task_id,
@@ -310,7 +311,7 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
                 ttl=updated.ttl,
             )
 
-        await store.create_task(TaskMetadata(ttl=60000), task_id="task-to-cancel")
+        await store.create_task(TaskMetadata(ttl=60000), task_id="task-to-cancel", session_id="test-session")
 
         task_handlers = ExperimentalTaskHandlers(cancel_task=cancel_task_handler)
         client_ready = anyio.Event()
@@ -365,7 +366,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             params: CreateMessageRequestParams,
             task_metadata: TaskMetadata,
         ) -> CreateTaskResult:
-            task = await store.create_task(task_metadata)
+            task = await store.create_task(task_metadata, session_id="test-session")
             created_task_id[0] = task.task_id
 
             async def do_sampling() -> None:
@@ -375,8 +376,8 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
                     model="test-model",
                     stop_reason="endTurn",
                 )
-                await store.store_result(task.task_id, result)
-                await store.update_task(task.task_id, status="completed")
+                await store.store_result(task.task_id, result, session_id="test-session")
+                await store.update_task(task.task_id, status="completed", session_id="test-session")
                 sampling_completed.set()
 
             assert background_tg[0] is not None
@@ -387,7 +388,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             context: RequestContext[ClientSession],
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
-            task = await store.get_task(params.task_id)
+            task = await store.get_task(params.task_id, session_id="test-session")
             assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
                 task_id=task.task_id,
@@ -403,7 +404,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             context: RequestContext[ClientSession],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.task_id)
+            result = await store.get_result(params.task_id, session_id="test-session")
             assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, CreateMessageResult)
             return GetTaskPayloadResult(**result.model_dump())
@@ -509,14 +510,14 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             params: ElicitRequestParams,
             task_metadata: TaskMetadata,
         ) -> CreateTaskResult | ErrorData:
-            task = await store.create_task(task_metadata)
+            task = await store.create_task(task_metadata, session_id="test-session")
             created_task_id[0] = task.task_id
 
             async def do_elicitation() -> None:
                 # Simulate user providing elicitation response
                 result = ElicitResult(action="accept", content={"name": "Test User"})
-                await store.store_result(task.task_id, result)
-                await store.update_task(task.task_id, status="completed")
+                await store.store_result(task.task_id, result, session_id="test-session")
+                await store.update_task(task.task_id, status="completed", session_id="test-session")
                 elicitation_completed.set()
 
             assert background_tg[0] is not None
@@ -527,7 +528,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             context: RequestContext[ClientSession],
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
-            task = await store.get_task(params.task_id)
+            task = await store.get_task(params.task_id, session_id="test-session")
             assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
                 task_id=task.task_id,
@@ -543,7 +544,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             context: RequestContext[ClientSession],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.task_id)
+            result = await store.get_result(params.task_id, session_id="test-session")
             assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, ElicitResult)
             return GetTaskPayloadResult(**result.model_dump())

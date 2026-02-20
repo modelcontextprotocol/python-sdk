@@ -22,7 +22,7 @@ class StoredTask:
     """Internal storage representation of a task."""
 
     task: Task
-    session_id: str | None = None
+    session_id: str
     result: Result | None = None
     # Time when this task should be removed (None = never)
     expires_at: datetime | None = field(default=None)
@@ -68,17 +68,15 @@ class InMemoryTaskStore(TaskStore):
         for task_id in expired_ids:
             del self._tasks[task_id]
 
-    def _get_stored_task(self, task_id: str, session_id: str | None = None) -> StoredTask | None:
-        """Retrieve a stored task, enforcing session ownership when a session_id is provided.
+    def _get_stored_task(self, task_id: str, *, session_id: str) -> StoredTask | None:
+        """Retrieve a stored task, enforcing session ownership.
 
         Returns None if the task does not exist or belongs to a different session.
-        When either the caller's session_id or the stored task's session_id is None,
-        no filtering occurs (backward compatibility).
         """
         stored = self._tasks.get(task_id)
         if stored is None:
             return None
-        if session_id is not None and stored.session_id is not None and stored.session_id != session_id:
+        if stored.session_id != session_id:
             return None
         return stored
 
@@ -86,7 +84,8 @@ class InMemoryTaskStore(TaskStore):
         self,
         metadata: TaskMetadata,
         task_id: str | None = None,
-        session_id: str | None = None,
+        *,
+        session_id: str,
     ) -> Task:
         """Create a new task with the given metadata."""
         # Cleanup expired tasks on access
@@ -107,12 +106,12 @@ class InMemoryTaskStore(TaskStore):
         # Return a copy to prevent external modification
         return Task(**task.model_dump())
 
-    async def get_task(self, task_id: str, session_id: str | None = None) -> Task | None:
+    async def get_task(self, task_id: str, *, session_id: str) -> Task | None:
         """Get a task by ID."""
         # Cleanup expired tasks on access
         self._cleanup_expired()
 
-        stored = self._get_stored_task(task_id, session_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             return None
 
@@ -124,10 +123,11 @@ class InMemoryTaskStore(TaskStore):
         task_id: str,
         status: TaskStatus | None = None,
         status_message: str | None = None,
-        session_id: str | None = None,
+        *,
+        session_id: str,
     ) -> Task:
         """Update a task's status and/or message."""
-        stored = self._get_stored_task(task_id, session_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             raise ValueError(f"Task with ID {task_id} not found")
 
@@ -156,17 +156,17 @@ class InMemoryTaskStore(TaskStore):
 
         return Task(**stored.task.model_dump())
 
-    async def store_result(self, task_id: str, result: Result, session_id: str | None = None) -> None:
+    async def store_result(self, task_id: str, result: Result, *, session_id: str) -> None:
         """Store the result for a task."""
-        stored = self._get_stored_task(task_id, session_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             raise ValueError(f"Task with ID {task_id} not found")
 
         stored.result = result
 
-    async def get_result(self, task_id: str, session_id: str | None = None) -> Result | None:
+    async def get_result(self, task_id: str, *, session_id: str) -> Result | None:
         """Get the stored result for a task."""
-        stored = self._get_stored_task(task_id, session_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             return None
 
@@ -175,18 +175,15 @@ class InMemoryTaskStore(TaskStore):
     async def list_tasks(
         self,
         cursor: str | None = None,
-        session_id: str | None = None,
+        *,
+        session_id: str,
     ) -> tuple[list[Task], str | None]:
         """List tasks with pagination."""
         # Cleanup expired tasks on access
         self._cleanup_expired()
 
         # Filter tasks by session ownership before pagination
-        filtered_task_ids = [
-            task_id
-            for task_id, stored in self._tasks.items()
-            if session_id is None or stored.session_id is None or stored.session_id == session_id
-        ]
+        filtered_task_ids = [task_id for task_id, stored in self._tasks.items() if stored.session_id == session_id]
 
         start_index = 0
         if cursor is not None:
@@ -206,9 +203,9 @@ class InMemoryTaskStore(TaskStore):
 
         return tasks, next_cursor
 
-    async def delete_task(self, task_id: str, session_id: str | None = None) -> bool:
+    async def delete_task(self, task_id: str, *, session_id: str) -> bool:
         """Delete a task."""
-        stored = self._get_stored_task(task_id, session_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             return False
 

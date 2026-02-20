@@ -21,19 +21,20 @@ class TaskContext:
     use ServerTaskContext from mcp.server.experimental.
 
     Example (distributed worker):
-        async def worker_job(task_id: str):
+        async def worker_job(task_id: str, session_id: str):
             store = RedisTaskStore(redis_url)
-            task = await store.get_task(task_id)
-            ctx = TaskContext(task=task, store=store)
+            task = await store.get_task(task_id, session_id=session_id)
+            ctx = TaskContext(task=task, store=store, session_id=session_id)
 
             await ctx.update_status("Working...")
             result = await do_work()
             await ctx.complete(result)
     """
 
-    def __init__(self, task: Task, store: TaskStore):
+    def __init__(self, task: Task, store: TaskStore, *, session_id: str):
         self._task = task
         self._store = store
+        self._session_id = session_id
         self._cancelled = False
 
     @property
@@ -68,6 +69,7 @@ class TaskContext:
         self._task = await self._store.update_task(
             self.task_id,
             status_message=message,
+            session_id=self._session_id,
         )
 
     async def complete(self, result: Result) -> None:
@@ -76,10 +78,11 @@ class TaskContext:
         Args:
             result: The task result
         """
-        await self._store.store_result(self.task_id, result)
+        await self._store.store_result(self.task_id, result, session_id=self._session_id)
         self._task = await self._store.update_task(
             self.task_id,
             status=TASK_STATUS_COMPLETED,
+            session_id=self._session_id,
         )
 
     async def fail(self, error: str) -> None:
@@ -92,4 +95,5 @@ class TaskContext:
             self.task_id,
             status=TASK_STATUS_FAILED,
             status_message=error,
+            session_id=self._session_id,
         )

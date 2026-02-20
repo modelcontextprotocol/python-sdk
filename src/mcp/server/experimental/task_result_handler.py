@@ -80,7 +80,7 @@ class TaskResultHandler:
         request: GetTaskPayloadRequest,
         session: ServerSession,
         request_id: RequestId,
-        session_id: str | None = None,
+        session_id: str,
     ) -> GetTaskPayloadResult:
         """Handle a tasks/result request.
 
@@ -95,7 +95,7 @@ class TaskResultHandler:
             request: The GetTaskPayloadRequest
             session: The server session for sending messages
             request_id: The request ID for relatedRequestId routing
-            session_id: Optional session identifier for access control.
+            session_id: Session identifier for access control.
 
         Returns:
             GetTaskPayloadResult with the task's final payload

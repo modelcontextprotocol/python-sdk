@@ -12,8 +12,8 @@ from mcp.types import CallToolResult, TaskMetadata, TextContent
 async def test_task_context_properties() -> None:
     """Test TaskContext basic properties."""
     store = InMemoryTaskStore()
-    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    ctx = TaskContext(task, store)
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="test-session")
+    ctx = TaskContext(task, store, session_id="test-session")
 
     assert ctx.task_id == task.task_id
     assert ctx.task.task_id == task.task_id
@@ -27,13 +27,13 @@ async def test_task_context_properties() -> None:
 async def test_task_context_update_status() -> None:
     """Test TaskContext.update_status."""
     store = InMemoryTaskStore()
-    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    ctx = TaskContext(task, store)
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="test-session")
+    ctx = TaskContext(task, store, session_id="test-session")
 
     await ctx.update_status("Processing step 1...")
 
     # Check status message was updated
-    updated = await store.get_task(task.task_id)
+    updated = await store.get_task(task.task_id, session_id="test-session")
     assert updated is not None
     assert updated.status_message == "Processing step 1..."
 
@@ -44,19 +44,19 @@ async def test_task_context_update_status() -> None:
 async def test_task_context_complete() -> None:
     """Test TaskContext.complete."""
     store = InMemoryTaskStore()
-    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    ctx = TaskContext(task, store)
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="test-session")
+    ctx = TaskContext(task, store, session_id="test-session")
 
     result = CallToolResult(content=[TextContent(type="text", text="Done!")])
     await ctx.complete(result)
 
     # Check task status
-    updated = await store.get_task(task.task_id)
+    updated = await store.get_task(task.task_id, session_id="test-session")
     assert updated is not None
     assert updated.status == "completed"
 
     # Check result is stored
-    stored_result = await store.get_result(task.task_id)
+    stored_result = await store.get_result(task.task_id, session_id="test-session")
     assert stored_result is not None
 
     store.cleanup()
@@ -66,13 +66,13 @@ async def test_task_context_complete() -> None:
 async def test_task_context_fail() -> None:
     """Test TaskContext.fail."""
     store = InMemoryTaskStore()
-    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    ctx = TaskContext(task, store)
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="test-session")
+    ctx = TaskContext(task, store, session_id="test-session")
 
     await ctx.fail("Something went wrong!")
 
     # Check task status
-    updated = await store.get_task(task.task_id)
+    updated = await store.get_task(task.task_id, session_id="test-session")
     assert updated is not None
     assert updated.status == "failed"
     assert updated.status_message == "Something went wrong!"
@@ -84,8 +84,8 @@ async def test_task_context_fail() -> None:
 async def test_task_context_cancellation() -> None:
     """Test TaskContext cancellation request."""
     store = InMemoryTaskStore()
-    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
-    ctx = TaskContext(task, store)
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="test-session")
+    ctx = TaskContext(task, store, session_id="test-session")
 
     assert ctx.is_cancelled is False
 
@@ -126,9 +126,9 @@ def test_create_task_state_has_created_at() -> None:
 async def test_task_execution_provides_context() -> None:
     """task_execution provides a TaskContext for the task."""
     store = InMemoryTaskStore()
-    await store.create_task(TaskMetadata(ttl=60000), task_id="exec-test-1")
+    await store.create_task(TaskMetadata(ttl=60000), task_id="exec-test-1", session_id="test-session")
 
-    async with task_execution("exec-test-1", store) as ctx:
+    async with task_execution("exec-test-1", store, session_id="test-session") as ctx:
         assert ctx.task_id == "exec-test-1"
         assert ctx.task.status == "working"
 
@@ -139,13 +139,13 @@ async def test_task_execution_provides_context() -> None:
 async def test_task_execution_auto_fails_on_exception() -> None:
     """task_execution automatically fails task on unhandled exception."""
     store = InMemoryTaskStore()
-    await store.create_task(TaskMetadata(ttl=60000), task_id="exec-fail-1")
+    await store.create_task(TaskMetadata(ttl=60000), task_id="exec-fail-1", session_id="test-session")
 
-    async with task_execution("exec-fail-1", store):
+    async with task_execution("exec-fail-1", store, session_id="test-session"):
         raise RuntimeError("Oops!")
 
     # Task should be failed
-    failed_task = await store.get_task("exec-fail-1")
+    failed_task = await store.get_task("exec-fail-1", session_id="test-session")
     assert failed_task is not None
     assert failed_task.status == "failed"
     assert "Oops!" in (failed_task.status_message or "")
@@ -157,16 +157,16 @@ async def test_task_execution_auto_fails_on_exception() -> None:
 async def test_task_execution_doesnt_fail_if_already_terminal() -> None:
     """task_execution doesn't re-fail if task already terminal."""
     store = InMemoryTaskStore()
-    await store.create_task(TaskMetadata(ttl=60000), task_id="exec-term-1")
+    await store.create_task(TaskMetadata(ttl=60000), task_id="exec-term-1", session_id="test-session")
 
-    async with task_execution("exec-term-1", store) as ctx:
+    async with task_execution("exec-term-1", store, session_id="test-session") as ctx:
         # Complete the task first
         await ctx.complete(CallToolResult(content=[TextContent(type="text", text="Done")]))
         # Then raise - shouldn't change status
         raise RuntimeError("This shouldn't matter")
 
     # Task should remain completed
-    final_task = await store.get_task("exec-term-1")
+    final_task = await store.get_task("exec-term-1", session_id="test-session")
     assert final_task is not None
     assert final_task.status == "completed"
 
@@ -179,5 +179,5 @@ async def test_task_execution_not_found() -> None:
     store = InMemoryTaskStore()
 
     with pytest.raises(ValueError, match="not found"):
-        async with task_execution("nonexistent", store):
+        async with task_execution("nonexistent", store, session_id="test-session"):
             ...
