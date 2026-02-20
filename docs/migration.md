@@ -770,6 +770,89 @@ server.experimental.enable_tasks(on_get_task=custom_get_task)
 
 The session hierarchy has been refactored to support pluggable transport implementations. This introduces several breaking changes:
 
+#### New `AbstractBaseSession` Protocol
+
+A new runtime-checkable Protocol, AbstractBaseSession, establishes a transport-agnostic contract for all MCP sessions. It ensures that client and server sessions share a consistent communication interface regardless of the transport used.
+
+**Key characteristics of `AbstractBaseSession`:**
+
+To maintain a clean architectural boundary, AbstractBaseSession is a pure interface—it defines what methods must exist but does not manage how they work.
+
+* **No State Management**: The protocol does not handle internal machinery like task groups, response streams, or buffers.
+
+* **Implementation Ownership**: The concrete class is now fully responsible for managing its own state and lifecycle for how it sends and receives data.
+
+* **No Inheritance Needed**: As a structural protocol, you no longer need to call super().**init**() or inherit from a base class to satisfy the contract.
+
+**Motivation: Interface vs. Implementation**
+Previously, all custom sessions were required to inherit from BaseSession, which locked them into a specific architecture involving memory streams and JSON-RPC message routing, but now users have the flexibility to implement their own transport logic.
+
+BaseSession (Implementation): Remains available for transports that follow the standard pattern of reading and writing JSON-RPC messages over streams. You can continue to inherit from this if you want the SDK to handle message linking and routing for you.
+
+AbstractBaseSession (Interface): A new stateless protocol for transports that do not use standard streams or JSON-RPC. It defines the "what" (method signatures) without enforcing the "how" (internal machinery).
+
+**Before:**
+
+```python
+from mcp.shared.session import BaseSession
+
+# Locked into the BaseSession implementation details
+class MyCustomSession(BaseSession[...]):
+    def __init__(self, read_stream, write_stream):
+        # Mandatory: must use streams and JSON-RPC machinery
+        super().__init__(read_stream, write_stream)
+```
+
+**After:**
+
+```python
+# OPTION A: Continue using BaseSession (for stream-based JSON-RPC)
+class MyStreamSession(BaseSession):
+    ...
+
+# OPTION B: Use AbstractBaseSession (for non-stream/custom transports)
+class MyDirectApiSession: # Satisfies AbstractBaseSession protocol
+    def __init__(self):
+        # No streams or super().__init__() required.
+        # Manage your own custom transport logic here.
+        self._client = CustomTransportClient()
+
+    async def send_request(self, ...):
+        return await self._client.execute(...)
+```
+
+#### Introduction of the `BaseClientSession` Protocol
+
+A new runtime-checkable Protocol, BaseClientSession, has been introduced to establish a common interface for all MCP client sessions. This protocol defines the essential methods—such as `send_request`, `send_notification`, and `initialize`, etc. — that a session must implement to be compatible with the SDK's client utilities.
+
+The primary goal of this protocol is to ensure that the high-level session logic remains consistent irrespective of the underlying transport. Custom session implementations can now satisfy the SDK's requirements simply by implementing the defined methods. No explicit inheritance is required.
+
+```python
+from mcp.client.base_client_session import BaseClientSession
+
+class MyCustomTransportSession:
+    """
+    A custom session implementation. It doesn't need to inherit from
+    BaseClientSession to be compatible.
+    """
+    async def initialize(self) -> InitializeResult:
+        ...
+
+    async def send_request(self, ...) -> Any:
+        ...
+
+    # Implementing these methods makes this class a 'BaseClientSession'
+```
+
+Because the protocol is `@runtime_checkable`, you can verify that any session object adheres to the required structure using standard Python checks:
+
+```python
+def start_client(session: BaseClientSession):
+    # This works for any object implementing the protocol
+    if not isinstance(session, BaseClientSession):
+        raise TypeError("Session must implement the BaseClientSession protocol")
+```
+
 #### `ClientRequestContext` type changed
 
 `ClientRequestContext` is now `RequestContext[BaseClientSession]` instead of `RequestContext[ClientSession]`. This means callbacks receive the more general `BaseClientSession` type, which may not have all methods available on `ClientSession`.
@@ -829,130 +912,35 @@ my_sampling_typed: SamplingFnT[ClientSession] = my_sampling
 session = ClientSession(..., sampling_callback=my_sampling_typed)
 ```
 
-#### `SessionT` renamed to `SessionT_co`
+#### Internal TypeVars Renamed and Variance Updated
 
-In `mcp.shared._context` and `mcp.shared.progress`, the `SessionT` TypeVar has been renamed to `SessionT_co` to follow naming conventions for covariant type variables.
+To support structural subtyping and ensure type safety across the new Protocol hierarchy, several internal TypeVariables have been updated with explicit variance (covariant or contravariant). These have been renamed to follow PEP 484 naming conventions.
 
-**Before:**
-
-```python
-from mcp.shared._context import SessionT
-```
-
-**After:**
-
-```python
-from mcp.shared._context import SessionT_co
-```
-
-#### New `AbstractBaseSession` structural interface
-
-The session hierarchy now uses a new **runtime-checkable Protocol** called `AbstractBaseSession` to define the shared contract for all MCP sessions. This protocol enables structural subtyping, allowing different transport implementations to be used interchangeably without requiring rigid inheritance.
-
-Key characteristics of `AbstractBaseSession`:
-
-1. **Pure Interface**: It is a structural protocol with no implementation state or `__init__` method.
-2. **Simplified Type Parameters**: It takes two parameters: `AbstractBaseSession[SendRequestT_contra, SendNotificationT_contra]`. Contravariant variance is used for these parameters to ensure that sessions can be used safely in generic contexts (like `RequestContext`).
-3. **BaseSession Implementation**: The concrete implementation logic (state management, response routing) is provided by the `BaseSession` class, which satisfies the protocol.
+| Original Name | Updated Name | Variance | Purpose |
+| --- | --- | --- | --- |
+| SessionT | SessionT_co | Covariant | Allows specialized sessions to be used where a base session is expected. |
+| SendRequestT | SendRequestT_contra | Contravariant | Ensures request types can be safely handled by generic handlers. |
+| SendNotificationT | SendNotificationT_contra | Contravariant | Ensures notification types are handled safely across the hierarchy. |
+| ReceiveResultT | ReceiveResultT_co | Covariant | Handles successful response models safely. |
 
 **Before:**
 
 ```python
-from mcp.shared.session import AbstractBaseSession
-
-class MySession(AbstractBaseSession[MyMessage, ...]):
-    def __init__(self):
-        super().__init__()  # Would set up _response_streams, _task_group
-```
-
-**After:**
-
-```python
-from mcp.shared.session import AbstractBaseSession
-
-class MySession(AbstractBaseSession[...]):
-    def __init__(self):
-        # Manage your own state - no super().__init__() to call
-        self._my_state = {}
-```
-
-#### `SendRequestT` renamed to `SendRequestT_contra`
-
-The `SendRequestT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol and renamed accordingly to follow naming conventions for contravariant type variables.
-
-**Before:**
-
-```python
+SessionT_co = TypeVar("SessionT_co", bound="AbstractBaseSession[Any, Any]", covariant=True)
 SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
-```
-
-**After:**
-
-```python
-SendRequestT_contra = TypeVar("SendRequestT_contra", ClientRequest, ServerRequest, contravariant=True)
-```
-
-#### `SendNotificationT` renamed to `SendNotificationT_contra`
-
-The `SendNotificationT` TypeVar is now defined as **contravariant** to support its use in the `AbstractBaseSession` Protocol and renamed accordingly to follow naming conventions for contravariant type variables.
-
-**Before:**
-
-```python
 SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
-```
-
-**After:**
-
-```python
-SendNotificationT_contra = TypeVar(
-    "SendNotificationT_contra", ClientNotification, ServerNotification, contravariant=True
-)
-```
-
-#### `ReceiveResultT` renamed to `ReceiveResultT_co`
-
-The `ReceiveResultT` TypeVar is now defined as **covariant** to support its use in the `AbstractBaseSession` Protocol and renamed accordingly to follow naming conventions for covariant type variables.
-
-**Before:**
-
-```python
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ```
 
 **After:**
 
 ```python
-ReceiveResultT_co =
-TypeVar("ReceiveResultT_co", bound=BaseModel, covariant=True)
-```
-
-#### `BaseClientSession` is now a Protocol
-
-`BaseClientSession` is now a `typing.Protocol` (structural subtyping) instead of an abstract base class. It no longer inherits from `AbstractBaseSession` and requires no inheritance to satisfy.
-
-**Before:**
-
-```python
-from mcp.client.base_client_session import BaseClientSession
-
-class MyClientSession(BaseClientSession):
-    async def initialize(self) -> InitializeResult:
-        ...
-```
-
-**After:**
-
-```python
-from mcp.client.base_client_session import BaseClientSession
-
-class MyClientSession:
-    # Just implement the methods - no inheritance needed
-    async def initialize(self) -> InitializeResult:
-        ...
-
-# Verify protocol satisfaction at runtime
-assert isinstance(MyClientSession(), BaseClientSession)
+SessionT_co = TypeVar("SessionT_co", bound="AbstractBaseSession[Any, Any]", covariant=True)
+SendRequestT_contra = TypeVar("SendRequestT_contra", ClientRequest, ServerRequest, contravariant=True)
+SendNotificationT_contra = TypeVar(
+    "SendNotificationT_contra", ClientNotification, ServerNotification, contravariant=True
+)
+ReceiveResultT_co = TypeVar("ReceiveResultT_co", bound=BaseModel, covariant=True)
 ```
 
 ## Deprecations
