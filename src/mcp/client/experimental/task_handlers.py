@@ -185,11 +185,13 @@ class ExperimentalTaskHandlers(Generic[ClientSessionT_contra]):
     WARNING: These APIs are experimental and may change without notice.
 
     Example:
+        ```python
         handlers = ExperimentalTaskHandlers(
             get_task=my_get_task_handler,
             list_tasks=my_list_tasks_handler,
         )
         session = ClientSession(..., experimental_task_handlers=handlers)
+        ```
     """
 
     # Pure task request handlers

@@ -28,6 +28,14 @@ This document contains critical information about working with this codebase. Fo
    - Bug fixes require regression tests
    - IMPORTANT: The `tests/client/test_client.py` is the most well designed test file. Follow its patterns.
    - IMPORTANT: Be minimal, and focus on E2E tests: Use the `mcp.client.Client` whenever possible.
+   - IMPORTANT: Before pushing, verify 100% branch coverage on changed files by running
+     `uv run --frozen pytest -x` (coverage is configured in `pyproject.toml` with `fail_under = 100`
+     and `branch = true`). If any branch is uncovered, add a test for it before pushing.
+   - Avoid `anyio.sleep()` with a fixed duration to wait for async operations. Instead:
+     - Use `anyio.Event` — set it in the callback/handler, `await event.wait()` in the test
+     - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
+     - Exception: `sleep()` is appropriate when testing time-based features (e.g., timeouts)
+   - Wrap indefinite waits (`event.wait()`, `stream.receive()`) in `anyio.fail_after(5)` to prevent hangs
 
 Test files mirror the source tree: `src/mcp/client/streamable_http.py` → `tests/client/test_streamable_http.py`
 Add tests to the existing file for that module.
