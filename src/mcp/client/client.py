@@ -41,6 +41,7 @@ class Client:
     Streamable HTTP transport (pass a URL string), or a custom Transport instance.
 
     Example:
+        <!-- snippet-source #Client_usage -->
         ```python
         from mcp.client import Client
         from mcp.server.mcpserver import MCPServer
@@ -57,6 +58,7 @@ class Client:
 
         asyncio.run(main())
         ```
+        <!-- /snippet-source -->
     """
 
     server: Server[Any] | MCPServer | Transport | str

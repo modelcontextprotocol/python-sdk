@@ -47,35 +47,44 @@ def create_mcp_http_client(
     Example:
         Basic usage with MCP defaults:
 
+        <!-- snippet-source #create_mcp_http_client_basic -->
         ```python
         async with create_mcp_http_client() as client:
             response = await client.get("https://api.example.com")
         ```
+        <!-- /snippet-source -->
 
         With custom headers:
 
+        <!-- snippet-source #create_mcp_http_client_headers -->
         ```python
         headers = {"Authorization": "Bearer token"}
         async with create_mcp_http_client(headers) as client:
             response = await client.get("/endpoint")
         ```
+        <!-- /snippet-source -->
 
         With both custom headers and timeout:
 
+        <!-- snippet-source #create_mcp_http_client_timeout -->
         ```python
         timeout = httpx.Timeout(60.0, read=300.0)
         async with create_mcp_http_client(headers, timeout) as client:
             response = await client.get("/long-request")
         ```
+        <!-- /snippet-source -->
 
         With authentication:
 
+        <!-- snippet-source #create_mcp_http_client_auth -->
         ```python
         from httpx import BasicAuth
+
         auth = BasicAuth(username="user", password="pass")
         async with create_mcp_http_client(headers, timeout, auth) as client:
             response = await client.get("/protected-endpoint")
         ```
+        <!-- /snippet-source -->
     """
     # Set MCP defaults
     kwargs: dict[str, Any] = {"follow_redirects": True}
