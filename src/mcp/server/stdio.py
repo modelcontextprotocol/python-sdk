@@ -17,6 +17,7 @@ Example:
     ```
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
@@ -34,14 +35,16 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
-    # Purposely not using context managers for these, as we don't want to close
-    # standard process handles. Encoding of stdin/stdout as text streams on
-    # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    # Encoding of stdin/stdout as text streams on python is platform-dependent
+    # (Windows is particularly problematic), so we re-wrap the underlying binary
+    # stream to ensure UTF-8. We duplicate the file descriptors first so that
+    # closing the wrapper doesn't close the real process stdio handles.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8"))
+        stdin_fd = os.dup(sys.stdin.buffer.fileno())
+        stdin = anyio.wrap_file(TextIOWrapper(os.fdopen(stdin_fd, "rb"), encoding="utf-8"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout_fd = os.dup(sys.stdout.buffer.fileno())
+        stdout = anyio.wrap_file(TextIOWrapper(os.fdopen(stdout_fd, "wb"), encoding="utf-8"))
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
