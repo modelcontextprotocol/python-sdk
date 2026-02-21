@@ -197,7 +197,9 @@ class StreamableHTTPTransport:
                     event_source.response.raise_for_status()
                     logger.debug("GET SSE connection established")
 
+                    received_events = False
                     async for sse in event_source.aiter_sse():
+                        received_events = True
                         # Track last event ID for reconnection
                         if sse.id:
                             last_event_id = sse.id
@@ -207,8 +209,12 @@ class StreamableHTTPTransport:
 
                         await self._handle_sse_event(sse, read_stream_writer)
 
-                    # Stream ended normally (server closed) - reset attempt counter
-                    attempt = 0
+                    # Only reset attempts if we actually received events;
+                    # empty connections count toward MAX_RECONNECTION_ATTEMPTS
+                    if received_events:
+                        attempt = 0
+                    else:
+                        attempt += 1
 
             except Exception:  # pragma: lax no cover
                 logger.debug("GET stream error", exc_info=True)
