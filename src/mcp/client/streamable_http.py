@@ -211,10 +211,7 @@ class StreamableHTTPTransport:
 
                     # Only reset attempts if we actually received events;
                     # empty connections count toward MAX_RECONNECTION_ATTEMPTS
-                    if received_events:
-                        attempt = 0
-                    else:
-                        attempt += 1
+                    attempt = 0 if received_events else attempt + 1
 
             except Exception:  # pragma: lax no cover
                 logger.debug("GET stream error", exc_info=True)
