@@ -29,7 +29,14 @@ from starlette.routing import Mount
 
 from mcp import MCPError, types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import (
+    MAX_RECONNECTION_ATTEMPTS,
+    StreamableHTTPTransport,
+    streamable_http_client,
+)
+from mcp.client.streamable_http import (
+    RequestContext as TransportRequestContext,
+)
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -2247,3 +2254,33 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_handle_reconnection_returns_false_on_max_attempts():
+    """_handle_reconnection returns False when max attempts exceeded."""
+    transport = StreamableHTTPTransport(url="http://localhost:9999/mcp")
+
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    message = JSONRPCRequest(jsonrpc="2.0", id=42, method="tools/call", params={"name": "test"})
+    session_message = SessionMessage(message)
+
+    ctx = TransportRequestContext(
+        client=httpx.AsyncClient(),
+        session_id="test-session",
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=read_stream_writer,
+    )
+
+    try:
+        with anyio.fail_after(5):
+            result = await transport._handle_reconnection(
+                ctx, last_event_id="evt-1", retry_interval_ms=None, attempt=MAX_RECONNECTION_ATTEMPTS
+            )
+            assert result is False
+    finally:
+        await read_stream_writer.aclose()
+        await read_stream.aclose()
+        await ctx.client.aclose()

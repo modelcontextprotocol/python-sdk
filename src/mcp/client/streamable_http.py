@@ -47,7 +47,7 @@ LAST_EVENT_ID = "last-event-id"
 
 # Reconnection defaults
 DEFAULT_RECONNECTION_DELAY_MS = 1000  # 1 second fallback when server doesn't provide retry
-MAX_RECONNECTION_ATTEMPTS = 2  # Max retry attempts before giving up
+MAX_RECONNECTION_ATTEMPTS = 5  # Max retry attempts before giving up
 
 
 class StreamableHTTPError(Exception):
@@ -377,12 +377,17 @@ class StreamableHTTPTransport:
         last_event_id: str,
         retry_interval_ms: int | None = None,
         attempt: int = 0,
-    ) -> None:
-        """Reconnect with Last-Event-ID to resume stream after server disconnect."""
+    ) -> bool:
+        """Reconnect with Last-Event-ID to resume stream after server disconnect.
+
+        Returns:
+            True if the response was successfully delivered, False if max
+            reconnection attempts were exceeded without delivering a response.
+        """
         # Bail if max retries exceeded
-        if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
+        if attempt >= MAX_RECONNECTION_ATTEMPTS:
             logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
-            return
+            return False
 
         # Always wait - use server value or default
         delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
@@ -419,15 +424,15 @@ class StreamableHTTPTransport:
                     )
                     if is_complete:
                         await event_source.response.aclose()
-                        return
+                        return True
 
-                # Stream ended again without response - reconnect again (reset attempt counter)
+                # Stream ended again without response - reconnect again
                 logger.info("SSE stream disconnected, reconnecting...")
-                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+                return await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, attempt + 1)
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
-            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
+            return await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
 
     async def post_writer(
         self,
