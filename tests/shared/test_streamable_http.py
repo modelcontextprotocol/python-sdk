@@ -2257,6 +2257,25 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
 
 @pytest.mark.anyio
+async def test_sse_read_timeout_propagates_error(basic_server: None, basic_server_url: str):
+    """SSE read timeout should propagate MCPError instead of hanging."""
+    # Create client with very short SSE read timeout
+    short_timeout = httpx.Timeout(30.0, read=0.5)
+    async with httpx.AsyncClient(timeout=short_timeout, follow_redirects=True) as http_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=http_client) as (
+            read_stream,
+            write_stream,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                # Read a "slow" resource that takes 2s — longer than our 0.5s read timeout
+                with pytest.raises(MCPError):
+                    with anyio.fail_after(10):
+                        await session.read_resource("slow://test")
+
+
+@pytest.mark.anyio
 async def test_handle_reconnection_returns_false_on_max_attempts():
     """_handle_reconnection returns False when max attempts exceeded."""
     transport = StreamableHTTPTransport(url="http://localhost:9999/mcp")

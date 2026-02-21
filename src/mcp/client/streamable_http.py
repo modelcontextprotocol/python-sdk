@@ -364,12 +364,18 @@ class StreamableHTTPTransport:
                     await response.aclose()
                     return  # Normal completion, no reconnect needed
         except Exception:
-            logger.debug("SSE stream ended", exc_info=True)  # pragma: no cover
+            logger.debug("SSE stream error", exc_info=True)
 
-        # Stream ended without response - reconnect if we received an event with ID
-        if last_event_id is not None:  # pragma: no branch
+        # Stream ended without a complete response — attempt reconnection if possible
+        if last_event_id is not None:
             logger.info("SSE stream disconnected, reconnecting...")
-            await self._handle_reconnection(ctx, last_event_id, retry_interval_ms)
+            if await self._handle_reconnection(ctx, last_event_id, retry_interval_ms):
+                return  # Reconnection delivered the response
+
+        # No response delivered — unblock the waiting request with an error
+        error_data = ErrorData(code=INTERNAL_ERROR, message="SSE stream ended without a response")
+        error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
+        await ctx.read_stream_writer.send(error_msg)
 
     async def _handle_reconnection(
         self,
