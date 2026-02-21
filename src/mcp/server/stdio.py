@@ -64,7 +64,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
 
                     session_message = SessionMessage(message)
                     await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: no cover
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdout_writer():
@@ -74,7 +74,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                     json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()
-        except anyio.ClosedResourceError:  # pragma: no cover
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg:
