@@ -9,7 +9,8 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from opentelemetry.propagate import inject
+from opentelemetry import context as otel_context
+from opentelemetry.propagate import extract, inject
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
@@ -432,12 +433,27 @@ class BaseSession(
                     else:  # Response or error
                         await self._handle_response(message)
 
+                async def _handle_message_with_otel(message: SessionMessage) -> None:
+                    if isinstance(message.message, (JSONRPCRequest | JSONRPCNotification)) and message.message.params:
+                        meta: dict[str, str] | None = message.message.params.get("_meta") or {}
+                    else:
+                        meta = {}
+
+                    # Extract and then update the immutable context copy
+                    otel_token = otel_context.attach(extract(meta))
+                    message.context = contextvars.copy_context()
+
+                    try:
+                        await handle_message(message)
+                    finally:
+                        otel_context.detach(otel_token)
+
                 async for message in self._read_stream:
                     if isinstance(message, Exception):  # pragma: no cover
                         await self._handle_incoming(message)
                     else:
                         async with anyio.create_task_group() as tg:
-                            message.context.run(tg.start_soon, handle_message, message)
+                            message.context.run(tg.start_soon, _handle_message_with_otel, message)
 
             except anyio.ClosedResourceError:
                 # This is expected when the client disconnects abruptly.

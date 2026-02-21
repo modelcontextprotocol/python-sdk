@@ -2,6 +2,7 @@
 
 # ruff: noqa: E501
 
+import contextvars
 from dataclasses import dataclass
 
 import anyio
@@ -79,6 +80,11 @@ def server() -> MCPServer:
             )
         return "ran sampling"
 
+    @mcp.tool()
+    async def tool_that_checks_trace_context() -> str:
+        """Returns current span details to verify parent propagation."""
+        return trace.format_trace_id(trace.get_current_span().get_span_context().trace_id)
+
     return mcp
 
 
@@ -106,8 +112,9 @@ async def patched_client(server: MCPServer, monkeypatch: pytest.MonkeyPatch):
     async def sampling_callback(
         context: RequestContext[ClientSession], params: types.CreateMessageRequestParams
     ) -> types.CreateMessageResult:
+        current_trace_id = trace.format_trace_id(trace.get_current_span().get_span_context().trace_id)
         return types.CreateMessageResult(
-            role="assistant", content=TextContent(type="text", text="hello"), model="foomodel"
+            role="assistant", content=TextContent(type="text", text=current_trace_id), model="foomodel"
         )
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
@@ -119,7 +126,9 @@ async def patched_client(server: MCPServer, monkeypatch: pytest.MonkeyPatch):
 
             async def send_capture(item: SessionMessage) -> None:
                 capture_to.append(item.message)
-                await original_send(item)
+                # Strip context to simulate transport boundary where context variables are not preserved
+                new_item = SessionMessage(message=item.message, metadata=item.metadata, context=contextvars.Context())
+                await original_send(new_item)
 
             monkeypatch.setattr(stream, "send", send_capture)
 
@@ -232,6 +241,17 @@ async def test_with_existing_meta(
 
 
 @pytest.mark.anyio
+async def test_trace_context_extraction(patched_client: PatchedClient):
+    """Test that OTEL context is successfully extracted on the receiving end."""
+
+    with trace.use_span(SPAN_IN_CLIENT):
+        result = await patched_client.session.call_tool("tool_that_checks_trace_context")
+
+    # Verify that SPAN_IN_CLIENT was extracted and made it through to the handler
+    assert result.content[0] == snapshot(TextContent(text="00000000000000000000000000000123"))
+
+
+@pytest.mark.anyio
 async def test_list_tools_with_span(patched_client: PatchedClient):
     """Test that OTEL context is injected into the _meta field of a tools/list request."""
     with trace.use_span(SPAN_IN_CLIENT):
@@ -323,7 +343,11 @@ async def test_server_side_sampling_propagates_to_client(patched_client: Patched
             JSONRPCResponse(
                 jsonrpc="2.0",
                 id=0,
-                result={"role": "assistant", "content": {"type": "text", "text": "hello"}, "model": "foomodel"},
+                result={
+                    "role": "assistant",
+                    "content": {"type": "text", "text": "00000000000000000000000000000456"},
+                    "model": "foomodel",
+                },
             ),
         ]
     )
