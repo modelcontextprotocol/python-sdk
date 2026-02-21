@@ -358,7 +358,7 @@ class StreamableHTTPTransport:
                     resumption_callback=(ctx.metadata.on_resumption_token_update if ctx.metadata else None),
                     is_initialization=is_initialization,
                 )
-                # If the SSE event indicates completion, like returning respose/error
+                # If the SSE event indicates completion, like returning response/error
                 # break the loop
                 if is_complete:
                     await response.aclose()

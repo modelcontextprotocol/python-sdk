@@ -56,6 +56,7 @@ class ServerTaskContext:
     - Status notifications via the session
 
     Example:
+        ```python
         async def my_task_work(task: ServerTaskContext) -> CallToolResult:
             await task.update_status("Starting...")
 
@@ -68,6 +69,7 @@ class ServerTaskContext:
                 return CallToolResult(content=[TextContent(text="Done!")])
             else:
                 return CallToolResult(content=[TextContent(text="Cancelled")])
+        ```
     """
 
     def __init__(

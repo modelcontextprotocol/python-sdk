@@ -25,8 +25,8 @@ async def websocket_client(
         (read_stream, write_stream)
 
     - read_stream: As you read from this stream, you'll receive either valid
-      JSONRPCMessage objects or Exception objects (when validation fails).
-    - write_stream: Write JSONRPCMessage objects to this stream to send them
+      SessionMessage objects or Exception objects (when validation fails).
+    - write_stream: Write SessionMessage objects to this stream to send them
       over the WebSocket to the server.
     """
 

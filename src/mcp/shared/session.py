@@ -60,8 +60,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     cancellation handling:
 
     Example:
+        ```python
         with request_responder as resp:
             await resp.respond(result)
+        ```
 
     The context manager ensures:
     1. Proper cancellation scope setup and cleanup
@@ -115,6 +117,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         """Send a response for this request.
 
         Must be called within a context manager block.
+
         Raises:
             RuntimeError: If not used within a context manager
             AssertionError: If request was already responded to
@@ -235,7 +238,7 @@ class BaseSession(
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
-        """Sends a request and wait for a response.
+        """Sends a request and waits for a response.
 
         Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
         precedence over the session read timeout.
@@ -512,4 +515,4 @@ class BaseSession(
     async def _handle_incoming(
         self, req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception
     ) -> None:
-        """A generic handler for incoming messages. Overwritten by subclasses."""
+        """A generic handler for incoming messages. Overridden by subclasses."""

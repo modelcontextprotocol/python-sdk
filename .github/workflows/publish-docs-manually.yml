@@ -31,3 +31,5 @@ jobs:
 
       - run: uv sync --frozen --group docs
       - run: uv run --frozen --no-sync mkdocs gh-deploy --force
+        env:
+          ENABLE_SOCIAL_CARDS: "true"

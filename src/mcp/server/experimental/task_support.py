@@ -31,14 +31,20 @@ class TaskSupport:
     - Manages a task group for background task execution
 
     Example:
-        # Simple in-memory setup
-        server.experimental.enable_tasks()
+        Simple in-memory setup:
 
-        # Custom store/queue for distributed systems
+        ```python
+        server.experimental.enable_tasks()
+        ```
+
+        Custom store/queue for distributed systems:
+
+        ```python
         server.experimental.enable_tasks(
             store=RedisTaskStore(redis_url),
             queue=RedisTaskMessageQueue(redis_url),
         )
+        ```
     """
 
     store: TaskStore

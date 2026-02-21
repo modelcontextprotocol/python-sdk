@@ -1,4 +1,4 @@
-"""This module provides simpler types to use with the server for managing prompts
+"""This module provides simplified types to use with the server for managing prompts
 and tools.
 """
 
