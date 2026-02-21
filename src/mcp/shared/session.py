@@ -8,6 +8,7 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.propagate import inject
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
@@ -251,6 +252,9 @@ class BaseSession(
         response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
         self._response_streams[request_id] = response_stream
 
+        # Propagate opentelemetry trace context
+        self._inject_otel_context(request)
+
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         if progress_callback is not None:
@@ -295,6 +299,10 @@ class BaseSession(
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
+
+        # Propagate opentelemetry trace context
+        self._inject_otel_context(notification)
+
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
@@ -306,6 +314,28 @@ class BaseSession(
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
         await self._write_stream.send(session_message)
+
+    def _inject_otel_context(self, request: SendRequestT | SendNotificationT) -> None:
+        """Propagate OpenTelemetry context in `_meta`.
+
+        See
+        - SEP414 https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414
+        - OpenTelemetry semantic conventions
+          https://github.com/open-telemetry/semantic-conventions/blob/v1.39.0/docs/gen-ai/mcp.md
+        """
+
+        if request.params is None:
+            return
+
+        carrier: RequestParamsMeta = {}
+        inject(carrier)
+        if not carrier:
+            return
+
+        if request.params.meta is None:
+            request.params.meta = {}
+
+        request.params.meta.update(carrier)
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
