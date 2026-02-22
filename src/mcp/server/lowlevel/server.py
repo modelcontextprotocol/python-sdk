@@ -472,11 +472,22 @@ class Server(Generic[LifespanResultT]):
                 task_metadata = None
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
+
+                # Get server lifespan context if available
+                from mcp.server.server_lifespan import server_lifespan_context_var
+
+                try:
+                    server_lifespan_context = server_lifespan_context_var.get()
+                except LookupError:
+                    # No server lifespan configured, use empty dict
+                    server_lifespan_context = {}
+
                 ctx = ServerRequestContext(
                     request_id=message.request_id,
                     meta=message.request_meta,
                     session=session,
-                    lifespan_context=lifespan_context,
+                    server_lifespan_context=server_lifespan_context,  # NEW: from server_lifespan
+                    session_lifespan_context=lifespan_context,  # RENAMED: was lifespan_context
                     experimental=Experimental(
                         task_metadata=task_metadata,
                         _client_capabilities=client_capabilities,
@@ -518,11 +529,21 @@ class Server(Generic[LifespanResultT]):
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
+                # Get server lifespan context if available
+                from mcp.server.server_lifespan import server_lifespan_context_var
+
+                try:
+                    server_lifespan_context = server_lifespan_context_var.get()
+                except LookupError:
+                    # No server lifespan configured, use empty dict
+                    server_lifespan_context = {}
+
                 client_capabilities = session.client_params.capabilities if session.client_params else None
                 task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
                 ctx = ServerRequestContext(
                     session=session,
-                    lifespan_context=lifespan_context,
+                    server_lifespan_context=server_lifespan_context,  # NEW: from server_lifespan
+                    session_lifespan_context=lifespan_context,  # RENAMED: was lifespan_context
                     experimental=Experimental(
                         task_metadata=None,
                         _client_capabilities=client_capabilities,
