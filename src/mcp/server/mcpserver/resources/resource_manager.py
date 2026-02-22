@@ -83,8 +83,7 @@ class ResourceManager:
     async def get_resource(
         self,
         uri: AnyUrl | str,
-        context: Context[ServerLifespanContextT, SessionLifespanContextT, RequestT]
-        | None = None,
+        context: Context[ServerLifespanContextT, SessionLifespanContextT, RequestT] | None = None,
     ) -> Resource:
         """Get resource by URI, checking concrete resources first, then templates."""
         uri_str = str(uri)

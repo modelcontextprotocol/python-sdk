@@ -139,9 +139,7 @@ async def handle_call_tool(
         # Access session-level resource (session ID)
         session_id = ctx.session_lifespan_context["session_id"]
 
-        return types.CallToolResult(
-            content=[types.TextContent(type="text", text=f"Your session ID: {session_id}")]
-        )
+        return types.CallToolResult(content=[types.TextContent(type="text", text=f"Your session ID: {session_id}")])
 
     raise ValueError(f"Unknown tool: {params.name}")
 

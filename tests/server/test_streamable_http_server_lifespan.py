@@ -73,9 +73,7 @@ async def test_streamable_http_handler_can_access_both_contexts():
         db = ctx.server_lifespan_context["db"]
         user = ctx.session_lifespan_context["user"]
 
-        return CallToolResult(
-            content=[TextContent(type="text", text=f"db={db}, user={user}")]
-        )
+        return CallToolResult(content=[TextContent(type="text", text=f"db={db}, user={user}")])
 
     server = Server(
         "test",
