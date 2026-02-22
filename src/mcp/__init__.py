@@ -5,6 +5,7 @@ from .client.stdio import StdioServerParameters, stdio_client
 from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import MCPError, UrlElicitationRequiredError
+from .shared.session_state import SessionState
 from .types import (
     CallToolRequest,
     ClientCapabilities,
@@ -114,6 +115,7 @@ __all__ = [
     "SamplingMessageContentBlock",
     "SamplingRole",
     "SamplingToolsCapability",
+    "SessionState",
     "ServerCapabilities",
     "ServerNotification",
     "ServerRequest",
