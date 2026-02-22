@@ -4,6 +4,7 @@ This test verifies that when a 401 response contains both resource_metadata and 
 in the WWW-Authenticate header, the actual scope is used (not the resource_metadata URL).
 """
 
+import time
 from unittest import mock
 
 import httpx
@@ -64,8 +65,10 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
         callback_handler=callback_handler,
     )
 
-    provider.context.current_tokens = None
-    provider.context.token_expiry_time = None
+    # Provide a token that appears valid so the eager OAuth flow is skipped;
+    # the server will still return 401 to trigger the reactive path.
+    provider.context.current_tokens = OAuthToken(access_token="stale_token", token_type="Bearer")
+    provider.context.token_expiry_time = time.time() + 3600
     provider._initialized = True
 
     # Pre-set client info to skip DCR
@@ -77,8 +80,9 @@ async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     test_request = httpx.Request("GET", "https://api.example.com/mcp")
     auth_flow = provider.async_auth_flow(test_request)
 
-    # First request (no auth header yet)
-    await auth_flow.__anext__()
+    # First request carries the stale token
+    request = await auth_flow.__anext__()
+    assert request.headers["Authorization"] == "Bearer stale_token"
 
     # 401 response with BOTH resource_metadata URL and scope in WWW-Authenticate
     # This is the key: the bug would use the URL as scope instead of "read write"
