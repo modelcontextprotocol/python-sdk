@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio
 import pytest
@@ -29,11 +30,11 @@ from mcp.types import (
 
 @pytest.mark.anyio
 async def test_lowlevel_server_lifespan():
-    """Test that lifespan works in low-level server."""
+    """Test that session lifespan works in low-level server."""
 
     @asynccontextmanager
-    async def test_lifespan(server: Server) -> AsyncIterator[dict[str, bool]]:
-        """Test lifespan context that tracks startup/shutdown."""
+    async def test_session_lifespan(server: Server) -> AsyncIterator[dict[str, bool]]:
+        """Test session lifespan context that tracks startup/shutdown."""
         context = {"started": False, "shutdown": False}
         try:
             context["started"] = True
@@ -43,14 +44,17 @@ async def test_lowlevel_server_lifespan():
 
     # Create a tool that accesses lifespan context
     async def check_lifespan(
-        ctx: ServerRequestContext[dict[str, bool]], params: CallToolRequestParams
+        ctx: ServerRequestContext[dict[str, Any], dict[str, bool]], params: CallToolRequestParams
     ) -> CallToolResult:
-        assert isinstance(ctx.lifespan_context, dict)
-        assert ctx.lifespan_context["started"]
-        assert not ctx.lifespan_context["shutdown"]
+        # Check session lifespan context
+        assert isinstance(ctx.session_lifespan_context, dict)
+        assert ctx.session_lifespan_context["started"]
+        assert not ctx.session_lifespan_context["shutdown"]
+        # Server lifespan context should be empty dict (not configured)
+        assert ctx.server_lifespan_context == {}
         return CallToolResult(content=[TextContent(type="text", text="true")])
 
-    server = Server[dict[str, bool]]("test", lifespan=test_lifespan, on_call_tool=check_lifespan)
+    server = Server[dict[str, bool]]("test", session_lifespan=test_session_lifespan, on_call_tool=check_lifespan)
 
     # Create memory streams for testing
     send_stream1, receive_stream1 = anyio.create_memory_object_stream[SessionMessage](100)
@@ -145,9 +149,12 @@ async def test_mcpserver_server_lifespan():
     @server.tool()
     def check_lifespan(ctx: Context[ServerSession, None]) -> bool:
         """Tool that checks lifespan context."""
-        assert isinstance(ctx.request_context.lifespan_context, dict)
-        assert ctx.request_context.lifespan_context["started"]
-        assert not ctx.request_context.lifespan_context["shutdown"]
+        # Check session lifespan context
+        assert isinstance(ctx.request_context.session_lifespan_context, dict)
+        assert ctx.request_context.session_lifespan_context["started"]
+        assert not ctx.request_context.session_lifespan_context["shutdown"]
+        # Server lifespan context should be empty dict (not configured)
+        assert ctx.request_context.server_lifespan_context == {}
         return True
 
     # Run server in background task

@@ -27,12 +27,12 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
+from mcp.server.context import ServerLifespanContextT, SessionLifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server, request_ctx
-from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.lowlevel.server import session_lifespan as default_session_lifespan
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
@@ -177,7 +177,11 @@ class MCPServer(Generic[LifespanResultT]):
             on_get_prompt=self._handle_get_prompt,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
-            lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
+            session_lifespan=(
+                lifespan_wrapper(self, self.settings.lifespan)  # type: ignore
+                if self.settings.lifespan
+                else default_session_lifespan
+            ),
         )
         # Validate auth configuration
         if self.settings.auth is not None:
@@ -1105,7 +1109,7 @@ class MCPServer(Generic[LifespanResultT]):
             raise ValueError(str(e))
 
 
-class Context(BaseModel, Generic[LifespanContextT, RequestT]):
+class Context(BaseModel, Generic[ServerLifespanContextT, SessionLifespanContextT, RequestT]):
     """Context object providing access to MCP capabilities.
 
     This provides a cleaner interface to MCP's RequestContext functionality.
@@ -1139,13 +1143,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     The context is optional - tools that don't need it can omit the parameter.
     """
 
-    _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
+    _request_context: ServerRequestContext[ServerLifespanContextT, SessionLifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
 
     def __init__(
         self,
         *,
-        request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
+        request_context: ServerRequestContext[ServerLifespanContextT, SessionLifespanContextT, RequestT]
+        | None = None,
         mcp_server: MCPServer | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
@@ -1162,7 +1167,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         return self._mcp_server  # pragma: no cover
 
     @property
-    def request_context(self) -> ServerRequestContext[LifespanContextT, RequestT]:
+    def request_context(self) -> ServerRequestContext[ServerLifespanContextT, SessionLifespanContextT, RequestT]:
         """Access to the underlying request context."""
         if self._request_context is None:  # pragma: no cover
             raise ValueError("Context is not available outside of a request")
