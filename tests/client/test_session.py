@@ -777,3 +777,55 @@ async def test_client_session_get_state():
         json_str = state.model_dump_json()
         assert json_str is not None
 
+
+@pytest.mark.anyio
+async def test_client_session_from_state():
+    """Test that from_session_state() creates a valid session."""
+    from mcp.shared.session_state import SessionState
+
+    # Create a session state
+    state = SessionState(
+        session_id="test-session-from-state",
+        protocol_version=LATEST_PROTOCOL_VERSION,
+        next_request_id=5,
+        server_capabilities={
+            "tools": {},
+            "resources": {},
+            "prompts": None,
+            "logging": None,
+            "experimental": None,
+        },
+        server_info={"name": "test-server", "version": "1.0.0"},
+        initialized_sent=True,
+    )
+
+    # Create streams
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    # Create session from state
+    session = ClientSession.from_session_state(
+        state,
+        server_to_client_receive,
+        client_to_server_send,
+    )
+
+    # Verify the session was created with the correct state
+    assert session._session_id == "test-session-from-state"
+    assert session._request_id == 5  # Continues from saved state
+    assert session._server_capabilities is not None
+    assert session._initialized_sent is True
+    assert session._server_info is not None
+    assert session._server_info.name == "test-server"
+    assert session._server_info.version == "1.0.0"
+
+    # Clean up streams
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        pass
+
+

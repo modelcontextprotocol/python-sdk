@@ -233,6 +233,67 @@ class ClientSession(
             initialized_sent=self._initialized_sent,
         )
 
+    @classmethod
+    def from_session_state(
+        cls,
+        state: SessionState,
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
+        client_info: types.Implementation | None = None,
+        read_timeout_seconds: float | None = None,
+        sampling_callback: SamplingFnT | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
+        list_roots_callback: ListRootsFnT | None = None,
+        logging_callback: LoggingFnT | None = None,
+        message_handler: MessageHandlerFnT | None = None,
+        *,
+        sampling_capabilities: types.SamplingCapability | None = None,
+        experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+    ) -> ClientSession:
+        """Create a new ClientSession from a previously saved SessionState.
+
+        This restores session context from external storage, allowing
+        distributed instances to continue a session.
+
+        Args:
+            state: The SessionState to restore from
+            read_stream: The read stream for receiving messages
+            write_stream: The write stream for sending messages
+            client_info: Optional client info (defaults to DEFAULT_CLIENT_INFO)
+            read_timeout_seconds: Optional read timeout for this session
+
+        Returns:
+            A new ClientSession instance with the restored state
+        """
+        # Create session with default initialization
+        session = cls(
+            read_stream=read_stream,
+            write_stream=write_stream,
+            client_info=client_info,
+            read_timeout_seconds=read_timeout_seconds,
+            sampling_callback=sampling_callback,
+            elicitation_callback=elicitation_callback,
+            list_roots_callback=list_roots_callback,
+            logging_callback=logging_callback,
+            message_handler=message_handler,
+            sampling_capabilities=sampling_capabilities,
+            experimental_task_handlers=experimental_task_handlers,
+        )
+
+        # Restore the state
+        session._session_id = state.session_id
+        session._request_id = state.next_request_id
+
+        if state.server_capabilities:
+            session._server_capabilities = types.ServerCapabilities.model_validate(state.server_capabilities)
+
+        if state.server_info:
+            session._server_info = types.Implementation.model_validate(state.server_info)
+
+        session._initialized_sent = state.initialized_sent
+
+        return session
+
     @property
     def experimental(self) -> ExperimentalClientFeatures:
         """Experimental APIs for tasks and other features.
