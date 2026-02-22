@@ -63,6 +63,32 @@ async def _wait_for_file_to_exist(file_path: str, timeout: float = 5.0) -> None:
 
 
 @pytest.mark.anyio
+async def test_wait_for_file_to_exist_timeout():
+    """Test _wait_for_file_to_exist raises TimeoutError when file doesn't exist."""
+    nonexistent_file = "/tmp/nonexistent_file_test_1234567890"
+
+    with pytest.raises(TimeoutError, match="does not exist"):
+        with anyio.fail_after(1.0):
+            await _wait_for_file_to_exist(nonexistent_file, timeout=0.1)
+
+
+@pytest.mark.anyio
+async def test_wait_for_file_to_exist_empty_file():
+    """Test _wait_for_file_to_exist raises TimeoutError when file exists but is empty."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+        empty_file = f.name
+
+    try:
+        with pytest.raises(TimeoutError, match="exists but is empty"):
+            with anyio.fail_after(1.0):
+                await _wait_for_file_to_exist(empty_file, timeout=0.1)
+    finally:
+        os.unlink(empty_file)
+
+
+@pytest.mark.anyio
 @pytest.mark.skipif(tee is None, reason="could not find tee command")
 async def test_stdio_context_manager_exiting():
     assert tee is not None
