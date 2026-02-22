@@ -46,6 +46,7 @@ def test_access_token_with_claims():
         scopes=["read"],
         claims=custom_claims,
     )
+    assert token.claims is not None
     assert token.claims == custom_claims
     assert token.claims["org_id"] == "org_7"
     assert token.claims["roles"] == ["admin", "editor"]
