@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Any, Generic, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyUrl, BaseModel
@@ -40,6 +40,8 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
+    subject: str | None = None  # JWT "sub" claim (user/resource owner ID)
+    claims: dict[str, Any] | None = None  # Additional token claims
 
 
 RegistrationErrorCode = Literal[
