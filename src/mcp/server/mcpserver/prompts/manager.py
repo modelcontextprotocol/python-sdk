@@ -8,7 +8,7 @@ from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
 
 if TYPE_CHECKING:
-    from mcp.server.context import LifespanContextT, RequestT
+    from mcp.server.context import ServerLifespanContextT, SessionLifespanContextT, RequestT
     from mcp.server.mcpserver.server import Context
 
 logger = get_logger(__name__)

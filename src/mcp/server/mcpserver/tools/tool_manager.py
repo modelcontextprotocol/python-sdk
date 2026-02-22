@@ -9,7 +9,7 @@ from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
-    from mcp.server.context import LifespanContextT, RequestT
+    from mcp.server.context import ServerLifespanContextT, SessionLifespanContextT, RequestT
     from mcp.server.mcpserver.server import Context
 
 logger = get_logger(__name__)
