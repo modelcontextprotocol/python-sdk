@@ -798,6 +798,89 @@ params = CallToolRequestParams(
 )
 ```
 
+### Lifespan redesign: Server-scoped and Session-scoped lifetimes
+
+The single `lifespan` parameter has been replaced with two separate parameters: `server_lifespan` and `session_lifespan`. This fixes bugs where server-level resources (like database pools) were being initialized per-client connection instead of once at server startup.
+
+**Before (v1):**
+
+```python
+from mcp.server import Server
+
+@asynccontextmanager
+async def lifespan(server):
+    # This ran PER-CLIENT, causing bugs #1300 and #1304
+    db_pool = await create_db_pool()
+    try:
+        yield {"db": db_pool}
+    finally:
+        await db_pool.close()
+
+server = Server("my-server", lifespan=lifespan)
+```
+
+**After (v2):**
+
+```python
+from mcp.server import Server
+
+@asynccontextmanager
+async def server_lifespan(server):
+    # Runs ONCE at server startup
+    # Use for: database pools, ML models, shared caches
+    db_pool = await create_db_pool()
+    try:
+        yield {"db": db_pool}
+    finally:
+        await db_pool.close()
+
+@asynccontextmanager
+async def session_lifespan(server):
+    # Runs PER-CLIENT connection
+    # Use for: user auth, per-client state
+    session_id = str(uuid4())
+    try:
+        yield {"session_id": session_id}
+    finally:
+        pass
+
+server = Server(
+    "my-server",
+    server_lifespan=server_lifespan,  # Server-scoped
+    session_lifespan=session_lifespan,  # Session-scoped
+)
+
+# Handlers can access both contexts
+async def handle_tool(ctx, params):
+    db = ctx.server_lifespan_context["db"]  # Shared resource
+    session_id = ctx.session_lifespan_context["session_id"]  # Per-client resource
+    ...
+```
+
+**Key differences:**
+
+| v1 (`lifespan`) | v2 (`server_lifespan` / `session_lifespan`) |
+|-----------------|---------------------------------------------------|
+| Ran per-client connection | `server_lifespan` runs once at startup |
+| No separation of concerns | `session_lifespan` runs per-client |
+| `ctx.lifespan_context` | `ctx.server_lifespan_context` and `ctx.session_lifespan_context` |
+| Database pools connected on first client | Database pools connected at server startup |
+| Bug: resources re-initialized unnecessarily | Fixed: proper resource lifecycle |
+
+**When to use each:**
+
+- **`server_lifespan`**: Server-level resources that persist across all clients
+  - Database connection pools
+  - Machine learning models
+  - Shared caches
+  - Global configuration
+
+- **`session_lifespan`**: Client-specific resources
+  - User authentication context
+  - Per-client transaction state
+  - Session identifiers
+  - Client-specific caches
+
 ## New Features
 
 ### `streamable_http_app()` available on lowlevel Server
