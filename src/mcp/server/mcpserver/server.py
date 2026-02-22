@@ -27,7 +27,7 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerLifespanContextT, SessionLifespanContextT, RequestT, ServerRequestContext
+from mcp.server.context import RequestT, ServerLifespanContextT, ServerRequestContext, SessionLifespanContextT
 from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
 from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.helper_types import ReadResourceContents
@@ -1149,8 +1149,7 @@ class Context(BaseModel, Generic[ServerLifespanContextT, SessionLifespanContextT
     def __init__(
         self,
         *,
-        request_context: ServerRequestContext[ServerLifespanContextT, SessionLifespanContextT, RequestT]
-        | None = None,
+        request_context: ServerRequestContext[ServerLifespanContextT, SessionLifespanContextT, RequestT] | None = None,
         mcp_server: MCPServer | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,

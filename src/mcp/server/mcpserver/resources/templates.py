@@ -16,7 +16,7 @@ from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
-    from mcp.server.context import ServerLifespanContextT, SessionLifespanContextT, RequestT
+    from mcp.server.context import RequestT, ServerLifespanContextT, SessionLifespanContextT
     from mcp.server.mcpserver.server import Context
 
 
@@ -99,7 +99,7 @@ class ResourceTemplate(BaseModel):
         self,
         uri: str,
         params: dict[str, Any],
-        context: Context[LifespanContextT, RequestT] | None = None,
+        context: Context[ServerLifespanContextT, SessionLifespanContextT, RequestT] | None = None,
     ) -> Resource:
         """Create a resource from the template with the given parameters."""
         try:
