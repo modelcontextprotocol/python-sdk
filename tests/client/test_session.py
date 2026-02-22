@@ -829,3 +829,74 @@ async def test_client_session_from_state():
         pass
 
 
+@pytest.mark.anyio
+async def test_client_session_state_roundtrip():
+    """Test that session state can be serialized and restored."""
+    from mcp.shared.session_state import SessionState
+
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(
+                logging=None,
+                resources=None,
+                tools=None,
+                experimental=None,
+                prompts=None,
+            ),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as original_session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        # Initialize the session
+        await original_session.initialize()
+
+        # Extract state
+        original_state = original_session.get_session_state()
+
+        # Verify it can be serialized to JSON
+        json_str = original_state.model_dump_json()
+
+        # Verify it can be deserialized from JSON
+        restored_state = SessionState.model_validate_json(json_str)
+
+        # Verify all fields match
+        assert restored_state.session_id == original_state.session_id
+        assert restored_state.protocol_version == original_state.protocol_version
+        assert restored_state.next_request_id == original_state.next_request_id
+        assert restored_state.server_capabilities == original_state.server_capabilities
+        assert restored_state.server_info == original_state.server_info
+        assert restored_state.initialized_sent == original_state.initialized_sent
+
+
