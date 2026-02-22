@@ -36,6 +36,7 @@ handler callables by method string.
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import logging
 import warnings
@@ -62,6 +63,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.models import InitializationOptions
+from mcp.server.server_lifespan import ServerLifespanManager
 from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
@@ -116,7 +118,8 @@ class Server(Generic[LifespanResultT]):
         server_lifespan: Callable[
             [Server[Any]],
             AbstractAsyncContextManager[Any],
-        ] | None = None,
+        ]
+        | None = None,
         session_lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -531,6 +534,28 @@ class Server(Generic[LifespanResultT]):
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
+    @contextlib.asynccontextmanager
+    async def _create_app_lifespan(
+        session_manager: StreamableHTTPSessionManager,
+        server_lifespan_manager: ServerLifespanManager | None,
+    ):
+        """Combined lifespan for Starlette app.
+
+        Runs server lifespan first (if configured), then session manager.
+
+        IMPORTANT: Server lifespan runs ONCE at app startup, before any sessions.
+        This is the key fix for bugs #1300 and #1304.
+        """
+        if server_lifespan_manager:
+            # Run server lifespan first, then session manager
+            async with server_lifespan_manager.run(session_manager.app):
+                async with session_manager.run():
+                    yield
+        else:
+            # No server lifespan, just run session manager
+            async with session_manager.run():
+                yield
+
     def streamable_http_app(
         self,
         *,
@@ -556,6 +581,11 @@ class Server(Generic[LifespanResultT]):
                 allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
             )
 
+        # Create server lifespan manager if server_lifespan is configured
+        server_lifespan_manager = None
+        if self.server_lifespan is not None:
+            server_lifespan_manager = ServerLifespanManager(server_lifespan=self.server_lifespan)
+
         session_manager = StreamableHTTPSessionManager(
             app=self,
             event_store=event_store,
@@ -563,6 +593,8 @@ class Server(Generic[LifespanResultT]):
             json_response=json_response,
             stateless=stateless_http,
             security_settings=transport_security,
+            # NOTE: NOT passing server_lifespan_manager to session manager!
+            # Server lifespan runs at Starlette app level, not session manager level.
         )
         self._session_manager = session_manager
 
@@ -636,9 +668,18 @@ class Server(Generic[LifespanResultT]):
         if custom_starlette_routes:  # pragma: no cover
             routes.extend(custom_starlette_routes)
 
+        # CRITICAL: Use combined lifespan function
+        # OLD: lifespan=lambda app: session_manager.run(),
+        # NEW: Use _create_app_lifespan which combines server and session lifespans
+
+        @contextlib.asynccontextmanager
+        async def combined_lifespan(app: Any):  # noqa: ARG001
+            async with self._create_app_lifespan(session_manager, server_lifespan_manager):
+                yield
+
         return Starlette(
             debug=debug,
             routes=routes,
             middleware=middleware,
-            lifespan=lambda app: session_manager.run(),
+            lifespan=combined_lifespan,
         )
