@@ -222,11 +222,12 @@ The MCPServer server is your core interface to the MCP protocol. It handles conn
 
 <!-- snippet-source examples/snippets/servers/lifespan_example.py -->
 ```python
-"""Example showing lifespan support for startup/shutdown with strong typing."""
+"""Example showing lifespan support with server and session scopes."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import TypedDict
 
 from mcp.server.mcpserver import Context, MCPServer
 
@@ -235,48 +236,75 @@ from mcp.server.mcpserver import Context, MCPServer
 class Database:
     """Mock database class for example."""
 
+    connections: int = 0
+
     @classmethod
     async def connect(cls) -> "Database":
-        """Connect to database."""
+        """Connect to database (runs once at server startup)."""
+        cls.connections += 1
         return cls()
 
     async def disconnect(self) -> None:
         """Disconnect from database."""
-        pass
+        cls.connections -= 1
 
     def query(self) -> str:
         """Execute a query."""
         return "Query result"
 
 
-@dataclass
-class AppContext:
-    """Application context with typed dependencies."""
+class ServerContext(TypedDict):
+    """Server-level context (shared across all clients)."""
 
     db: Database
 
 
+class SessionContext(TypedDict):
+    """Session-level context (per-client connection)."""
+
+    session_id: str
+
+
 @asynccontextmanager
-async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
-    """Manage application lifecycle with type-safe context."""
-    # Initialize on startup
+async def server_lifespan(server: MCPServer) -> AsyncIterator[ServerContext]:
+    """Manage server-level lifecycle (runs once at startup).
+
+    Use for: database pools, ML models, shared caches, global config.
+    """
+    # Initialize on startup (ONCE for all clients)
     db = await Database.connect()
     try:
-        yield AppContext(db=db)
+        yield ServerContext(db=db)
     finally:
         # Cleanup on shutdown
         await db.disconnect()
 
 
-# Pass lifespan to server
-mcp = MCPServer("My App", lifespan=app_lifespan)
+@asynccontextmanager
+async def session_lifespan(server: MCPServer) -> AsyncIterator[SessionContext]:
+    """Manage session-level lifecycle (runs per-client connection).
+
+    Use for: user auth, per-client state, session IDs.
+    """
+    # Initialize per-client (runs FOR EACH CLIENT)
+    session_id = "unique-session-id"
+    try:
+        yield SessionContext(session_id=session_id)
+    finally:
+        pass  # Cleanup per-client resources
 
 
-# Access type-safe lifespan context in tools
+# Pass both lifespans to server
+mcp = MCPServer("My App", lifespan=server_lifespan)  # MCPServer uses server lifespan
+
+
+# Access type-safe contexts in tools
 @mcp.tool()
-def query_db(ctx: Context[AppContext]) -> str:
+def query_db(ctx: Context) -> str:
     """Tool that uses initialized resources."""
-    db = ctx.request_context.lifespan_context.db
+    # Access server-level context (shared across all clients)
+    server_ctx: ServerContext = ctx.request_context.session_lifespan_context
+    db = server_ctx.db
     return db.query()
 ```
 
@@ -1125,9 +1153,13 @@ async def notify_data_update(resource_uri: str, ctx: Context) -> str:
 
 The request context accessible via `ctx.request_context` contains request-specific information and resources:
 
-- `ctx.request_context.lifespan_context` - Access to resources initialized during server startup
-  - Database connections, configuration objects, shared services
-  - Type-safe access to resources defined in your server's lifespan function
+- `ctx.request_context.session_lifespan_context` - Access to resources from the session lifespan (runs per-client connection)
+  - User authentication context, per-client state, session IDs
+  - Type-safe access to resources defined in your server's session lifespan function
+- `ctx.request_context.server_lifespan_context` - Access to resources from the server lifespan (runs once at server startup)
+  - Database connection pools, ML models, shared caches, global configuration
+  - Type-safe access to resources defined in your server's server lifespan function
+  - **Note:** When using MCPServer with `lifespan` parameter, this is populated with that context
 - `ctx.request_context.meta` - Request metadata from the client including:
   - `progressToken` - Token for progress notifications
   - Other client-provided metadata
@@ -1135,25 +1167,34 @@ The request context accessible via `ctx.request_context` contains request-specif
 - `ctx.request_context.request_id` - Unique identifier for this request
 
 ```python
-# Example with typed lifespan context
+# Example with typed contexts
 @dataclass
-class AppContext:
+class ServerContext:
     db: Database
     config: AppConfig
 
+@dataclass
+class SessionContext:
+    user_id: str
+    session_id: str
+
 @mcp.tool()
 def query_with_config(query: str, ctx: Context) -> str:
-    """Execute a query using shared database and configuration."""
-    # Access typed lifespan context
-    app_ctx: AppContext = ctx.request_context.lifespan_context
+    """Execute a query using shared database and per-session user context."""
+    # Access server-level context (shared across all clients)
+    server_ctx: ServerContext = ctx.request_context.server_lifespan_context
 
-    # Use shared resources
-    connection = app_ctx.db
-    settings = app_ctx.config
+    # Access session-level context (per-client)
+    session_ctx: SessionContext = ctx.request_context.session_lifespan_context
 
-    # Execute query with configuration
-    result = connection.execute(query, timeout=settings.query_timeout)
-    return str(result)
+    # Use resources from both contexts
+    connection = server_ctx.db
+    settings = server_ctx.config
+    user = session_ctx.user_id
+
+    # Execute query with configuration and user context
+    result = connection.execute(query, timeout=settings.query_timeout, user=user)
+    return f"User {user}: {str(result)}"
 ```
 
 _Full lifespan example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lifespan_example.py)_
