@@ -21,7 +21,8 @@ async def test_progress_token_zero_first_call():
         request_id="test-request",
         session=mock_session,
         meta={"progress_token": 0},
-        lifespan_context=None,
+        server_lifespan_context=None,
+        session_lifespan_context=None,
         experimental=Experimental(),
     )
 

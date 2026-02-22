@@ -71,7 +71,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
     async def handle_call_tool(
         ctx: ServerRequestContext[AppContext], params: CallToolRequestParams
     ) -> CallToolResult | CreateTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         if params.name == "process_data" and ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -94,7 +94,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
         raise NotImplementedError
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         task = await app.store.get_task(params.task_id)
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
@@ -110,7 +110,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
     async def handle_get_task_result(
         ctx: ServerRequestContext[AppContext], params: GetTaskPayloadRequestParams
     ) -> GetTaskPayloadResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         result = await app.store.get_result(params.task_id)
         assert result is not None, f"Test setup error: result for {params.task_id} should exist"
         assert isinstance(result, CallToolResult)
@@ -179,7 +179,7 @@ async def test_task_auto_fails_on_exception() -> None:
     async def handle_call_tool(
         ctx: ServerRequestContext[AppContext], params: CallToolRequestParams
     ) -> CallToolResult | CreateTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         if params.name == "failing_task" and ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -201,7 +201,7 @@ async def test_task_auto_fails_on_exception() -> None:
         raise NotImplementedError
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         task = await app.store.get_task(params.task_id)
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(

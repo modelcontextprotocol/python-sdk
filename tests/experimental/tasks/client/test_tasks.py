@@ -52,7 +52,7 @@ async def _handle_list_tools(
 async def _handle_call_tool_with_done_event(
     ctx: ServerRequestContext[AppContext], params: CallToolRequestParams, *, result_text: str = "Done"
 ) -> CallToolResult | CreateTaskResult:
-    app = ctx.lifespan_context
+    app = ctx.session_lifespan_context
     if ctx.experimental.is_task:
         task_metadata = ctx.experimental.task_metadata
         assert task_metadata is not None
@@ -87,7 +87,7 @@ async def test_session_experimental_get_task() -> None:
     task_done_events: dict[str, Event] = {}
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         task = await app.store.get_task(params.task_id)
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
@@ -145,7 +145,7 @@ async def test_session_experimental_get_task_result() -> None:
     async def handle_get_task_result(
         ctx: ServerRequestContext[AppContext], params: GetTaskPayloadRequestParams
     ) -> GetTaskPayloadResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         result = await app.store.get_result(params.task_id)
         assert result is not None, f"Test setup error: result for {params.task_id} should exist"
         assert isinstance(result, CallToolResult)
@@ -193,7 +193,7 @@ async def test_session_experimental_list_tasks() -> None:
     async def handle_list_tasks(
         ctx: ServerRequestContext[AppContext], params: PaginatedRequestParams | None
     ) -> ListTasksResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         cursor = params.cursor if params else None
         tasks_list, next_cursor = await app.store.list_tasks(cursor=cursor)
         return ListTasksResult(tasks=tasks_list, next_cursor=next_cursor)
@@ -235,7 +235,7 @@ async def test_session_experimental_cancel_task() -> None:
     async def handle_call_tool_no_work(
         ctx: ServerRequestContext[AppContext], params: CallToolRequestParams
     ) -> CallToolResult | CreateTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
@@ -245,7 +245,7 @@ async def test_session_experimental_cancel_task() -> None:
         raise NotImplementedError
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         task = await app.store.get_task(params.task_id)
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
@@ -261,7 +261,7 @@ async def test_session_experimental_cancel_task() -> None:
     async def handle_cancel_task(
         ctx: ServerRequestContext[AppContext], params: CancelTaskRequestParams
     ) -> CancelTaskResult:
-        app = ctx.lifespan_context
+        app = ctx.session_lifespan_context
         task = await app.store.get_task(params.task_id)
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         await app.store.update_task(params.task_id, status="cancelled")

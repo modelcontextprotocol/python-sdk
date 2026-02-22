@@ -291,7 +291,7 @@ async def _handle_call_tool(  # pragma: no cover
             related_request_id=ctx.request_id,
         )
 
-        await ctx.lifespan_context.lock.wait()
+        await ctx.session_lifespan_context.lock.wait()
 
         await ctx.session.send_log_message(
             level="info",
@@ -303,7 +303,7 @@ async def _handle_call_tool(  # pragma: no cover
         return CallToolResult(content=[TextContent(type="text", text="Completed")])
 
     elif name == "release_lock":
-        ctx.lifespan_context.lock.set()
+        ctx.session_lifespan_context.lock.set()
         return CallToolResult(content=[TextContent(type="text", text="Lock released")])
 
     elif name == "tool_with_stream_close":

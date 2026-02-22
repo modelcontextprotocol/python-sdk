@@ -1454,7 +1454,8 @@ async def test_report_progress_passes_related_request_id():
         request_id="req-abc-123",
         session=mock_session,
         meta={"progress_token": "tok-1"},
-        lifespan_context=None,
+        server_lifespan_context=None,
+        session_lifespan_context=None,
         experimental=Experimental(),
     )
 
