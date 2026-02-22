@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Protocol
 
 import anyio.lowlevel
@@ -13,6 +14,7 @@ from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.session_state import SessionState
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types._types import RequestParamsMeta
 
@@ -132,6 +134,9 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
+        self._server_info: types.Implementation | None = None
+        self._initialized_sent: bool = False
+        self._session_id: str = str(uuid.uuid4())
         self._experimental_features: ExperimentalClientFeatures | None = None
 
         # Experimental: Task handlers (use defaults if not provided)
@@ -186,8 +191,10 @@ class ClientSession(
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
         self._server_capabilities = result.capabilities
+        self._server_info = result.server_info
 
         await self.send_notification(types.InitializedNotification())
+        self._initialized_sent = True
 
         return result
 
@@ -197,6 +204,95 @@ class ClientSession(
         Returns None if the session has not been initialized yet.
         """
         return self._server_capabilities
+
+    def get_session_state(self) -> SessionState:
+        """Extract a serializable snapshot of the current session state.
+
+        This allows the session state to be stored in external storage
+        (Redis, database, etc.) for distributed deployments.
+
+        Returns:
+            A SessionState object containing the serializable state
+        """
+        from mcp.shared.version import LATEST_PROTOCOL_VERSION
+
+        return SessionState(
+            session_id=self._session_id,
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            next_request_id=self._request_id,
+            server_capabilities=(
+                self._server_capabilities.model_dump(by_alias=True, mode="json", exclude_none=True)
+                if self._server_capabilities
+                else None
+            ),
+            server_info=(
+                self._server_info.model_dump(by_alias=True, mode="json", exclude_none=True)
+                if self._server_info
+                else None
+            ),
+            initialized_sent=self._initialized_sent,
+        )
+
+    @classmethod
+    def from_session_state(
+        cls,
+        state: SessionState,
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+        write_stream: MemoryObjectSendStream[SessionMessage],
+        client_info: types.Implementation | None = None,
+        read_timeout_seconds: float | None = None,
+        sampling_callback: SamplingFnT | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
+        list_roots_callback: ListRootsFnT | None = None,
+        logging_callback: LoggingFnT | None = None,
+        message_handler: MessageHandlerFnT | None = None,
+        *,
+        sampling_capabilities: types.SamplingCapability | None = None,
+        experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+    ) -> ClientSession:
+        """Create a new ClientSession from a previously saved SessionState.
+
+        This restores session context from external storage, allowing
+        distributed instances to continue a session.
+
+        Args:
+            state: The SessionState to restore from
+            read_stream: The read stream for receiving messages
+            write_stream: The write stream for sending messages
+            client_info: Optional client info (defaults to DEFAULT_CLIENT_INFO)
+            read_timeout_seconds: Optional read timeout for this session
+
+        Returns:
+            A new ClientSession instance with the restored state
+        """
+        # Create session with default initialization
+        session = cls(
+            read_stream=read_stream,
+            write_stream=write_stream,
+            client_info=client_info,
+            read_timeout_seconds=read_timeout_seconds,
+            sampling_callback=sampling_callback,
+            elicitation_callback=elicitation_callback,
+            list_roots_callback=list_roots_callback,
+            logging_callback=logging_callback,
+            message_handler=message_handler,
+            sampling_capabilities=sampling_capabilities,
+            experimental_task_handlers=experimental_task_handlers,
+        )
+
+        # Restore the state
+        session._session_id = state.session_id
+        session._request_id = state.next_request_id
+
+        if state.server_capabilities:
+            session._server_capabilities = types.ServerCapabilities.model_validate(state.server_capabilities)
+
+        if state.server_info:
+            session._server_info = types.Implementation.model_validate(state.server_info)
+
+        session._initialized_sent = state.initialized_sent
+
+        return session
 
     @property
     def experimental(self) -> ExperimentalClientFeatures:
