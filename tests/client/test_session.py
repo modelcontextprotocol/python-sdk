@@ -898,5 +898,3 @@ async def test_client_session_state_roundtrip():
         assert restored_state.server_capabilities == original_state.server_capabilities
         assert restored_state.server_info == original_state.server_info
         assert restored_state.initialized_sent == original_state.initialized_sent
-
-

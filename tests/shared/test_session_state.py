@@ -1,7 +1,8 @@
 """Tests for SessionState serialization."""
 
-from mcp.shared.session_state import SessionState
 import pytest
+
+from mcp.shared.session_state import SessionState
 
 
 def test_session_state_creation():
