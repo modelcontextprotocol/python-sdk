@@ -706,3 +706,74 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_client_session_get_state():
+    """Test that get_session_state() returns a valid SessionState."""
+    from mcp.shared.session_state import SessionState
+
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def mock_server():
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(
+                logging=None,
+                resources=None,
+                tools=None,
+                experimental=None,
+                prompts=None,
+            ),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        # Initialize the session
+        await session.initialize()
+
+        # Get session state
+        state = session.get_session_state()
+
+        # Verify the state
+        assert isinstance(state, SessionState)
+        assert state.session_id is not None
+        assert state.protocol_version == LATEST_PROTOCOL_VERSION
+        assert state.next_request_id == 1  # After initialize request
+        assert state.server_capabilities is not None
+        assert state.server_info is not None
+        assert state.initialized_sent is True
+
+        # Verify it's serializable
+        json_str = state.model_dump_json()
+        assert json_str is not None
+
