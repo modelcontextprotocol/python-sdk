@@ -73,6 +73,7 @@ from mcp.shared.session import RequestResponder
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
+ServerLifespanContextT = TypeVar("ServerLifespanContextT", default=Any)
 
 request_ctx: contextvars.ContextVar[ServerRequestContext[Any]] = contextvars.ContextVar("request_ctx")
 
@@ -85,8 +86,8 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
-    """Default lifespan context manager that does nothing.
+async def session_lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
+    """Default session lifespan context manager that does nothing.
 
     Returns:
         An empty context object
@@ -109,10 +110,17 @@ class Server(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
-        lifespan: Callable[
+        # REPLACED: Old single `lifespan` parameter
+        # lifespan: Callable[...] = lifespan,
+        # NEW: Two separate lifespan parameters
+        server_lifespan: Callable[
+            [Server[Any]],
+            AbstractAsyncContextManager[Any],
+        ] | None = None,
+        session_lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
-        ] = lifespan,
+        ] = session_lifespan,  # Default to renamed session_lifespan function
         # Request handlers
         on_list_tools: Callable[
             [ServerRequestContext[LifespanResultT], types.PaginatedRequestParams | None],
@@ -192,7 +200,9 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
-        self.lifespan = lifespan
+        # Store both lifespans separately
+        self.server_lifespan = server_lifespan
+        self.session_lifespan = session_lifespan
         self._request_handlers: dict[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]] = {}
         self._notification_handlers: dict[
             str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
@@ -373,7 +383,7 @@ class Server(Generic[LifespanResultT]):
         stateless: bool = False,
     ):
         async with AsyncExitStack() as stack:
-            lifespan_context = await stack.enter_async_context(self.lifespan(self))
+            lifespan_context = await stack.enter_async_context(self.session_lifespan(self))
             session = await stack.enter_async_context(
                 ServerSession(
                     read_stream,
