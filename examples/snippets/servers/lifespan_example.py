@@ -52,5 +52,5 @@ mcp = MCPServer("My App", lifespan=app_lifespan)
 @mcp.tool()
 def query_db(ctx: Context[AppContext]) -> str:
     """Tool that uses initialized resources."""
-    db = ctx.request_context.lifespan_context.db
+    db = ctx.request_context.session_lifespan_context.db
     return db.query()

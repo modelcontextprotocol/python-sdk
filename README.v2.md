@@ -222,12 +222,11 @@ The MCPServer server is your core interface to the MCP protocol. It handles conn
 
 <!-- snippet-source examples/snippets/servers/lifespan_example.py -->
 ```python
-"""Example showing lifespan support with server and session scopes."""
+"""Example showing lifespan support for startup/shutdown with strong typing."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TypedDict
 
 from mcp.server.mcpserver import Context, MCPServer
 
@@ -236,75 +235,48 @@ from mcp.server.mcpserver import Context, MCPServer
 class Database:
     """Mock database class for example."""
 
-    connections: int = 0
-
     @classmethod
     async def connect(cls) -> "Database":
-        """Connect to database (runs once at server startup)."""
-        cls.connections += 1
+        """Connect to database."""
         return cls()
 
     async def disconnect(self) -> None:
         """Disconnect from database."""
-        cls.connections -= 1
+        pass
 
     def query(self) -> str:
         """Execute a query."""
         return "Query result"
 
 
-class ServerContext(TypedDict):
-    """Server-level context (shared across all clients)."""
+@dataclass
+class AppContext:
+    """Application context with typed dependencies."""
 
     db: Database
 
 
-class SessionContext(TypedDict):
-    """Session-level context (per-client connection)."""
-
-    session_id: str
-
-
 @asynccontextmanager
-async def server_lifespan(server: MCPServer) -> AsyncIterator[ServerContext]:
-    """Manage server-level lifecycle (runs once at startup).
-
-    Use for: database pools, ML models, shared caches, global config.
-    """
-    # Initialize on startup (ONCE for all clients)
+async def app_lifespan(server: MCPServer) -> AsyncIterator[AppContext]:
+    """Manage application lifecycle with type-safe context."""
+    # Initialize on startup
     db = await Database.connect()
     try:
-        yield ServerContext(db=db)
+        yield AppContext(db=db)
     finally:
         # Cleanup on shutdown
         await db.disconnect()
 
 
-@asynccontextmanager
-async def session_lifespan(server: MCPServer) -> AsyncIterator[SessionContext]:
-    """Manage session-level lifecycle (runs per-client connection).
-
-    Use for: user auth, per-client state, session IDs.
-    """
-    # Initialize per-client (runs FOR EACH CLIENT)
-    session_id = "unique-session-id"
-    try:
-        yield SessionContext(session_id=session_id)
-    finally:
-        pass  # Cleanup per-client resources
+# Pass lifespan to server
+mcp = MCPServer("My App", lifespan=app_lifespan)
 
 
-# Pass both lifespans to server
-mcp = MCPServer("My App", lifespan=server_lifespan)  # MCPServer uses server lifespan
-
-
-# Access type-safe contexts in tools
+# Access type-safe lifespan context in tools
 @mcp.tool()
-def query_db(ctx: Context) -> str:
+def query_db(ctx: Context[AppContext]) -> str:
     """Tool that uses initialized resources."""
-    # Access server-level context (shared across all clients)
-    server_ctx: ServerContext = ctx.request_context.session_lifespan_context
-    db = server_ctx.db
+    db = ctx.request_context.session_lifespan_context.db
     return db.query()
 ```
 
@@ -1684,6 +1656,7 @@ uv run examples/snippets/servers/lowlevel/lifespan.py
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TypedDict
+from uuid import uuid4
 
 import mcp.server.stdio
 from mcp import types
@@ -1694,15 +1667,19 @@ from mcp.server import Server, ServerRequestContext
 class Database:
     """Mock database class for example."""
 
+    connections: int = 0
+
     @classmethod
     async def connect(cls) -> "Database":
         """Connect to database."""
-        print("Database connected")
+        cls.connections += 1
+        print(f"Database connected (total connections: {cls.connections})")
         return cls()
 
     async def disconnect(self) -> None:
         """Disconnect from database."""
-        print("Database disconnected")
+        self.connections -= 1
+        print(f"Database disconnected (total connections: {self.connections})")
 
     async def query(self, query_str: str) -> list[dict[str, str]]:
         """Execute a query."""
@@ -1710,55 +1687,121 @@ class Database:
         return [{"id": "1", "name": "Example", "query": query_str}]
 
 
-class AppContext(TypedDict):
+class ServerContext(TypedDict):
+    """Server-level context (shared across all clients)."""
+
     db: Database
 
 
+class SessionContext(TypedDict):
+    """Session-level context (per-client connection)."""
+
+    session_id: str
+
+
 @asynccontextmanager
-async def server_lifespan(_server: Server[AppContext]) -> AsyncIterator[AppContext]:
-    """Manage server startup and shutdown lifecycle."""
+async def server_lifespan(_server: Server) -> AsyncIterator[ServerContext]:
+    """Manage server startup and shutdown lifecycle.
+
+    This runs ONCE when the server process starts, before any clients connect.
+    Use this for resources that should be shared across all client connections:
+    - Database connection pools
+    - Machine learning models
+    - Shared caches
+    - Global configuration
+    """
+    print("[SERVER LIFESPAN] Starting server...")
     db = await Database.connect()
     try:
+        print("[SERVER LIFESPAN] Server started, database connected")
         yield {"db": db}
     finally:
         await db.disconnect()
+        print("[SERVER LIFESPAN] Server stopped, database disconnected")
+
+
+@asynccontextmanager
+async def session_lifespan(_server: Server) -> AsyncIterator[SessionContext]:
+    """Manage per-client session lifecycle.
+
+    This runs FOR EACH CLIENT that connects to the server.
+    Use this for resources that are specific to a single client connection:
+    - User authentication context
+    - Per-client transaction state
+    - Client-specific caches
+    - Session identifiers
+    """
+    session_id = str(uuid4())
+    print(f"[SESSION LIFESPAN] Session {session_id} started")
+    try:
+        yield {"session_id": session_id}
+    finally:
+        print(f"[SESSION LIFESPAN] Session {session_id} stopped")
 
 
 async def handle_list_tools(
-    ctx: ServerRequestContext[AppContext], params: types.PaginatedRequestParams | None
+    ctx: ServerRequestContext[ServerContext, SessionContext],
+    params: types.PaginatedRequestParams | None,
 ) -> types.ListToolsResult:
     """List available tools."""
     return types.ListToolsResult(
         tools=[
             types.Tool(
                 name="query_db",
-                description="Query the database",
+                description="Query the database (uses shared server connection)",
                 input_schema={
                     "type": "object",
                     "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
                     "required": ["query"],
                 },
-            )
+            ),
+            types.Tool(
+                name="get_session_info",
+                description="Get information about the current session",
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
         ]
     )
 
 
 async def handle_call_tool(
-    ctx: ServerRequestContext[AppContext], params: types.CallToolRequestParams
+    ctx: ServerRequestContext[ServerContext, SessionContext],
+    params: types.CallToolRequestParams,
 ) -> types.CallToolResult:
-    """Handle database query tool call."""
-    if params.name != "query_db":
-        raise ValueError(f"Unknown tool: {params.name}")
+    """Handle tool calls."""
+    if params.name == "query_db":
+        # Access server-level resource (shared database connection)
+        db = ctx.server_lifespan_context["db"]
+        results = await db.query((params.arguments or {})["query"])
 
-    db = ctx.lifespan_context["db"]
-    results = await db.query((params.arguments or {})["query"])
+        return types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text",
+                    text=f"Query results (session {ctx.session_lifespan_context['session_id']}): {results}",
+                )
+            ]
+        )
 
-    return types.CallToolResult(content=[types.TextContent(type="text", text=f"Query results: {results}")])
+    if params.name == "get_session_info":
+        # Access session-level resource (session ID)
+        session_id = ctx.session_lifespan_context["session_id"]
+
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=f"Your session ID: {session_id}")]
+        )
+
+    raise ValueError(f"Unknown tool: {params.name}")
 
 
+# Create server with BOTH server and session lifespans
 server = Server(
     "example-server",
-    lifespan=server_lifespan,
+    server_lifespan=server_lifespan,  # Runs once at server startup
+    session_lifespan=session_lifespan,  # Runs per-client connection
     on_list_tools=handle_list_tools,
     on_call_tool=handle_call_tool,
 )
