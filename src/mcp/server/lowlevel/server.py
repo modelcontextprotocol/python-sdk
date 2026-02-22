@@ -555,28 +555,6 @@ class Server(Generic[LifespanResultT]):
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
-    @contextlib.asynccontextmanager
-    async def _create_app_lifespan(
-        session_manager: StreamableHTTPSessionManager,
-        server_lifespan_manager: ServerLifespanManager | None,
-    ):
-        """Combined lifespan for Starlette app.
-
-        Runs server lifespan first (if configured), then session manager.
-
-        IMPORTANT: Server lifespan runs ONCE at app startup, before any sessions.
-        This is the key fix for bugs #1300 and #1304.
-        """
-        if server_lifespan_manager:
-            # Run server lifespan first, then session manager
-            async with server_lifespan_manager.run(session_manager.app):
-                async with session_manager.run():
-                    yield
-        else:
-            # No server lifespan, just run session manager
-            async with session_manager.run():
-                yield
-
     def streamable_http_app(
         self,
         *,
@@ -695,8 +673,15 @@ class Server(Generic[LifespanResultT]):
 
         @contextlib.asynccontextmanager
         async def combined_lifespan(app: Any):  # noqa: ARG001
-            async with self._create_app_lifespan(session_manager, server_lifespan_manager):
-                yield
+            if server_lifespan_manager:
+                # Run server lifespan first, then session manager
+                async with server_lifespan_manager.run(session_manager.app):
+                    async with session_manager.run():
+                        yield
+            else:
+                # No server lifespan, just run session manager
+                async with session_manager.run():
+                    yield
 
         return Starlette(
             debug=debug,
