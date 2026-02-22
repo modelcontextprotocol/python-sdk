@@ -123,7 +123,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
     server: Server[AppContext] = Server(
         "test-tasks",
-        lifespan=_make_lifespan(store, task_done_events),
+        session_lifespan=_make_lifespan(store, task_done_events),
         on_list_tools=handle_list_tools,
         on_call_tool=handle_call_tool,
     )
@@ -216,7 +216,7 @@ async def test_task_auto_fails_on_exception() -> None:
 
     server: Server[AppContext] = Server(
         "test-tasks-failure",
-        lifespan=_make_lifespan(store, task_done_events),
+        session_lifespan=_make_lifespan(store, task_done_events),
         on_list_tools=handle_list_tools,
         on_call_tool=handle_call_tool,
     )

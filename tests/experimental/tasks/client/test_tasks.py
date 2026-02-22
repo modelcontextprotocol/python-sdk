@@ -102,7 +102,7 @@ async def test_session_experimental_get_task() -> None:
 
     server: Server[AppContext] = Server(
         "test-server",
-        lifespan=_make_lifespan(store, task_done_events),
+        session_lifespan=_make_lifespan(store, task_done_events),
         on_list_tools=_handle_list_tools,
         on_call_tool=_handle_call_tool_with_done_event,
     )
@@ -153,7 +153,7 @@ async def test_session_experimental_get_task_result() -> None:
 
     server: Server[AppContext] = Server(
         "test-server",
-        lifespan=_make_lifespan(store, task_done_events),
+        session_lifespan=_make_lifespan(store, task_done_events),
         on_list_tools=_handle_list_tools,
         on_call_tool=handle_call_tool,
     )
@@ -200,7 +200,7 @@ async def test_session_experimental_list_tasks() -> None:
 
     server: Server[AppContext] = Server(
         "test-server",
-        lifespan=_make_lifespan(store, task_done_events),
+        session_lifespan=_make_lifespan(store, task_done_events),
         on_list_tools=_handle_list_tools,
         on_call_tool=_handle_call_tool_with_done_event,
     )
@@ -277,7 +277,7 @@ async def test_session_experimental_cancel_task() -> None:
 
     server: Server[AppContext] = Server(
         "test-server",
-        lifespan=_make_lifespan(store, task_done_events),
+        session_lifespan=_make_lifespan(store, task_done_events),
         on_list_tools=_handle_list_tools,
         on_call_tool=handle_call_tool_no_work,
     )
