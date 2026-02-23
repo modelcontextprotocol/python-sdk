@@ -1007,28 +1007,50 @@ async def pick_color(ctx: Context[ServerSession, None]) -> str:
     return "No color selected"
 ```
 
-#### Elicitation Complete Notification
+#### URL Mode Elicitation
 
-For URL mode elicitations, send a completion notification after the out-of-band interaction finishes. This tells the client that the elicitation is done and it may retry any blocked requests:
+URL mode elicitation directs the user to an external URL for out-of-band interactions that must not pass through the MCP client (e.g., entering sensitive data, OAuth flows). The tool call blocks while waiting for the user to complete the interaction:
 
 ```python
+import asyncio
+import uuid
+
+import anyio
+
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 
-mcp = FastMCP("Elicit Complete Example")
+mcp = FastMCP("Weather Example")
+
+# Simulates a database that the web form writes to on submit
+completed_elicitations: dict[str, dict] = {}
 
 
 @mcp.tool()
-async def handle_oauth_callback(
-    elicitation_id: str, ctx: Context[ServerSession, None]
-) -> str:
-    """Called when OAuth flow completes out-of-band."""
-    # ... process the callback ...
+async def get_weather(ctx: Context[ServerSession, None]) -> str:
+    """Get weather for the user's address (collected via secure form)."""
+    elicitation_id = str(uuid.uuid4())
 
-    # Notify the client that the elicitation is done
+    # Direct the user to a web form to enter their address
+    result = await ctx.elicit_url(
+        message="Please enter your address for a weather lookup.",
+        url=f"https://example.com/address-form?id={elicitation_id}",
+        elicitation_id=elicitation_id,
+    )
+
+    if result.action != "accept":
+        return "Weather lookup cancelled."
+
+    # Poll until the web form submits (writes to the database)
+    with anyio.fail_after(120):
+        while elicitation_id not in completed_elicitations:
+            await asyncio.sleep(1)
+
+    # Notify the client that the out-of-band interaction is done
     await ctx.session.send_elicit_complete(elicitation_id)
 
-    return "Authorization complete"
+    address = completed_elicitations.pop(elicitation_id)
+    return f"Weather for {address['street']}: 72°F and sunny"
 ```
 
 ### Sampling
