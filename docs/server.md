@@ -554,7 +554,7 @@ from mcp.server.fastmcp import FastMCP, Icon
 icon = Icon(
     src="icon.png",
     mimeType="image/png",
-    sizes="64x64"
+    sizes=["64x64"]
 )
 
 # Add icons to server
@@ -973,7 +973,6 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 - `action`: "accept", "decline", or "cancel"
 - `data`: The validated response (only when accepted)
-- `validation_error`: Any validation error message
 
 #### Elicitation with Enum Values
 
@@ -1649,7 +1648,7 @@ _Full example: [examples/snippets/servers/streamable_http_path_config.py](https:
 
 #### SSE servers
 
-> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
+> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 

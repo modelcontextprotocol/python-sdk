@@ -62,7 +62,7 @@ async def run():
             # Read a resource (greeting resource from fastmcp_quickstart)
             resource_content = await session.read_resource(AnyUrl("greeting://World"))
             content_block = resource_content.contents[0]
-            if isinstance(content_block, types.TextContent):
+            if isinstance(content_block, types.TextResourceContents):
                 print(f"Resource content: {content_block.text}")
 
             # Call a tool (add tool from fastmcp_quickstart)

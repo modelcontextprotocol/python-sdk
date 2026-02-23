@@ -1,6 +1,6 @@
 # Writing MCP Clients
 
-The SDK provides a high-level client interface for connecting to MCP servers using various [transports](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports):
+The SDK provides a high-level client interface for connecting to MCP servers using various [transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports):
 
 <!-- snippet-source examples/snippets/clients/stdio_client.py -->
 ```python
@@ -68,7 +68,7 @@ async def run():
             # Read a resource (greeting resource from fastmcp_quickstart)
             resource_content = await session.read_resource(AnyUrl("greeting://World"))
             content_block = resource_content.contents[0]
-            if isinstance(content_block, types.TextContent):
+            if isinstance(content_block, types.TextResourceContents):
                 print(f"Resource content: {content_block.text}")
 
             # Call a tool (add tool from fastmcp_quickstart)
@@ -92,7 +92,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/stdio_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/stdio_client.py)_
 <!-- /snippet-source -->
 
-Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http):
+Clients can also connect using [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http):
 
 <!-- snippet-source examples/snippets/clients/streamable_basic.py -->
 ```python
@@ -284,7 +284,7 @@ async def main():
 asyncio.run(main())
 ```
 
-The `sse_client()` function accepts optional `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters. The SSE transport is considered legacy; prefer [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) for new servers.
+The `sse_client()` function accepts optional `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters. The SSE transport is considered legacy; prefer [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) for new servers.
 
 ## Ping
 

@@ -6,7 +6,7 @@ This page covers OAuth 2.1 authentication for both MCP servers and clients.
 
 Authentication can be used by servers that want to expose tools accessing protected resources.
 
-`mcp.server.auth` implements OAuth 2.1 resource server functionality, where MCP servers act as Resource Servers (RS) that validate tokens issued by separate Authorization Servers (AS). This follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) and implements RFC 9728 (Protected Resource Metadata) for AS discovery.
+`mcp.server.auth` implements OAuth 2.1 resource server functionality, where MCP servers act as Resource Servers (RS) that validate tokens issued by separate Authorization Servers (AS). This follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) and implements RFC 9728 (Protected Resource Metadata) for AS discovery.
 
 MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
 
@@ -76,7 +76,7 @@ See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on impleme
 
 ## Client-Side Authentication
 
-The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-03-26/basic/authorization) for connecting to protected MCP servers:
+The SDK includes [authorization support](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) for connecting to protected MCP servers:
 
 <!-- snippet-source examples/snippets/clients/oauth_client.py -->
 ```python
