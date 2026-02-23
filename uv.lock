@@ -11,6 +11,7 @@ members = [
     "mcp",
     "mcp-everything-server",
     "mcp-quickstart-client",
+    "mcp-quickstart-server",
     "mcp-simple-auth",
     "mcp-simple-auth-client",
     "mcp-simple-chatbot",
@@ -1069,6 +1070,21 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.72.0" },
+    { name = "mcp", editable = "." },
+]
+
+[[package]]
+name = "mcp-quickstart-server"
+version = "0.1.0"
+source = { editable = "examples/servers/quickstart-server" }
+dependencies = [
+    { name = "httpx" },
+    { name = "mcp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", editable = "." },
 ]
 
