@@ -223,12 +223,23 @@ class BaseSession(
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> bool | None:
+        from mcp.shared.exceptions import unwrap_task_group_exception
+
         await self._exit_stack.aclose()
         # Using BaseSession as a context manager should not block on exit (this
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
         self._task_group.cancel_scope.cancel()
-        return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+
+        # Exit the task group and unwrap any ExceptionGroup
+        try:
+            return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        except BaseException as e:
+            # Unwrap ExceptionGroup to get only the real error
+            unwrapped = unwrap_task_group_exception(e)
+            if unwrapped is not e:
+                raise unwrapped
+            raise
 
     async def send_request(
         self,
