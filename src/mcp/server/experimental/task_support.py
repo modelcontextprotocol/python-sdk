@@ -80,11 +80,18 @@ class TaskSupport:
                 ...
         """
         async with anyio.create_task_group() as tg:
-            self._task_group = tg
             try:
-                yield
-            finally:
-                self._task_group = None
+                self._task_group = tg
+                try:
+                    yield
+                finally:
+                    self._task_group = None
+            except BaseExceptionGroup as e:
+                from mcp.shared.exceptions import unwrap_task_group_exception
+
+                real_exc = unwrap_task_group_exception(e)
+                if real_exc is not e:
+                    raise real_exc
 
     def configure_session(self, session: ServerSession) -> None:
         """Configure a session for task support.

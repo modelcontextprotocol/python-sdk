@@ -167,8 +167,15 @@ class ClientSessionGroup:
 
         # Concurrently close session stacks.
         async with anyio.create_task_group() as tg:
-            for exit_stack in self._session_exit_stacks.values():
-                tg.start_soon(exit_stack.aclose)
+            try:
+                for exit_stack in self._session_exit_stacks.values():
+                    tg.start_soon(exit_stack.aclose)
+            except BaseExceptionGroup as e:
+                from mcp.shared.exceptions import unwrap_task_group_exception
+
+                real_exc = unwrap_task_group_exception(e)
+                if real_exc is not e:
+                    raise real_exc
 
     @property
     def sessions(self) -> list[mcp.ClientSession]:

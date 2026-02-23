@@ -49,20 +49,27 @@ class InMemoryTransport:
             server_read, server_write = server_streams
 
             async with anyio.create_task_group() as tg:
-                # Start server in background
-                tg.start_soon(
-                    lambda: actual_server.run(
-                        server_read,
-                        server_write,
-                        actual_server.create_initialization_options(),
-                        raise_exceptions=self._raise_exceptions,
-                    )
-                )
-
                 try:
-                    yield client_read, client_write
-                finally:
-                    tg.cancel_scope.cancel()
+                    # Start server in background
+                    tg.start_soon(
+                        lambda: actual_server.run(
+                            server_read,
+                            server_write,
+                            actual_server.create_initialization_options(),
+                            raise_exceptions=self._raise_exceptions,
+                        )
+                    )
+
+                    try:
+                        yield client_read, client_write
+                    finally:
+                        tg.cancel_scope.cancel()
+                except BaseExceptionGroup as e:
+                    from mcp.shared.exceptions import unwrap_task_group_exception
+
+                    real_exc = unwrap_task_group_exception(e)
+                    if real_exc is not e:
+                        raise real_exc
 
     async def __aenter__(self) -> TransportStreams:
         """Connect to the server and return streams for communication."""

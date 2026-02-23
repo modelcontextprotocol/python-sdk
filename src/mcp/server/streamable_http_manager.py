@@ -123,18 +123,25 @@ class StreamableHTTPSessionManager:
             self._has_started = True
 
         async with anyio.create_task_group() as tg:
-            # Store the task group for later use
-            self._task_group = tg
-            logger.info("StreamableHTTP session manager started")
             try:
-                yield  # Let the application run
-            finally:
-                logger.info("StreamableHTTP session manager shutting down")
-                # Cancel task group to stop all spawned tasks
-                tg.cancel_scope.cancel()
-                self._task_group = None
-                # Clear any remaining server instances
-                self._server_instances.clear()
+                # Store the task group for later use
+                self._task_group = tg
+                logger.info("StreamableHTTP session manager started")
+                try:
+                    yield  # Let the application run
+                finally:
+                    logger.info("StreamableHTTP session manager shutting down")
+                    # Cancel task group to stop all spawned tasks
+                    tg.cancel_scope.cancel()
+                    self._task_group = None
+                    # Clear any remaining server instances
+                    self._server_instances.clear()
+            except BaseExceptionGroup as e:
+                from mcp.shared.exceptions import unwrap_task_group_exception
+
+                real_exc = unwrap_task_group_exception(e)
+                if real_exc is not e:
+                    raise real_exc
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.

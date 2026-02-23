@@ -390,16 +390,23 @@ class Server(Generic[LifespanResultT]):
                 await stack.enter_async_context(task_support.run())
 
             async with anyio.create_task_group() as tg:
-                async for message in session.incoming_messages:
-                    logger.debug("Received message: %s", message)
+                try:
+                    async for message in session.incoming_messages:
+                        logger.debug("Received message: %s", message)
 
-                    tg.start_soon(
-                        self._handle_message,
-                        message,
-                        session,
-                        lifespan_context,
-                        raise_exceptions,
-                    )
+                        tg.start_soon(
+                            self._handle_message,
+                            message,
+                            session,
+                            lifespan_context,
+                            raise_exceptions,
+                        )
+                except BaseExceptionGroup as e:
+                    from mcp.shared.exceptions import unwrap_task_group_exception
+
+                    real_exc = unwrap_task_group_exception(e)
+                    if real_exc is not e:
+                        raise real_exc
 
     async def _handle_message(
         self,

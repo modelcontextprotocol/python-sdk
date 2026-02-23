@@ -163,25 +163,31 @@ class TaskResultHandler:
         Races between store update and queue message - first one wins.
         """
         async with anyio.create_task_group() as tg:
+            try:
+                async def wait_for_store() -> None:
+                    try:
+                        await self._store.wait_for_update(task_id)
+                    except Exception:
+                        pass
+                    finally:
+                        tg.cancel_scope.cancel()
 
-            async def wait_for_store() -> None:
-                try:
-                    await self._store.wait_for_update(task_id)
-                except Exception:
-                    pass
-                finally:
-                    tg.cancel_scope.cancel()
+                async def wait_for_queue() -> None:
+                    try:
+                        await self._queue.wait_for_message(task_id)
+                    except Exception:
+                        pass
+                    finally:
+                        tg.cancel_scope.cancel()
 
-            async def wait_for_queue() -> None:
-                try:
-                    await self._queue.wait_for_message(task_id)
-                except Exception:
-                    pass
-                finally:
-                    tg.cancel_scope.cancel()
+                tg.start_soon(wait_for_store)
+                tg.start_soon(wait_for_queue)
+            except BaseExceptionGroup as e:
+                from mcp.shared.exceptions import unwrap_task_group_exception
 
-            tg.start_soon(wait_for_store)
-            tg.start_soon(wait_for_queue)
+                real_exc = unwrap_task_group_exception(e)
+                if real_exc is not e:
+                    raise real_exc
 
     def route_response(self, request_id: RequestId, response: dict[str, Any]) -> bool:
         """Route a response back to the waiting resolver.
