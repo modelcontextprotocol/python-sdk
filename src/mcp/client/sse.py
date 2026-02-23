@@ -157,6 +157,12 @@ async def sse_client(
                         yield read_stream, write_stream
                     finally:
                         tg.cancel_scope.cancel()
+        except BaseExceptionGroup as e:
+            from mcp.shared.exceptions import unwrap_task_group_exception
+
+            real_exc = unwrap_task_group_exception(e)
+            if real_exc is not e:
+                raise real_exc
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()

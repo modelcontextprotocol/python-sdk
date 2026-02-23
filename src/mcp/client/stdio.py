@@ -178,37 +178,44 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg, process:
-        tg.start_soon(stdout_reader)
-        tg.start_soon(stdin_writer)
         try:
-            yield read_stream, write_stream
-        finally:
-            # MCP spec: stdio shutdown sequence
-            # 1. Close input stream to server
-            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
-            # 3. Send SIGKILL if still not exited
-            if process.stdin:  # pragma: no branch
-                try:
-                    await process.stdin.aclose()
-                except Exception:  # pragma: no cover
-                    # stdin might already be closed, which is fine
-                    pass
-
+            tg.start_soon(stdout_reader)
+            tg.start_soon(stdin_writer)
             try:
-                # Give the process time to exit gracefully after stdin closes
-                with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
-                    await process.wait()
-            except TimeoutError:
-                # Process didn't exit from stdin closure, use platform-specific termination
-                # which handles SIGTERM -> SIGKILL escalation
-                await _terminate_process_tree(process)
-            except ProcessLookupError:  # pragma: no cover
-                # Process already exited, which is fine
-                pass
-            await read_stream.aclose()
-            await write_stream.aclose()
-            await read_stream_writer.aclose()
-            await write_stream_reader.aclose()
+                yield read_stream, write_stream
+            finally:
+                # MCP spec: stdio shutdown sequence
+                # 1. Close input stream to server
+                # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+                # 3. Send SIGKILL if still not exited
+                if process.stdin:  # pragma: no branch
+                    try:
+                        await process.stdin.aclose()
+                    except Exception:  # pragma: no cover
+                        # stdin might already be closed, which is fine
+                        pass
+
+                try:
+                    # Give the process time to exit gracefully after stdin closes
+                    with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
+                        await process.wait()
+                except TimeoutError:
+                    # Process didn't exit from stdin closure, use platform-specific termination
+                    # which handles SIGTERM -> SIGKILL escalation
+                    await _terminate_process_tree(process)
+                except ProcessLookupError:  # pragma: no cover
+                    # Process already exited, which is fine
+                    pass
+                await read_stream.aclose()
+                await write_stream.aclose()
+                await read_stream_writer.aclose()
+                await write_stream_reader.aclose()
+        except BaseExceptionGroup as e:
+            from mcp.shared.exceptions import unwrap_task_group_exception
+
+            real_exc = unwrap_task_group_exception(e)
+            if real_exc is not e:
+                raise real_exc
 
 
 def _get_executable_command(command: str) -> str:

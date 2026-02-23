@@ -69,12 +69,19 @@ async def websocket_client(
                     await ws.send(json.dumps(msg_dict))
 
         async with anyio.create_task_group() as tg:
-            # Start reader and writer tasks
-            tg.start_soon(ws_reader)
-            tg.start_soon(ws_writer)
+            try:
+                # Start reader and writer tasks
+                tg.start_soon(ws_reader)
+                tg.start_soon(ws_writer)
 
-            # Yield the receive/send streams
-            yield (read_stream, write_stream)
+                # Yield the receive/send streams
+                yield (read_stream, write_stream)
 
-            # Once the caller's 'async with' block exits, we shut down
-            tg.cancel_scope.cancel()
+                # Once the caller's 'async with' block exits, we shut down
+                tg.cancel_scope.cancel()
+            except BaseExceptionGroup as e:
+                from mcp.shared.exceptions import unwrap_task_group_exception
+
+                real_exc = unwrap_task_group_exception(e)
+                if real_exc is not e:
+                    raise real_exc

@@ -574,6 +574,13 @@ async def streamable_http_client(
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
+        except BaseExceptionGroup as e:
+            # Unwrap ExceptionGroup to get only the real error
+            from mcp.shared.exceptions import unwrap_task_group_exception
+
+            real_exc = unwrap_task_group_exception(e)
+            if real_exc is not e:
+                raise real_exc
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
