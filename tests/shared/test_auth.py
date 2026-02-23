@@ -2,6 +2,8 @@
 
 import json
 
+from pydantic import AnyHttpUrl
+
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
 
@@ -74,9 +76,9 @@ class TestIssuerTrailingSlash:
     def test_oauth_metadata_issuer_no_trailing_slash_in_json(self):
         """Serialized issuer should not have trailing slash."""
         metadata = OAuthMetadata(
-            issuer="https://example.com",
-            authorization_endpoint="https://example.com/oauth2/authorize",
-            token_endpoint="https://example.com/oauth2/token",
+            issuer=AnyHttpUrl("https://example.com"),
+            authorization_endpoint=AnyHttpUrl("https://example.com/oauth2/authorize"),
+            token_endpoint=AnyHttpUrl("https://example.com/oauth2/token"),
         )
         serialized = json.loads(metadata.model_dump_json())
         assert serialized["issuer"] == "https://example.com"
@@ -85,9 +87,9 @@ class TestIssuerTrailingSlash:
     def test_oauth_metadata_issuer_with_path_preserves_path(self):
         """Issuer with path should preserve the path, only strip trailing slash."""
         metadata = OAuthMetadata(
-            issuer="https://example.com/auth",
-            authorization_endpoint="https://example.com/oauth2/authorize",
-            token_endpoint="https://example.com/oauth2/token",
+            issuer=AnyHttpUrl("https://example.com/auth"),
+            authorization_endpoint=AnyHttpUrl("https://example.com/oauth2/authorize"),
+            token_endpoint=AnyHttpUrl("https://example.com/oauth2/token"),
         )
         serialized = json.loads(metadata.model_dump_json())
         assert serialized["issuer"] == "https://example.com/auth"
@@ -96,9 +98,9 @@ class TestIssuerTrailingSlash:
     def test_oauth_metadata_issuer_with_path_and_trailing_slash(self):
         """Issuer with path and trailing slash should only strip the trailing slash."""
         metadata = OAuthMetadata(
-            issuer="https://example.com/auth/",
-            authorization_endpoint="https://example.com/oauth2/authorize",
-            token_endpoint="https://example.com/oauth2/token",
+            issuer=AnyHttpUrl("https://example.com/auth/"),
+            authorization_endpoint=AnyHttpUrl("https://example.com/oauth2/authorize"),
+            token_endpoint=AnyHttpUrl("https://example.com/oauth2/token"),
         )
         serialized = json.loads(metadata.model_dump_json())
         assert serialized["issuer"] == "https://example.com/auth"
@@ -106,8 +108,8 @@ class TestIssuerTrailingSlash:
     def test_protected_resource_metadata_no_trailing_slash(self):
         """ProtectedResourceMetadata.resource should not have trailing slash."""
         metadata = ProtectedResourceMetadata(
-            resource="https://example.com",
-            authorization_servers=["https://auth.example.com"],
+            resource=AnyHttpUrl("https://example.com"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
         )
         serialized = json.loads(metadata.model_dump_json())
         assert serialized["resource"] == "https://example.com"
@@ -116,10 +118,10 @@ class TestIssuerTrailingSlash:
     def test_protected_resource_metadata_auth_servers_no_trailing_slash(self):
         """ProtectedResourceMetadata.authorization_servers should not have trailing slashes."""
         metadata = ProtectedResourceMetadata(
-            resource="https://example.com",
+            resource=AnyHttpUrl("https://example.com"),
             authorization_servers=[
-                "https://auth1.example.com",
-                "https://auth2.example.com/path",
+                AnyHttpUrl("https://auth1.example.com"),
+                AnyHttpUrl("https://auth2.example.com/path"),
             ],
         )
         serialized = json.loads(metadata.model_dump_json())
