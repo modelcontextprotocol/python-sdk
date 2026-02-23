@@ -225,6 +225,70 @@ def get_weather(city: str, unit: str = "celsius") -> str:
 _Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/basic_tool.py)_
 <!-- /snippet-source -->
 
+#### Error Handling
+
+When a tool encounters an error, it should signal this to the client rather than returning a normal result. The MCP protocol uses the `isError` flag on `CallToolResult` to distinguish error responses from successful ones. There are three ways to handle errors:
+
+<!-- snippet-source examples/snippets/servers/tool_errors.py -->
+```python
+"""Example showing how to handle and return errors from tools."""
+
+from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult, TextContent
+
+mcp = FastMCP("Tool Error Handling Example")
+
+
+# Option 1: Raise ToolError for expected error conditions.
+# The error message is returned to the client with isError=True.
+@mcp.tool()
+def divide(a: float, b: float) -> float:
+    """Divide two numbers."""
+    if b == 0:
+        raise ToolError("Cannot divide by zero")
+    return a / b
+
+
+# Option 2: Unhandled exceptions are automatically caught and
+# converted to error responses with isError=True.
+@mcp.tool()
+def read_config(path: str) -> str:
+    """Read a configuration file."""
+    # If this raises FileNotFoundError, the client receives an
+    # error response like "Error executing tool read_config: ..."
+    with open(path) as f:
+        return f.read()
+
+
+# Option 3: Return CallToolResult directly for full control
+# over error responses, including custom content.
+@mcp.tool()
+def validate_input(data: str) -> CallToolResult:
+    """Validate input data."""
+    errors = []
+    if len(data) < 3:
+        errors.append("Input must be at least 3 characters")
+    if not data.isascii():
+        errors.append("Input must be ASCII only")
+
+    if errors:
+        return CallToolResult(
+            content=[TextContent(type="text", text="\n".join(errors))],
+            isError=True,
+        )
+    return CallToolResult(
+        content=[TextContent(type="text", text="Validation passed")],
+    )
+```
+
+_Full example: [examples/snippets/servers/tool_errors.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/tool_errors.py)_
+<!-- /snippet-source -->
+
+- **`ToolError`** is the preferred approach for most cases — raise it with a descriptive message and the framework handles the rest.
+- **Unhandled exceptions** are caught automatically, so tools won't crash the server. The exception message is forwarded to the client as an error response.
+- **`CallToolResult`** with `isError=True` gives full control when you need to customize the error content or include multiple content items.
+
 Tools can optionally receive a Context object by including a parameter with the `Context` type annotation. This context is automatically injected by the FastMCP framework and provides access to MCP capabilities:
 
 <!-- snippet-source examples/snippets/servers/tool_progress.py -->
