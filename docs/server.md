@@ -554,7 +554,7 @@ from mcp.server.fastmcp import FastMCP, Icon
 icon = Icon(
     src="icon.png",
     mimeType="image/png",
-    sizes="64x64"
+    sizes=["64x64"]
 )
 
 # Add icons to server
@@ -576,7 +576,7 @@ def my_resource():
     return "content"
 ```
 
-_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/fastmcp/icons_demo.py)_
+_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/fastmcp/icons_demo.py)_
 
 ### Images
 
@@ -973,7 +973,6 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 - `action`: "accept", "decline", or "cancel"
 - `data`: The validated response (only when accepted)
-- `validation_error`: Any validation error message
 
 #### Elicitation with Enum Values
 
@@ -1007,50 +1006,28 @@ async def pick_color(ctx: Context[ServerSession, None]) -> str:
     return "No color selected"
 ```
 
-#### URL Mode Elicitation
+#### Elicitation Complete Notification
 
-URL mode elicitation directs the user to an external URL for out-of-band interactions — for example, entering sensitive data that should not pass through the LLM, or filling out a complex form like a shipping address. The tool call blocks while waiting for the user to complete the interaction:
+For URL mode elicitations, send a completion notification after the out-of-band interaction finishes. This tells the client that the elicitation is done and it may retry any blocked requests:
 
 ```python
-import asyncio
-import uuid
-
-import anyio
-
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 
-mcp = FastMCP("Shipping Example")
-
-# Simulates a database that the web form writes to on submit
-completed_elicitations: dict[str, dict] = {}
+mcp = FastMCP("Elicit Complete Example")
 
 
 @mcp.tool()
-async def place_order(item: str, ctx: Context[ServerSession, None]) -> str:
-    """Place an order (shipping details collected via secure form)."""
-    elicitation_id = str(uuid.uuid4())
+async def handle_oauth_callback(
+    elicitation_id: str, ctx: Context[ServerSession, None]
+) -> str:
+    """Called when OAuth flow completes out-of-band."""
+    # ... process the callback ...
 
-    # Direct the user to a form to enter their shipping address
-    result = await ctx.elicit_url(
-        message=f"Please enter your shipping details for '{item}'.",
-        url=f"https://example.com/shipping?id={elicitation_id}",
-        elicitation_id=elicitation_id,
-    )
-
-    if result.action != "accept":
-        return "Order cancelled."
-
-    # Poll until the shipping form is submitted
-    with anyio.fail_after(120):
-        while elicitation_id not in completed_elicitations:
-            await asyncio.sleep(1)
-
-    # Notify the client that the out-of-band interaction is done
+    # Notify the client that the elicitation is done
     await ctx.session.send_elicit_complete(elicitation_id)
 
-    shipping = completed_elicitations.pop(elicitation_id)
-    return f"Order placed! Shipping '{item}' to {shipping['address']}"
+    return "Authorization complete"
 ```
 
 ### Sampling
@@ -1144,75 +1121,7 @@ When this handler is registered, the server automatically declares the `logging`
 
 ### Authentication
 
-Authentication can be used by servers that want to expose tools accessing protected resources.
-
-`mcp.server.auth` implements OAuth 2.1 resource server functionality, where MCP servers act as Resource Servers (RS) that validate tokens issued by separate Authorization Servers (AS). This follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) and implements RFC 9728 (Protected Resource Metadata) for AS discovery.
-
-MCP servers can use authentication by providing an implementation of the `TokenVerifier` protocol:
-
-<!-- snippet-source examples/snippets/servers/oauth_server.py -->
-```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/oauth_server.py
-"""
-
-from pydantic import AnyHttpUrl
-
-from mcp.server.auth.provider import AccessToken, TokenVerifier
-from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import FastMCP
-
-
-class SimpleTokenVerifier(TokenVerifier):
-    """Simple token verifier for demonstration."""
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        pass  # This is where you would implement actual token validation
-
-
-# Create FastMCP instance as a Resource Server
-mcp = FastMCP(
-    "Weather Service",
-    json_response=True,
-    # Token verifier for authentication
-    token_verifier=SimpleTokenVerifier(),
-    # Auth settings for RFC 9728 Protected Resource Metadata
-    auth=AuthSettings(
-        issuer_url=AnyHttpUrl("https://auth.example.com"),  # Authorization Server URL
-        resource_server_url=AnyHttpUrl("http://localhost:3001"),  # This server's URL
-        required_scopes=["user"],
-    ),
-)
-
-
-@mcp.tool()
-async def get_weather(city: str = "London") -> dict[str, str]:
-    """Get weather data for a city"""
-    return {
-        "city": city,
-        "temperature": "22",
-        "condition": "Partly cloudy",
-        "humidity": "65%",
-    }
-
-
-if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
-```
-
-_Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
-<!-- /snippet-source -->
-
-For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](../examples/servers/simple-auth/).
-
-**Architecture:**
-
-- **Authorization Server (AS)**: Handles OAuth flows, user authentication, and token issuance
-- **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
-- **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
-
-See [TokenVerifier](../src/mcp/server/auth/provider.py) for more details on implementing token validation.
+For OAuth 2.1 server and client authentication, see [Authorization](authorization.md).
 
 ### FastMCP Properties
 
@@ -1492,8 +1401,8 @@ _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https:/
 
 For low level server with Streamable HTTP implementations, see:
 
-- Stateful server: [`examples/servers/simple-streamablehttp/`](../examples/servers/simple-streamablehttp/)
-- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](../examples/servers/simple-streamablehttp-stateless/)
+- Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
+- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
 
 The streamable HTTP transport supports:
 
@@ -1739,7 +1648,7 @@ _Full example: [examples/snippets/servers/streamable_http_path_config.py](https:
 
 #### SSE servers
 
-> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http).
+> **Note**: SSE transport is being superseded by [Streamable HTTP transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http).
 
 You can mount the SSE server to an existing ASGI server using the `sse_app` method. This allows you to integrate the SSE server with other ASGI applications.
 
@@ -1803,489 +1712,4 @@ For more information on mounting applications in Starlette, see the [Starlette d
 
 ## Advanced Usage
 
-### Low-Level Server
-
-For more control, you can use the low-level server implementation directly. This gives you full access to the protocol and allows you to customize every aspect of your server, including lifecycle management through the lifespan API:
-
-<!-- snippet-source examples/snippets/servers/lowlevel/lifespan.py -->
-```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/lifespan.py
-"""
-
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any
-
-import mcp.server.stdio
-import mcp.types as types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-
-# Mock database class for example
-class Database:
-    """Mock database class for example."""
-
-    @classmethod
-    async def connect(cls) -> "Database":
-        """Connect to database."""
-        print("Database connected")
-        return cls()
-
-    async def disconnect(self) -> None:
-        """Disconnect from database."""
-        print("Database disconnected")
-
-    async def query(self, query_str: str) -> list[dict[str, str]]:
-        """Execute a query."""
-        # Simulate database query
-        return [{"id": "1", "name": "Example", "query": query_str}]
-
-
-@asynccontextmanager
-async def server_lifespan(_server: Server) -> AsyncIterator[dict[str, Any]]:
-    """Manage server startup and shutdown lifecycle."""
-    # Initialize resources on startup
-    db = await Database.connect()
-    try:
-        yield {"db": db}
-    finally:
-        # Clean up on shutdown
-        await db.disconnect()
-
-
-# Pass lifespan to server
-server = Server("example-server", lifespan=server_lifespan)
-
-
-@server.list_tools()
-async def handle_list_tools() -> list[types.Tool]:
-    """List available tools."""
-    return [
-        types.Tool(
-            name="query_db",
-            description="Query the database",
-            inputSchema={
-                "type": "object",
-                "properties": {"query": {"type": "string", "description": "SQL query to execute"}},
-                "required": ["query"],
-            },
-        )
-    ]
-
-
-@server.call_tool()
-async def query_db(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-    """Handle database query tool call."""
-    if name != "query_db":
-        raise ValueError(f"Unknown tool: {name}")
-
-    # Access lifespan context
-    ctx = server.request_context
-    db = ctx.lifespan_context["db"]
-
-    # Execute query
-    results = await db.query(arguments["query"])
-
-    return [types.TextContent(type="text", text=f"Query results: {results}")]
-
-
-async def run():
-    """Run the server with lifespan management."""
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="example-server",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
-        )
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(run())
-```
-
-_Full example: [examples/snippets/servers/lowlevel/lifespan.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/lifespan.py)_
-<!-- /snippet-source -->
-
-The lifespan API provides:
-
-- A way to initialize resources when the server starts and clean them up when it stops
-- Access to initialized resources through the request context in handlers
-- Type-safe context passing between lifespan and request handlers
-
-<!-- snippet-source examples/snippets/servers/lowlevel/basic.py -->
-```python
-"""
-Run from the repository root:
-uv run examples/snippets/servers/lowlevel/basic.py
-"""
-
-import asyncio
-
-import mcp.server.stdio
-import mcp.types as types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-# Create a server instance
-server = Server("example-server")
-
-
-@server.list_prompts()
-async def handle_list_prompts() -> list[types.Prompt]:
-    """List available prompts."""
-    return [
-        types.Prompt(
-            name="example-prompt",
-            description="An example prompt template",
-            arguments=[types.PromptArgument(name="arg1", description="Example argument", required=True)],
-        )
-    ]
-
-
-@server.get_prompt()
-async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
-    """Get a specific prompt by name."""
-    if name != "example-prompt":
-        raise ValueError(f"Unknown prompt: {name}")
-
-    arg1_value = (arguments or {}).get("arg1", "default")
-
-    return types.GetPromptResult(
-        description="Example prompt",
-        messages=[
-            types.PromptMessage(
-                role="user",
-                content=types.TextContent(type="text", text=f"Example prompt text with argument: {arg1_value}"),
-            )
-        ],
-    )
-
-
-async def run():
-    """Run the basic low-level server."""
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
-```
-
-_Full example: [examples/snippets/servers/lowlevel/basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/basic.py)_
-<!-- /snippet-source -->
-
-Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-level server.
-
-#### Structured Output Support
-
-The low-level server supports structured output for tools, allowing you to return both human-readable content and machine-readable structured data. Tools can define an `outputSchema` to validate their structured output:
-
-<!-- snippet-source examples/snippets/servers/lowlevel/structured_output.py -->
-```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/structured_output.py
-"""
-
-import asyncio
-from typing import Any
-
-import mcp.server.stdio
-import mcp.types as types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-server = Server("example-server")
-
-
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
-    """List available tools with structured output schemas."""
-    return [
-        types.Tool(
-            name="get_weather",
-            description="Get current weather for a city",
-            inputSchema={
-                "type": "object",
-                "properties": {"city": {"type": "string", "description": "City name"}},
-                "required": ["city"],
-            },
-            outputSchema={
-                "type": "object",
-                "properties": {
-                    "temperature": {"type": "number", "description": "Temperature in Celsius"},
-                    "condition": {"type": "string", "description": "Weather condition"},
-                    "humidity": {"type": "number", "description": "Humidity percentage"},
-                    "city": {"type": "string", "description": "City name"},
-                },
-                "required": ["temperature", "condition", "humidity", "city"],
-            },
-        )
-    ]
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle tool calls with structured output."""
-    if name == "get_weather":
-        city = arguments["city"]
-
-        # Simulated weather data - in production, call a weather API
-        weather_data = {
-            "temperature": 22.5,
-            "condition": "partly cloudy",
-            "humidity": 65,
-            "city": city,  # Include the requested city
-        }
-
-        # low-level server will validate structured output against the tool's
-        # output schema, and additionally serialize it into a TextContent block
-        # for backwards compatibility with pre-2025-06-18 clients.
-        return weather_data
-    else:
-        raise ValueError(f"Unknown tool: {name}")
-
-
-async def run():
-    """Run the structured output server."""
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="structured-output-example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
-```
-
-_Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/structured_output.py)_
-<!-- /snippet-source -->
-
-Tools can return data in four ways:
-
-1. **Content only**: Return a list of content blocks (default behavior before spec revision 2025-06-18)
-2. **Structured data only**: Return a dictionary that will be serialized to JSON (Introduced in spec revision 2025-06-18)
-3. **Both**: Return a tuple of (content, structured_data) preferred option to use for backwards compatibility
-4. **Direct CallToolResult**: Return `CallToolResult` directly for full control (including `_meta` field)
-
-When an `outputSchema` is defined, the server automatically validates the structured output against the schema. This ensures type safety and helps catch errors early.
-
-##### Returning CallToolResult Directly
-
-For full control over the response including the `_meta` field (for passing data to client applications without exposing it to the model), return `CallToolResult` directly:
-
-<!-- snippet-source examples/snippets/servers/lowlevel/direct_call_tool_result.py -->
-```python
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/lowlevel/direct_call_tool_result.py
-"""
-
-import asyncio
-from typing import Any
-
-import mcp.server.stdio
-import mcp.types as types
-from mcp.server.lowlevel import NotificationOptions, Server
-from mcp.server.models import InitializationOptions
-
-server = Server("example-server")
-
-
-@server.list_tools()
-async def list_tools() -> list[types.Tool]:
-    """List available tools."""
-    return [
-        types.Tool(
-            name="advanced_tool",
-            description="Tool with full control including _meta field",
-            inputSchema={
-                "type": "object",
-                "properties": {"message": {"type": "string"}},
-                "required": ["message"],
-            },
-        )
-    ]
-
-
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
-    """Handle tool calls by returning CallToolResult directly."""
-    if name == "advanced_tool":
-        message = str(arguments.get("message", ""))
-        return types.CallToolResult(
-            content=[types.TextContent(type="text", text=f"Processed: {message}")],
-            structuredContent={"result": "success", "message": message},
-            _meta={"hidden": "data for client applications only"},
-        )
-
-    raise ValueError(f"Unknown tool: {name}")
-
-
-async def run():
-    """Run the server."""
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="example",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
-        )
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
-```
-
-_Full example: [examples/snippets/servers/lowlevel/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/direct_call_tool_result.py)_
-<!-- /snippet-source -->
-
-**Note:** When returning `CallToolResult`, you bypass the automatic content/structured conversion. You must construct the complete response yourself.
-
-### Pagination (Advanced)
-
-For servers that need to handle large datasets, the low-level server provides paginated versions of list operations. This is an optional optimization - most servers won't need pagination unless they're dealing with hundreds or thousands of items.
-
-#### Server-side Implementation
-
-<!-- snippet-source examples/snippets/servers/pagination_example.py -->
-```python
-"""
-Example of implementing pagination with MCP server decorators.
-"""
-
-from pydantic import AnyUrl
-
-import mcp.types as types
-from mcp.server.lowlevel import Server
-
-# Initialize the server
-server = Server("paginated-server")
-
-# Sample data to paginate
-ITEMS = [f"Item {i}" for i in range(1, 101)]  # 100 items
-
-
-@server.list_resources()
-async def list_resources_paginated(request: types.ListResourcesRequest) -> types.ListResourcesResult:
-    """List resources with pagination support."""
-    page_size = 10
-
-    # Extract cursor from request params
-    cursor = request.params.cursor if request.params is not None else None
-
-    # Parse cursor to get offset
-    start = 0 if cursor is None else int(cursor)
-    end = start + page_size
-
-    # Get page of resources
-    page_items = [
-        types.Resource(uri=AnyUrl(f"resource://items/{item}"), name=item, description=f"Description for {item}")
-        for item in ITEMS[start:end]
-    ]
-
-    # Determine next cursor
-    next_cursor = str(end) if end < len(ITEMS) else None
-
-    return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
-```
-
-_Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
-<!-- /snippet-source -->
-
-#### Client-side Consumption
-
-<!-- snippet-source examples/snippets/clients/pagination_client.py -->
-```python
-"""
-Example of consuming paginated MCP endpoints from a client.
-"""
-
-import asyncio
-
-from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.types import PaginatedRequestParams, Resource
-
-
-async def list_all_resources() -> None:
-    """Fetch all resources using pagination."""
-    async with stdio_client(StdioServerParameters(command="uv", args=["run", "mcp-simple-pagination"])) as (
-        read,
-        write,
-    ):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-
-            all_resources: list[Resource] = []
-            cursor = None
-
-            while True:
-                # Fetch a page of resources
-                result = await session.list_resources(params=PaginatedRequestParams(cursor=cursor))
-                all_resources.extend(result.resources)
-
-                print(f"Fetched {len(result.resources)} resources")
-
-                # Check if there are more pages
-                if result.nextCursor:
-                    cursor = result.nextCursor
-                else:
-                    break
-
-            print(f"Total resources: {len(all_resources)}")
-
-
-if __name__ == "__main__":
-    asyncio.run(list_all_resources())
-```
-
-_Full example: [examples/snippets/clients/pagination_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/pagination_client.py)_
-<!-- /snippet-source -->
-
-#### Key Points
-
-- **Cursors are opaque strings** - the server defines the format (numeric offsets, timestamps, etc.)
-- **Return `nextCursor=None`** when there are no more pages
-- **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
-- **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
-
-See the [simple-pagination example](../examples/servers/simple-pagination) for a complete implementation.
+For the low-level server API, pagination, and direct handler registration, see [Low-Level Server](low-level-server.md).
