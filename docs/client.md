@@ -324,12 +324,14 @@ For a complete working example, see [`examples/clients/simple-auth-client/`](../
 Clients can provide a `list_roots_callback` so that servers can discover the client's workspace roots (directories, project folders, etc.):
 
 ```python
+from typing import Any
+
 from mcp import ClientSession, types
 from mcp.shared.context import RequestContext
 
 
 async def handle_list_roots(
-    context: RequestContext[ClientSession, None],
+    context: RequestContext[ClientSession, Any],
 ) -> types.ListRootsResult:
     """Return the client's workspace roots."""
     return types.ListRootsResult(
