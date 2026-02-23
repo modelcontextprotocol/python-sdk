@@ -58,6 +58,8 @@ required-version = ">=0.9.5"
 dev = [
     # We add mcp[cli,ws] so `uv sync` considers the extras.
     "mcp[cli,ws]",
+    # Pull in workspace members whose deps aren't already covered by the root package.
+    "mcp-quickstart-client",
     "pyright>=1.1.400",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
@@ -167,6 +169,7 @@ members = ["examples/clients/*", "examples/servers/*", "examples/snippets"]
 
 [tool.uv.sources]
 mcp = { workspace = true }
+mcp-quickstart-client = { workspace = true }
 strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 
 [tool.pytest.ini_options]

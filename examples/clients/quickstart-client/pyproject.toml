@@ -1,0 +1,25 @@
+[project]
+name = "mcp-quickstart-client"
+version = "0.1.0"
+description = "Tutorial companion: an LLM-powered chatbot MCP client"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.72.0",
+    "mcp",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_quickstart_client"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
