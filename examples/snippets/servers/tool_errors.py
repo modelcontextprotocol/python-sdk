@@ -33,7 +33,7 @@ def read_config(path: str) -> str:
 @mcp.tool()
 def validate_input(data: str) -> CallToolResult:
     """Validate input data."""
-    errors = []
+    errors: list[str] = []
     if len(data) < 3:
         errors.append("Input must be at least 3 characters")
     if not data.isascii():
