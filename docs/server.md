@@ -411,7 +411,7 @@ def my_resource():
     return "content"
 ```
 
-_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/fastmcp/icons_demo.py)_
+_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/fastmcp/icons_demo.py)_
 
 ### Images
 
@@ -843,7 +843,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/servers/oauth_server.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/oauth_server.py)_
 <!-- /snippet-source -->
 
-For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](examples/servers/simple-auth/).
+For a complete example with separate Authorization Server and Resource Server implementations, see [`examples/servers/simple-auth/`](../examples/servers/simple-auth/).
 
 **Architecture:**
 
@@ -851,7 +851,7 @@ For a complete example with separate Authorization Server and Resource Server im
 - **Resource Server (RS)**: Your MCP server that validates tokens and serves protected resources
 - **Client**: Discovers AS through RFC 9728, obtains tokens, and uses them with the MCP server
 
-See [TokenVerifier](src/mcp/server/auth/provider.py) for more details on implementing token validation.
+See [TokenVerifier](../src/mcp/server/auth/provider.py) for more details on implementing token validation.
 
 ### FastMCP Properties
 
@@ -1131,8 +1131,8 @@ _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https:/
 
 For low level server with Streamable HTTP implementations, see:
 
-- Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
-- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
+- Stateful server: [`examples/servers/simple-streamablehttp/`](../examples/servers/simple-streamablehttp/)
+- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](../examples/servers/simple-streamablehttp-stateless/)
 
 The streamable HTTP transport supports:
 
@@ -1927,4 +1927,4 @@ _Full example: [examples/snippets/clients/pagination_client.py](https://github.c
 - **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
 - **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
 
-See the [simple-pagination example](examples/servers/simple-pagination) for a complete implementation.
+See the [simple-pagination example](../examples/servers/simple-pagination) for a complete implementation.

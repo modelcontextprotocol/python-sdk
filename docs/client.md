@@ -315,7 +315,7 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/oauth_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/oauth_client.py)_
 <!-- /snippet-source -->
 
-For a complete working example, see [`examples/clients/simple-auth-client/`](examples/clients/simple-auth-client/).
+For a complete working example, see [`examples/clients/simple-auth-client/`](../examples/clients/simple-auth-client/).
 
 ## Parsing Tool Results
 
