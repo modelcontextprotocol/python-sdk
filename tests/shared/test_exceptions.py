@@ -162,3 +162,66 @@ def test_url_elicitation_required_error_exception_message() -> None:
 
     # The exception's string representation should match the message
     assert str(error) == "URL elicitation required"
+
+
+# Tests for unwrap_task_group_exception
+import anyio
+
+
+@pytest.mark.anyio
+async def test_unwrap_single_error() -> None:
+    """Test that a single exception is returned as-is."""
+    from mcp.shared.exceptions import unwrap_task_group_exception
+
+    error = ValueError("test error")
+    result = unwrap_task_group_exception(error)
+    assert result is error
+
+
+@pytest.mark.anyio
+async def test_unwrap_exception_group_with_real_error() -> None:
+    """Test that real error is extracted from ExceptionGroup."""
+    from mcp.shared.exceptions import unwrap_task_group_exception
+
+    real_error = ConnectionError("connection failed")
+
+    # Simulate what anyio does: create exception group with real error + cancelled
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(lambda: (_ for _ in ()).throw(real_error))
+            tg.start_soon(anyio.sleep, 999)  # Will be cancelled
+    except BaseExceptionGroup as e:
+        result = unwrap_task_group_exception(e)
+        assert isinstance(result, ConnectionError)
+        assert str(result) == "connection failed"
+
+
+@pytest.mark.anyio
+async def test_unwrap_exception_group_all_cancelled() -> None:
+    """Test that when all exceptions are cancelled, the group is re-raised."""
+    from mcp.shared.exceptions import unwrap_task_group_exception
+
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(anyio.sleep, 999)
+            tg.cancel_scope.cancel()
+    except BaseExceptionGroup as e:
+        # Should return the group if all are cancelled
+        result = unwrap_task_group_exception(e)
+        assert isinstance(result, BaseExceptionGroup)
+
+
+@pytest.mark.anyio
+async def test_unwrap_preserves_non_cancelled_errors() -> None:
+    """Test that all non-cancelled exceptions are preserved."""
+    from mcp.shared.exceptions import unwrap_task_group_exception
+
+    error1 = ValueError("error 1")
+    error2 = RuntimeError("error 2")
+
+    # Create an exception group with multiple real errors
+    group = BaseExceptionGroup("multiple", [error1, error2])
+
+    result = unwrap_task_group_exception(group)
+    # Should return the first non-cancelled error
+    assert result is error1

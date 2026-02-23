@@ -104,3 +104,47 @@ class UrlElicitationRequiredError(MCPError):
         raw_elicitations = cast(list[dict[str, Any]], data.get("elicitations", []))
         elicitations = [ElicitRequestURLParams.model_validate(e) for e in raw_elicitations]
         return cls(elicitations, error.message)
+
+
+def unwrap_task_group_exception(exc: BaseException) -> BaseException:
+    """Unwrap an exception from a task group, extracting only the real error.
+
+    When anyio task groups fail, they raise BaseExceptionGroup containing:
+    - The original error that caused the failure
+    - CancelledError from sibling tasks that were cancelled
+
+    This function extracts only the real error, ignoring cancelled siblings.
+
+    Args:
+        exc: The exception to unwrap (could be any exception)
+
+    Returns:
+        The unwrapped exception if it was an ExceptionGroup with a real error,
+        otherwise the original exception
+
+    Example:
+        ```python
+        try:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(task1)
+                tg.start_soon(task2)
+        except BaseExceptionGroup as e:
+            # Extract only the real error, ignore CancelledError
+            real_exc = unwrap_task_group_exception(e)
+            raise real_exc
+        ```
+    """
+    import anyio
+
+    # If not an exception group, return as-is
+    if not isinstance(exc, BaseExceptionGroup):
+        return exc
+
+    # Find the first non-cancelled exception
+    cancelled_exc_class = anyio.get_cancelled_exc_class()
+    for sub_exc in exc.exceptions:
+        if not isinstance(sub_exc, cancelled_exc_class):
+            return sub_exc
+
+    # All were cancelled, return the group
+    return exc
