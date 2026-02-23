@@ -105,6 +105,7 @@ _Full example: [examples/snippets/servers/basic_resource.py](https://github.com/
 
 Resources with URI parameters (e.g., `{name}`) are registered as templates. When a client reads a templated resource, the URI parameters are extracted and passed to the function:
 
+<!-- snippet-source examples/snippets/servers/resource_templates.py -->
 ```python
 from mcp.server.fastmcp import FastMCP
 
@@ -116,6 +117,9 @@ def get_user_profile(user_id: str) -> str:
     """Read a specific user's profile. The user_id is extracted from the URI."""
     return f'{{"user_id": "{user_id}", "name": "User {user_id}"}}'
 ```
+
+_Full example: [examples/snippets/servers/resource_templates.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/resource_templates.py)_
+<!-- /snippet-source -->
 
 Clients read a template resource by providing a concrete URI:
 
@@ -137,6 +141,7 @@ def get_readme(owner: str, repo: str) -> str:
 
 Resources can return binary data by returning `bytes` instead of `str`. Set the `mime_type` to indicate the content type:
 
+<!-- snippet-source examples/snippets/servers/binary_resources.py -->
 ```python
 from mcp.server.fastmcp import FastMCP
 
@@ -150,14 +155,17 @@ def get_logo() -> bytes:
         return f.read()
 ```
 
+_Full example: [examples/snippets/servers/binary_resources.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/binary_resources.py)_
+<!-- /snippet-source -->
+
 Binary content is automatically base64-encoded and returned as `BlobResourceContents` in the MCP response.
 
 #### Resource Subscriptions
 
 Clients can subscribe to resource updates. Use the low-level server API to handle subscription and unsubscription requests:
 
+<!-- snippet-source examples/snippets/servers/resource_subscriptions.py -->
 ```python
-import mcp.types as types
 from mcp.server.lowlevel import Server
 
 server = Server("Subscription Example")
@@ -177,6 +185,9 @@ async def handle_unsubscribe(uri) -> None:
     if str(uri) in subscriptions:
         subscriptions[str(uri)].discard("current_session")
 ```
+
+_Full example: [examples/snippets/servers/resource_subscriptions.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/resource_subscriptions.py)_
+<!-- /snippet-source -->
 
 When a subscribed resource changes, notify clients with `send_resource_updated()`:
 
@@ -468,6 +479,7 @@ _Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/mo
 
 Prompts can include embedded resources to provide file contents or data alongside the conversation messages:
 
+<!-- snippet-source examples/snippets/servers/prompt_embedded_resources.py -->
 ```python
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
@@ -497,10 +509,14 @@ def review_file(filename: str) -> list[base.Message]:
     ]
 ```
 
+_Full example: [examples/snippets/servers/prompt_embedded_resources.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/prompt_embedded_resources.py)_
+<!-- /snippet-source -->
+
 #### Prompts with Image Content
 
 Prompts can include images using `ImageContent` or the `Image` helper class:
 
+<!-- snippet-source examples/snippets/servers/prompt_image_content.py -->
 ```python
 import mcp.types as types
 from mcp.server.fastmcp import FastMCP
@@ -524,10 +540,14 @@ def describe_image(image_path: str) -> list[base.Message]:
     ]
 ```
 
+_Full example: [examples/snippets/servers/prompt_image_content.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/prompt_image_content.py)_
+<!-- /snippet-source -->
+
 #### Prompt Change Notifications
 
 When your server dynamically adds or removes prompts, notify connected clients:
 
+<!-- snippet-source examples/snippets/servers/prompt_change_notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -542,6 +562,9 @@ async def update_prompts(ctx: Context[ServerSession, None]) -> str:
     await ctx.session.send_prompt_list_changed()
     return "Prompts updated"
 ```
+
+_Full example: [examples/snippets/servers/prompt_change_notifications.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/prompt_change_notifications.py)_
+<!-- /snippet-source -->
 
 ### Icons
 
@@ -608,6 +631,7 @@ _Full example: [examples/snippets/servers/images.py](https://github.com/modelcon
 
 FastMCP provides an `Audio` class for returning audio data from tools, similar to `Image`:
 
+<!-- snippet-source examples/snippets/servers/audio_example.py -->
 ```python
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.types import Audio
@@ -627,12 +651,16 @@ def get_audio_from_bytes(raw_audio: bytes) -> Audio:
     return Audio(data=raw_audio, format="wav")
 ```
 
+_Full example: [examples/snippets/servers/audio_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/audio_example.py)_
+<!-- /snippet-source -->
+
 The `Audio` class accepts `path` or `data` (mutually exclusive) and an optional `format` string. Supported formats include `wav`, `mp3`, `ogg`, `flac`, `aac`, and `m4a`. When using a file path, the MIME type is inferred from the file extension.
 
 ### Embedded Resource Results
 
 Tools can return `EmbeddedResource` to attach file contents or data inline in the result:
 
+<!-- snippet-source examples/snippets/servers/embedded_resource_results.py -->
 ```python
 from mcp.server.fastmcp import FastMCP
 from mcp.types import EmbeddedResource, TextResourceContents
@@ -655,12 +683,19 @@ def read_config(path: str) -> EmbeddedResource:
     )
 ```
 
+_Full example: [examples/snippets/servers/embedded_resource_results.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/embedded_resource_results.py)_
+<!-- /snippet-source -->
+
 For binary embedded resources, use `BlobResourceContents` with base64-encoded data:
 
+<!-- snippet-source examples/snippets/servers/embedded_resource_results_binary.py -->
 ```python
 import base64
 
+from mcp.server.fastmcp import FastMCP
 from mcp.types import BlobResourceContents, EmbeddedResource
+
+mcp = FastMCP("Binary Embedded Resource Example")
 
 
 @mcp.tool()
@@ -678,10 +713,14 @@ def read_binary_file(path: str) -> EmbeddedResource:
     )
 ```
 
+_Full example: [examples/snippets/servers/embedded_resource_results_binary.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/embedded_resource_results_binary.py)_
+<!-- /snippet-source -->
+
 ### Tool Change Notifications
 
 When your server dynamically adds or removes tools at runtime, notify connected clients so they can refresh their tool list:
 
+<!-- snippet-source examples/snippets/servers/tool_change_notifications.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -699,6 +738,9 @@ async def register_plugin(name: str, ctx: Context[ServerSession, None]) -> str:
 
     return f"Plugin '{name}' registered"
 ```
+
+_Full example: [examples/snippets/servers/tool_change_notifications.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/tool_change_notifications.py)_
+<!-- /snippet-source -->
 
 ### Context
 
@@ -978,6 +1020,7 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 To present a dropdown or selection list in elicitation forms, use `json_schema_extra` with an `enum` key on a `str` field. Do not use `Literal` -- use a plain `str` field with the enum constraint in the JSON schema:
 
+<!-- snippet-source examples/snippets/servers/elicitation_enum.py -->
 ```python
 from pydantic import BaseModel, Field
 
@@ -1006,10 +1049,14 @@ async def pick_color(ctx: Context[ServerSession, None]) -> str:
     return "No color selected"
 ```
 
+_Full example: [examples/snippets/servers/elicitation_enum.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/elicitation_enum.py)_
+<!-- /snippet-source -->
+
 #### Elicitation Complete Notification
 
 For URL mode elicitations, send a completion notification after the out-of-band interaction finishes. This tells the client that the elicitation is done and it may retry any blocked requests:
 
+<!-- snippet-source examples/snippets/servers/elicitation_complete.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -1018,9 +1065,7 @@ mcp = FastMCP("Elicit Complete Example")
 
 
 @mcp.tool()
-async def handle_oauth_callback(
-    elicitation_id: str, ctx: Context[ServerSession, None]
-) -> str:
+async def handle_oauth_callback(elicitation_id: str, ctx: Context[ServerSession, None]) -> str:
     """Called when OAuth flow completes out-of-band."""
     # ... process the callback ...
 
@@ -1029,6 +1074,9 @@ async def handle_oauth_callback(
 
     return "Authorization complete"
 ```
+
+_Full example: [examples/snippets/servers/elicitation_complete.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/elicitation_complete.py)_
+<!-- /snippet-source -->
 
 ### Sampling
 
@@ -1101,6 +1149,7 @@ _Full example: [examples/snippets/servers/notifications.py](https://github.com/m
 
 Clients can request a minimum logging level via `logging/setLevel`. Use the low-level server API to handle this:
 
+<!-- snippet-source examples/snippets/servers/set_logging_level.py -->
 ```python
 import mcp.types as types
 from mcp.server.lowlevel import Server
@@ -1116,6 +1165,9 @@ async def handle_set_level(level: types.LoggingLevel) -> None:
     global current_level
     current_level = level
 ```
+
+_Full example: [examples/snippets/servers/set_logging_level.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/set_logging_level.py)_
+<!-- /snippet-source -->
 
 When this handler is registered, the server automatically declares the `logging` capability during initialization.
 

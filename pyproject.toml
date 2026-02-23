@@ -104,6 +104,12 @@ venv = ".venv"
 executionEnvironments = [
     { root = "tests", extraPaths = ["."], reportUnusedFunction = false, reportPrivateUsage = false },
     { root = "examples/servers", reportUnusedFunction = false },
+    { root = "examples/snippets/clients/logging_client.py", reportUndefinedVariable = false, reportUnknownArgumentType = false },
+    { root = "examples/snippets/clients/roots_example.py", reportUndefinedVariable = false, reportUnknownArgumentType = false, reportArgumentType = false },
+    { root = "examples/snippets/servers/embedded_resource_results.py", reportArgumentType = false },
+    { root = "examples/snippets/servers/embedded_resource_results_binary.py", reportArgumentType = false },
+    { root = "examples/snippets/servers/prompt_embedded_resources.py", reportArgumentType = false },
+    { root = "examples/snippets/servers/resource_subscriptions.py", reportUnknownParameterType = false, reportMissingParameterType = false, reportUnknownArgumentType = false },
 ]
 
 [tool.ruff]
@@ -129,6 +135,9 @@ mccabe.max-complexity = 24 # Default is 10
 "__init__.py" = ["F401"]
 "tests/server/fastmcp/test_func_metadata.py" = ["E501"]
 "tests/shared/test_progress_notifications.py" = ["PLW0603"]
+"examples/snippets/clients/logging_client.py" = ["F821"]
+"examples/snippets/clients/roots_example.py" = ["F821"]
+"examples/snippets/servers/set_logging_level.py" = ["PLW0603"]
 
 [tool.ruff.lint.pylint]
 allow-magic-value-types = ["bytes", "float", "int", "str"]

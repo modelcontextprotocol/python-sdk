@@ -55,9 +55,9 @@ repos:
         language: system
         files: ^(pyproject\.toml|uv\.lock)$
         pass_filenames: false
-      - id: readme-snippets
-        name: Check README snippets are up to date
-        entry: uv run --frozen python scripts/update_readme_snippets.py --check
+      - id: doc-snippets
+        name: Check doc snippets are up to date
+        entry: uv run --frozen python scripts/update_doc_snippets.py --check
         language: system
-        files: ^(README\.md|examples/.*\.py|scripts/update_readme_snippets\.py)$
+        files: ^(README\.md|docs/.*\.md|examples/.*\.py|scripts/update_doc_snippets\.py)$
         pass_filenames: false

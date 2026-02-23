@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Update README.md with live code snippets from example files.
+Update documentation files with live code snippets from example files.
 
-This script finds specially marked code blocks in README.md and updates them
-with the actual code from the referenced files.
+This script finds specially marked code blocks in README.md and docs/*.md
+and updates them with the actual code from the referenced files.
 
 Usage:
-    python scripts/update_readme_snippets.py
-    python scripts/update_readme_snippets.py --check  # Check mode for CI
+    python scripts/update_doc_snippets.py
+    python scripts/update_doc_snippets.py --check  # Check mode for CI
 """
 
 import argparse
@@ -92,21 +92,21 @@ def process_snippet_block(match: re.Match[str], check_mode: bool = False) -> str
         return full_match
 
 
-def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bool = False) -> bool:
-    """Update code snippets in README.md with live code from source files.
+def update_doc_snippets(doc_path: Path, check_mode: bool = False) -> bool:
+    """Update code snippets in a documentation file with live code from source files.
 
     Args:
-        readme_path: Path to the README file
+        doc_path: Path to the documentation file
         check_mode: If True, only check if updates are needed without modifying
 
     Returns:
         True if file is up to date or was updated, False if check failed
     """
-    if not readme_path.exists():
-        print(f"Error: README file not found: {readme_path}")
+    if not doc_path.exists():
+        print(f"Error: Documentation file not found: {doc_path}")
         return False
 
-    content = readme_path.read_text()
+    content = doc_path.read_text()
     original_content = content
 
     # Pattern to match snippet-source blocks
@@ -123,35 +123,45 @@ def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bo
     if check_mode:
         if updated_content != original_content:
             print(
-                f"Error: {readme_path} has outdated code snippets. "
-                "Run 'python scripts/update_readme_snippets.py' to update."
+                f"Error: {doc_path} has outdated code snippets. Run 'python scripts/update_doc_snippets.py' to update."
             )
             return False
         else:
-            print(f"✓ {readme_path} code snippets are up to date")
+            print(f"✓ {doc_path} code snippets are up to date")
             return True
     else:
         if updated_content != original_content:
-            readme_path.write_text(updated_content)
-            print(f"✓ Updated {readme_path}")
+            doc_path.write_text(updated_content)
+            print(f"✓ Updated {doc_path}")
         else:
-            print(f"✓ {readme_path} already up to date")
+            print(f"✓ {doc_path} already up to date")
         return True
 
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Update README code snippets from source files")
+    parser = argparse.ArgumentParser(description="Update documentation code snippets from source files")
     parser.add_argument(
         "--check", action="store_true", help="Check mode - verify snippets are up to date without modifying"
     )
-    parser.add_argument("--readme", default="README.md", help="Path to README file (default: README.md)")
 
     args = parser.parse_args()
 
-    success = update_readme_snippets(Path(args.readme), check_mode=args.check)
+    # Collect all documentation files to process
+    doc_files: list[Path] = [Path("README.md")]
+    docs_dir = Path("docs")
+    if docs_dir.exists():
+        doc_files.extend(sorted(docs_dir.glob("*.md")))
 
-    if not success:
+    all_success = True
+    for doc_path in doc_files:
+        if not doc_path.exists():
+            continue
+        success = update_doc_snippets(doc_path, check_mode=args.check)
+        if not success:
+            all_success = False
+
+    if not all_success:
         sys.exit(1)
 
 
