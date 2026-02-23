@@ -1064,14 +1064,12 @@ source = { editable = "examples/clients/quickstart-client" }
 dependencies = [
     { name = "anthropic" },
     { name = "mcp" },
-    { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.72.0" },
     { name = "mcp", editable = "." },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 
 [[package]]

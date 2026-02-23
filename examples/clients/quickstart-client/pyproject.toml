@@ -6,7 +6,6 @@ requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.72.0",
     "mcp",
-    "python-dotenv>=1.0.0",
 ]
 
 [build-system]

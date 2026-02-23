@@ -1,3 +1,4 @@
+# region MCPClient_init
 import asyncio
 import os
 import sys
@@ -6,12 +7,9 @@ from pathlib import Path
 
 from anthropic import Anthropic
 from anthropic.types import MessageParam, TextBlock, TextBlockParam, ToolParam, ToolResultBlockParam, ToolUseBlock
-from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import TextContent
-
-load_dotenv()  # load environment variables from .env
 
 # Claude model constant
 ANTHROPIC_MODEL = "claude-sonnet-4-5"
@@ -31,6 +29,9 @@ class MCPClient:
             self._anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         return self._anthropic
 
+    # endregion MCPClient_init
+
+    # region MCPClient_connect_to_server
     async def connect_to_server(self, server_script_path: str) -> None:
         """Connect to an MCP server
 
@@ -63,6 +64,9 @@ class MCPClient:
         tools = response.tools
         print("\nConnected to server with tools:", [tool.name for tool in tools])
 
+    # endregion MCPClient_connect_to_server
+
+    # region MCPClient_process_query
     async def process_query(self, query: str) -> str:
         """Process a query using Claude and available tools"""
         assert self.session is not None
@@ -119,6 +123,9 @@ class MCPClient:
 
         return "\n".join(final_text)
 
+    # endregion MCPClient_process_query
+
+    # region MCPClient_chat_loop
     async def chat_loop(self) -> None:
         """Run an interactive chat loop"""
         print("\nMCP Client Started!")
@@ -141,7 +148,10 @@ class MCPClient:
         """Clean up resources"""
         await self.exit_stack.aclose()
 
+    # endregion MCPClient_chat_loop
 
+
+# region main_entrypoint
 async def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: python client.py <path_to_server_script>")
@@ -165,3 +175,4 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+# endregion main_entrypoint
