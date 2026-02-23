@@ -1009,7 +1009,7 @@ async def pick_color(ctx: Context[ServerSession, None]) -> str:
 
 #### URL Mode Elicitation
 
-URL mode elicitation directs the user to an external URL for out-of-band interactions that must not pass through the MCP client (e.g., entering sensitive data, OAuth flows). The tool call blocks while waiting for the user to complete the interaction:
+URL mode elicitation directs the user to an external URL for out-of-band interactions — for example, entering sensitive data that should not pass through the LLM, or filling out a complex form like a shipping address. The tool call blocks while waiting for the user to complete the interaction:
 
 ```python
 import asyncio
@@ -1020,28 +1020,28 @@ import anyio
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 
-mcp = FastMCP("Weather Example")
+mcp = FastMCP("Shipping Example")
 
 # Simulates a database that the web form writes to on submit
 completed_elicitations: dict[str, dict] = {}
 
 
 @mcp.tool()
-async def get_weather(ctx: Context[ServerSession, None]) -> str:
-    """Get weather for the user's address (collected via secure form)."""
+async def place_order(item: str, ctx: Context[ServerSession, None]) -> str:
+    """Place an order (shipping details collected via secure form)."""
     elicitation_id = str(uuid.uuid4())
 
-    # Direct the user to a web form to enter their address
+    # Direct the user to a form to enter their shipping address
     result = await ctx.elicit_url(
-        message="Please enter your address for a weather lookup.",
-        url=f"https://example.com/address-form?id={elicitation_id}",
+        message=f"Please enter your shipping details for '{item}'.",
+        url=f"https://example.com/shipping?id={elicitation_id}",
         elicitation_id=elicitation_id,
     )
 
     if result.action != "accept":
-        return "Weather lookup cancelled."
+        return "Order cancelled."
 
-    # Poll until the web form submits (writes to the database)
+    # Poll until the shipping form is submitted
     with anyio.fail_after(120):
         while elicitation_id not in completed_elicitations:
             await asyncio.sleep(1)
@@ -1049,8 +1049,8 @@ async def get_weather(ctx: Context[ServerSession, None]) -> str:
     # Notify the client that the out-of-band interaction is done
     await ctx.session.send_elicit_complete(elicitation_id)
 
-    address = completed_elicitations.pop(elicitation_id)
-    return f"Weather for {address['street']}: 72°F and sunny"
+    shipping = completed_elicitations.pop(elicitation_id)
+    return f"Order placed! Shipping '{item}' to {shipping['address']}"
 ```
 
 ### Sampling
