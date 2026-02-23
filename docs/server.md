@@ -67,7 +67,7 @@ def query_db(ctx: Context[ServerSession, AppContext]) -> str:
     return db.query()
 ```
 
-_Full example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lifespan_example.py)_
+_Full example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/lifespan_example.py)_
 <!-- /snippet-source -->
 
 ### Resources
@@ -98,7 +98,7 @@ def get_settings() -> str:
 }"""
 ```
 
-_Full example: [examples/snippets/servers/basic_resource.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_resource.py)_
+_Full example: [examples/snippets/servers/basic_resource.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/basic_resource.py)_
 <!-- /snippet-source -->
 
 #### Resource Templates and Template Reading
@@ -211,7 +211,7 @@ def get_weather(city: str, unit: str = "celsius") -> str:
     return f"Weather in {city}: 22degrees{unit[0].upper()}"
 ```
 
-_Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_tool.py)_
+_Full example: [examples/snippets/servers/basic_tool.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/basic_tool.py)_
 <!-- /snippet-source -->
 
 Tools can optionally receive a Context object by including a parameter with the `Context` type annotation. This context is automatically injected by the FastMCP framework and provides access to MCP capabilities:
@@ -241,7 +241,7 @@ async def long_running_task(task_name: str, ctx: Context[ServerSession, None], s
     return f"Task '{task_name}' completed"
 ```
 
-_Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
+_Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/tool_progress.py)_
 <!-- /snippet-source -->
 
 #### Structured Output
@@ -326,7 +326,7 @@ def empty_result_tool() -> CallToolResult:
     return CallToolResult(content=[])
 ```
 
-_Full example: [examples/snippets/servers/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/direct_call_tool_result.py)_
+_Full example: [examples/snippets/servers/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/direct_call_tool_result.py)_
 <!-- /snippet-source -->
 
 **Important:** `CallToolResult` must always be returned (no `Optional` or `Union`). For empty results, use `CallToolResult(content=[])`. For optional simple types, use `str | None` without `CallToolResult`.
@@ -432,7 +432,7 @@ def get_temperature(city: str) -> float:
     # Returns: {"result": 22.5}
 ```
 
-_Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/structured_output.py)_
+_Full example: [examples/snippets/servers/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/structured_output.py)_
 <!-- /snippet-source -->
 
 ### Prompts
@@ -461,7 +461,7 @@ def debug_error(error: str) -> list[base.Message]:
     ]
 ```
 
-_Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/basic_prompt.py)_
+_Full example: [examples/snippets/servers/basic_prompt.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/basic_prompt.py)_
 <!-- /snippet-source -->
 
 #### Prompts with Embedded Resources
@@ -576,7 +576,7 @@ def my_resource():
     return "content"
 ```
 
-_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/fastmcp/icons_demo.py)_
+_Full example: [examples/fastmcp/icons_demo.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/fastmcp/icons_demo.py)_
 
 ### Images
 
@@ -601,7 +601,7 @@ def create_thumbnail(image_path: str) -> Image:
     return Image(data=img.tobytes(), format="png")
 ```
 
-_Full example: [examples/snippets/servers/images.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/images.py)_
+_Full example: [examples/snippets/servers/images.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/images.py)_
 <!-- /snippet-source -->
 
 ### Audio
@@ -764,7 +764,7 @@ async def long_running_task(task_name: str, ctx: Context[ServerSession, None], s
     return f"Task '{task_name}' completed"
 ```
 
-_Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
+_Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/tool_progress.py)_
 <!-- /snippet-source -->
 
 ### Completions
@@ -855,7 +855,7 @@ if __name__ == "__main__":
     main()
 ```
 
-_Full example: [examples/snippets/clients/completion_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/completion_client.py)_
+_Full example: [examples/snippets/clients/completion_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/completion_client.py)_
 <!-- /snippet-source -->
 ### Elicitation
 
@@ -964,7 +964,7 @@ async def connect_service(service_name: str, ctx: Context[ServerSession, None]) 
     )
 ```
 
-_Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/elicitation.py)_
+_Full example: [examples/snippets/servers/elicitation.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/elicitation.py)_
 <!-- /snippet-source -->
 
 Elicitation schemas support default values for all field types. Default values are automatically included in the JSON schema sent to clients, allowing them to pre-populate forms.
@@ -1064,7 +1064,7 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
     return str(result.content)
 ```
 
-_Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_
+_Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/sampling.py)_
 <!-- /snippet-source -->
 
 ### Logging and Notifications
@@ -1094,7 +1094,7 @@ async def process_data(data: str, ctx: Context[ServerSession, None]) -> str:
     return f"Processed: {data}"
 ```
 
-_Full example: [examples/snippets/servers/notifications.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/notifications.py)_
+_Full example: [examples/snippets/servers/notifications.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/notifications.py)_
 <!-- /snippet-source -->
 
 #### Setting the Logging Level
@@ -1216,7 +1216,7 @@ def query_with_config(query: str, ctx: Context) -> str:
     return str(result)
 ```
 
-_Full lifespan example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lifespan_example.py)_
+_Full lifespan example: [examples/snippets/servers/lifespan_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/lifespan_example.py)_
 
 ## Running Your Server
 
@@ -1284,7 +1284,7 @@ if __name__ == "__main__":
     main()
 ```
 
-_Full example: [examples/snippets/servers/direct_execution.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/direct_execution.py)_
+_Full example: [examples/snippets/servers/direct_execution.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/direct_execution.py)_
 <!-- /snippet-source -->
 
 Run it with:
@@ -1333,7 +1333,7 @@ if __name__ == "__main__":
     mcp.run(transport="streamable-http")
 ```
 
-_Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
+_Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/streamable_config.py)_
 <!-- /snippet-source -->
 
 You can mount multiple FastMCP servers in a Starlette application:
@@ -1396,13 +1396,13 @@ app = Starlette(
 # math_mcp.settings.streamable_http_path = "/"
 ```
 
-_Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
+_Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/streamable_starlette_mount.py)_
 <!-- /snippet-source -->
 
 For low level server with Streamable HTTP implementations, see:
 
-- Stateful server: [`examples/servers/simple-streamablehttp/`](examples/servers/simple-streamablehttp/)
-- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](examples/servers/simple-streamablehttp-stateless/)
+- Stateful server: [`examples/servers/simple-streamablehttp/`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x/examples/servers/simple-streamablehttp)
+- Stateless server: [`examples/servers/simple-streamablehttp-stateless/`](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x/examples/servers/simple-streamablehttp-stateless)
 
 The streamable HTTP transport supports:
 
@@ -1491,7 +1491,7 @@ app = Starlette(
 )
 ```
 
-_Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_basic_mounting.py)_
+_Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/streamable_http_basic_mounting.py)_
 <!-- /snippet-source -->
 
 ##### Host-based routing
@@ -1538,7 +1538,7 @@ app = Starlette(
 )
 ```
 
-_Full example: [examples/snippets/servers/streamable_http_host_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_host_mounting.py)_
+_Full example: [examples/snippets/servers/streamable_http_host_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/streamable_http_host_mounting.py)_
 <!-- /snippet-source -->
 
 ##### Multiple servers with path configuration
@@ -1601,7 +1601,7 @@ app = Starlette(
 )
 ```
 
-_Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_multiple_servers.py)_
+_Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/streamable_http_multiple_servers.py)_
 <!-- /snippet-source -->
 
 ##### Path configuration at initialization
@@ -1643,7 +1643,7 @@ app = Starlette(
 )
 ```
 
-_Full example: [examples/snippets/servers/streamable_http_path_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_path_config.py)_
+_Full example: [examples/snippets/servers/streamable_http_path_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/streamable_http_path_config.py)_
 <!-- /snippet-source -->
 
 #### SSE servers

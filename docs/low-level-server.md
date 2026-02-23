@@ -112,7 +112,7 @@ if __name__ == "__main__":
     asyncio.run(run())
 ```
 
-_Full example: [examples/snippets/servers/lowlevel/lifespan.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/lifespan.py)_
+_Full example: [examples/snippets/servers/lowlevel/lifespan.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/lowlevel/lifespan.py)_
 <!-- /snippet-source -->
 
 The lifespan API provides:
@@ -193,7 +193,7 @@ if __name__ == "__main__":
     asyncio.run(run())
 ```
 
-_Full example: [examples/snippets/servers/lowlevel/basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/basic.py)_
+_Full example: [examples/snippets/servers/lowlevel/basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/lowlevel/basic.py)_
 <!-- /snippet-source -->
 
 Caution: The `uv run mcp run` and `uv run mcp dev` tool doesn't support low-level server.
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     asyncio.run(run())
 ```
 
-_Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/structured_output.py)_
+_Full example: [examples/snippets/servers/lowlevel/structured_output.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/lowlevel/structured_output.py)_
 <!-- /snippet-source -->
 
 Tools can return data in four ways:
@@ -374,7 +374,7 @@ if __name__ == "__main__":
     asyncio.run(run())
 ```
 
-_Full example: [examples/snippets/servers/lowlevel/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/lowlevel/direct_call_tool_result.py)_
+_Full example: [examples/snippets/servers/lowlevel/direct_call_tool_result.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/lowlevel/direct_call_tool_result.py)_
 <!-- /snippet-source -->
 
 **Note:** When returning `CallToolResult`, you bypass the automatic content/structured conversion. You must construct the complete response yourself.
@@ -427,7 +427,7 @@ async def list_resources_paginated(request: types.ListResourcesRequest) -> types
     return types.ListResourcesResult(resources=page_items, nextCursor=next_cursor)
 ```
 
-_Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/pagination_example.py)_
+_Full example: [examples/snippets/servers/pagination_example.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/servers/pagination_example.py)_
 <!-- /snippet-source -->
 
 ### Client-side Consumption
@@ -477,7 +477,7 @@ if __name__ == "__main__":
     asyncio.run(list_all_resources())
 ```
 
-_Full example: [examples/snippets/clients/pagination_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/pagination_client.py)_
+_Full example: [examples/snippets/clients/pagination_client.py](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/examples/snippets/clients/pagination_client.py)_
 <!-- /snippet-source -->
 
 ### Key Points
@@ -487,4 +487,4 @@ _Full example: [examples/snippets/clients/pagination_client.py](https://github.c
 - **Backward compatible** - clients that don't support pagination will still work (they'll just get the first page)
 - **Flexible page sizes** - Each endpoint can define its own page size based on data characteristics
 
-See the [simple-pagination example](examples/servers/simple-pagination) for a complete implementation.
+See the [simple-pagination example](https://github.com/modelcontextprotocol/python-sdk/tree/v1.x/examples/servers/simple-pagination) for a complete implementation.
