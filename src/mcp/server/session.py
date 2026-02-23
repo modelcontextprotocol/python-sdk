@@ -34,6 +34,7 @@ from typing import Any, TypeVar, overload
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.trace import TracerProvider
 from pydantic import AnyUrl, TypeAdapter
 
 from mcp import types
@@ -83,8 +84,9 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        tracer_provider: TracerProvider | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream)
+        super().__init__(read_stream, write_stream, tracer_provider=tracer_provider)
         self._stateless = stateless
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
