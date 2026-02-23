@@ -175,24 +175,30 @@ class SseServerTransport:
                     )
 
         async with anyio.create_task_group() as tg:
+            try:
+                async def response_wrapper(scope: Scope, receive: Receive, send: Send):
+                    """The EventSourceResponse returning signals a client close / disconnect.
+                    In this case we close our side of the streams to signal the client that
+                    the connection has been closed.
+                    """
+                    await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
+                        scope, receive, send
+                    )
+                    await read_stream_writer.aclose()
+                    await write_stream_reader.aclose()
+                    logging.debug(f"Client session disconnected {session_id}")
 
-            async def response_wrapper(scope: Scope, receive: Receive, send: Send):
-                """The EventSourceResponse returning signals a client close / disconnect.
-                In this case we close our side of the streams to signal the client that
-                the connection has been closed.
-                """
-                await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
-                    scope, receive, send
-                )
-                await read_stream_writer.aclose()
-                await write_stream_reader.aclose()
-                logging.debug(f"Client session disconnected {session_id}")
+                logger.debug("Starting SSE response task")
+                tg.start_soon(response_wrapper, scope, receive, send)
 
-            logger.debug("Starting SSE response task")
-            tg.start_soon(response_wrapper, scope, receive, send)
+                logger.debug("Yielding read and write streams")
+                yield (read_stream, write_stream)
+            except BaseExceptionGroup as e:
+                from mcp.shared.exceptions import unwrap_task_group_exception
 
-            logger.debug("Yielding read and write streams")
-            yield (read_stream, write_stream)
+                real_exc = unwrap_task_group_exception(e)
+                if real_exc is not e:
+                    raise real_exc
 
     async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: no cover
         logger.debug("Handling POST message")

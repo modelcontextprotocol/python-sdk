@@ -78,6 +78,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(stdin_reader)
-        tg.start_soon(stdout_writer)
-        yield read_stream, write_stream
+        try:
+            tg.start_soon(stdin_reader)
+            tg.start_soon(stdout_writer)
+            yield read_stream, write_stream
+        except BaseExceptionGroup as e:
+            from mcp.shared.exceptions import unwrap_task_group_exception
+
+            real_exc = unwrap_task_group_exception(e)
+            if real_exc is not e:
+                raise real_exc

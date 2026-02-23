@@ -615,10 +615,17 @@ class StreamableHTTPServerTransport:
                 try:
                     # First send the response to establish the SSE connection
                     async with anyio.create_task_group() as tg:
-                        tg.start_soon(response, scope, receive, send)
-                        # Then send the message to be processed by the server
-                        session_message = self._create_session_message(message, request, request_id, protocol_version)
-                        await writer.send(session_message)
+                        try:
+                            tg.start_soon(response, scope, receive, send)
+                            # Then send the message to be processed by the server
+                            session_message = self._create_session_message(message, request, request_id, protocol_version)
+                            await writer.send(session_message)
+                        except BaseExceptionGroup as e:
+                            from mcp.shared.exceptions import unwrap_task_group_exception
+
+                            real_exc = unwrap_task_group_exception(e)
+                            if real_exc is not e:
+                                raise real_exc
                 except Exception:  # pragma: no cover
                     logger.exception("SSE response error")
                     await sse_stream_writer.aclose()
@@ -971,67 +978,86 @@ class StreamableHTTPServerTransport:
 
         # Start a task group for message routing
         async with anyio.create_task_group() as tg:
-            # Create a message router that distributes messages to request streams
-            async def message_router():
-                try:
-                    async for session_message in write_stream_reader:  # pragma: no branch
-                        # Determine which request stream(s) should receive this message
-                        message = session_message.message
-                        target_request_id = None
-                        # Check if this is a response with a known request id.
-                        # Null-id errors (e.g., parse errors) fall through to
-                        # the GET stream since they can't be correlated.
-                        if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
-                            target_request_id = str(message.id)
-                        # Extract related_request_id from meta if it exists
-                        elif (  # pragma: no cover
-                            session_message.metadata is not None
-                            and isinstance(
-                                session_message.metadata,
-                                ServerMessageMetadata,
-                            )
-                            and session_message.metadata.related_request_id is not None
-                        ):
-                            target_request_id = str(session_message.metadata.related_request_id)
-
-                        request_stream_id = target_request_id if target_request_id is not None else GET_STREAM_KEY
-
-                        # Store the event if we have an event store,
-                        # regardless of whether a client is connected
-                        # messages will be replayed on the re-connect
-                        event_id = None
-                        if self._event_store:  # pragma: lax no cover
-                            event_id = await self._event_store.store_event(request_stream_id, message)
-                            logger.debug(f"Stored {event_id} from {request_stream_id}")
-
-                        if request_stream_id in self._request_streams:
-                            try:
-                                # Send both the message and the event ID
-                                await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
-                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
-                                # Stream might be closed, remove from registry
-                                self._request_streams.pop(request_stream_id, None)
-                        else:  # pragma: no cover
-                            logger.debug(
-                                f"""Request stream {request_stream_id} not found
-                                for message. Still processing message as the client
-                                might reconnect and replay."""
-                            )
-                except anyio.ClosedResourceError:
-                    if self._terminated:
-                        logger.debug("Read stream closed by client")
-                    else:
-                        logger.exception("Unexpected closure of read stream in message router")
-                except Exception:  # pragma: lax no cover
-                    logger.exception("Error in message router")
-
-            # Start the message router
-            tg.start_soon(message_router)
-
             try:
-                # Yield the streams for the caller to use
-                yield read_stream, write_stream
-            finally:
+                # Create a message router that distributes messages to request streams
+                async def message_router():
+                    try:
+                        async for session_message in write_stream_reader:  # pragma: no branch
+                            # Determine which request stream(s) should receive this message
+                            message = session_message.message
+                            target_request_id = None
+                            # Check if this is a response with a known request id.
+                            # Null-id errors (e.g., parse errors) fall through to
+                            # the GET stream since they can't be correlated.
+                            if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
+                                target_request_id = str(message.id)
+                            # Extract related_request_id from meta if it exists
+                            elif (  # pragma: no cover
+                                session_message.metadata is not None
+                                and isinstance(
+                                    session_message.metadata,
+                                    ServerMessageMetadata,
+                                )
+                                and session_message.metadata.related_request_id is not None
+                            ):
+                                target_request_id = str(session_message.metadata.related_request_id)
+
+                            request_stream_id = target_request_id if target_request_id is not None else GET_STREAM_KEY
+
+                            # Store the event if we have an event store,
+                            # regardless of whether a client is connected
+                            # messages will be replayed on the re-connect
+                            event_id = None
+                            if self._event_store:  # pragma: lax no cover
+                                event_id = await self._event_store.store_event(request_stream_id, message)
+                                logger.debug(f"Stored {event_id} from {request_stream_id}")
+
+                            if request_stream_id in self._request_streams:
+                                try:
+                                    # Send both the message and the event ID
+                                    await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
+                                except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
+                                    # Stream might be closed, remove from registry
+                                    self._request_streams.pop(request_stream_id, None)
+                            else:  # pragma: no cover
+                                logger.debug(
+                                    f"""Request stream {request_stream_id} not found
+                                    for message. Still processing message as the client
+                                    might reconnect and replay."""
+                                )
+                    except anyio.ClosedResourceError:
+                        if self._terminated:
+                            logger.debug("Read stream closed by client")
+                        else:
+                            logger.exception("Unexpected closure of read stream in message router")
+                    except Exception:  # pragma: lax no cover
+                        logger.exception("Error in message router")
+
+                # Start the message router
+                tg.start_soon(message_router)
+
+                try:
+                    # Yield the streams for the caller to use
+                    yield read_stream, write_stream
+                finally:
+                    for stream_id in list(self._request_streams.keys()):  # pragma: lax no cover
+                        await self._clean_up_memory_streams(stream_id)
+                    self._request_streams.clear()
+
+                    # Clean up the read and write streams
+                    try:
+                        await read_stream_writer.aclose()
+                        await read_stream.aclose()
+                        await write_stream_reader.aclose()
+                        await write_stream.aclose()
+                    except Exception:  # pragma: no cover
+                        logger.exception("Error closing streams")
+            except BaseExceptionGroup as e:
+                from mcp.shared.exceptions import unwrap_task_group_exception
+
+                real_exc = unwrap_task_group_exception(e)
+                if real_exc is not e:
+                    raise real_exc
                 for stream_id in list(self._request_streams.keys()):  # pragma: lax no cover
                     await self._clean_up_memory_streams(stream_id)
                 self._request_streams.clear()

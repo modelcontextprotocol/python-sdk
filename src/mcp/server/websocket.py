@@ -53,6 +53,13 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
             await websocket.close()
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(ws_reader)
-        tg.start_soon(ws_writer)
-        yield (read_stream, write_stream)
+        try:
+            tg.start_soon(ws_reader)
+            tg.start_soon(ws_writer)
+            yield (read_stream, write_stream)
+        except BaseExceptionGroup as e:
+            from mcp.shared.exceptions import unwrap_task_group_exception
+
+            real_exc = unwrap_task_group_exception(e)
+            if real_exc is not e:
+                raise real_exc
