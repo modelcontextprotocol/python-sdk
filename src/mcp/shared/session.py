@@ -11,9 +11,11 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from opentelemetry import context as otel_context
 from opentelemetry.propagate import extract, inject
+from opentelemetry.trace import TracerProvider, get_tracer
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
+from mcp.shared._otel_utils import mcp_client_span
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -190,6 +192,8 @@ class BaseSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
+        *,
+        tracer_provider: TracerProvider | None = None,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
@@ -200,6 +204,7 @@ class BaseSession(
         self._progress_callbacks = {}
         self._response_routers = []
         self._exit_stack = AsyncExitStack()
+        self._tracer = get_tracer("mcp", tracer_provider=tracer_provider)
 
     def add_response_router(self, router: ResponseRouter) -> None:
         """Register a response router to handle responses for non-standard requests.
@@ -256,22 +261,22 @@ class BaseSession(
         response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
         self._response_streams[request_id] = response_stream
 
-        # Propagate opentelemetry trace context
-        self._inject_otel_context(request)
+        async def make_request() -> ReceiveResultT:
+            # Propagate opentelemetry trace context
+            self._inject_otel_context(request)
 
-        # Set up progress token if progress callback is provided
-        request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
-        if progress_callback is not None:
-            # Use request_id as progress token
-            if "params" not in request_data:  # pragma: lax no cover
-                request_data["params"] = {}
-            if "_meta" not in request_data["params"]:  # pragma: lax no cover
-                request_data["params"]["_meta"] = {}
-            request_data["params"]["_meta"]["progressToken"] = request_id
-            # Store the callback for this request
-            self._progress_callbacks[request_id] = progress_callback
+            # Set up progress token if progress callback is provided
+            request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
+            if progress_callback is not None:
+                # Use request_id as progress token
+                if "params" not in request_data:  # pragma: lax no cover
+                    request_data["params"] = {}
+                if "_meta" not in request_data["params"]:  # pragma: lax no cover
+                    request_data["params"]["_meta"] = {}
+                request_data["params"]["_meta"]["progressToken"] = request_id
+                # Store the callback for this request
+                self._progress_callbacks[request_id] = progress_callback
 
-        try:
             jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
             await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
@@ -291,6 +296,9 @@ class BaseSession(
             else:
                 return result_type.model_validate(response_or_error.result, by_name=False)
 
+        try:
+            with mcp_client_span(self._tracer, request, json_rpc_request_id=request_id):
+                return await make_request()
         finally:
             self._response_streams.pop(request_id, None)
             self._progress_callbacks.pop(request_id, None)
@@ -317,7 +325,9 @@ class BaseSession(
             message=jsonrpc_notification,
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
-        await self._write_stream.send(session_message)
+
+        with mcp_client_span(self._tracer, notification):
+            await self._write_stream.send(session_message)
 
     def _inject_otel_context(self, request: SendRequestT | SendNotificationT) -> None:
         """Propagate OpenTelemetry context in `_meta`.

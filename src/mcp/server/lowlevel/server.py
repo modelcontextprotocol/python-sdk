@@ -46,6 +46,7 @@ from typing import Any, Generic
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.trace import TracerProvider
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -184,6 +185,7 @@ class Server(Generic[LifespanResultT]):
             Awaitable[None],
         ]
         | None = None,
+        tracer_provider: TracerProvider | None = None,
     ):
         self.name = name
         self.version = version
@@ -199,6 +201,7 @@ class Server(Generic[LifespanResultT]):
         ] = {}
         self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
+        self._tracer_provider = tracer_provider
         logger.debug("Initializing server %r", name)
 
         # Populate internal handler dicts from on_* kwargs
@@ -380,6 +383,7 @@ class Server(Generic[LifespanResultT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    tracer_provider=self._tracer_provider,
                 )
             )
 
