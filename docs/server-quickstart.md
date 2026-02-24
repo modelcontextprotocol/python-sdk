@@ -1,14 +1,10 @@
 # Quickstart: Build a weather server
 
-In this tutorial, we'll build a simple MCP weather server and connect it to a host, Claude for Desktop.
+In this tutorial, we'll build a simple MCP weather server and connect it to a host.
 
 ## What we'll be building
 
-We'll build a server that exposes two tools: `get_alerts` and `get_forecast`. Then we'll connect the server to an MCP host (in this case, Claude for Desktop).
-
-!!! note
-
-    Servers can connect to any client. We've chosen Claude for Desktop here for simplicity, but we also have guides on [building your own client](client-quickstart.md) as well as a [list of other clients here](https://modelcontextprotocol.io/clients).
+We'll build a server that exposes two tools: `get_alerts` and `get_forecast`. Then we'll connect the server to an MCP host (in this case, VS Code with GitHub Copilot).
 
 ## Core MCP concepts
 
@@ -231,99 +227,50 @@ if __name__ == "__main__":
 
     Always use `print(..., file=sys.stderr)` or the `logging` module instead of plain `print()` in stdio-based MCP servers. Standard output is reserved for JSON-RPC protocol messages, and writing to it with `print()` will corrupt the communication channel.
 
-Your server is complete! Let's now test it from an existing MCP host, Claude for Desktop.
+Your server is complete! Let's now test it from an existing MCP host.
 
-## Testing your server with Claude for Desktop
+## Testing your server in VS Code
 
-!!! note
-
-    Claude for Desktop is not yet available on Linux. Linux users can proceed to the [Building a client](client-quickstart.md) tutorial to build an MCP client that connects to the server we just built.
-
-First, make sure you have Claude for Desktop installed. [You can install the latest version here.](https://claude.ai/download) If you already have Claude for Desktop, **make sure it's updated to the latest version.**
-
-We'll need to configure Claude for Desktop for whichever MCP servers you want to use. To do this, open your Claude for Desktop App configuration at `~/Library/Application Support/Claude/claude_desktop_config.json` in a text editor. Make sure to create the file if it doesn't exist.
-
-For example, if you have [VS Code](https://code.visualstudio.com/) installed:
-
-=== "macOS/Linux"
-
-    ```bash
-    code ~/Library/Application\ Support/Claude/claude_desktop_config.json
-    ```
-
-=== "Windows"
-
-    ```powershell
-    code $env:AppData\Claude\claude_desktop_config.json
-    ```
-
-You'll then add your servers in the `mcpServers` key. The MCP UI elements will only show up in Claude for Desktop if at least one server is properly configured.
-
-In this case, we'll add our single weather server like so:
-
-=== "macOS/Linux"
-
-    ```json
-    {
-      "mcpServers": {
-        "weather": {
-          "command": "uv",
-          "args": [
-            "--directory",
-            "/ABSOLUTE/PATH/TO/PARENT/FOLDER/weather",
-            "run",
-            "weather.py"
-          ]
-        }
-      }
-    }
-    ```
-
-=== "Windows"
-
-    ```json
-    {
-      "mcpServers": {
-        "weather": {
-          "command": "uv",
-          "args": [
-            "--directory",
-            "C:\\ABSOLUTE\\PATH\\TO\\PARENT\\FOLDER\\weather",
-            "run",
-            "weather.py"
-          ]
-        }
-      }
-    }
-    ```
-
-!!! warning
-
-    You may need to put the full path to the `uv` executable in the `command` field. You can get this by running `which uv` on macOS/Linux or `where uv` on Windows.
+[VS Code](https://code.visualstudio.com/) with [GitHub Copilot](https://github.com/features/copilot) can discover and invoke MCP tools via agent mode. [Copilot Free](https://github.com/features/copilot/plans) is sufficient to follow along.
 
 !!! note
 
-    Make sure you pass in the absolute path to your server. You can get this by running `pwd` on macOS/Linux or `cd` on Windows Command Prompt. On Windows, remember to use double backslashes (`\\`) or forward slashes (`/`) in the JSON path.
+    Servers can connect to any client. We've chosen VS Code here for simplicity, but we also have a guide on [building your own client](client-quickstart.md) as well as a [list of other clients here](https://modelcontextprotocol.io/clients).
 
-This tells Claude for Desktop:
+### Set up VS Code
 
-1. There's an MCP server named "weather"
-2. To launch it by running `uv --directory /ABSOLUTE/PATH/TO/PARENT/FOLDER/weather run weather.py`
+1. Install [VS Code](https://code.visualstudio.com/) (version 1.99 or later).
+2. Install the **GitHub Copilot** extension from the VS Code Extensions marketplace.
+3. Sign in to your GitHub account when prompted.
 
-Save the file, and restart **Claude for Desktop**.
+### Configure the MCP server
 
-### Test with commands
+Open your `weather` project in VS Code, then create a `.vscode/mcp.json` file in the project root:
 
-Let's make sure Claude for Desktop is picking up the two tools we've exposed in our `weather` server. You can do this by looking for the "Add files, connectors, and more" icon.
+```json
+{
+  "servers": {
+    "weather": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "weather.py"]
+    }
+  }
+}
+```
 
-After clicking on the plus icon, hover over the "Connectors" menu. You should see the `weather` server listed.
+VS Code may prompt you to trust the MCP server when it detects this file. If prompted, confirm to start the server.
 
-If your server isn't being picked up by Claude for Desktop, proceed to the [Troubleshooting](#troubleshooting) section for debugging tips.
+To verify, run **MCP: List Servers** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`). The `weather` server should show a running status.
 
-If the server has shown up in the "Connectors" menu, you can now test your server by running the following commands in Claude for Desktop:
+### Use the tools
 
-- What's the weather in Sacramento?
-- What are the active weather alerts in Texas?
+1. Open **Copilot Chat** (`Ctrl+Alt+I` / `Ctrl+Cmd+I`).
+2. Select **Agent** mode from the mode selector at the top of the chat panel.
+3. Click the **Tools** button to confirm `get_alerts` and `get_forecast` appear.
+4. Try these prompts:
+   - "What's the weather in Sacramento?"
+   - "What are the active weather alerts in Texas?"
 
 !!! note
 
@@ -333,57 +280,28 @@ If the server has shown up in the "Connectors" menu, you can now test your serve
 
 When you ask a question:
 
-1. The client sends your question to Claude
-2. Claude analyzes the available tools and decides which one(s) to use
+1. The client sends your question to the LLM
+2. The LLM analyzes the available tools and decides which one(s) to use
 3. The client executes the chosen tool(s) through the MCP server
-4. The results are sent back to Claude
-5. Claude formulates a natural language response
-6. The response is displayed to you!
+4. The results are sent back to the LLM
+5. The LLM formulates a natural language response
+6. The response is displayed to you
 
 ## Troubleshooting
 
-??? "Claude for Desktop integration issues"
+??? "VS Code integration issues"
 
-    **Getting logs from Claude for Desktop**
+    **Server not appearing or fails to start**
 
-    Claude.app logging related to MCP is written to log files in `~/Library/Logs/Claude`:
+    1. Verify you have VS Code 1.99 or later (`Help > About`) and that GitHub Copilot is installed.
+    2. Verify the server runs without errors: run `uv run weather.py` in the `weather` directory — the process should start and wait for input. Press `Ctrl+C` to exit.
+    3. Check the server logs: in **MCP: List Servers**, select the server and choose **Show Output**.
+    4. If the `uv` command is not found, use the full path to the `uv` executable in `.vscode/mcp.json`.
 
-    - `mcp.log` will contain general logging about MCP connections and connection failures.
-    - Files named `mcp-server-SERVERNAME.log` will contain error (stderr) logging from the named server.
+    **Tools don't appear in Copilot Chat**
 
-    You can run the following command to list recent logs and follow along with any new ones:
-
-    ```bash
-    # Check Claude's logs for errors
-    tail -n 20 -f ~/Library/Logs/Claude/mcp*.log
-    ```
-
-    **Server not showing up in Claude**
-
-    1. Check your `claude_desktop_config.json` file syntax
-    2. Make sure the path to your project is absolute and not relative
-    3. Restart Claude for Desktop completely
-
-    !!! warning
-
-        To properly restart Claude for Desktop, you must fully quit the application:
-
-        - **Windows**: Right-click the Claude icon in the system tray (which may be hidden in the "hidden icons" menu) and select "Quit" or "Exit".
-        - **macOS**: Use Cmd+Q or select "Quit Claude" from the menu bar.
-
-        Simply closing the window does not fully quit the application, and your MCP server configuration changes will not take effect.
-
-    **Tool calls failing silently**
-
-    If Claude attempts to use the tools but they fail:
-
-    1. Check Claude's logs for errors
-    2. Verify your server builds and runs without errors
-    3. Try restarting Claude for Desktop
-
-    **None of this is working. What do I do?**
-
-    Please refer to our [debugging guide](https://modelcontextprotocol.io/legacy/tools/debugging) for better debugging tools and more detailed guidance.
+    1. Confirm you're in **Agent** mode (not Ask or Edit mode).
+    2. Run **MCP: Reset Cached Tools** from the Command Palette, then recheck the **Tools** list.
 
 ??? "Weather API issues"
 
@@ -404,10 +322,6 @@ When you ask a question:
     **Error: No active alerts for [STATE]**
 
     This isn't an error — it just means there are no current weather alerts for that state. Try a different state or check during severe weather.
-
-!!! note
-
-    For more advanced troubleshooting, check out our guide on [Debugging MCP](https://modelcontextprotocol.io/legacy/tools/debugging).
 
 ## Next steps
 
