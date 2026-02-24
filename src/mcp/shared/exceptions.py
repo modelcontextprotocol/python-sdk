@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from builtins import BaseExceptionGroup
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from typing import Any, cast
 
 from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError

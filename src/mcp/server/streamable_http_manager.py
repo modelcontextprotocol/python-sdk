@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from builtins import BaseExceptionGroup
+
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from collections.abc import AsyncIterator
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any

@@ -37,7 +37,11 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
-from builtins import BaseExceptionGroup
+
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote

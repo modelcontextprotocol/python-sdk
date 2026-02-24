@@ -8,7 +8,11 @@ This abstraction can handle naming collisions using a custom user-provided hook.
 
 import contextlib
 import logging
-from builtins import BaseExceptionGroup
+
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType

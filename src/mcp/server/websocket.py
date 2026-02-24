@@ -1,4 +1,7 @@
-from builtins import BaseExceptionGroup
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from contextlib import asynccontextmanager
 
 import anyio

@@ -9,7 +9,11 @@ responses, with streaming support for long-running operations.
 import logging
 import re
 from abc import ABC, abstractmethod
-from builtins import BaseExceptionGroup
+
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass

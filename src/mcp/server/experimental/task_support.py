@@ -4,7 +4,10 @@ This module provides the TaskSupport class which encapsulates all the
 infrastructure needed for task-augmented requests: store, queue, and handler.
 """
 
-from builtins import BaseExceptionGroup
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field

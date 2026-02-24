@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from builtins import BaseExceptionGroup
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from types import TracebackType

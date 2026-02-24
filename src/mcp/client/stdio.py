@@ -1,7 +1,11 @@
 import logging
 import os
 import sys
-from builtins import BaseExceptionGroup
+
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal, TextIO

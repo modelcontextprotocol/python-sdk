@@ -10,7 +10,11 @@ This is the core of the task message queue pattern.
 """
 
 import logging
-from builtins import BaseExceptionGroup
+
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup
 from typing import Any
 
 import anyio
