@@ -227,6 +227,10 @@ async def test_enable_tasks_auto_registers_handlers() -> None:
     assert caps_after.tasks is not None
     assert caps_after.tasks.list is not None
     assert caps_after.tasks.cancel is not None
+    # Verify nested call capability is present
+    assert caps_after.tasks.requests is not None
+    assert caps_after.tasks.requests.tools is not None
+    assert caps_after.tasks.requests.tools.call is not None
 
 
 @pytest.mark.anyio
