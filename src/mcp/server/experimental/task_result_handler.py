@@ -10,6 +10,7 @@ This is the core of the task message queue pattern.
 """
 
 import logging
+from builtins import BaseExceptionGroup
 from typing import Any
 
 import anyio
@@ -164,6 +165,7 @@ class TaskResultHandler:
         """
         async with anyio.create_task_group() as tg:
             try:
+
                 async def wait_for_store() -> None:
                     try:
                         await self._store.wait_for_update(task_id)

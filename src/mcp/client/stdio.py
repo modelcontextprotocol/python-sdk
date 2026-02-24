@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from builtins import BaseExceptionGroup
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal, TextIO

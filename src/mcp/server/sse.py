@@ -37,6 +37,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+from builtins import BaseExceptionGroup
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -176,6 +177,7 @@ class SseServerTransport:
 
         async with anyio.create_task_group() as tg:
             try:
+
                 async def response_wrapper(scope: Scope, receive: Receive, send: Send):
                     """The EventSourceResponse returning signals a client close / disconnect.
                     In this case we close our side of the streams to signal the client that

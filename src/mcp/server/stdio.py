@@ -18,6 +18,7 @@ Example:
 """
 
 import sys
+from builtins import BaseExceptionGroup
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 

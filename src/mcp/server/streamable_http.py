@@ -9,6 +9,7 @@ responses, with streaming support for long-running operations.
 import logging
 import re
 from abc import ABC, abstractmethod
+from builtins import BaseExceptionGroup
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -618,7 +619,9 @@ class StreamableHTTPServerTransport:
                         try:
                             tg.start_soon(response, scope, receive, send)
                             # Then send the message to be processed by the server
-                            session_message = self._create_session_message(message, request, request_id, protocol_version)
+                            session_message = self._create_session_message(
+                                message, request, request_id, protocol_version
+                            )
                             await writer.send(session_message)
                         except BaseExceptionGroup as e:
                             from mcp.shared.exceptions import unwrap_task_group_exception
@@ -1015,7 +1018,9 @@ class StreamableHTTPServerTransport:
                             if request_stream_id in self._request_streams:
                                 try:
                                     # Send both the message and the event ID
-                                    await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
+                                    await self._request_streams[request_stream_id][0].send(
+                                        EventMessage(message, event_id)
+                                    )
                                 except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
                                     # Stream might be closed, remove from registry
                                     self._request_streams.pop(request_stream_id, None)

@@ -1,3 +1,4 @@
+from builtins import BaseExceptionGroup
 from contextlib import asynccontextmanager
 
 import anyio

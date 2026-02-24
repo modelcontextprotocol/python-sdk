@@ -1,4 +1,5 @@
 import json
+from builtins import BaseExceptionGroup
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 

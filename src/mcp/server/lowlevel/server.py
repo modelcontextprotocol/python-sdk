@@ -39,6 +39,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import warnings
+from builtins import BaseExceptionGroup
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
