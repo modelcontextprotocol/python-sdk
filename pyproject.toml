@@ -4,13 +4,12 @@ dynamic = ["version"]
 description = "Model Context Protocol SDK"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Anthropic, PBC." }]
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 maintainers = [
     { name = "David Soria Parra", email = "davidsp@anthropic.com" },
-    { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
     { name = "Marcelo Trylesinski", email = "marcelotryle@gmail.com" },
     { name = "Max Isbey", email = "maxisbey@anthropic.com" },
-    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" }
+    { name = "Felix Weinberger", email = "fweinberger@anthropic.com" },
 ]
 keywords = ["git", "mcp", "llm", "automation"]
 license = { text = "MIT" }
@@ -33,7 +32,7 @@ dependencies = [
     "starlette>=0.48.0; python_version >= '3.14'",
     "starlette>=0.27; python_version < '3.14'",
     "python-multipart>=0.0.9",
-    "sse-starlette>=1.6.1",
+    "sse-starlette>=3.0.0",
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
@@ -76,7 +75,7 @@ dev = [
 docs = [
     "mkdocs>=1.6.1",
     "mkdocs-glightbox>=0.4.0",
-    "mkdocs-material>=9.5.45",
+    "mkdocs-material[imaging]>=9.5.45",
     "mkdocstrings-python>=2.0.1",
 ]
 
@@ -137,11 +136,10 @@ select = [
     "F",      # pyflakes
     "I",      # isort
     "PERF",   # Perflint
-    "PL",     # Pylint
     "UP",     # pyupgrade
     "TID251", # https://docs.astral.sh/ruff/rules/banned-api/
 ]
-ignore = ["PERF203", "PLC0415", "PLR0402"]
+ignore = ["PERF203"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "pydantic.RootModel".msg = "Use `pydantic.TypeAdapter` instead."
@@ -175,6 +173,8 @@ xfail_strict = true
 addopts = """
     --color=yes
     --capture=fd
+    -p anyio
+    -p examples
 """
 filterwarnings = [
     "error",

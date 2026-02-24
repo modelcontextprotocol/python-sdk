@@ -112,8 +112,8 @@ async def elicit_with_validation(
 
     This method can be used to interactively ask for additional information from the
     client within a tool's execution. The client might display the message to the
-    user and collect a response according to the provided schema. Or in case a
-    client is an agent, it might decide how to handle the elicitation -- either by asking
+    user and collect a response according to the provided schema. If the client
+    is an agent, it might decide how to handle the elicitation -- either by asking
     the user or automatically generating a response.
 
     For sensitive data like credentials or OAuth flows, use elicit_url() instead.

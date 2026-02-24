@@ -4,8 +4,8 @@ This module provides functionality for creating an stdio-based transport layer
 that can be used to communicate with an MCP client through standard input/output
 streams.
 
-Example usage:
-```
+Example:
+    ```python
     async def run_server():
         async with stdio_server() as (read_stream, write_stream):
             # read_stream contains incoming JSONRPCMessages from stdin
@@ -14,7 +14,7 @@ Example usage:
             await server.run(read_stream, write_stream, init_options)
 
     anyio.run(run_server)
-```
+    ```
 """
 
 import sys
@@ -71,7 +71,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await stdout.write(json + "\n")
                     await stdout.flush()
         except anyio.ClosedResourceError:  # pragma: no cover
