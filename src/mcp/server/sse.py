@@ -2,8 +2,8 @@
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 
-Example usage:
-```
+Example:
+    ```python
     # Create an SSE transport at an endpoint
     sse = SseServerTransport("/messages/")
 
@@ -27,10 +27,10 @@ Example usage:
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
-```
+    ```
 
-Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
-object is not callable" error when client disconnects. The example above returns
+Note: The handle_sse function must return a Response to avoid a
+"TypeError: 'NoneType' object is not callable" error when client disconnects. The example above returns
 an empty Response() after the SSE connection ends to fix this.
 
 See SseServerTransport class documentation for more details.
@@ -61,8 +61,8 @@ logger = logging.getLogger(__name__)
 
 
 class SseServerTransport:
-    """SSE server transport for MCP. This class provides _two_ ASGI applications,
-    suitable to be used with a framework like Starlette and a server like Hypercorn:
+    """SSE server transport for MCP. This class provides two ASGI applications,
+    suitable for use with a framework like Starlette and a server like Hypercorn:
 
         1. connect_sse() is an ASGI application which receives incoming GET requests,
            and sets up a new SSE stream to send server messages to the client.

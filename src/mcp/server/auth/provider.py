@@ -131,8 +131,9 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         """
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        """Called as part of the /authorize endpoint, and returns a URL that the client
+        """Handle the /authorize endpoint and return a URL that the client
         will be redirected to.
+
         Many MCP implementations will redirect to a third-party provider to perform
         a second OAuth exchange with that provider. In this sort of setup, the client
         has an OAuth connection with the MCP server, and the MCP server has an OAuth
@@ -151,7 +152,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         |            |
         +------------+
 
-        Implementations will need to define another handler on the MCP server return
+        Implementations will need to define another handler on the MCP server's return
         flow to perform the second redirect, and generate and store an authorization
         code as part of completing the OAuth authorization step.
 
@@ -182,7 +183,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             authorization_code: The authorization code to get the challenge for.
 
         Returns:
-            The AuthorizationCode, or None if not found
+            The AuthorizationCode, or None if not found.
         """
         ...
 
@@ -199,7 +200,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             The OAuth token, containing access and refresh tokens.
 
         Raises:
-            TokenError: If the request is invalid
+            TokenError: If the request is invalid.
         """
         ...
 
@@ -234,18 +235,18 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             The OAuth token, containing access and refresh tokens.
 
         Raises:
-            TokenError: If the request is invalid
+            TokenError: If the request is invalid.
         """
         ...
 
     async def load_access_token(self, token: str) -> AccessTokenT | None:
-        """Loads an access token by its token.
+        """Loads an access token by its token string.
 
         Args:
             token: The access token to verify.
 
         Returns:
-            The AuthInfo, or None if the token is invalid.
+            The access token, or None if the token is invalid.
         """
 
     async def revoke_token(
@@ -261,7 +262,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         provided.
 
         Args:
-            token: the token to revoke
+            token: The token to revoke.
         """
 
 

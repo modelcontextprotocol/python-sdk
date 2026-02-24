@@ -25,6 +25,7 @@ class ResponseRouter(Protocol):
     and deliver the response/error to the appropriate handler.
 
     Example:
+        ```python
         class TaskResultHandler(ResponseRouter):
             def route_response(self, request_id, response):
                 resolver = self._pending_requests.pop(request_id, None)
@@ -32,6 +33,7 @@ class ResponseRouter(Protocol):
                     resolver.set_result(response)
                     return True
                 return False
+        ```
     """
 
     def route_response(self, request_id: RequestId, response: dict[str, Any]) -> bool:
