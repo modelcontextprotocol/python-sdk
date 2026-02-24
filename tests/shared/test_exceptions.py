@@ -1,5 +1,8 @@
 """Tests for MCP exception classes."""
 
+from builtins import BaseExceptionGroup
+
+import anyio
 import pytest
 
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
@@ -165,7 +168,6 @@ def test_url_elicitation_required_error_exception_message() -> None:
 
 
 # Tests for unwrap_task_group_exception
-import anyio
 
 
 @pytest.mark.anyio
