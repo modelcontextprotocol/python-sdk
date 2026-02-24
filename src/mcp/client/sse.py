@@ -3,7 +3,7 @@ import logging
 try:
     from builtins import BaseExceptionGroup
 except ImportError:
-    from exceptiongroup import BaseExceptionGroup
+    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any

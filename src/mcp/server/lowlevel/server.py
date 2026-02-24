@@ -43,7 +43,7 @@ import warnings
 try:
     from builtins import BaseExceptionGroup
 except ImportError:
-    from exceptiongroup import BaseExceptionGroup
+    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version

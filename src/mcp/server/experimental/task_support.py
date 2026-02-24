@@ -7,7 +7,7 @@ infrastructure needed for task-augmented requests: store, queue, and handler.
 try:
     from builtins import BaseExceptionGroup
 except ImportError:
-    from exceptiongroup import BaseExceptionGroup
+    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field

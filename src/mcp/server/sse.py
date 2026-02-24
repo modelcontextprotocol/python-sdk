@@ -41,7 +41,7 @@ import logging
 try:
     from builtins import BaseExceptionGroup
 except ImportError:
-    from exceptiongroup import BaseExceptionGroup
+    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote

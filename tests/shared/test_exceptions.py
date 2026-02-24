@@ -1,9 +1,12 @@
 """Tests for MCP exception classes."""
 
-from builtins import BaseExceptionGroup
-
 import anyio
 import pytest
+
+try:
+    from builtins import BaseExceptionGroup
+except ImportError:
+    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 
 from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData
