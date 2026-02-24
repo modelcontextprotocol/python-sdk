@@ -503,6 +503,9 @@ def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
     if isinstance(result, ContentBlock):
         return [result]
 
+    if isinstance(result, CallToolResult):
+        return list(chain.from_iterable(_convert_to_content(item) for item in result.content))
+
     if isinstance(result, Image):
         return [result.to_image_content()]
 
