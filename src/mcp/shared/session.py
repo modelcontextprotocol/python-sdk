@@ -60,10 +60,12 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     cancellation handling:
 
     Example:
+        <!-- snippet-source #RequestResponder_usage -->
         ```python
         with request_responder as resp:
             await resp.respond(result)
         ```
+        <!-- /snippet-source -->
 
     The context manager ensures:
     1. Proper cancellation scope setup and cleanup

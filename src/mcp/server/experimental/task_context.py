@@ -56,20 +56,22 @@ class ServerTaskContext:
     - Status notifications via the session
 
     Example:
+        <!-- snippet-source #ServerTaskContext_usage -->
         ```python
         async def my_task_work(task: ServerTaskContext) -> CallToolResult:
             await task.update_status("Starting...")
 
             result = await task.elicit(
                 message="Continue?",
-                requested_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}}
+                requested_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
             )
 
-            if result.content.get("ok"):
+            if result.action == "accept" and result.content and result.content.get("ok"):
                 return CallToolResult(content=[TextContent(text="Done!")])
             else:
                 return CallToolResult(content=[TextContent(text="Cancelled")])
         ```
+        <!-- /snippet-source -->
     """
 
     def __init__(
