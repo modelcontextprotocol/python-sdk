@@ -37,15 +37,18 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
-
-try:
-    from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from builtins import BaseExceptionGroup
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream

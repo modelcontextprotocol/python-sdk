@@ -4,13 +4,18 @@ This module provides the TaskSupport class which encapsulates all the
 infrastructure needed for task-augmented requests: store, queue, and handler.
 """
 
-try:
-    from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from builtins import BaseExceptionGroup
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 from anyio.abc import TaskGroup

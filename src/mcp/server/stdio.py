@@ -18,13 +18,17 @@ Example:
 """
 
 import sys
-
-try:
-    from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from builtins import BaseExceptionGroup
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 import anyio.lowlevel

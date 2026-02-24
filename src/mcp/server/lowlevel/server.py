@@ -39,15 +39,18 @@ from __future__ import annotations
 import contextvars
 import logging
 import warnings
-
-try:
-    from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import TYPE_CHECKING, Any, Generic
+
+if TYPE_CHECKING:
+    from builtins import BaseExceptionGroup
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream

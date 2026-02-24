@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import contextlib
 import logging
-
-try:
-    from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from collections.abc import AsyncIterator
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from builtins import BaseExceptionGroup
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 from anyio.abc import TaskStatus

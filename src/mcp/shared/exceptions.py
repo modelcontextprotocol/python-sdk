@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-try:
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
     from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
-from typing import Any, cast
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 

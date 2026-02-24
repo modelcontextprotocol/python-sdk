@@ -8,15 +8,18 @@ This abstraction can handle naming collisions using a custom user-provided hook.
 
 import contextlib
 import logging
-
-try:
-    from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
+
+if TYPE_CHECKING:
+    from builtins import BaseExceptionGroup
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 import httpx

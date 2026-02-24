@@ -1,14 +1,17 @@
 import logging
 import os
 import sys
-
-try:
-    from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import TYPE_CHECKING, Literal, TextIO
+
+if TYPE_CHECKING:
+    from builtins import BaseExceptionGroup
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 import anyio.lowlevel

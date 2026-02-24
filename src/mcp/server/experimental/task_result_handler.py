@@ -10,12 +10,15 @@ This is the core of the task message queue pattern.
 """
 
 import logging
+from typing import TYPE_CHECKING, Any
 
-try:
+if TYPE_CHECKING:
     from builtins import BaseExceptionGroup
-except ImportError:
-    from exceptiongroup import BaseExceptionGroup  # type: ignore[import-not-found]
-from typing import Any
+else:
+    try:
+        from builtins import BaseExceptionGroup
+    except ImportError:
+        from exceptiongroup import BaseExceptionGroup
 
 import anyio
 
