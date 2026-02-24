@@ -1,3 +1,4 @@
+# region module_overview
 from typing import Any
 
 import httpx
@@ -9,8 +10,10 @@ mcp = MCPServer("weather")
 # Constants
 NWS_API_BASE = "https://api.weather.gov"
 USER_AGENT = "weather-app/1.0"
+# endregion module_overview
 
 
+# region helper_functions
 async def make_nws_request(url: str) -> dict[str, Any] | None:
     """Make a request to the NWS API with proper error handling."""
     headers = {"User-Agent": USER_AGENT, "Accept": "application/geo+json"}
@@ -35,6 +38,10 @@ Instructions: {props.get("instruction", "No specific instructions provided")}
 """
 
 
+# endregion helper_functions
+
+
+# region tool_implementations
 @mcp.tool()
 async def get_alerts(state: str) -> str:
     """Get weather alerts for a US state.
@@ -92,6 +99,10 @@ Forecast: {period["detailedForecast"]}
     return "\n---\n".join(forecasts)
 
 
+# endregion tool_implementations
+
+
+# region main_entrypoint
 def main() -> None:
     """Run the weather MCP server."""
     mcp.run(transport="stdio")
@@ -99,3 +110,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+# endregion main_entrypoint
