@@ -4,23 +4,21 @@ from __future__ import annotations
 
 import anyio
 import pytest
+from pydantic import TypeAdapter
 
+from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession
 
 
-class _TestSession(BaseSession):
+class _TestSession(BaseSession):  # type: ignore[reportMissingTypeArgument]
     """Test implementation of BaseSession."""
 
     @property
-    def _receive_request_adapter(self):
-        from pydantic import TypeAdapter
-
+    def _receive_request_adapter(self) -> TypeAdapter[dict[str, object]]:
         return TypeAdapter(dict)
 
     @property
-    def _receive_notification_adapter(self):
-        from pydantic import TypeAdapter
-
+    def _receive_notification_adapter(self) -> TypeAdapter[dict[str, object]]:
         return TypeAdapter(dict)
 
 
@@ -28,8 +26,8 @@ class _TestSession(BaseSession):
 async def test_session_propagates_real_error_not_exception_group() -> None:
     """Test that real errors propagate unwrapped from session task groups."""
     # Create streams
-    read_sender, read_stream = anyio.create_memory_object_stream()
-    write_stream, write_receiver = anyio.create_memory_object_stream()
+    read_sender, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception]()
+    write_stream, write_receiver = anyio.create_memory_object_stream[SessionMessage]()
 
     try:
         session = _TestSession(

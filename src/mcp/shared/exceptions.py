@@ -145,7 +145,8 @@ def unwrap_task_group_exception(exc: BaseException) -> BaseException:
     cancelled_exc_class = anyio.get_cancelled_exc_class()
     for sub_exc in exc.exceptions:
         if not isinstance(sub_exc, cancelled_exc_class):
-            return sub_exc
+            # Type narrowing: we know this is not a CancelledError
+            return sub_exc  # type: ignore[reportUnknownVariableType]
 
     # All were cancelled, return the group
-    return exc
+    return exc  # type: ignore[reportUnknownVariableType]
