@@ -94,10 +94,11 @@ async def test_metadata_endpoint_without_path(root_resource_client: httpx.AsyncC
     # For root resource, metadata should be at standard location
     response = await root_resource_client.get("/.well-known/oauth-protected-resource")
     assert response.status_code == 200
+    # Note: URLs should NOT have trailing slashes per RFC 8414/9728 (see issue #1919)
     assert response.json() == snapshot(
         {
-            "resource": "https://example.com/",
-            "authorization_servers": ["https://auth.example.com/"],
+            "resource": "https://example.com",
+            "authorization_servers": ["https://auth.example.com"],
             "scopes_supported": ["read"],
             "resource_name": "Root Resource",
             "bearer_methods_supported": ["header"],
