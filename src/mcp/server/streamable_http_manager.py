@@ -191,13 +191,19 @@ class StreamableHTTPSessionManager:
                 task_status.started()
                 # Handle the HTTP request and return the response
                 await http_transport.handle_request(scope, receive, send)
-                # Terminate the transport after the request is handled
-                await http_transport.terminate()
-                # Cancel the request-scoped task group to stop the server task
+                # Cancel the request-scoped task group to stop the server task.
+                # This ensures the Cancelled exception reaches the server task
+                # before terminate() closes the streams, avoiding a race between
+                # Cancelled and ClosedResourceError in the message router.
                 request_tg.cancel_scope.cancel()
 
             await request_tg.start(run_stateless_server)
             await request_tg.start(run_request_handler)
+
+        # Terminate after the task group exits — the server task is already
+        # cancelled at this point, so this is just cleanup (sets _terminated
+        # flag and closes any remaining streams).
+        await http_transport.terminate()
 
     async def _handle_stateful_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process request in stateful mode - maintaining session state between requests."""
