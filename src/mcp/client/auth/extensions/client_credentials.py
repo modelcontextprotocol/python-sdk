@@ -88,8 +88,13 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
 
     async def _exchange_token_client_credentials(self) -> httpx.Request:
         """Build token exchange request for client_credentials grant."""
+
+        if not self.context.client_info or not self.context.client_info.client_id:
+            raise OAuthTokenError("No client info available")  # pragma: no cover
+
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
+            "client_id": self.context.client_info.client_id,
         }
 
         headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}

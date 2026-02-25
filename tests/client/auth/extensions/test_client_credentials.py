@@ -243,6 +243,9 @@ class TestClientCredentialsOAuthProvider:
         )
         provider.context.protocol_version = "2025-06-18"
 
+        # Initialize the provider first
+        await provider._initialize()
+
         request = await provider._perform_authorization()
 
         assert request.method == "POST"
@@ -268,6 +271,9 @@ class TestClientCredentialsOAuthProvider:
             token_endpoint=AnyHttpUrl("https://api.example.com/token"),
         )
         provider.context.protocol_version = "2024-11-05"  # Old version - no resource param
+
+        # Initialize the provider first
+        await provider._initialize()
 
         request = await provider._perform_authorization()
 
