@@ -90,6 +90,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
         """Build token exchange request for client_credentials grant."""
         token_data: dict[str, Any] = {
             "grant_type": "client_credentials",
+            "client_id": self.context.client_info.client_id,
         }
 
         headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
