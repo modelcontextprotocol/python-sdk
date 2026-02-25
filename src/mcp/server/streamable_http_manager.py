@@ -193,6 +193,9 @@ class StreamableHTTPSessionManager:
                 await http_transport.handle_request(scope, receive, send)
                 # Terminate the transport after the request is handled
                 await http_transport.terminate()
+                # Yield one scheduling step so other tasks (e.g. the message
+                # router) can observe the closed streams before we cancel.
+                await anyio.sleep(0)
                 # Cancel the request-scoped task group to stop the server task
                 request_tg.cancel_scope.cancel()
 

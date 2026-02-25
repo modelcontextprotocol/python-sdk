@@ -291,24 +291,13 @@ async def test_stateless_requests_task_leak_on_client_disconnect():
     tool_started = anyio.Event()
     tool_gate = anyio.Event()
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
-        return ListToolsResult(
-            tools=[Tool(name="slow_tool", description="A slow tool", inputSchema={"type": "object"})]
-        )
-
-    async def handle_call_tool(
-        ctx: ServerRequestContext, params: Any
-    ) -> CallToolResult:
+    async def handle_call_tool(ctx: ServerRequestContext, params: Any) -> CallToolResult:
         tool_started.set()
-        # Simulate a slow tool (e.g., API call to Discovery/Snowflake)
         await tool_gate.wait()
-        return CallToolResult(content=[TextContent(type="text", text="done")])
+        return CallToolResult(content=[TextContent(type="text", text="done")])  # pragma: no cover
 
     app = Server(
         "test-stateless-leak",
-        on_list_tools=handle_list_tools,
         on_call_tool=handle_call_tool,
     )
 
