@@ -340,7 +340,8 @@ async def test_stateless_requests_task_leak_on_client_disconnect():
 
         # Check for leaked tasks in the session manager's global task group
         await anyio.sleep(0.1)
-        leaked = len(session_manager._task_group._tasks)
+        assert session_manager._task_group is not None
+        leaked = len(session_manager._task_group._tasks)  # type: ignore[attr-defined]
 
     assert leaked == 0, (
         f"Expected 0 lingering tasks but found {leaked}. Stateless request tasks are leaking after client disconnect."
