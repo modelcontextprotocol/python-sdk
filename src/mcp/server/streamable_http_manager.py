@@ -178,7 +178,7 @@ class StreamableHTTPSessionManager:
                         self.app.create_initialization_options(),
                         stateless=True,
                     )
-                except Exception:  # pragma: no cover
+                except Exception:
                     logger.exception("Stateless session crashed")
 
         # Use a request-scoped task group instead of the global one.
