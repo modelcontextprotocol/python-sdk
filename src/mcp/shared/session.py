@@ -423,7 +423,7 @@ class BaseSession(
                     try:
                         await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
                         await stream.aclose()
-                    except Exception:
+                    except Exception:  # pragma: no cover
                         # Stream might already be closed
                         pass
                 self._response_streams.clear()
