@@ -257,15 +257,19 @@ async def test_stateless_requests_memory_cleanup():
             await manager.handle_request(scope, mock_receive, mock_send)
 
             # Verify transport was created
-            assert len(created_transports) == 1, "Should have created one transport"
+            assert len(created_transports) == 1, "Should have created one transport"  # pragma: lax no cover
 
-            transport = created_transports[0]
+            transport = created_transports[0]  # pragma: lax no cover
 
             # The key assertion - transport should be terminated
-            assert transport._terminated, "Transport should be terminated after stateless request"
+            assert transport._terminated, (
+                "Transport should be terminated after stateless request"
+            )  # pragma: lax no cover
 
             # Verify internal state is cleaned up
-            assert len(transport._request_streams) == 0, "Transport should have no active request streams"
+            assert len(transport._request_streams) == 0, (
+                "Transport should have no active request streams"
+            )  # pragma: lax no cover
 
 
 @pytest.mark.anyio
@@ -338,7 +342,9 @@ async def test_stateless_requests_task_leak_on_client_disconnect():
         await anyio.sleep(0.1)
         leaked = len(session_manager._task_group._tasks)
 
-    assert leaked == 0, f"Expected 0 lingering tasks but found {leaked}. Stateless request tasks are leaking after client disconnect."
+    assert leaked == 0, (
+        f"Expected 0 lingering tasks but found {leaked}. Stateless request tasks are leaking after client disconnect."
+    )
 
 
 @pytest.mark.anyio
