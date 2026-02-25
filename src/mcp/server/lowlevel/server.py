@@ -246,6 +246,72 @@ class Server(Generic[LifespanResultT]):
         """Check if a handler is registered for the given method."""
         return method in self._request_handlers or method in self._notification_handlers
 
+    def add_request_handler(
+        self,
+        method: str,
+        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]],
+    ) -> None:
+        """Register a request handler for the given method.
+
+        If a handler is already registered for this method, it will be replaced.
+
+        Args:
+            method: The JSON-RPC method name (e.g., "tools/list", "myextension/query").
+            handler: An async callable that takes (ServerRequestContext, params) and
+                returns the result.
+        """
+        self._request_handlers[method] = handler
+
+    def remove_request_handler(self, method: str) -> None:
+        """Remove the request handler for the given method.
+
+        Args:
+            method: The JSON-RPC method name to deregister.
+
+        Raises:
+            KeyError: If no handler is registered for this method.
+        """
+        del self._request_handlers[method]
+
+    def add_notification_handler(
+        self,
+        method: str,
+        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]],
+    ) -> None:
+        """Register a notification handler for the given method.
+
+        If a handler is already registered for this method, it will be replaced.
+
+        Args:
+            method: The JSON-RPC notification method name
+                (e.g., "notifications/progress").
+            handler: An async callable that takes (ServerRequestContext, params) and
+                returns None.
+        """
+        self._notification_handlers[method] = handler
+
+    def remove_notification_handler(self, method: str) -> None:
+        """Remove the notification handler for the given method.
+
+        Args:
+            method: The JSON-RPC notification method name to deregister.
+
+        Raises:
+            KeyError: If no handler is registered for this method.
+        """
+        del self._notification_handlers[method]
+
+    def has_handler(self, method: str) -> bool:
+        """Check if a handler is registered for the given request or notification method.
+
+        Args:
+            method: The JSON-RPC method name to check.
+
+        Returns:
+            True if a handler is registered, False otherwise.
+        """
+        return method in self._request_handlers or method in self._notification_handlers
+
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
@@ -336,10 +402,7 @@ class Server(Generic[LifespanResultT]):
 
         # We create this inline so we only add these capabilities _if_ they're actually used
         if self._experimental_handlers is None:
-            self._experimental_handlers = ExperimentalHandlers(
-                add_request_handler=self._add_request_handler,
-                has_handler=self._has_handler,
-            )
+            self._experimental_handlers = ExperimentalHandlers(server=self)
         return self._experimental_handlers
 
     @property
