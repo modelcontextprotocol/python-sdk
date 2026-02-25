@@ -311,12 +311,8 @@ async def test_stateless_requests_task_leak_on_client_disconnect():
         session_manager = app._session_manager
 
         async def make_and_abandon_tool_call():
-            async with httpx.AsyncClient(
-                transport=transport, base_url=f"http://{host}", timeout=30.0
-            ) as http_client:
-                async with Client(
-                    streamable_http_client(f"http://{host}/mcp", http_client=http_client)
-                ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url=f"http://{host}", timeout=30.0) as http_client:
+                async with Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client:
                     # Start tool call — this will block until tool completes
                     # We'll cancel it from outside to simulate disconnect
                     await client.call_tool("slow_tool", {})
@@ -342,10 +338,7 @@ async def test_stateless_requests_task_leak_on_client_disconnect():
         await anyio.sleep(0.1)
         leaked = len(session_manager._task_group._tasks)
 
-    assert leaked == 0, (
-        f"Expected 0 lingering tasks but found {leaked}. "
-        f"Stateless request tasks are leaking after client disconnect."
-    )
+    assert leaked == 0, f"Expected 0 lingering tasks but found {leaked}. Stateless request tasks are leaking after client disconnect."
 
 
 @pytest.mark.anyio
