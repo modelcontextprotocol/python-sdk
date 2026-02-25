@@ -87,6 +87,20 @@ async def test_stdio_client_bad_path():
 
 
 @pytest.mark.anyio
+async def test_stdio_client_exits_immediately_surfaces_connection_closed():
+    """Regression test for #1564: process exit should not bubble BrokenResourceError."""
+    server_params = StdioServerParameters(command=sys.executable, args=["-c", "import sys; sys.exit(0)"])
+
+    async with stdio_client(server_params) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            with pytest.raises(MCPError) as exc_info:
+                await session.initialize()
+
+            assert exc_info.value.error.code == CONNECTION_CLOSED
+            assert "Connection closed" in exc_info.value.error.message
+
+
+@pytest.mark.anyio
 async def test_stdio_client_nonexistent_command():
     """Test that stdio_client raises an error for non-existent commands."""
     # Create a server with a non-existent command
