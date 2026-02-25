@@ -1,4 +1,5 @@
 import io
+import sys
 
 import anyio
 import pytest
@@ -59,3 +60,31 @@ async def test_stdio_server():
     assert len(received_responses) == 2
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+@pytest.mark.anyio
+async def test_stdio_server_does_not_close_process_stdio(monkeypatch: pytest.MonkeyPatch):
+    stdin_bytes = io.BytesIO()
+    stdout_bytes = io.BytesIO()
+
+    stdin_text = io.TextIOWrapper(stdin_bytes, encoding="utf-8")
+    stdout_text = io.TextIOWrapper(stdout_bytes, encoding="utf-8")
+
+    stdin_text.write(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping").model_dump_json(by_alias=True) + "\n")
+    stdin_text.seek(0)
+
+    monkeypatch.setattr(sys, "stdin", stdin_text)
+    monkeypatch.setattr(sys, "stdout", stdout_text)
+
+    async with stdio_server() as (read_stream, write_stream):
+        async with read_stream:
+            first = await read_stream.receive()
+            assert isinstance(first, SessionMessage)
+
+        async with write_stream:
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=2, result={})))
+
+    # Regression check for #1933: process stdio should still be writable/readable.
+    print("still-open")
+    assert stdin_text.readable()
+    assert stdout_text.writable()

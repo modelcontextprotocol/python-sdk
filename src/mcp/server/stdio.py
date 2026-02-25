@@ -20,6 +20,7 @@ Example:
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
+from typing import BinaryIO
 
 import anyio
 import anyio.lowlevel
@@ -27,6 +28,27 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 
 from mcp import types
 from mcp.shared.message import SessionMessage
+
+
+class _NonClosingTextIOWrapper(TextIOWrapper):
+    """Text wrapper that never closes the underlying binary stream.
+
+    stdio_server should not close the process' real stdin/stdout handles when its
+    background tasks wind down.
+    """
+
+    def close(self) -> None:
+        if self.closed:
+            return
+
+        # Preserve normal flush semantics for writable streams while keeping the
+        # underlying stdio handle alive.
+        if self.writable():
+            self.flush()
+
+
+def _wrap_process_stdio(binary_stream: BinaryIO) -> anyio.AsyncFile[str]:
+    return anyio.wrap_file(_NonClosingTextIOWrapper(binary_stream, encoding="utf-8"))
 
 
 @asynccontextmanager
@@ -39,9 +61,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8"))
+        stdin = _wrap_process_stdio(sys.stdin.buffer)
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout = _wrap_process_stdio(sys.stdout.buffer)
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
