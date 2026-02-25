@@ -1018,8 +1018,8 @@ class StreamableHTTPServerTransport:
                                 might reconnect and replay."""
                             )
                 except anyio.ClosedResourceError:
-                    if self._terminated:  # pragma: no cover
-                        logger.debug("Read stream closed by client")
+                    if self._terminated:
+                        logger.debug("Read stream closed by client")  # pragma: no cover
                     else:
                         logger.exception("Unexpected closure of read stream in message router")
                 except Exception:  # pragma: lax no cover
