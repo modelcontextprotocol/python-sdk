@@ -1019,7 +1019,7 @@ class StreamableHTTPServerTransport:
                             )
                 except anyio.ClosedResourceError:
                     if self._terminated:
-                        logger.debug("Read stream closed by client")  # pragma: no cover
+                        logger.debug("Read stream closed by client")  # pragma: lax no cover
                     else:
                         logger.exception("Unexpected closure of read stream in message router")
                 except Exception:  # pragma: lax no cover
