@@ -416,3 +416,45 @@ async def test_null_id_error_does_not_affect_pending_request():
     # Pending request completed successfully
     assert len(result_holder) == 1
     assert isinstance(result_holder[0], EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_session_exit_closes_streams_before_cancel():
+    """Verify BaseSession.__aexit__ closes streams before cancelling task group.
+
+    The receive loop should exit via ClosedResourceError on the read stream,
+    not via forced task group cancellation. This prevents AnyIO cancellation
+    busy-loops when tasks are blocked on stream operations.
+    """
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, _server_write = server_streams
+
+        async def slow_server():
+            """Read a request but never respond, keeping the session busy."""
+            try:
+                await server_read.receive()
+                # Hold the connection open
+                await anyio.sleep(60)
+            except (anyio.ClosedResourceError, anyio.get_cancelled_exc_class()):
+                pass
+
+        async with anyio.create_task_group() as outer_tg:
+            outer_tg.start_soon(slow_server)
+
+            with anyio.fail_after(5):  # pragma: no branch
+                async with ClientSession(read_stream=client_read, write_stream=client_write) as client_session:
+                    # Fire a request in a background task (will never get a response)
+                    async with anyio.create_task_group() as inner_tg:  # pragma: no branch
+
+                        async def send_and_ignore():
+                            try:
+                                await client_session.send_ping()
+                            except (MCPError, anyio.get_cancelled_exc_class()):
+                                pass
+
+                        inner_tg.start_soon(send_and_ignore)
+                        await anyio.sleep(0.1)
+                        inner_tg.cancel_scope.cancel()
+
+            outer_tg.cancel_scope.cancel()  # pragma: lax no cover

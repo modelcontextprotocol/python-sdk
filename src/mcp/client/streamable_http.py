@@ -155,7 +155,11 @@ class StreamableHTTPTransport:
                     message.id = original_request_id
 
                 session_message = SessionMessage(message)
-                await read_stream_writer.send(session_message)
+                try:
+                    await read_stream_writer.send(session_message)
+                except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
+                    logger.debug("Read stream closed, stopping SSE event handling")
+                    return True
 
                 # Call resumption token callback if we have an ID
                 if sse.id and resumption_callback:
@@ -170,9 +174,15 @@ class StreamableHTTPTransport:
                 if original_request_id is not None:
                     error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse SSE message: {exc}")
                     error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
-                    await read_stream_writer.send(error_msg)
+                    try:
+                        await read_stream_writer.send(error_msg)
+                    except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                        pass
                     return True
-                await read_stream_writer.send(exc)
+                try:
+                    await read_stream_writer.send(exc)
+                except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                    pass
                 return False
         else:  # pragma: no cover
             logger.warning(f"Unknown SSE event: {sse.event}")
@@ -271,14 +281,20 @@ class StreamableHTTPTransport:
                 if isinstance(message, JSONRPCRequest):  # pragma: no branch
                     error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
-                    await ctx.read_stream_writer.send(session_message)
+                    try:
+                        await ctx.read_stream_writer.send(session_message)
+                    except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
+                        pass
                 return
 
             if response.status_code >= 400:
                 if isinstance(message, JSONRPCRequest):
                     error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
-                    await ctx.read_stream_writer.send(session_message)
+                    try:
+                        await ctx.read_stream_writer.send(session_message)
+                    except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
+                        pass
                 return
 
             if is_initialization:
@@ -298,7 +314,10 @@ class StreamableHTTPTransport:
                     logger.error(f"Unexpected content type: {content_type}")
                     error_data = ErrorData(code=INVALID_REQUEST, message=f"Unexpected content type: {content_type}")
                     error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
-                    await ctx.read_stream_writer.send(error_msg)
+                    try:
+                        await ctx.read_stream_writer.send(error_msg)
+                    except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
+                        pass
 
     async def _handle_json_response(
         self,
@@ -318,12 +337,18 @@ class StreamableHTTPTransport:
                 self._maybe_extract_protocol_version_from_message(message)
 
             session_message = SessionMessage(message)
-            await read_stream_writer.send(session_message)
+            try:
+                await read_stream_writer.send(session_message)
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
+                return
         except (httpx.StreamError, ValidationError) as exc:
             logger.exception("Error parsing JSON response")
             error_data = ErrorData(code=PARSE_ERROR, message=f"Failed to parse JSON response: {exc}")
             error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=request_id, error=error_data))
-            await read_stream_writer.send(error_msg)
+            try:
+                await read_stream_writer.send(error_msg)
+            except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
+                return
 
     async def _handle_sse_response(
         self,
@@ -533,8 +558,8 @@ async def streamable_http_client(
     Example:
         See examples/snippets/clients/ for usage patterns.
     """
-    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](1)
 
     # Determine if we need to create and manage the client
     client_provided = http_client is not None
@@ -573,6 +598,10 @@ async def streamable_http_client(
                 finally:
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
+                    # Close streams before cancelling to unblock tasks
+                    # waiting on stream send/receive during shutdown.
+                    await read_stream_writer.aclose()
+                    await write_stream.aclose()
                     tg.cancel_scope.cancel()
         finally:
             await read_stream_writer.aclose()

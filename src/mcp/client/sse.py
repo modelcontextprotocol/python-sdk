@@ -57,8 +57,8 @@ async def sse_client(
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    read_stream_writer, read_stream = anyio.create_memory_object_stream(1)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream(1)
 
     async with anyio.create_task_group() as tg:
         try:
@@ -113,11 +113,23 @@ async def sse_client(
                                             logger.debug(f"Received server message: {message}")
                                         except Exception as exc:  # pragma: no cover
                                             logger.exception("Error parsing server message")  # pragma: no cover
-                                            await read_stream_writer.send(exc)  # pragma: no cover
+                                            try:  # pragma: no cover
+                                                await read_stream_writer.send(exc)  # pragma: no cover
+                                            except (  # pragma: no cover
+                                                anyio.ClosedResourceError,
+                                                anyio.BrokenResourceError,
+                                            ):
+                                                return  # pragma: no cover
                                             continue  # pragma: no cover
 
                                         session_message = SessionMessage(message)
-                                        await read_stream_writer.send(session_message)
+                                        try:
+                                            await read_stream_writer.send(session_message)
+                                        except (
+                                            anyio.ClosedResourceError,
+                                            anyio.BrokenResourceError,
+                                        ):  # pragma: no cover
+                                            return  # pragma: no cover
                                     case _:  # pragma: no cover
                                         logger.warning(f"Unknown SSE event: {sse.event}")  # pragma: no cover
                         except SSEError as sse_exc:  # pragma: lax no cover
@@ -125,7 +137,10 @@ async def sse_client(
                             raise sse_exc
                         except Exception as exc:  # pragma: lax no cover
                             logger.exception("Error in sse_reader")
-                            await read_stream_writer.send(exc)
+                            try:
+                                await read_stream_writer.send(exc)
+                            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                                pass
                         finally:
                             await read_stream_writer.aclose()
 
@@ -156,6 +171,8 @@ async def sse_client(
                     try:
                         yield read_stream, write_stream
                     finally:
+                        await read_stream_writer.aclose()
+                        await write_stream.aclose()
                         tg.cancel_scope.cancel()
         finally:
             await read_stream_writer.aclose()
