@@ -184,7 +184,7 @@ class StreamableHTTPSessionManager:
         # Use a request-scoped task group instead of the global one.
         # This ensures the server task is cancelled when the request
         # finishes, preventing zombie tasks from accumulating.
-        # See: https://github.com/modelcontextprotocol/python-sdk/issues/756
+        # See: https://github.com/modelcontextprotocol/python-sdk/issues/1764
         async with anyio.create_task_group() as request_tg:
 
             async def run_request_handler(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
