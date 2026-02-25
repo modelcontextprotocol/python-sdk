@@ -619,14 +619,14 @@ class StreamableHTTPServerTransport:
                         # Then send the message to be processed by the server
                         session_message = self._create_session_message(message, request, request_id, protocol_version)
                         await writer.send(session_message)
-                except Exception:  # pragma: no cover
+                except Exception:
                     logger.exception("SSE response error")
                     await sse_stream_writer.aclose()
                     await self._clean_up_memory_streams(request_id)
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:  # pragma: no cover
+        except Exception as err:
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -809,7 +809,7 @@ class StreamableHTTPServerTransport:
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
-        if not self.mcp_session_id:  # pragma: no cover
+        if not self.mcp_session_id:
             # If we're not using session IDs, return True
             return True
 
