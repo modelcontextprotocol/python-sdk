@@ -151,7 +151,12 @@ class StreamableHTTPSessionManager:
             await self._handle_stateful_request(scope, receive, send)
 
     async def _handle_stateless_request(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Process request in stateless mode - creating a new transport for each request."""
+        """Process request in stateless mode - creating a new transport for each request.
+
+        Uses a request-scoped task group so the server task is automatically
+        cancelled when the request completes, preventing task accumulation in
+        the manager's global task group.
+        """
         logger.debug("Stateless mode: Creating new transport for this request")
         # No session ID needed in stateless mode
         http_transport = StreamableHTTPServerTransport(
@@ -176,16 +181,23 @@ class StreamableHTTPSessionManager:
                 except Exception:  # pragma: no cover
                     logger.exception("Stateless session crashed")
 
-        # Assert task group is not None for type checking
-        assert self._task_group is not None
-        # Start the server task
-        await self._task_group.start(run_stateless_server)
+        # Use a request-scoped task group instead of the global one.
+        # This ensures the server task is cancelled when the request
+        # finishes, preventing zombie tasks from accumulating.
+        # See: https://github.com/modelcontextprotocol/python-sdk/issues/756
+        async with anyio.create_task_group() as request_tg:
 
-        # Handle the HTTP request and return the response
-        await http_transport.handle_request(scope, receive, send)
+            async def run_request_handler(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
+                task_status.started()
+                # Handle the HTTP request and return the response
+                await http_transport.handle_request(scope, receive, send)
+                # Terminate the transport after the request is handled
+                await http_transport.terminate()
+                # Cancel the request-scoped task group to stop the server task
+                request_tg.cancel_scope.cancel()
 
-        # Terminate the transport after the request is handled
-        await http_transport.terminate()
+            await request_tg.start(run_stateless_server)
+            await request_tg.start(run_request_handler)
 
     async def _handle_stateful_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process request in stateful mode - maintaining session state between requests."""
