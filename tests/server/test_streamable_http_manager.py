@@ -290,7 +290,7 @@ async def test_stateless_requests_task_leak_on_client_disconnect():
     via httpx.ASGITransport, and simulates client disconnect by cancelling the
     request task.
     """
-    from mcp.types import CallToolResult, TextContent, Tool
+    from mcp.types import CallToolResult, TextContent
 
     tool_started = anyio.Event()
     tool_gate = anyio.Event()
