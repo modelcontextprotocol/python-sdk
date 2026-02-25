@@ -269,6 +269,97 @@ async def test_stateless_requests_memory_cleanup():
 
 
 @pytest.mark.anyio
+async def test_stateless_requests_task_leak_on_client_disconnect():
+    """Test that stateless tasks don't leak when clients disconnect mid-request.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1764
+
+    Reproduces the production memory leak: a client sends a tool call, the tool
+    handler takes some time, and the client disconnects before the response is
+    delivered. The SSE response pipeline detects the disconnect but app.run()
+    continues in the background. After the tool finishes, the response has
+    nowhere to go, and app.run() blocks on ``async for message in
+    session.incoming_messages`` forever — leaking the task in the global
+    task group.
+
+    The test uses real Server.run() with a real tool handler, real SSE streaming
+    via httpx.ASGITransport, and simulates client disconnect by cancelling the
+    request task.
+    """
+    from mcp.types import CallToolResult, TextContent, Tool
+
+    tool_started = anyio.Event()
+    tool_gate = anyio.Event()
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[Tool(name="slow_tool", description="A slow tool", inputSchema={"type": "object"})]
+        )
+
+    async def handle_call_tool(
+        ctx: ServerRequestContext, params: Any
+    ) -> CallToolResult:
+        tool_started.set()
+        # Simulate a slow tool (e.g., API call to Discovery/Snowflake)
+        await tool_gate.wait()
+        return CallToolResult(content=[TextContent(type="text", text="done")])
+
+    app = Server(
+        "test-stateless-leak",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+
+    host = "testserver"
+    mcp_app = app.streamable_http_app(host=host, stateless_http=True)
+
+    async with (
+        mcp_app.router.lifespan_context(mcp_app),
+        httpx.ASGITransport(mcp_app) as transport,
+    ):
+        session_manager = app._session_manager
+
+        async def make_and_abandon_tool_call():
+            async with httpx.AsyncClient(
+                transport=transport, base_url=f"http://{host}", timeout=30.0
+            ) as http_client:
+                async with Client(
+                    streamable_http_client(f"http://{host}/mcp", http_client=http_client)
+                ) as client:
+                    # Start tool call — this will block until tool completes
+                    # We'll cancel it from outside to simulate disconnect
+                    await client.call_tool("slow_tool", {})
+
+        num_requests = 3
+        for _ in range(num_requests):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(make_and_abandon_tool_call)
+                # Wait for the tool handler to actually start
+                await tool_started.wait()
+                tool_started = anyio.Event()  # Reset for next iteration
+                # Simulate client disconnect by cancelling the request
+                tg.cancel_scope.cancel()
+
+            # Let the tool finish now (response has nowhere to go)
+            tool_gate.set()
+            tool_gate = anyio.Event()  # Reset for next iteration
+
+            # Give tasks a chance to settle
+            await anyio.sleep(0.1)
+
+        # Check for leaked tasks in the session manager's global task group
+        await anyio.sleep(0.1)
+        leaked = len(session_manager._task_group._tasks)
+
+    assert leaked == 0, (
+        f"Expected 0 lingering tasks but found {leaked}. "
+        f"Stateless request tasks are leaking after client disconnect."
+    )
+
+
+@pytest.mark.anyio
 async def test_unknown_session_id_returns_404():
     """Test that requests with unknown session IDs return HTTP 404 per MCP spec."""
     app = Server("test-unknown-session")
