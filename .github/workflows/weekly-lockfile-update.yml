@@ -32,7 +32,7 @@ jobs:
         uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v7
         with:
           commit-message: "chore: update uv.lock with latest dependencies"
-          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          sign-commits: true
           title: "chore: weekly dependency update"
           body-path: pr_body.md
           branch: weekly-lockfile-update
