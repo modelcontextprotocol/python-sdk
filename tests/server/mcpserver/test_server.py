@@ -21,6 +21,7 @@ from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_PARAMS,
     AudioContent,
     BlobResourceContents,
     Completion,
@@ -246,8 +247,8 @@ class TestServerTools:
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
         async with Client(mcp) as client:
-            result = await client.call_tool("my_tool", {"arg1": "value"})
-            assert not hasattr(result, "error")
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert not result.is_error
             assert len(result.content) > 0
 
     async def test_tool_exception_handling(self):
@@ -652,7 +653,7 @@ class TestServerTools:
             assert tools.tools[0].name == "error_tool_fn"
 
     async def test_remove_tool_and_call(self):
-        """Test that calling a removed tool fails appropriately."""
+        """Test that calling a removed tool raises a protocol error."""
         mcp = MCPServer()
         mcp.add_tool(tool_fn)
 
@@ -667,13 +668,12 @@ class TestServerTools:
         # Remove the tool
         mcp.remove_tool("tool_fn")
 
-        # Verify calling removed tool returns an error
+        # Verify calling removed tool raises a protocol error (per MCP spec)
         async with Client(mcp) as client:
-            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
-            assert result.is_error
-            content = result.content[0]
-            assert isinstance(content, TextContent)
-            assert "Unknown tool" in content.text
+            with pytest.raises(MCPError) as exc_info:
+                await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            assert "Unknown tool" in str(exc_info.value)
+            assert exc_info.value.error.code == INVALID_PARAMS
 
 
 class TestServerResources:

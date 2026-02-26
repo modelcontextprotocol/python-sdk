@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.types import Icon, ToolAnnotations
+from mcp.shared.exceptions import MCPError
+from mcp.types import INVALID_PARAMS, Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -87,6 +88,7 @@ class ToolManager:
         """Call a tool by name with arguments."""
         tool = self.get_tool(name)
         if not tool:
-            raise ToolError(f"Unknown tool: {name}")
+            # Unknown tool is a protocol error per MCP spec
+            raise MCPError(code=INVALID_PARAMS, message=f"Unknown tool: {name}")
 
         return await tool.run(arguments, context=context, convert_result=convert_result)

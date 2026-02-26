@@ -10,7 +10,8 @@ from pydantic import AnyUrl
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.server.mcpserver.resources.templates import ResourceTemplate
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.types import Annotations, Icon
+from mcp.shared.exceptions import MCPError
+from mcp.types import RESOURCE_NOT_FOUND, Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -83,7 +84,11 @@ class ResourceManager:
     async def get_resource(
         self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT] | None = None
     ) -> Resource:
-        """Get resource by URI, checking concrete resources first, then templates."""
+        """Get resource by URI, checking concrete resources first, then templates.
+
+        Raises:
+            MCPError: If the resource is not found (RESOURCE_NOT_FOUND error code).
+        """
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
 
@@ -99,7 +104,8 @@ class ResourceManager:
                 except Exception as e:  # pragma: no cover
                     raise ValueError(f"Error creating resource from template: {e}")
 
-        raise ValueError(f"Unknown resource: {uri}")
+        # Resource not found is a protocol error per MCP spec
+        raise MCPError(code=RESOURCE_NOT_FOUND, message=f"Unknown resource: {uri}")
 
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""

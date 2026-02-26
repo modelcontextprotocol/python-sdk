@@ -46,6 +46,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_PARAMS,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
@@ -442,10 +443,7 @@ class MCPServer(Generic[LifespanResultT]):
         """Read a resource by URI."""
 
         context = self.get_context()
-        try:
-            resource = await self._resource_manager.get_resource(uri, context=context)
-        except ValueError:
-            raise ResourceError(f"Unknown resource: {uri}")
+        resource = await self._resource_manager.get_resource(uri, context=context)
 
         try:
             content = await resource.read()
@@ -1092,7 +1090,7 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
-                raise ValueError(f"Unknown prompt: {name}")
+                raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {name}")
 
             messages = await prompt.render(arguments, context=self.get_context())
 
@@ -1100,6 +1098,8 @@ class MCPServer(Generic[LifespanResultT]):
                 description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(messages),
             )
+        except MCPError:
+            raise
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))

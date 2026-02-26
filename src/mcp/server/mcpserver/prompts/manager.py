@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
+from mcp.shared.exceptions import MCPError
+from mcp.types import INVALID_PARAMS
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -54,6 +56,7 @@ class PromptManager:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
-            raise ValueError(f"Unknown prompt: {name}")
+            # Unknown prompt is a protocol error per MCP spec
+            raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {name}")
 
         return await prompt.render(arguments, context=context)
