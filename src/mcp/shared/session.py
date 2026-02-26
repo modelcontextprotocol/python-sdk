@@ -102,7 +102,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
-    ) -> None:
+    ) -> bool:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
             if self._completed:  # pragma: no branch
@@ -111,7 +111,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             self._entered = False
             if not self._cancel_scope:  # pragma: no cover
                 raise RuntimeError("No active cancel scope")
-            self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
+            return self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
 
     async def respond(self, response: SendResultT | ErrorData) -> None:
         """Send a response for this request.
