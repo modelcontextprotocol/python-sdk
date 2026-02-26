@@ -313,6 +313,7 @@ async def test_stateless_requests_task_leak_on_client_disconnect():
         httpx.ASGITransport(mcp_app) as transport,
     ):
         session_manager = app._session_manager
+        assert session_manager is not None
 
         async def make_and_abandon_tool_call():
             async with httpx.AsyncClient(transport=transport, base_url=f"http://{host}", timeout=30.0) as http_client:
