@@ -102,7 +102,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
-    ) -> None:
+    ) -> bool:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
             if self._completed:  # pragma: no branch
