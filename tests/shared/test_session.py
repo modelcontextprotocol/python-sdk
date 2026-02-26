@@ -259,6 +259,76 @@ async def test_response_id_non_numeric_string_no_match():
 
 
 @pytest.mark.anyio
+async def test_response_id_non_canonical_numeric_string_no_match():
+    """Test that non-canonical numeric IDs don't collide with integer request IDs.
+
+    If a server returns ``"id": "01"``, it should not match a pending request with
+    integer ID ``1``.
+    """
+    ev_timeout = anyio.Event()
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def mock_server():
+            """Respond to ping #1, then send a non-canonical ID for ping #2."""
+            first_message = await server_read.receive()
+            assert isinstance(first_message, SessionMessage)
+            assert isinstance(first_message.message, JSONRPCRequest)
+            first_request_id = first_message.message.id
+
+            # Let the first request complete so the second request is sent.
+            await server_write.send(
+                SessionMessage(
+                    message=JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=first_request_id,
+                        result={},
+                    )
+                )
+            )
+
+            second_message = await server_read.receive()
+            assert isinstance(second_message, SessionMessage)
+            assert isinstance(second_message.message, JSONRPCRequest)
+            second_request_id = second_message.message.id
+            assert second_request_id == 1
+
+            response = JSONRPCResponse(
+                jsonrpc="2.0",
+                id="01",  # Non-canonical representation of 1
+                result={},
+            )
+            await server_write.send(SessionMessage(message=response))
+
+        async def make_requests(client_session: ClientSession):
+            # First request consumes request ID 0 so the second request uses ID 1.
+            await client_session.send_ping()
+
+            try:
+                await client_session.send_request(
+                    types.PingRequest(),
+                    types.EmptyResult,
+                    request_read_timeout_seconds=0.5,
+                )
+                pytest.fail("Expected timeout")  # pragma: no cover
+            except MCPError as e:
+                assert "Timed out" in str(e)
+                ev_timeout.set()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(read_stream=client_read, write_stream=client_write) as client_session,
+        ):
+            tg.start_soon(mock_server)
+            tg.start_soon(make_requests, client_session)
+
+            with anyio.fail_after(2):  # pragma: no branch
+                await ev_timeout.wait()
+
+
+@pytest.mark.anyio
 async def test_connection_closed():
     """Test that pending requests are cancelled when the connection is closed remotely."""
 
