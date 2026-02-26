@@ -257,19 +257,15 @@ async def test_stateless_requests_memory_cleanup():
             await manager.handle_request(scope, mock_receive, mock_send)
 
             # Verify transport was created
-            assert len(created_transports) == 1, "Should have created one transport"  # pragma: lax no cover
+            assert len(created_transports) == 1, "Should have created one transport"
 
-            transport = created_transports[0]  # pragma: lax no cover
+            transport = created_transports[0]
 
             # The key assertion - transport should be terminated
-            assert transport._terminated, (
-                "Transport should be terminated after stateless request"
-            )  # pragma: lax no cover
+            assert transport._terminated, "Transport should be terminated after stateless request"
 
             # Verify internal state is cleaned up
-            assert len(transport._request_streams) == 0, (
-                "Transport should have no active request streams"
-            )  # pragma: lax no cover
+            assert len(transport._request_streams) == 0, "Transport should have no active request streams"
 
 
 @pytest.mark.anyio

@@ -186,19 +186,12 @@ class StreamableHTTPSessionManager:
         # finishes, preventing zombie tasks from accumulating.
         # See: https://github.com/modelcontextprotocol/python-sdk/issues/1764
         async with anyio.create_task_group() as request_tg:
-
-            async def run_request_handler(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
-                task_status.started()
-                # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
-                # Cancel the request-scoped task group to stop the server task.
-                # This ensures the Cancelled exception reaches the server task
-                # before terminate() closes the streams, avoiding a race between
-                # Cancelled and ClosedResourceError in the message router.
-                request_tg.cancel_scope.cancel()
-
             await request_tg.start(run_stateless_server)
-            await request_tg.start(run_request_handler)
+            # Handle the HTTP request directly in the caller's context
+            # (not as a child task) so execution flows back naturally.
+            await http_transport.handle_request(scope, receive, send)
+            # Cancel the request-scoped task group to stop the server task.
+            request_tg.cancel_scope.cancel()
 
         # Terminate after the task group exits — the server task is already
         # cancelled at this point, so this is just cleanup (sets _terminated
