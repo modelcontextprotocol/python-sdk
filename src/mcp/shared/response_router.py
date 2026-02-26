@@ -25,15 +25,19 @@ class ResponseRouter(Protocol):
     and deliver the response/error to the appropriate handler.
 
     Example:
+        <!-- snippet-source #ResponseRouter_usage -->
         ```python
         class TaskResultHandler(ResponseRouter):
-            def route_response(self, request_id, response):
+            _pending_requests: dict[RequestId, Resolver[dict[str, Any]]]
+
+            def route_response(self, request_id: Any, response: Any) -> bool:
                 resolver = self._pending_requests.pop(request_id, None)
                 if resolver:
                     resolver.set_result(response)
                     return True
                 return False
         ```
+        <!-- /snippet-source -->
     """
 
     def route_response(self, request_id: RequestId, response: dict[str, Any]) -> bool:

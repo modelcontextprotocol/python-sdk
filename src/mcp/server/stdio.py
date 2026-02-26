@@ -5,6 +5,7 @@ that can be used to communicate with an MCP client through standard input/output
 streams.
 
 Example:
+    <!-- snippet-source #module_overview -->
     ```python
     async def run_server():
         async with stdio_server() as (read_stream, write_stream):
@@ -15,6 +16,7 @@ Example:
 
     anyio.run(run_server)
     ```
+    <!-- /snippet-source -->
 """
 
 import sys

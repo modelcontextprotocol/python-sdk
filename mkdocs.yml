@@ -13,6 +13,8 @@ site_url: https://modelcontextprotocol.github.io/python-sdk
 nav:
   - Introduction: index.md
   - Installation: installation.md
+  - Server Quickstart: server-quickstart.md
+  - Client Quickstart: client-quickstart.md
   - Migration Guide: migration.md
   - Documentation:
       - Concepts: concepts.md
