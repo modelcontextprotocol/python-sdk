@@ -80,6 +80,7 @@ class TaskResultHandler:
         request: GetTaskPayloadRequest,
         session: ServerSession,
         request_id: RequestId,
+        session_id: str,
     ) -> GetTaskPayloadResult:
         """Handle a tasks/result request.
 
@@ -94,6 +95,7 @@ class TaskResultHandler:
             request: The GetTaskPayloadRequest
             session: The server session for sending messages
             request_id: The request ID for relatedRequestId routing
+            session_id: Session identifier for access control.
 
         Returns:
             GetTaskPayloadResult with the task's final payload
@@ -101,7 +103,7 @@ class TaskResultHandler:
         task_id = request.params.task_id
 
         while True:
-            task = await self._store.get_task(task_id)
+            task = await self._store.get_task(task_id, session_id=session_id)
             if task is None:
                 raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
@@ -109,7 +111,7 @@ class TaskResultHandler:
 
             # If task is terminal, return result
             if is_terminal(task.status):
-                result = await self._store.get_result(task_id)
+                result = await self._store.get_result(task_id, session_id=session_id)
                 # GetTaskPayloadResult is a Result with extra="allow"
                 # The stored result contains the actual payload data
                 # Per spec: tasks/result MUST include _meta with related-task metadata

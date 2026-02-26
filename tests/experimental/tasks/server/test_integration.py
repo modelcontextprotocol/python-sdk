@@ -75,13 +75,13 @@ async def test_task_lifecycle_with_task_execution() -> None:
         if params.name == "process_data" and ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
-            task = await app.store.create_task(task_metadata)
+            task = await app.store.create_task(task_metadata, session_id="test-session")
 
             done_event = Event()
             app.task_done_events[task.task_id] = done_event
 
             async def do_work() -> None:
-                async with task_execution(task.task_id, app.store) as task_ctx:
+                async with task_execution(task.task_id, app.store, session_id="test-session") as task_ctx:
                     await task_ctx.update_status("Processing input...")
                     input_value = (params.arguments or {}).get("input", "")
                     result_text = f"Processed: {input_value.upper()}"
@@ -95,7 +95,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
         app = ctx.lifespan_context
-        task = await app.store.get_task(params.task_id)
+        task = await app.store.get_task(params.task_id, session_id="test-session")
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,
@@ -111,7 +111,7 @@ async def test_task_lifecycle_with_task_execution() -> None:
         ctx: ServerRequestContext[AppContext], params: GetTaskPayloadRequestParams
     ) -> GetTaskPayloadResult:
         app = ctx.lifespan_context
-        result = await app.store.get_result(params.task_id)
+        result = await app.store.get_result(params.task_id, session_id="test-session")
         assert result is not None, f"Test setup error: result for {params.task_id} should exist"
         assert isinstance(result, CallToolResult)
         return GetTaskPayloadResult(**result.model_dump())
@@ -183,13 +183,13 @@ async def test_task_auto_fails_on_exception() -> None:
         if params.name == "failing_task" and ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
-            task = await app.store.create_task(task_metadata)
+            task = await app.store.create_task(task_metadata, session_id="test-session")
 
             done_event = Event()
             app.task_done_events[task.task_id] = done_event
 
             async def do_failing_work() -> None:
-                async with task_execution(task.task_id, app.store) as task_ctx:
+                async with task_execution(task.task_id, app.store, session_id="test-session") as task_ctx:
                     await task_ctx.update_status("About to fail...")
                     raise RuntimeError("Something went wrong!")
                 # This line is reached because task_execution suppresses the exception
@@ -202,7 +202,7 @@ async def test_task_auto_fails_on_exception() -> None:
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
         app = ctx.lifespan_context
-        task = await app.store.get_task(params.task_id)
+        task = await app.store.get_task(params.task_id, session_id="test-session")
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,

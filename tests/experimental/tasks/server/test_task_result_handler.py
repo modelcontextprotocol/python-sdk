@@ -51,16 +51,16 @@ async def test_handle_returns_result_for_completed_task(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that handle() returns the stored result for a completed task."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
     result = CallToolResult(content=[TextContent(type="text", text="Done!")])
-    await store.store_result(task.task_id, result)
-    await store.update_task(task.task_id, status="completed")
+    await store.store_result(task.task_id, result, session_id="test-session")
+    await store.update_task(task.task_id, status="completed", session_id="test-session")
 
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
 
     request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
-    response = await handler.handle(request, mock_session, "req-1")
+    response = await handler.handle(request, mock_session, "req-1", "test-session")
 
     assert response is not None
     assert response.meta is not None
@@ -76,7 +76,7 @@ async def test_handle_raises_for_nonexistent_task(
     request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="nonexistent"))
 
     with pytest.raises(MCPError) as exc_info:
-        await handler.handle(request, mock_session, "req-1")
+        await handler.handle(request, mock_session, "req-1", "test-session")
 
     assert "not found" in exc_info.value.error.message
 
@@ -86,14 +86,14 @@ async def test_handle_returns_empty_result_when_no_result_stored(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that handle() returns minimal result when task completed without stored result."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
-    await store.update_task(task.task_id, status="completed")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
+    await store.update_task(task.task_id, status="completed", session_id="test-session")
 
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
 
     request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
-    response = await handler.handle(request, mock_session, "req-1")
+    response = await handler.handle(request, mock_session, "req-1", "test-session")
 
     assert response is not None
     assert response.meta is not None
@@ -105,7 +105,7 @@ async def test_handle_delivers_queued_messages(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that handle() delivers queued messages before returning."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
 
     queued_msg = QueuedMessage(
         type="notification",
@@ -117,7 +117,7 @@ async def test_handle_delivers_queued_messages(
         ),
     )
     await queue.enqueue(task.task_id, queued_msg)
-    await store.update_task(task.task_id, status="completed")
+    await store.update_task(task.task_id, status="completed", session_id="test-session")
 
     sent_messages: list[SessionMessage] = []
 
@@ -128,7 +128,7 @@ async def test_handle_delivers_queued_messages(
     mock_session.send_message = track_send
 
     request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
-    await handler.handle(request, mock_session, "req-1")
+    await handler.handle(request, mock_session, "req-1", "test-session")
 
     assert len(sent_messages) == 1
 
@@ -138,7 +138,7 @@ async def test_handle_waits_for_task_completion(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that handle() waits for task to complete before returning."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
 
     mock_session = Mock()
     mock_session.send_message = AsyncMock()
@@ -147,7 +147,7 @@ async def test_handle_waits_for_task_completion(
     result_holder: list[GetTaskPayloadResult | None] = [None]
 
     async def run_handle() -> None:
-        result_holder[0] = await handler.handle(request, mock_session, "req-1")
+        result_holder[0] = await handler.handle(request, mock_session, "req-1", "test-session")
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_handle)
@@ -156,8 +156,10 @@ async def test_handle_waits_for_task_completion(
         while task.task_id not in store._update_events:
             await anyio.sleep(0)
 
-        await store.store_result(task.task_id, CallToolResult(content=[TextContent(type="text", text="Done")]))
-        await store.update_task(task.task_id, status="completed")
+        await store.store_result(
+            task.task_id, CallToolResult(content=[TextContent(type="text", text="Done")]), session_id="test-session"
+        )
+        await store.update_task(task.task_id, status="completed", session_id="test-session")
 
     assert result_holder[0] is not None
 
@@ -234,7 +236,7 @@ async def test_deliver_registers_resolver_for_request_messages(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that _deliver_queued_messages registers resolvers for request messages."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
 
     resolver: Resolver[dict[str, Any]] = Resolver()
     queued_msg = QueuedMessage(
@@ -264,7 +266,7 @@ async def test_deliver_skips_resolver_registration_when_no_original_id(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that _deliver_queued_messages skips resolver registration when original_request_id is None."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
 
     resolver: Resolver[dict[str, Any]] = Resolver()
     queued_msg = QueuedMessage(
@@ -296,7 +298,7 @@ async def test_wait_for_task_update_handles_store_exception(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that _wait_for_task_update handles store exception gracefully."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
 
     # Make wait_for_update raise an exception
     async def failing_wait(task_id: str) -> None:
@@ -333,7 +335,7 @@ async def test_wait_for_task_update_handles_queue_exception(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
     """Test that _wait_for_task_update handles queue exception gracefully."""
-    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task", session_id="test-session")
 
     # Make wait_for_message raise an exception
     async def failing_wait(task_id: str) -> None:
@@ -346,7 +348,7 @@ async def test_wait_for_task_update_handles_queue_exception(
         # Wait for store to start waiting (event gets created when wait starts)
         while task.task_id not in store._update_events:
             await anyio.sleep(0)
-        await store.update_task(task.task_id, status="completed")
+        await store.update_task(task.task_id, status="completed", session_id="test-session")
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(update_later)

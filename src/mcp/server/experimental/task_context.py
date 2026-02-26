@@ -90,7 +90,11 @@ class ServerTaskContext:
             queue: The message queue for elicitation/sampling
             handler: The result handler for response routing (required for elicit/create_message)
         """
-        self._ctx = TaskContext(task=task, store=store)
+        session_id = session.session_id
+        if session_id is None:
+            raise RuntimeError("Session ID is required for task operations but session has no ID.")
+        self._session_id = session_id
+        self._ctx = TaskContext(task=task, store=store, session_id=session_id)
         self._session = session
         self._queue = queue
         self._handler = handler
@@ -212,7 +216,7 @@ class ServerTaskContext:
             raise RuntimeError("handler is required for elicit(). Pass handler= to ServerTaskContext.")
 
         # Update status to input_required
-        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED, session_id=self._session_id)
 
         # Build the request using session's helper
         request = self._session._build_elicit_form_request(  # pyright: ignore[reportPrivateUsage]
@@ -236,12 +240,12 @@ class ServerTaskContext:
         try:
             # Wait for response (routed back via TaskResultHandler)
             response_data = await resolver.wait()
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             return ElicitResult.model_validate(response_data)
         except anyio.get_cancelled_exc_class():
             # This path is tested in test_elicit_restores_status_on_cancellation
             # which verifies status is restored to "working" after cancellation.
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             raise
 
     async def elicit_url(
@@ -281,7 +285,7 @@ class ServerTaskContext:
             raise RuntimeError("handler is required for elicit_url(). Pass handler= to ServerTaskContext.")
 
         # Update status to input_required
-        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED, session_id=self._session_id)
 
         # Build the request using session's helper
         request = self._session._build_elicit_url_request(  # pyright: ignore[reportPrivateUsage]
@@ -306,10 +310,10 @@ class ServerTaskContext:
         try:
             # Wait for response (routed back via TaskResultHandler)
             response_data = await resolver.wait()
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             return ElicitResult.model_validate(response_data)
         except anyio.get_cancelled_exc_class():  # pragma: no cover
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             raise
 
     async def create_message(
@@ -364,7 +368,7 @@ class ServerTaskContext:
             raise RuntimeError("handler is required for create_message(). Pass handler= to ServerTaskContext.")
 
         # Update status to input_required
-        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED, session_id=self._session_id)
 
         # Build the request using session's helper
         request = self._session._build_create_message_request(  # pyright: ignore[reportPrivateUsage]
@@ -396,12 +400,12 @@ class ServerTaskContext:
         try:
             # Wait for response (routed back via TaskResultHandler)
             response_data = await resolver.wait()
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             return CreateMessageResult.model_validate(response_data)
         except anyio.get_cancelled_exc_class():
             # This path is tested in test_create_message_restores_status_on_cancellation
             # which verifies status is restored to "working" after cancellation.
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             raise
 
     async def elicit_as_task(
@@ -437,7 +441,7 @@ class ServerTaskContext:
             raise RuntimeError("handler is required for elicit_as_task()")
 
         # Update status to input_required
-        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED, session_id=self._session_id)
 
         request = self._session._build_elicit_form_request(  # pyright: ignore[reportPrivateUsage]
             message=message,
@@ -474,11 +478,11 @@ class ServerTaskContext:
                 ElicitResult,
             )
 
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             return result
 
         except anyio.get_cancelled_exc_class():  # pragma: no cover
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             raise
 
     async def create_message_as_task(
@@ -533,7 +537,7 @@ class ServerTaskContext:
             raise RuntimeError("handler is required for create_message_as_task()")
 
         # Update status to input_required
-        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED)
+        await self._store.update_task(self.task_id, status=TASK_STATUS_INPUT_REQUIRED, session_id=self._session_id)
 
         # Build request WITH task field for task-augmented sampling
         request = self._session._build_create_message_request(  # pyright: ignore[reportPrivateUsage]
@@ -579,9 +583,9 @@ class ServerTaskContext:
                 CreateMessageResult,
             )
 
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             return result
 
         except anyio.get_cancelled_exc_class():  # pragma: no cover
-            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING)
+            await self._store.update_task(self.task_id, status=TASK_STATUS_WORKING, session_id=self._session_id)
             raise

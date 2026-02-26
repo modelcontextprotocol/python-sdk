@@ -56,13 +56,13 @@ async def _handle_call_tool_with_done_event(
     if ctx.experimental.is_task:
         task_metadata = ctx.experimental.task_metadata
         assert task_metadata is not None
-        task = await app.store.create_task(task_metadata)
+        task = await app.store.create_task(task_metadata, session_id="test-session")
 
         done_event = Event()
         app.task_done_events[task.task_id] = done_event
 
         async def do_work() -> None:
-            async with task_execution(task.task_id, app.store) as task_ctx:
+            async with task_execution(task.task_id, app.store, session_id="test-session") as task_ctx:
                 await task_ctx.complete(CallToolResult(content=[TextContent(type="text", text=result_text)]))
             done_event.set()
 
@@ -88,7 +88,7 @@ async def test_session_experimental_get_task() -> None:
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
         app = ctx.lifespan_context
-        task = await app.store.get_task(params.task_id)
+        task = await app.store.get_task(params.task_id, session_id="test-session")
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,
@@ -146,7 +146,7 @@ async def test_session_experimental_get_task_result() -> None:
         ctx: ServerRequestContext[AppContext], params: GetTaskPayloadRequestParams
     ) -> GetTaskPayloadResult:
         app = ctx.lifespan_context
-        result = await app.store.get_result(params.task_id)
+        result = await app.store.get_result(params.task_id, session_id="test-session")
         assert result is not None, f"Test setup error: result for {params.task_id} should exist"
         assert isinstance(result, CallToolResult)
         return GetTaskPayloadResult(**result.model_dump())
@@ -195,7 +195,7 @@ async def test_session_experimental_list_tasks() -> None:
     ) -> ListTasksResult:
         app = ctx.lifespan_context
         cursor = params.cursor if params else None
-        tasks_list, next_cursor = await app.store.list_tasks(cursor=cursor)
+        tasks_list, next_cursor = await app.store.list_tasks(cursor=cursor, session_id="test-session")
         return ListTasksResult(tasks=tasks_list, next_cursor=next_cursor)
 
     server: Server[AppContext] = Server(
@@ -239,14 +239,14 @@ async def test_session_experimental_cancel_task() -> None:
         if ctx.experimental.is_task:
             task_metadata = ctx.experimental.task_metadata
             assert task_metadata is not None
-            task = await app.store.create_task(task_metadata)
+            task = await app.store.create_task(task_metadata, session_id="test-session")
             # Don't start any work - task stays in "working" status
             return CreateTaskResult(task=task)
         raise NotImplementedError
 
     async def handle_get_task(ctx: ServerRequestContext[AppContext], params: GetTaskRequestParams) -> GetTaskResult:
         app = ctx.lifespan_context
-        task = await app.store.get_task(params.task_id)
+        task = await app.store.get_task(params.task_id, session_id="test-session")
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
         return GetTaskResult(
             task_id=task.task_id,
@@ -262,10 +262,10 @@ async def test_session_experimental_cancel_task() -> None:
         ctx: ServerRequestContext[AppContext], params: CancelTaskRequestParams
     ) -> CancelTaskResult:
         app = ctx.lifespan_context
-        task = await app.store.get_task(params.task_id)
+        task = await app.store.get_task(params.task_id, session_id="test-session")
         assert task is not None, f"Test setup error: task {params.task_id} should exist"
-        await app.store.update_task(params.task_id, status="cancelled")
-        updated_task = await app.store.get_task(params.task_id)
+        await app.store.update_task(params.task_id, status="cancelled", session_id="test-session")
+        updated_task = await app.store.get_task(params.task_id, session_id="test-session")
         assert updated_task is not None
         return CancelTaskResult(
             task_id=updated_task.task_id,

@@ -371,6 +371,7 @@ class Server(Generic[LifespanResultT]):
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
         stateless: bool = False,
+        session_id: str | None = None,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
@@ -380,6 +381,7 @@ class Server(Generic[LifespanResultT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    session_id=session_id,
                 )
             )
 
