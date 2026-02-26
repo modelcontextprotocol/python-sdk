@@ -29,7 +29,14 @@ from starlette.routing import Mount
 
 from mcp import MCPError, types
 from mcp.client.session import ClientSession
-from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
+from mcp.client.streamable_http import (
+    MAX_RECONNECTION_ATTEMPTS,
+    StreamableHTTPTransport,
+    streamable_http_client,
+)
+from mcp.client.streamable_http import (
+    RequestContext as TransportRequestContext,
+)
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
     MCP_PROTOCOL_VERSION_HEADER,
@@ -2247,3 +2254,79 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_sse_read_timeout_propagates_error(basic_server: None, basic_server_url: str):
+    """SSE read timeout should propagate MCPError instead of hanging."""
+    # Create client with very short SSE read timeout
+    short_timeout = httpx.Timeout(30.0, read=0.5)
+    async with httpx.AsyncClient(timeout=short_timeout, follow_redirects=True) as http_client:
+        async with streamable_http_client(f"{basic_server_url}/mcp", http_client=http_client) as (
+            read_stream,
+            write_stream,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+
+                # Read a "slow" resource that takes 2s — longer than our 0.5s read timeout
+                with pytest.raises(MCPError):  # pragma: no branch
+                    with anyio.fail_after(10):  # pragma: no branch
+                        await session.read_resource("slow://test")
+
+
+@pytest.mark.anyio
+async def test_sse_error_when_reconnection_exhausted(
+    event_server: tuple[SimpleEventStore, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """When SSE stream closes after events and reconnection fails, MCPError is raised."""
+    _, server_url = event_server
+
+    async def _always_fail_reconnection(
+        self: Any, ctx: Any, last_event_id: Any, retry_interval_ms: Any = None, attempt: int = 0
+    ) -> bool:
+        return False
+
+    monkeypatch.setattr(StreamableHTTPTransport, "_handle_reconnection", _always_fail_reconnection)
+
+    async with streamable_http_client(f"{server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+            await session.initialize()
+
+            # tool_with_stream_close sends a priming event (setting last_event_id),
+            # then closes the SSE stream. With reconnection patched to fail,
+            # _handle_sse_response falls through to send the error.
+            with pytest.raises(MCPError):  # pragma: no branch
+                with anyio.fail_after(10):  # pragma: no branch
+                    await session.call_tool("tool_with_stream_close", {})
+
+
+@pytest.mark.anyio
+async def test_handle_reconnection_returns_false_on_max_attempts():
+    """_handle_reconnection returns False when max attempts exceeded."""
+    transport = StreamableHTTPTransport(url="http://localhost:9999/mcp")
+
+    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    message = JSONRPCRequest(jsonrpc="2.0", id=42, method="tools/call", params={"name": "test"})
+    session_message = SessionMessage(message)
+
+    ctx = TransportRequestContext(
+        client=httpx.AsyncClient(),
+        session_id="test-session",
+        session_message=session_message,
+        metadata=None,
+        read_stream_writer=read_stream_writer,
+    )
+
+    try:
+        with anyio.fail_after(5):
+            result = await transport._handle_reconnection(
+                ctx, last_event_id="evt-1", retry_interval_ms=None, attempt=MAX_RECONNECTION_ATTEMPTS
+            )
+            assert result is False
+    finally:
+        await read_stream_writer.aclose()
+        await read_stream.aclose()
+        await ctx.client.aclose()
