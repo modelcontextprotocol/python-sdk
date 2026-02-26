@@ -319,7 +319,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError("No callback handler provided for authorization code grant")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.authorization_endpoint:
-            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)  # pragma: no cover
+            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             auth_endpoint = urljoin(auth_base_url, "/authorize")
@@ -342,10 +342,15 @@ class OAuthClientProvider(httpx.Auth):
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
-            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707  # pragma: no cover
+            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_metadata.scope:  # pragma: no branch
             auth_params["scope"] = self.context.client_metadata.scope
+
+            # OIDC requires prompt=consent when offline_access is requested
+            # https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+            if "offline_access" in self.context.client_metadata.scope.split():
+                auth_params["prompt"] = "consent"
 
         authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
         await self.context.redirect_handler(authorization_url)
@@ -575,6 +580,7 @@ class OAuthClientProvider(httpx.Auth):
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
+                        self.context.client_metadata.grant_types,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
@@ -621,7 +627,10 @@ class OAuthClientProvider(httpx.Auth):
                     try:
                         # Step 2a: Update the required scopes
                         self.context.client_metadata.scope = get_client_metadata_scopes(
-                            extract_scope_from_www_auth(response), self.context.protected_resource_metadata
+                            extract_scope_from_www_auth(response),
+                            self.context.protected_resource_metadata,
+                            self.context.oauth_metadata,
+                            self.context.client_metadata.grant_types,
                         )
 
                         # Step 2b: Perform (re-)authorization and token exchange
