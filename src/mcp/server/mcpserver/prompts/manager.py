@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.mcpserver.prompts.base import Message, Prompt
@@ -17,9 +18,14 @@ logger = get_logger(__name__)
 class PromptManager:
     """Manages MCPServer prompts."""
 
-    def __init__(self, warn_on_duplicate_prompts: bool = True):
+    def __init__(
+        self,
+        warn_on_duplicate_prompts: bool = True,
+        dependency_overrides: dict[Callable[..., Any], Callable[..., Any]] | None = None,
+    ):
         self._prompts: dict[str, Prompt] = {}
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
+        self.dependency_overrides = dependency_overrides if dependency_overrides is not None else {}
 
     def get_prompt(self, name: str) -> Prompt | None:
         """Get prompt by name."""
@@ -56,4 +62,11 @@ class PromptManager:
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
 
-        return await prompt.render(arguments, context=context)
+        # Create dependency resolver if prompt has dependencies
+        dependency_resolver = None
+        if prompt.dependency_kwarg_names:  # pragma: no cover
+            from mcp.server.mcpserver.utilities.dependency_resolver import DependencyResolver
+
+            dependency_resolver = DependencyResolver(context=context, overrides=self.dependency_overrides)
+
+        return await prompt.render(arguments, context=context, dependency_resolver=dependency_resolver)

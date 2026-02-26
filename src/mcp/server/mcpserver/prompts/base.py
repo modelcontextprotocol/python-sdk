@@ -10,6 +10,7 @@ import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
+from mcp.server.mcpserver.utilities.dependencies import find_dependency_parameters
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 from mcp.types import ContentBlock, Icon, TextContent
 
@@ -72,6 +73,11 @@ class Prompt(BaseModel):
     fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this prompt")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context", exclude=True)
+    dependency_kwarg_names: list[str] = Field(
+        default_factory=list,
+        description="Names of kwargs that receive dependencies",
+        exclude=True,
+    )
 
     @classmethod
     def from_function(
@@ -100,10 +106,19 @@ class Prompt(BaseModel):
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
 
-        # Get schema from func_metadata, excluding context parameter
+        # Find dependency parameters
+        dependency_params = find_dependency_parameters(fn)
+        dependency_kwarg_names = list(dependency_params.keys())
+
+        # Get schema from func_metadata, excluding context and dependency parameters
+        skip_names: list[str] = []
+        if context_kwarg:
+            skip_names.append(context_kwarg)
+        skip_names.extend(dependency_kwarg_names)
+
         func_arg_metadata = func_metadata(
             fn,
-            skip_names=[context_kwarg] if context_kwarg is not None else [],
+            skip_names=skip_names,
         )
         parameters = func_arg_metadata.arg_model.model_json_schema()
 
@@ -131,12 +146,14 @@ class Prompt(BaseModel):
             fn=fn,
             icons=icons,
             context_kwarg=context_kwarg,
+            dependency_kwarg_names=dependency_kwarg_names,
         )
 
     async def render(
         self,
         arguments: dict[str, Any] | None = None,
         context: Context[LifespanContextT, RequestT] | None = None,
+        dependency_resolver: Any = None,
     ) -> list[Message]:
         """Render the prompt with arguments."""
         # Validate required arguments
@@ -150,6 +167,13 @@ class Prompt(BaseModel):
         try:
             # Add context to arguments if needed
             call_args = inject_context(self.fn, arguments or {}, context, self.context_kwarg)
+
+            # Resolve dependencies if a resolver is provided
+            if self.dependency_kwarg_names and dependency_resolver:  # pragma: no cover
+                deps = find_dependency_parameters(self.fn)
+                for dep_name in self.dependency_kwarg_names:
+                    if dep_name in deps:
+                        call_args[dep_name] = await dependency_resolver.resolve(dep_name, deps[dep_name])
 
             # Call function and check if result is a coroutine
             result = self.fn(**call_args)
