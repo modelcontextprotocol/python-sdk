@@ -413,6 +413,58 @@ class TestContextHandling:
         with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
             await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
 
+    def test_context_parameter_detection_callable_class(self):
+        """Test that context parameters are detected in callable class instances."""
+
+        class MyTool:
+            def __init__(self):
+                self.__name__ = "my_tool"
+
+            def __call__(self, x: int, ctx: Context[ServerSessionT, None]) -> str:  # pragma: no cover
+                return str(x)
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyTool())
+        assert tool.context_kwarg == "ctx"
+        assert "ctx" not in json.dumps(tool.parameters)
+        assert "Context" not in json.dumps(tool.parameters)
+
+    def test_context_parameter_detection_async_callable_class(self):
+        """Test that context parameters are detected in async callable class instances."""
+
+        class MyAsyncTool:
+            def __init__(self):
+                self.__name__ = "my_async_tool"
+
+            async def __call__(self, x: int, ctx: Context[ServerSessionT, None]) -> str:  # pragma: no cover
+                return str(x)
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyAsyncTool())
+        assert tool.context_kwarg == "ctx"
+        assert tool.is_async is True
+        assert "ctx" not in json.dumps(tool.parameters)
+
+    @pytest.mark.anyio
+    async def test_context_injection_callable_class(self):
+        """Test that context is properly injected in callable class tools."""
+
+        class MyTool:
+            def __init__(self):
+                self.__name__ = "my_tool"
+
+            def __call__(self, x: int, ctx: Context[ServerSessionT, None]) -> str:
+                assert isinstance(ctx, Context)
+                return str(x)
+
+        manager = ToolManager()
+        manager.add_tool(MyTool())
+
+        mcp = MCPServer()
+        ctx = mcp.get_context()
+        result = await manager.call_tool("my_tool", {"x": 42}, context=ctx)
+        assert result == "42"
+
 
 class TestToolAnnotations:
     def test_tool_annotations(self):
