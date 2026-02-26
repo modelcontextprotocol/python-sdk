@@ -431,9 +431,10 @@ class BaseSession(
     def _normalize_request_id(self, response_id: RequestId) -> RequestId:
         """Normalize a response ID to match how request IDs are stored.
 
-        Since the client always sends integer IDs, we normalize string IDs
-        to integers when possible. This matches the TypeScript SDK approach:
-        https://github.com/modelcontextprotocol/typescript-sdk/blob/a606fb17909ea454e83aab14c73f14ea45c04448/src/shared/protocol.ts#L861
+        Since the client always sends integer IDs, we normalize canonical numeric
+        string IDs (e.g. ``"0"``, ``"42"``) to integers. Non-canonical numeric
+        strings (e.g. ``"01"``, ``"+1"``) are left as strings to avoid collisions
+        with integer IDs.
 
         Args:
             response_id: The response ID from the incoming message.
@@ -443,9 +444,18 @@ class BaseSession(
         """
         if isinstance(response_id, str):
             try:
-                return int(response_id)
+                int_id = int(response_id)
             except ValueError:
                 logging.warning(f"Response ID {response_id!r} cannot be normalized to match pending requests")
+                return response_id
+
+            if str(int_id) == response_id:
+                return int_id
+
+            logging.warning(
+                "Response ID %r is numeric but non-canonical; not normalizing to avoid ID collisions",
+                response_id,
+            )
         return response_id
 
     async def _handle_response(self, message: SessionMessage) -> None:
