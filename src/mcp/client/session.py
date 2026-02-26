@@ -206,8 +206,10 @@ class ClientSession(
             These APIs are experimental and may change without notice.
 
         Example:
+            ```python
             status = await session.experimental.get_task(task_id)
             result = await session.experimental.get_task_result(task_id, CallToolResult)
+            ```
         """
         if self._experimental_features is None:
             self._experimental_features = ExperimentalClientFeatures(self)

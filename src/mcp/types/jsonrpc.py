@@ -77,7 +77,7 @@ class JSONRPCError(BaseModel):
     """A response to a request that indicates an error occurred."""
 
     jsonrpc: Literal["2.0"]
-    id: RequestId
+    id: RequestId | None
     error: ErrorData
 
 

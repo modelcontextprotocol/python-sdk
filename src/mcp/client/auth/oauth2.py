@@ -215,6 +215,7 @@ class OAuthContext:
 
 class OAuthClientProvider(httpx.Auth):
     """OAuth2 authentication for httpx.
+
     Handles OAuth flow with automatic client registration and token storage.
     """
 
@@ -241,7 +242,7 @@ class OAuthClientProvider(httpx.Auth):
             callback_handler: Handler for authorization callbacks.
             timeout: Timeout for the OAuth flow.
             client_metadata_url: URL-based client ID. When provided and the server
-                advertises client_id_metadata_document_supported=true, this URL will be
+                advertises client_id_metadata_document_supported=True, this URL will be
                 used as the client_id instead of performing dynamic client registration.
                 Must be a valid HTTPS URL with a non-root pathname.
             validate_resource_url: Optional callback to override resource URL validation.
@@ -493,12 +494,6 @@ class OAuthClientProvider(httpx.Auth):
         if not prm_resource:
             return  # pragma: no cover
         default_resource = resource_url_from_server_url(self.context.server_url)
-        # Normalize: Pydantic AnyHttpUrl adds trailing slash to root URLs
-        # (e.g. "https://example.com/") while resource_url_from_server_url may not.
-        if not default_resource.endswith("/"):
-            default_resource += "/"
-        if not prm_resource.endswith("/"):
-            prm_resource += "/"
         if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
             raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
 

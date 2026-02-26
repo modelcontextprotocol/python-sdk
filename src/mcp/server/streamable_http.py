@@ -89,7 +89,7 @@ class EventStore(ABC):
             message: The JSON-RPC message to store, or None for priming events
 
         Returns:
-            The generated event ID for the stored event
+            The generated event ID for the stored event.
         """
         pass  # pragma: no cover
 
@@ -106,7 +106,7 @@ class EventStore(ABC):
             send_callback: A callback function to send events to the client
 
         Returns:
-            The stream ID of the replayed events
+            The stream ID of the replayed events, or None if no events were found.
         """
         pass  # pragma: no cover
 
@@ -169,6 +169,8 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[dict[str, str]]] = {}
         self._terminated = False
+        # Idle timeout cancel scope; managed by the session manager.
+        self.idle_scope: anyio.CancelScope | None = None
 
     @property
     def is_terminated(self) -> bool:
@@ -183,7 +185,7 @@ class StreamableHTTPServerTransport:
         be replayed when the client reconnects with Last-Event-ID.
 
         Use this to implement polling behavior during long-running operations -
-        client will reconnect after the retry interval specified in the priming event.
+        the client will reconnect after the retry interval specified in the priming event.
 
         Args:
             request_id: The request ID whose SSE stream should be closed.
@@ -211,7 +213,7 @@ class StreamableHTTPServerTransport:
         with Last-Event-ID to resume receiving notifications.
 
         Use this to implement polling behavior for the notification stream -
-        client will reconnect after the retry interval specified in the priming event.
+        the client will reconnect after the retry interval specified in the priming event.
 
         Note:
             This is a no-op if there is no active standalone SSE stream.
@@ -298,12 +300,12 @@ class StreamableHTTPServerTransport:
         # Return a properly formatted JSON error response
         error_response = JSONRPCError(
             jsonrpc="2.0",
-            id="server-error",  # We don't have a request ID for general errors
+            id=None,
             error=ErrorData(code=error_code, message=error_message),
         )
 
         return Response(
-            error_response.model_dump_json(by_alias=True, exclude_none=True),
+            error_response.model_dump_json(by_alias=True, exclude_unset=True),
             status_code=status_code,
             headers=response_headers,
         )
@@ -314,7 +316,7 @@ class StreamableHTTPServerTransport:
         status_code: HTTPStatus = HTTPStatus.OK,
         headers: dict[str, str] | None = None,
     ) -> Response:
-        """Create a JSON response from a JSONRPCMessage"""
+        """Create a JSON response from a JSONRPCMessage."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
         if headers:  # pragma: lax no cover
             response_headers.update(headers)
@@ -323,7 +325,7 @@ class StreamableHTTPServerTransport:
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         return Response(
-            response_message.model_dump_json(by_alias=True, exclude_none=True) if response_message else None,
+            response_message.model_dump_json(by_alias=True, exclude_unset=True) if response_message else None,
             status_code=status_code,
             headers=response_headers,
         )
@@ -336,7 +338,7 @@ class StreamableHTTPServerTransport:
         """Create event data dictionary from an EventMessage."""
         event_data = {
             "event": "message",
-            "data": event_message.message.model_dump_json(by_alias=True, exclude_none=True),
+            "data": event_message.message.model_dump_json(by_alias=True, exclude_unset=True),
         }
 
         # If an event ID was provided, include it
@@ -360,7 +362,7 @@ class StreamableHTTPServerTransport:
                 self._request_streams.pop(request_id, None)
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Application entry point that handles all HTTP requests"""
+        """Application entry point that handles all HTTP requests."""
         request = Request(scope, receive)
 
         # Validate request headers for DNS rebinding protection
@@ -534,7 +536,7 @@ class StreamableHTTPServerTransport:
                         if isinstance(event_message.message, JSONRPCResponse | JSONRPCError):
                             response_message = event_message.message
                             break
-                        # For notifications and request, keep waiting
+                        # For notifications and requests, keep waiting
                         else:  # pragma: no cover
                             logger.debug(f"received: {event_message.message.method}")
 
@@ -858,6 +860,7 @@ class StreamableHTTPServerTransport:
 
     async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:  # pragma: no cover
         """Replays events that would have been sent after the specified event ID.
+
         Only used when resumability is enabled.
         """
         event_store = self._event_store
@@ -975,12 +978,11 @@ class StreamableHTTPServerTransport:
                         # Determine which request stream(s) should receive this message
                         message = session_message.message
                         target_request_id = None
-                        # Check if this is a response
-                        if isinstance(message, JSONRPCResponse | JSONRPCError):
-                            response_id = str(message.id)
-                            # If this response is for an existing request stream,
-                            # send it there
-                            target_request_id = response_id
+                        # Check if this is a response with a known request id.
+                        # Null-id errors (e.g., parse errors) fall through to
+                        # the GET stream since they can't be correlated.
+                        if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
+                            target_request_id = str(message.id)
                         # Extract related_request_id from meta if it exists
                         elif (  # pragma: no cover
                             session_message.metadata is not None

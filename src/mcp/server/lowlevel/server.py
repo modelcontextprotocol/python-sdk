@@ -88,9 +88,6 @@ class NotificationOptions:
 async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
 
-    Args:
-        server: The server instance this lifespan is managing
-
     Returns:
         An empty context object
     """
@@ -490,7 +487,7 @@ class Server(Generic[LifespanResultT]):
             except Exception as err:
                 if raise_exceptions:  # pragma: no cover
                     raise err
-                response = types.ErrorData(code=0, message=str(err), data=None)
+                response = types.ErrorData(code=0, message=str(err))
 
             await message.respond(response)
         else:  # pragma: no cover

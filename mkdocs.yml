@@ -112,7 +112,8 @@ watch:
 
 plugins:
   - search
-  - social
+  - social:
+      enabled: !ENV [ENABLE_SOCIAL_CARDS, false]
   - glightbox
   - mkdocstrings:
       handlers:

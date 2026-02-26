@@ -109,7 +109,7 @@ class FunctionResource(Resource):
 class FileResource(Resource):
     """A resource that reads from a file.
 
-    Set is_binary=True to read file as binary data instead of text.
+    Set is_binary=True to read the file as binary data instead of text.
     """
 
     path: Path = Field(description="Path to the file")
