@@ -2247,3 +2247,52 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_exit_with_pending_requests(basic_server: None, basic_server_url: str):
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1805.
+
+    Sends tool calls to a server-side handler that blocks indefinitely (lock
+    never released), then exits the client context while responses are still
+    pending. Verifies that shutdown completes within the timeout and does not
+    hang or busy-loop in AnyIO cancellation delivery.
+    """
+    with anyio.fail_after(10):  # pragma: no branch
+        async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+
+                async with anyio.create_task_group() as tg:  # pragma: no branch
+
+                    async def call_blocked_tool():
+                        try:
+                            await session.call_tool("wait_for_lock_with_notification", {})
+                        except (MCPError, anyio.get_cancelled_exc_class()):
+                            pass
+
+                    # Fire off multiple requests that will block server-side
+                    for _ in range(3):
+                        tg.start_soon(call_blocked_tool)
+
+                    # Give the server a moment to receive them, then bail out
+                    await anyio.sleep(0.2)
+                    tg.cancel_scope.cancel()
+
+    # If we reach here, shutdown completed without hanging.
+    await anyio.sleep(0.1)
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_rapid_connect_disconnect(basic_server: None, basic_server_url: str):
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1805.
+
+    Rapidly connects, initializes, and disconnects multiple times. Verifies no
+    resource leak or cancellation busy-loop across iterations.
+    """
+    for _ in range(5):  # pragma: no branch
+        with anyio.fail_after(10):  # pragma: no branch
+            async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                    await session.initialize()
+    await anyio.sleep(0.1)
