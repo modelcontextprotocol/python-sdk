@@ -272,9 +272,28 @@ async def test_response_id_non_canonical_numeric_string_no_match():
         server_read, server_write = server_streams
 
         async def mock_server():
-            """Receive two requests and reply with a colliding non-canonical ID."""
-            await server_read.receive()  # request id 0
-            await server_read.receive()  # request id 1
+            """Respond to ping #1, then send a non-canonical ID for ping #2."""
+            first_message = await server_read.receive()
+            assert isinstance(first_message, SessionMessage)
+            assert isinstance(first_message.message, JSONRPCRequest)
+            first_request_id = first_message.message.id
+
+            # Let the first request complete so the second request is sent.
+            await server_write.send(
+                SessionMessage(
+                    message=JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=first_request_id,
+                        result={},
+                    )
+                )
+            )
+
+            second_message = await server_read.receive()
+            assert isinstance(second_message, SessionMessage)
+            assert isinstance(second_message.message, JSONRPCRequest)
+            second_request_id = second_message.message.id
+            assert second_request_id == 1
 
             response = JSONRPCResponse(
                 jsonrpc="2.0",
