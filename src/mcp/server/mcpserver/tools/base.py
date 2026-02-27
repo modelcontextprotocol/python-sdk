@@ -13,7 +13,7 @@ from mcp.server.mcpserver.utilities.context_injection import find_context_parame
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
-from mcp.types import Icon, ToolAnnotations
+from mcp.types import Icon, ToolAnnotations, ToolExecution
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -36,6 +36,7 @@ class Tool(BaseModel):
     annotations: ToolAnnotations | None = Field(None, description="Optional annotations for the tool")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
+    execution: ToolExecution | None = Field(default=None, description="Optional execution properties for task support")
 
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
@@ -53,6 +54,7 @@ class Tool(BaseModel):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        execution: ToolExecution | None = None,
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
@@ -87,6 +89,7 @@ class Tool(BaseModel):
             annotations=annotations,
             icons=icons,
             meta=meta,
+            execution=execution,
         )
 
     async def run(
