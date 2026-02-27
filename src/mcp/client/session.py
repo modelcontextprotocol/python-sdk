@@ -5,6 +5,7 @@ from typing import Any, Protocol
 
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.trace import TracerProvider
 from pydantic import TypeAdapter
 
 from mcp import types
@@ -121,8 +122,11 @@ class ClientSession(
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+        tracer_provider: TracerProvider | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
+        super().__init__(
+            read_stream, write_stream, read_timeout_seconds=read_timeout_seconds, tracer_provider=tracer_provider
+        )
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities

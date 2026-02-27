@@ -6,6 +6,8 @@ from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
+from opentelemetry.trace import TracerProvider
+
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import Transport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
@@ -95,6 +97,8 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    tracer_provider: TracerProvider | None = None
+
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
@@ -126,6 +130,7 @@ class Client:
                     message_handler=self.message_handler,
                     client_info=self.client_info,
                     elicitation_callback=self.elicitation_callback,
+                    tracer_provider=self.tracer_provider,
                 )
             )
 
