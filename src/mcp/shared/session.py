@@ -9,6 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.propagate import inject
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
@@ -266,6 +267,9 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
+        # Propagate opentelemetry trace context
+        self._inject_otel_context(request_data)
+
         try:
             jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
             await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
@@ -298,17 +302,36 @@ class BaseSession(
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
+
+        request_data = notification.model_dump(by_alias=True, mode="json", exclude_none=True)
+        # Propagate opentelemetry trace context
+        self._inject_otel_context(request_data)
+        jsonrpc_notification = JSONRPCNotification(jsonrpc="2.0", **request_data)
+
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
-        jsonrpc_notification = JSONRPCNotification(
-            jsonrpc="2.0",
-            **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
-        )
         session_message = SessionMessage(
             message=jsonrpc_notification,
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
         await self._write_stream.send(session_message)
+
+    def _inject_otel_context(self, request: dict[str, Any]) -> None:
+        """Propagate OpenTelemetry context in `_meta`.
+
+        See
+        - SEP414 https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414
+        - OpenTelemetry semantic conventions
+          https://github.com/open-telemetry/semantic-conventions/blob/v1.39.0/docs/gen-ai/mcp.md
+        """
+
+        carrier: dict[str, str] = {}
+        inject(carrier)
+        if not carrier:
+            return
+
+        meta: dict[str, Any] = request.setdefault("params", {}).setdefault("_meta", {})
+        meta.update(carrier)
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
