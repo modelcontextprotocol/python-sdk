@@ -355,6 +355,7 @@ async def test_client_session_group_establish_session_parameterized(
                     headers=server_params_instance.headers,
                     timeout=server_params_instance.timeout,
                     sse_read_timeout=server_params_instance.sse_read_timeout,
+                    auth=server_params_instance.auth,
                 )
             elif client_type_name == "streamablehttp":  # pragma: no branch
                 assert isinstance(server_params_instance, StreamableHttpParameters)
@@ -385,3 +386,96 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_establish_session_sse_passes_auth():
+    """_establish_session should pass auth to sse_client for SseServerParameters."""
+    mock_auth = mock.Mock(spec=httpx.Auth)
+    server_params = SseServerParameters(url="http://test.com/sse", auth=mock_auth)
+
+    with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
+        with mock.patch("mcp.client.session_group.sse_client") as mock_sse_client:
+            # --- Mock sse_client context manager ---
+            mock_client_cm = mock.AsyncMock()
+            mock_read = mock.AsyncMock()
+            mock_write = mock.AsyncMock()
+            mock_client_cm.__aenter__.return_value = (mock_read, mock_write)
+            mock_client_cm.__aexit__ = mock.AsyncMock(return_value=None)
+            mock_sse_client.return_value = mock_client_cm
+
+            # --- Mock mcp.ClientSession ---
+            mock_session_cm = mock.AsyncMock()
+            mock_ClientSession_class.return_value = mock_session_cm
+            mock_session = mock.AsyncMock()
+            mock_session_cm.__aenter__.return_value = mock_session
+            mock_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
+
+            # Mock session.initialize()
+            mock_result = mock.AsyncMock()
+            mock_result.server_info = types.Implementation(name="test", version="1")
+            mock_session.initialize.return_value = mock_result
+
+            # --- Test Execution ---
+            group = ClientSessionGroup()
+            async with contextlib.AsyncExitStack() as stack:
+                group._exit_stack = stack
+                await group._establish_session(server_params, ClientSessionParameters())
+
+            # --- Assert auth was passed through to sse_client ---
+            mock_sse_client.assert_called_once_with(
+                url="http://test.com/sse",
+                headers=None,
+                timeout=5.0,
+                sse_read_timeout=300.0,
+                auth=mock_auth,
+            )
+
+
+@pytest.mark.anyio
+async def test_establish_session_streamable_http_passes_auth():
+    """_establish_session should pass auth to create_mcp_http_client for StreamableHttpParameters."""
+    mock_auth = mock.Mock(spec=httpx.Auth)
+    server_params = StreamableHttpParameters(url="http://test.com/stream", auth=mock_auth)
+
+    with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
+        with mock.patch("mcp.client.session_group.streamable_http_client") as mock_streamable_client:
+            with mock.patch(
+                "mcp.client.session_group.create_mcp_http_client"
+            ) as mock_create_client:  # pragma: no branch
+                # --- Mock create_mcp_http_client ---
+                mock_httpx_client = mock.AsyncMock(spec=httpx.AsyncClient)
+                mock_httpx_client.__aenter__ = mock.AsyncMock(return_value=mock_httpx_client)
+                mock_httpx_client.__aexit__ = mock.AsyncMock(return_value=None)
+                mock_create_client.return_value = mock_httpx_client
+
+                # --- Mock streamable_http_client context manager ---
+                mock_client_cm = mock.AsyncMock()
+                mock_read = mock.AsyncMock()
+                mock_write = mock.AsyncMock()
+                mock_client_cm.__aenter__.return_value = (mock_read, mock_write)
+                mock_client_cm.__aexit__ = mock.AsyncMock(return_value=None)
+                mock_streamable_client.return_value = mock_client_cm
+
+                # --- Mock mcp.ClientSession ---
+                mock_session_cm = mock.AsyncMock()
+                mock_ClientSession_class.return_value = mock_session_cm
+                mock_session = mock.AsyncMock()
+                mock_session_cm.__aenter__.return_value = mock_session
+                mock_session_cm.__aexit__ = mock.AsyncMock(return_value=None)
+
+                # Mock session.initialize()
+                mock_result = mock.AsyncMock()
+                mock_result.server_info = types.Implementation(name="test", version="1")
+                mock_session.initialize.return_value = mock_result
+
+                # --- Test Execution ---
+                group = ClientSessionGroup()
+                async with contextlib.AsyncExitStack() as stack:
+                    group._exit_stack = stack
+                    await group._establish_session(server_params, ClientSessionParameters())
+
+                # --- Assert auth was passed through to create_mcp_http_client ---
+                mock_create_client.assert_called_once()
+                call_kwargs = mock_create_client.call_args.kwargs
+                assert call_kwargs["auth"] is mock_auth
