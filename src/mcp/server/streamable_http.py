@@ -391,12 +391,23 @@ class StreamableHTTPServerTransport:
             await self._handle_unsupported_request(request, send)
 
     def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
-        """Check if the request accepts the required media types."""
-        accept_header = request.headers.get("accept", "")
-        accept_types = [media_type.strip() for media_type in accept_header.split(",")]
+        """Check if the request accepts the required media types.
 
-        has_json = any(media_type.startswith(CONTENT_TYPE_JSON) for media_type in accept_types)
-        has_sse = any(media_type.startswith(CONTENT_TYPE_SSE) for media_type in accept_types)
+        Supports wildcard media types per RFC 7231, section 5.3.2:
+        - */* matches any media type
+        - application/* matches any application/ subtype
+        - text/* matches any text/ subtype
+        """
+        accept_header = request.headers.get("accept", "")
+        accept_types = [media_type.strip().split(";")[0].strip() for media_type in accept_header.split(",")]
+
+        has_wildcard = "*/*" in accept_types
+        has_json = has_wildcard or any(
+            media_type.startswith(CONTENT_TYPE_JSON) or media_type == "application/*" for media_type in accept_types
+        )
+        has_sse = has_wildcard or any(
+            media_type.startswith(CONTENT_TYPE_SSE) or media_type == "text/*" for media_type in accept_types
+        )
 
         return has_json, has_sse
 
