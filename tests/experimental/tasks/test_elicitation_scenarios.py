@@ -48,7 +48,7 @@ from mcp.types import (
 def create_client_task_handlers(
     client_task_store: InMemoryTaskStore,
     elicit_received: Event,
-) -> ExperimentalTaskHandlers:
+) -> ExperimentalTaskHandlers[ClientSession]:
     """Create task handlers for client to handle task-augmented elicitation from server."""
 
     elicit_response = ElicitResult(action="accept", content={"confirm": True})
@@ -112,7 +112,7 @@ def create_client_task_handlers(
 def create_sampling_task_handlers(
     client_task_store: InMemoryTaskStore,
     sampling_received: Event,
-) -> ExperimentalTaskHandlers:
+) -> ExperimentalTaskHandlers[ClientSession]:
     """Create task handlers for client to handle task-augmented sampling from server."""
 
     sampling_response = CreateMessageResult(

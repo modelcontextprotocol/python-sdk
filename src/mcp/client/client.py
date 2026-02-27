@@ -76,10 +76,10 @@ class Client:
     read_timeout_seconds: float | None = None
     """Timeout for read operations."""
 
-    sampling_callback: SamplingFnT | None = None
+    sampling_callback: SamplingFnT[ClientSession] | None = None
     """Callback for handling sampling requests."""
 
-    list_roots_callback: ListRootsFnT | None = None
+    list_roots_callback: ListRootsFnT[ClientSession] | None = None
     """Callback for handling list roots requests."""
 
     logging_callback: LoggingFnT | None = None
@@ -92,7 +92,7 @@ class Client:
     client_info: Implementation | None = None
     """Client implementation info to send to server."""
 
-    elicitation_callback: ElicitationFnT | None = None
+    elicitation_callback: ElicitationFnT[ClientSession] | None = None
     """Callback for handling elicitation requests."""
 
     _session: ClientSession | None = field(init=False, default=None)

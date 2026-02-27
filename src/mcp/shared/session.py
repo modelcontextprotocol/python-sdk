@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -35,11 +35,13 @@ from mcp.types import (
     ServerResult,
 )
 
-SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
+SendRequestT_contra = TypeVar("SendRequestT_contra", ClientRequest, ServerRequest, contravariant=True)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
-SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
+SendNotificationT_contra = TypeVar(
+    "SendNotificationT_contra", ClientNotification, ServerNotification, contravariant=True
+)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
-ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
+ReceiveResultT_co = TypeVar("ReceiveResultT_co", bound=BaseModel, covariant=True)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
@@ -76,7 +78,9 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         request_id: RequestId,
         request_meta: RequestParamsMeta | None,
         request: ReceiveRequestT,
-        session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
+        session: BaseSession[
+            SendRequestT_contra, SendNotificationT_contra, SendResultT, ReceiveRequestT, ReceiveNotificationT
+        ],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
     ) -> None:
@@ -157,10 +161,64 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         return self._cancel_scope.cancel_called
 
 
-class BaseSession(
+@runtime_checkable
+class AbstractBaseSession(
+    Protocol,
     Generic[
-        SendRequestT,
-        SendNotificationT,
+        SendRequestT_contra,
+        SendNotificationT_contra,
+    ],
+):
+    """Pure abstract interface for MCP sessions.
+
+    This protocol defines the contract that all session implementations must satisfy,
+    irrespective of the transport used.
+    """
+
+    async def send_request(
+        self,
+        request: SendRequestT_contra,
+        result_type: type[ReceiveResultT_co],
+        request_read_timeout_seconds: float | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ReceiveResultT_co:
+        """Sends a request and wait for a response.
+
+        Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
+        precedence over the session read timeout.
+
+        Do not use this method to emit notifications! Use send_notification() instead.
+        """
+        ...
+
+    async def send_notification(
+        self,
+        notification: SendNotificationT_contra,
+        related_request_id: RequestId | None = None,
+    ) -> None:
+        """Emits a notification, which is a one-way message that does not expect a response."""
+        ...
+
+    async def send_progress_notification(
+        self,
+        progress_token: ProgressToken,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+    ) -> None:
+        """Sends a progress notification for a request that is currently being processed."""
+        ...
+
+
+class BaseSession(
+    AbstractBaseSession[
+        SendRequestT_contra,
+        SendNotificationT_contra,
+    ],
+    Generic[
+        SendRequestT_contra,
+        SendNotificationT_contra,
         SendResultT,
         ReceiveRequestT,
         ReceiveNotificationT,
@@ -173,6 +231,8 @@ class BaseSession(
     messages when entered.
     """
 
+    _read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
+    _write_stream: MemoryObjectSendStream[SessionMessage]
     _response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]]
     _request_id: int
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
@@ -188,12 +248,12 @@ class BaseSession(
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
-        self._response_streams = {}
-        self._request_id = 0
         self._session_read_timeout_seconds = read_timeout_seconds
-        self._in_flight = {}
-        self._progress_callbacks = {}
-        self._response_routers = []
+        self._response_streams: dict[RequestId, MemoryObjectSendStream[JSONRPCResponse | JSONRPCError]] = {}
+        self._request_id = 0
+        self._in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]] = {}
+        self._progress_callbacks: dict[RequestId, ProgressFnT] = {}
+        self._response_routers: list[ResponseRouter] = []
         self._exit_stack = AsyncExitStack()
 
     def add_response_router(self, router: ResponseRouter) -> None:
@@ -232,13 +292,13 @@ class BaseSession(
 
     async def send_request(
         self,
-        request: SendRequestT,
-        result_type: type[ReceiveResultT],
+        request: SendRequestT_contra,
+        result_type: type[ReceiveResultT_co],
         request_read_timeout_seconds: float | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
-    ) -> ReceiveResultT:
-        """Sends a request and waits for a response.
+    ) -> ReceiveResultT_co:
+        """Sends a request and wait for a response.
 
         Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
         precedence over the session read timeout.
@@ -291,7 +351,7 @@ class BaseSession(
 
     async def send_notification(
         self,
-        notification: SendNotificationT,
+        notification: SendNotificationT_contra,
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
