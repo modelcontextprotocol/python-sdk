@@ -67,6 +67,7 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
     ToolAnnotations,
+    ToolExecution,
 )
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
@@ -383,6 +384,7 @@ class MCPServer(Generic[LifespanResultT]):
                 annotations=info.annotations,
                 icons=info.icons,
                 _meta=info.meta,
+                execution=info.execution,
             )
             for info in tools
         ]
@@ -465,6 +467,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        execution: ToolExecution | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -483,6 +486,8 @@ class MCPServer(Generic[LifespanResultT]):
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
+            execution: Optional ToolExecution for declaring task support per MCP spec
+                (e.g. ToolExecution(taskSupport="optional"))
         """
         self._tool_manager.add_tool(
             fn,
@@ -493,6 +498,7 @@ class MCPServer(Generic[LifespanResultT]):
             icons=icons,
             meta=meta,
             structured_output=structured_output,
+            execution=execution,
         )
 
     def remove_tool(self, name: str) -> None:

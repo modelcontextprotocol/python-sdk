@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.types import Icon, ToolAnnotations
+from mcp.types import Icon, ToolAnnotations, ToolExecution
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -51,6 +51,7 @@ class ToolManager:
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        execution: ToolExecution | None = None,
     ) -> Tool:
         """Add a tool to the server."""
         tool = Tool.from_function(
@@ -62,6 +63,7 @@ class ToolManager:
             icons=icons,
             meta=meta,
             structured_output=structured_output,
+            execution=execution,
         )
         existing = self._tools.get(tool.name)
         if existing:
