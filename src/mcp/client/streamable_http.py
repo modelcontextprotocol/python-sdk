@@ -441,7 +441,8 @@ class StreamableHTTPTransport:
         """Handle writing requests to the server."""
         try:
             async with write_stream_reader:
-                async for session_message in write_stream_reader:
+
+                async def handle_message(session_message: SessionMessage) -> None:
                     message = session_message.message
                     metadata = (
                         session_message.metadata
@@ -478,8 +479,12 @@ class StreamableHTTPTransport:
                     else:
                         await handle_request_async()
 
-        except Exception:  # pragma: lax no cover
-            logger.exception("Error in post_writer")
+                async for session_message in write_stream_reader:
+                    async with anyio.create_task_group() as tg_local:
+                        session_message.context.run(tg_local.start_soon, handle_message, session_message)
+
+        except Exception:
+            logger.exception("Error in post_writer")  # pragma: no cover
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
