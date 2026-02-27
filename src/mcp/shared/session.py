@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
@@ -8,6 +9,8 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry import context as otel_context
+from opentelemetry.propagate import extract, inject
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
@@ -79,11 +82,13 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
+        context: contextvars.Context | None = None,
     ) -> None:
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
         self.message_metadata = message_metadata
+        self.context = context
         self._session = session
         self._completed = False
         self._cancel_scope = anyio.CancelScope()
@@ -251,6 +256,9 @@ class BaseSession(
         response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
         self._response_streams[request_id] = response_stream
 
+        # Propagate opentelemetry trace context
+        self._inject_otel_context(request)
+
         # Set up progress token if progress callback is provided
         request_data = request.model_dump(by_alias=True, mode="json", exclude_none=True)
         if progress_callback is not None:
@@ -295,6 +303,10 @@ class BaseSession(
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
+
+        # Propagate opentelemetry trace context
+        self._inject_otel_context(notification)
+
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
@@ -306,6 +318,28 @@ class BaseSession(
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
         await self._write_stream.send(session_message)
+
+    def _inject_otel_context(self, request: SendRequestT | SendNotificationT) -> None:
+        """Propagate OpenTelemetry context in `_meta`.
+
+        See
+        - SEP414 https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414
+        - OpenTelemetry semantic conventions
+          https://github.com/open-telemetry/semantic-conventions/blob/v1.39.0/docs/gen-ai/mcp.md
+        """
+
+        if request.params is None:
+            return
+
+        carrier: RequestParamsMeta = {}
+        inject(carrier)
+        if not carrier:
+            return
+
+        if request.params.meta is None:
+            request.params.meta = {}
+
+        request.params.meta.update(carrier)
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
@@ -333,10 +367,9 @@ class BaseSession(
     async def _receive_loop(self) -> None:
         async with self._read_stream, self._write_stream:
             try:
-                async for message in self._read_stream:
-                    if isinstance(message, Exception):  # pragma: no cover
-                        await self._handle_incoming(message)
-                    elif isinstance(message.message, JSONRPCRequest):
+
+                async def handle_message(message: SessionMessage) -> None:
+                    if isinstance(message.message, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_adapter.validate_python(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
@@ -349,6 +382,7 @@ class BaseSession(
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,
+                                context=message.context,
                             )
                             self._in_flight[responder.request_id] = responder
                             await self._received_request(responder)
@@ -397,14 +431,34 @@ class BaseSession(
                                             logging.exception("Progress callback raised an exception")
                                 await self._received_notification(notification)
                                 await self._handle_incoming(notification)
-                        except Exception:
+                        except Exception:  # pragma: lax no cover
                             # For other validation errors, log and continue
-                            logging.warning(  # pragma: no cover
+                            logging.warning(
                                 f"Failed to validate notification:. Message was: {message.message}",
                                 exc_info=True,
                             )
                     else:  # Response or error
                         await self._handle_response(message)
+
+                async def _handle_message_with_otel(message: SessionMessage) -> None:
+                    meta = None
+                    if isinstance(message.message, (JSONRPCRequest | JSONRPCNotification)) and message.message.params:
+                        meta = message.message.params.get("_meta")
+
+                    extracted_ctx = extract(meta) if meta else None
+                    otel_token = otel_context.attach(extracted_ctx) if extracted_ctx else None
+                    try:
+                        await handle_message(message)
+                    finally:
+                        if otel_token:
+                            otel_context.detach(otel_token)
+
+                async for message in self._read_stream:
+                    if isinstance(message, Exception):  # pragma: no cover
+                        await self._handle_incoming(message)
+                    else:
+                        async with anyio.create_task_group() as tg:
+                            message.context.run(tg.start_soon, _handle_message_with_otel, message)
 
             except anyio.ClosedResourceError:
                 # This is expected when the client disconnects abruptly.
