@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 import anyio
 import pytest
 
 from mcp.shared._exception_utils import collapse_exception_group, open_task_group
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 
 # ---------------------------------------------------------------------------
