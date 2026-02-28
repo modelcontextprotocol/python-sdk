@@ -12,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
-from mcp.types import TextContent, ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 
 
 class TestAddTools:
@@ -473,7 +473,7 @@ class TestStructuredOutput:
         manager.add_tool(get_user)
         result = await manager.call_tool("get_user", {"user_id": 1}, convert_result=True)
         # don't test unstructured output here, just the structured conversion
-        assert len(result) == 2 and result[1] == {"name": "John", "age": 30}
+        assert isinstance(result, CallToolResult) and result.structured_content == {"name": "John", "age": 30}
 
     @pytest.mark.anyio
     async def test_tool_with_primitive_output(self):
@@ -488,7 +488,8 @@ class TestStructuredOutput:
         result = await manager.call_tool("double_number", {"n": 5})
         assert result == 10
         result = await manager.call_tool("double_number", {"n": 5}, convert_result=True)
-        assert isinstance(result[0][0], TextContent) and result[1] == {"result": 10}
+        assert isinstance(result, CallToolResult)
+        assert isinstance(result.content[0], TextContent) and result.structured_content == {"result": 10}
 
     @pytest.mark.anyio
     async def test_tool_with_typeddict_output(self):
@@ -528,7 +529,7 @@ class TestStructuredOutput:
         manager.add_tool(get_person)
         result = await manager.call_tool("get_person", {}, convert_result=True)
         # don't test unstructured output here, just the structured conversion
-        assert len(result) == 2 and result[1] == expected_output
+        assert isinstance(result, CallToolResult) and result.structured_content == expected_output
 
     @pytest.mark.anyio
     async def test_tool_with_list_output(self):
@@ -546,7 +547,8 @@ class TestStructuredOutput:
         result = await manager.call_tool("get_numbers", {})
         assert result == expected_list
         result = await manager.call_tool("get_numbers", {}, convert_result=True)
-        assert isinstance(result[0][0], TextContent) and result[1] == expected_output
+        assert isinstance(result, CallToolResult)
+        assert isinstance(result.content[0], TextContent) and result.structured_content == expected_output
 
     @pytest.mark.anyio
     async def test_tool_without_structured_output(self):

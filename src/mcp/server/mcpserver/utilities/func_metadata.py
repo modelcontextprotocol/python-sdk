@@ -91,9 +91,9 @@ class FuncMetadata(BaseModel):
     def convert_result(self, result: Any) -> Any:
         """Convert a function call result to the format for the lowlevel tool call handler.
 
-        - If output_model is None, return the unstructured content directly.
-        - If output_model is not None, convert the result to structured output format
-            (dict[str, Any]) and return both unstructured and structured content.
+        - If output_model is None, return the unstructured content as a `Sequence[ContentBlock]`.
+        - If output_model is not None, return a `CallToolResult` with both unstructured
+          and structured content.
 
         Note: we return unstructured content here **even though the lowlevel server
         tool call handler provides generic backwards compatibility serialization of
@@ -120,7 +120,7 @@ class FuncMetadata(BaseModel):
             validated = self.output_model.model_validate(result)
             structured_content = validated.model_dump(mode="json", by_alias=True)
 
-            return (unstructured_content, structured_content)
+            return CallToolResult(content=list(unstructured_content), structured_content=structured_content)
 
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Pre-parse data from JSON.
