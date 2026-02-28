@@ -5,7 +5,7 @@ import sys
 import anyio
 import pytest
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # pragma: no branch
     from exceptiongroup import BaseExceptionGroup
 
 from mcp.shared._exception_utils import collapse_exception_group, create_task_group
@@ -115,3 +115,18 @@ class TestCreateTaskGroup:
                 tg.start_soon(long_task)
 
         assert isinstance(exc_info.value.__cause__, BaseExceptionGroup)
+
+    @pytest.mark.anyio
+    async def test_multiple_failures_raises_group(self) -> None:
+        """Multiple real task failures should raise as a BaseExceptionGroup."""
+        with pytest.raises(BaseExceptionGroup):
+            async with create_task_group() as tg:
+
+                async def fail_a() -> None:
+                    raise RuntimeError("error A")
+
+                async def fail_b() -> None:
+                    raise ValueError("error B")
+
+                tg.start_soon(fail_a)
+                tg.start_soon(fail_b)

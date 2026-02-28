@@ -7,8 +7,6 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from types import TracebackType
 from typing import Any
 
-import anyio
-
 from mcp.client._transport import TransportStreams
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer

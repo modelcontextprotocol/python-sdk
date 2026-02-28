@@ -12,7 +12,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # pragma: no branch
     from exceptiongroup import BaseExceptionGroup
 
 from mcp.shared._exception_utils import collapse_exception_group
