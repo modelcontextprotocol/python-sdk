@@ -424,9 +424,7 @@ class Server(Generic[LifespanResultT]):
                             logger="mcp.server.exception_handler",
                         )
                     except (anyio.ClosedResourceError, anyio.BrokenResourceError):
-                        logger.debug(
-                            "Could not send error log to client (stream already closed)"
-                        )
+                        logger.debug("Could not send error log to client (stream already closed)")
                     if raise_exceptions:
                         raise message
                 case _:
