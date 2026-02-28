@@ -390,9 +390,7 @@ class TestContextHandling:
         """Test that context is properly injected for callable class instances."""
 
         class MyTool:
-            async def __call__(
-                self, x: int, ctx: Context[ServerSessionT, None]
-            ) -> str:
+            async def __call__(self, x: int, ctx: Context[ServerSessionT, None]) -> str:
                 assert isinstance(ctx, Context)
                 return str(x)
 
