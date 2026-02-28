@@ -2289,6 +2289,7 @@ class TestMergeScopes:
         from mcp.client.auth.utils import merge_scopes
 
         result = merge_scopes("init", "mcp:tools:read")
+        assert result is not None
         scopes = set(result.split())
         assert scopes == {"init", "mcp:tools:read"}
 
@@ -2296,6 +2297,7 @@ class TestMergeScopes:
         from mcp.client.auth.utils import merge_scopes
 
         result = merge_scopes("init mcp:tools:read", "mcp:tools:read mcp:tools:write")
+        assert result is not None
         scopes = set(result.split())
         assert scopes == {"init", "mcp:tools:read", "mcp:tools:write"}
 
