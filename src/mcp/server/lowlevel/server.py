@@ -417,11 +417,14 @@ class Server(Generic[LifespanResultT]):
                         )
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
-                    await session.send_log_message(
-                        level="error",
-                        data="Internal Server Error",
-                        logger="mcp.server.exception_handler",
-                    )
+                    try:
+                        await session.send_log_message(
+                            level="error",
+                            data="Internal Server Error",
+                            logger="mcp.server.exception_handler",
+                        )
+                    except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                        logger.debug("Could not send error log: client already disconnected")
                     if raise_exceptions:
                         raise message
                 case _:
