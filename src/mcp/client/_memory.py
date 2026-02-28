@@ -12,6 +12,7 @@ import anyio
 from mcp.client._transport import TransportStreams
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.memory import create_client_server_memory_streams
 
 
@@ -48,7 +49,7 @@ class InMemoryTransport:
             client_read, client_write = client_streams
             server_read, server_write = server_streams
 
-            async with anyio.create_task_group() as tg:
+            async with open_task_group() as tg:
                 # Start server in background
                 tg.start_soon(
                     lambda: actual_server.run(

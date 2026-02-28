@@ -25,6 +25,7 @@ from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -614,7 +615,7 @@ class StreamableHTTPServerTransport:
                 # Start the SSE response (this will send headers immediately)
                 try:
                     # First send the response to establish the SSE connection
-                    async with anyio.create_task_group() as tg:
+                    async with open_task_group() as tg:
                         tg.start_soon(response, scope, receive, send)
                         # Then send the message to be processed by the server
                         session_message = self._create_session_message(message, request, request_id, protocol_version)
@@ -970,7 +971,7 @@ class StreamableHTTPServerTransport:
         self._write_stream = write_stream
 
         # Start a task group for message routing
-        async with anyio.create_task_group() as tg:
+        async with open_task_group() as tg:
             # Create a message router that distributes messages to request streams
             async def message_router():
                 try:

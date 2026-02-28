@@ -66,6 +66,7 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -389,7 +390,7 @@ class Server(Generic[LifespanResultT]):
                 task_support.configure_session(session)
                 await stack.enter_async_context(task_support.run())
 
-            async with anyio.create_task_group() as tg:
+            async with open_task_group() as tg:
                 async for message in session.incoming_messages:
                     logger.debug("Received message: %s", message)
 

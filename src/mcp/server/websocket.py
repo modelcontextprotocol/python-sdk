@@ -7,6 +7,7 @@ from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
 from mcp import types
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.message import SessionMessage
 
 
@@ -52,7 +53,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         except anyio.ClosedResourceError:
             await websocket.close()
 
-    async with anyio.create_task_group() as tg:
+    async with open_task_group() as tg:
         tg.start_soon(ws_reader)
         tg.start_soon(ws_writer)
         yield (read_stream, write_stream)

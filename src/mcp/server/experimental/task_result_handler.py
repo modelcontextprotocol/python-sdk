@@ -15,6 +15,7 @@ from typing import Any
 import anyio
 
 from mcp.server.session import ServerSession
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY, is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
@@ -162,7 +163,7 @@ class TaskResultHandler:
 
         Races between store update and queue message - first one wins.
         """
-        async with anyio.create_task_group() as tg:
+        async with open_task_group() as tg:
 
             async def wait_for_store() -> None:
                 try:

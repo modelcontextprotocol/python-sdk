@@ -9,6 +9,7 @@ from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
 from mcp import types
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.message import SessionMessage
 
 
@@ -68,7 +69,7 @@ async def websocket_client(
                     msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True)
                     await ws.send(json.dumps(msg_dict))
 
-        async with anyio.create_task_group() as tg:
+        async with open_task_group() as tg:
             # Start reader and writer tasks
             tg.start_soon(ws_reader)
             tg.start_soon(ws_writer)

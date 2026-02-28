@@ -12,6 +12,7 @@ from httpx_sse import aconnect_sse
 from httpx_sse._exceptions import SSEError
 
 from mcp import types
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
@@ -60,7 +61,7 @@ async def sse_client(
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    async with anyio.create_task_group() as tg:
+    async with open_task_group() as tg:
         try:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx_client_factory(
