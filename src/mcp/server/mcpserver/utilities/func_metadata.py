@@ -91,8 +91,8 @@ class FuncMetadata(BaseModel):
     def convert_result(self, result: Any) -> Any:
         """Convert a function call result to the format for the lowlevel tool call handler.
 
-        - If output_model is None, return the unstructured content as a ``Sequence[ContentBlock]``.
-        - If output_model is not None, return a ``CallToolResult`` with both unstructured
+        - If output_model is None, return the unstructured content as a `Sequence[ContentBlock]`.
+        - If output_model is not None, return a `CallToolResult` with both unstructured
           and structured content.
 
         Note: we return unstructured content here **even though the lowlevel server
