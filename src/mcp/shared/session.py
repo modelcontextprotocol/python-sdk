@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
@@ -11,6 +12,10 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
+if sys.version_info < (3, 11):  # pragma: lax no cover
+    from exceptiongroup import BaseExceptionGroup  # pragma: lax no cover
+
+from mcp.shared._exception_utils import collapse_exception_group
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -228,7 +233,13 @@ class BaseSession(
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
         self._task_group.cancel_scope.cancel()
-        return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        try:
+            return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        except BaseExceptionGroup as eg:
+            collapsed = collapse_exception_group(eg)
+            if collapsed is not eg:
+                raise collapsed from eg
+            raise  # pragma: no cover
 
     async def send_request(
         self,

@@ -16,6 +16,7 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
+from mcp.shared._exception_utils import create_task_group
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -546,7 +547,7 @@ async def streamable_http_client(
 
     transport = StreamableHTTPTransport(url)
 
-    async with anyio.create_task_group() as tg:
+    async with create_task_group() as tg:
         try:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 

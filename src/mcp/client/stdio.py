@@ -20,6 +20,7 @@ from mcp.os.win32.utilities import (
     get_windows_executable_command,
     terminate_windows_process_tree,
 )
+from mcp.shared._exception_utils import create_task_group
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -177,7 +178,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg, process:
+    async with create_task_group() as tg, process:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
         try:
