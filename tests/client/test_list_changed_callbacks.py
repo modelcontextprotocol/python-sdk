@@ -23,7 +23,7 @@ async def test_tool_list_changed_callback():
         callback_called.set()
 
     async def _list_tools(_ctx: object, _params: object) -> types.ListToolsResult:
-        return types.ListToolsResult(tools=[])
+        return types.ListToolsResult(tools=[])  # pragma: no cover
 
     server = Server(
         name="ListChangedServer",
