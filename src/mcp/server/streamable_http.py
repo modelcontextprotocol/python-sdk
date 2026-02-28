@@ -626,7 +626,7 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
-        except ClientDisconnect:
+        except ClientDisconnect:  # pragma: no cover
             logger.info("Client disconnected during POST request")
             if writer:
                 await writer.send(Exception("Client disconnected"))
