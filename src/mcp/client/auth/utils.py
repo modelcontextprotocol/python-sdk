@@ -119,6 +119,23 @@ def get_client_metadata_scopes(
         return None
 
 
+def merge_scopes(existing: str | None, incoming: str | None) -> str | None:
+    """Merge OAuth scopes by computing the union of space-delimited scope strings.
+
+    Per RFC 6749 §3.3, scopes are space-delimited, case-sensitive strings.
+    This prevents the infinite re-authorization loop that occurs when a server
+    uses per-operation scopes and the client overwrites previously-granted scopes.
+    """
+    if not incoming:
+        return existing
+    if not existing:
+        return incoming
+
+    existing_set = set(existing.split())
+    existing_set.update(incoming.split())
+    return " ".join(sorted(existing_set))
+
+
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
     """Generate an ordered list of URLs for authorization server metadata discovery.
 

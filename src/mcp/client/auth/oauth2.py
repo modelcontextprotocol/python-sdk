@@ -34,6 +34,7 @@ from mcp.client.auth.utils import (
     handle_registration_response,
     handle_token_response_scopes,
     is_valid_client_metadata_url,
+    merge_scopes,
     should_use_client_metadata_url,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
@@ -570,12 +571,13 @@ class OAuthClientProvider(httpx.Auth):
                         else:
                             logger.debug(f"OAuth metadata discovery failed: {url}")
 
-                    # Step 3: Apply scope selection strategy
-                    self.context.client_metadata.scope = get_client_metadata_scopes(
+                    # Step 3: Apply scope selection strategy, merging with existing scopes
+                    new_scope = get_client_metadata_scopes(
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
                     )
+                    self.context.client_metadata.scope = merge_scopes(self.context.client_metadata.scope, new_scope)
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
@@ -619,10 +621,11 @@ class OAuthClientProvider(httpx.Auth):
                 # Step 2: Check if we need to step-up authorization
                 if error == "insufficient_scope":  # pragma: no branch
                     try:
-                        # Step 2a: Update the required scopes
-                        self.context.client_metadata.scope = get_client_metadata_scopes(
+                        # Step 2a: Update the required scopes, merging with existing
+                        new_scope = get_client_metadata_scopes(
                             extract_scope_from_www_auth(response), self.context.protected_resource_metadata
                         )
+                        self.context.client_metadata.scope = merge_scopes(self.context.client_metadata.scope, new_scope)
 
                         # Step 2b: Perform (re-)authorization and token exchange
                         token_response = yield await self._perform_authorization()

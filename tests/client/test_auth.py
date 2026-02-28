@@ -1327,7 +1327,7 @@ class TestAuthFlow:
         mock_storage: MockTokenStorage,
         valid_tokens: OAuthToken,
     ):
-        """Test that 403 response correctly updates scope from WWW-Authenticate header."""
+        """Test that 403 response correctly accumulates scope from WWW-Authenticate header."""
         # Pre-store valid tokens and client info
         client_info = OAuthClientInformationFull(
             client_id="test_client_id",
@@ -1350,10 +1350,10 @@ class TestAuthFlow:
         async def capture_redirect(url: str) -> None:
             nonlocal redirect_captured, captured_state
             redirect_captured = True
-            # Verify the new scope is included in authorization URL
-            assert "scope=admin%3Awrite+admin%3Adelete" in url or "scope=admin:write+admin:delete" in url.replace(
-                "%3A", ":"
-            ).replace("+", " ")
+            # Verify the accumulated scopes are included (original + new)
+            decoded = url.replace("%3A", ":").replace("+", " ")
+            for s in ["admin:write", "admin:delete", "read", "write"]:
+                assert s in decoded, f"Expected scope '{s}' in URL"
             # Extract state from redirect URL
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
@@ -1383,8 +1383,9 @@ class TestAuthFlow:
         # Trigger step-up - should get token exchange request
         token_exchange_request = await auth_flow.asend(response_403)
 
-        # Verify scope was updated
-        assert oauth_provider.context.client_metadata.scope == "admin:write admin:delete"
+        # Verify scope was accumulated (original "read write" + new "admin:write admin:delete")
+        accumulated = set(oauth_provider.context.client_metadata.scope.split())
+        assert accumulated == {"admin:delete", "admin:write", "read", "write"}
         assert redirect_captured
 
         # Complete the flow with successful token response
@@ -2264,3 +2265,48 @@ class TestCIMD:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass
+
+
+class TestMergeScopes:
+    """Tests for merge_scopes utility function."""
+
+    def test_merge_none_existing_returns_incoming(self):
+        from mcp.client.auth.utils import merge_scopes
+
+        assert merge_scopes(None, "mcp:tools:read") == "mcp:tools:read"
+
+    def test_merge_none_incoming_returns_existing(self):
+        from mcp.client.auth.utils import merge_scopes
+
+        assert merge_scopes("init", None) == "init"
+
+    def test_merge_both_none_returns_none(self):
+        from mcp.client.auth.utils import merge_scopes
+
+        assert merge_scopes(None, None) is None
+
+    def test_merge_disjoint_scopes(self):
+        from mcp.client.auth.utils import merge_scopes
+
+        result = merge_scopes("init", "mcp:tools:read")
+        scopes = set(result.split())
+        assert scopes == {"init", "mcp:tools:read"}
+
+    def test_merge_overlapping_scopes_deduplicates(self):
+        from mcp.client.auth.utils import merge_scopes
+
+        result = merge_scopes("init mcp:tools:read", "mcp:tools:read mcp:tools:write")
+        scopes = set(result.split())
+        assert scopes == {"init", "mcp:tools:read", "mcp:tools:write"}
+
+    def test_merge_identical_scopes(self):
+        from mcp.client.auth.utils import merge_scopes
+
+        result = merge_scopes("init", "init")
+        assert result == "init"
+
+    def test_merge_empty_strings(self):
+        from mcp.client.auth.utils import merge_scopes
+
+        assert merge_scopes("init", "") == "init"
+        assert merge_scopes("", "init") == "init"
