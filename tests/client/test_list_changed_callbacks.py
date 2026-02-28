@@ -22,9 +22,12 @@ async def test_tool_list_changed_callback():
     async def on_tools_changed() -> None:
         callback_called.set()
 
+    async def _list_tools(_ctx: object, _params: object) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[])
+
     server = Server(
         name="ListChangedServer",
-        on_list_tools=lambda _ctx, _params: types.ListToolsResult(tools=[]),
+        on_list_tools=_list_tools,
     )
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
@@ -261,19 +264,28 @@ async def test_callback_exception_does_not_crash_session():
             server_to_client_receive,
             client_to_server_send,
             tool_list_changed_callback=bad_callback,
+            prompt_list_changed_callback=bad_callback,
+            resource_list_changed_callback=bad_callback,
         ) as session:
             await session.initialize()
 
-            await server_to_client_send.send(
-                SessionMessage(
-                    message=types.JSONRPCNotification(
-                        jsonrpc="2.0",
-                        **types.ToolListChangedNotification().model_dump(by_alias=True, mode="json", exclude_none=True),
-                    ),
+            # Send all three notification types — all callbacks will raise,
+            # but the session should survive.
+            for notification_cls in (
+                types.ToolListChangedNotification,
+                types.PromptListChangedNotification,
+                types.ResourceListChangedNotification,
+            ):
+                await server_to_client_send.send(
+                    SessionMessage(
+                        message=types.JSONRPCNotification(
+                            jsonrpc="2.0",
+                            **notification_cls().model_dump(by_alias=True, mode="json", exclude_none=True),
+                        ),
+                    )
                 )
-            )
 
-            # Session should still be alive — verify by listing tools
+            # Session should still be alive — verify by waiting for processing
             await anyio.sleep(0.1)
 
         tg.cancel_scope.cancel()
