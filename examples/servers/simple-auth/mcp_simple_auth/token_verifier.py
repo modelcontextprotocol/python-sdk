@@ -75,6 +75,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
                     scopes=data.get("scope", "").split() if data.get("scope") else [],
                     expires_at=data.get("exp"),
                     resource=data.get("aud"),  # Include resource in token
+                    resource_owner=data.get("sub"),  # Use 'sub' claim as resource owner
                 )
             except Exception as e:
                 logger.warning(f"Token introspection failed: {e}")
