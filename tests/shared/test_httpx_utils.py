@@ -107,6 +107,16 @@ async def test_block_scheme_downgrade_allows_http_to_https():
     await _check_redirect(response, RedirectPolicy.BLOCK_SCHEME_DOWNGRADE)
 
 
+async def test_block_scheme_downgrade_allows_relative_redirect():
+    """Test BLOCK_SCHEME_DOWNGRADE allows relative Location headers."""
+    response = httpx.Response(
+        302,
+        headers={"Location": "/other-path"},
+        request=httpx.Request("GET", "https://example.com/start"),
+    )
+    await _check_redirect(response, RedirectPolicy.BLOCK_SCHEME_DOWNGRADE)
+
+
 # --- ENFORCE_HTTPS tests ---
 
 
@@ -166,7 +176,7 @@ async def test_redirect_hook_blocks_scheme_downgrade_via_transport():
     def mock_handler(request: httpx.Request) -> httpx.Response:
         if str(request.url) == "https://example.com/start":
             return httpx.Response(302, headers={"Location": "http://evil.com/stolen"})
-        return httpx.Response(200, text="OK")
+        return httpx.Response(200, text="OK")  # pragma: no cover
 
     async with create_mcp_http_client() as client:
         client._transport = httpx.MockTransport(mock_handler)
