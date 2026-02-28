@@ -47,6 +47,18 @@ class LoggingFnT(Protocol):
     async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
 
 
+class ResourceListChangedFnT(Protocol):
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
+class ToolListChangedFnT(Protocol):
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
+class PromptListChangedFnT(Protocol):
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
@@ -95,6 +107,10 @@ async def _default_logging_callback(
     pass
 
 
+async def _default_list_changed_callback() -> None:
+    pass
+
+
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -121,6 +137,9 @@ class ClientSession(
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+        tool_list_changed_callback: ToolListChangedFnT | None = None,
+        prompt_list_changed_callback: PromptListChangedFnT | None = None,
+        resource_list_changed_callback: ResourceListChangedFnT | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
@@ -130,6 +149,9 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._tool_list_changed_callback = tool_list_changed_callback or _default_list_changed_callback
+        self._prompt_list_changed_callback = prompt_list_changed_callback or _default_list_changed_callback
+        self._resource_list_changed_callback = resource_list_changed_callback or _default_list_changed_callback
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
@@ -470,6 +492,21 @@ class ClientSession(
         match notification:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
+            case types.ToolListChangedNotification():
+                try:
+                    await self._tool_list_changed_callback()
+                except Exception:
+                    logger.exception("Tool list changed callback raised an exception")
+            case types.PromptListChangedNotification():
+                try:
+                    await self._prompt_list_changed_callback()
+                except Exception:
+                    logger.exception("Prompt list changed callback raised an exception")
+            case types.ResourceListChangedNotification():
+                try:
+                    await self._resource_list_changed_callback()
+                except Exception:
+                    logger.exception("Resource list changed callback raised an exception")
             case types.ElicitCompleteNotification(params=params):
                 # Handle elicitation completion notification
                 # Clients MAY use this to retry requests or update UI

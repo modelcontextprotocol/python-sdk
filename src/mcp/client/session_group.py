@@ -20,7 +20,16 @@ from typing_extensions import Self
 
 import mcp
 from mcp import types
-from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import (
+    ElicitationFnT,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    PromptListChangedFnT,
+    ResourceListChangedFnT,
+    SamplingFnT,
+    ToolListChangedFnT,
+)
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
@@ -80,6 +89,9 @@ class ClientSessionParameters:
     logging_callback: LoggingFnT | None = None
     message_handler: MessageHandlerFnT | None = None
     client_info: types.Implementation | None = None
+    tool_list_changed_callback: ToolListChangedFnT | None = None
+    prompt_list_changed_callback: PromptListChangedFnT | None = None
+    resource_list_changed_callback: ResourceListChangedFnT | None = None
 
 
 class ClientSessionGroup:
@@ -310,6 +322,9 @@ class ClientSessionGroup:
                     logging_callback=session_params.logging_callback,
                     message_handler=session_params.message_handler,
                     client_info=session_params.client_info,
+                    tool_list_changed_callback=session_params.tool_list_changed_callback,
+                    prompt_list_changed_callback=session_params.prompt_list_changed_callback,
+                    resource_list_changed_callback=session_params.resource_list_changed_callback,
                 )
             )
 
