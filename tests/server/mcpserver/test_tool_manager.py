@@ -449,6 +449,13 @@ class TestContextHandling:
         result = await manager.call_tool("my_tool", {"x": 42}, context=ctx)
         assert result == "42"
 
+    def test_find_context_parameter_non_callable(self):
+        """Test find_context_parameter returns None for non-callable objects."""
+        from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+
+        result = find_context_parameter(42)  # type: ignore[arg-type]
+        assert result is None
+
 
 class TestToolAnnotations:
     def test_tool_annotations(self):
