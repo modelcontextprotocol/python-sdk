@@ -282,7 +282,9 @@ class StreamableHTTPTransport:
                         response_text = ""
                     error_data = ErrorData(
                         code=INTERNAL_ERROR,
-                        message=f"HTTP {response.status_code}: {response_text[:200]}" if response_text else f"HTTP {response.status_code}",
+                        message=f"HTTP {response.status_code}: {response_text[:200]}"
+                        if response_text
+                        else f"HTTP {response.status_code}",
                     )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
