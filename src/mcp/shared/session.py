@@ -241,6 +241,7 @@ class BaseSession(
             if collapsed is not eg:
                 raise collapsed from eg
             raise  # pragma: lax no cover
+
     async def send_request(
         self,
         request: SendRequestT,
