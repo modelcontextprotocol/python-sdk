@@ -72,3 +72,61 @@ async def test_normal_message_handling_not_affected():
 
     # Verify _handle_request was called
     server._handle_request.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_exception_handling_survives_closed_write_stream():
+    """When the client disconnects, send_log_message may raise ClosedResourceError.
+
+    The server should catch it gracefully instead of crashing the session.
+    Regression test for GH-2064.
+    """
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.ClosedResourceError)
+
+    test_exception = RuntimeError("client disconnected")
+
+    # Should NOT raise — the ClosedResourceError from send_log_message is caught
+    await server._handle_message(test_exception, session, {}, raise_exceptions=False)
+
+    session.send_log_message.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_exception_handling_survives_broken_write_stream():
+    """When the write stream is broken, send_log_message may raise BrokenResourceError.
+
+    The server should catch it gracefully.
+    Regression test for GH-2064.
+    """
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.BrokenResourceError)
+
+    test_exception = RuntimeError("broken pipe")
+
+    await server._handle_message(test_exception, session, {}, raise_exceptions=False)
+
+    session.send_log_message.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_exception_handling_raises_when_configured_despite_closed_stream():
+    """With raise_exceptions=True, the original error is still re-raised
+    even when send_log_message fails with ClosedResourceError.
+    """
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.ClosedResourceError)
+
+    test_exception = RuntimeError("original error")
+
+    with pytest.raises(RuntimeError, match="original error"):
+        await server._handle_message(test_exception, session, {}, raise_exceptions=True)
