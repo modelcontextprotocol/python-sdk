@@ -41,7 +41,7 @@ async def test_tool_list_changed_callback():
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
-            raise message
+            raise message  # pragma: no cover
 
     async with Client(
         server,
@@ -69,7 +69,7 @@ async def test_resource_list_changed_callback():
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
-            raise message
+            raise message  # pragma: no cover
 
     async with Client(
         server,
@@ -97,7 +97,7 @@ async def test_prompt_list_changed_callback():
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
-            raise message
+            raise message  # pragma: no cover
 
     async with Client(
         server,
@@ -126,7 +126,7 @@ async def test_list_changed_without_callback_does_not_crash():
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
-            raise message
+            raise message  # pragma: no cover
 
     async with Client(
         server,
@@ -153,7 +153,7 @@ async def test_multiple_list_changed_notifications():
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
         if isinstance(message, Exception):
-            raise message
+            raise message  # pragma: no cover
 
     async with Client(
         server,
