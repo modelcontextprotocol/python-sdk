@@ -72,3 +72,52 @@ async def test_normal_message_handling_not_affected():
 
     # Verify _handle_request was called
     server._handle_request.assert_called_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_class",
+    [
+        pytest.param("ClosedResourceError", id="closed"),
+        pytest.param("BrokenResourceError", id="broken"),
+    ],
+)
+async def test_exception_handling_tolerates_closed_write_stream(error_class: str):
+    """send_log_message failure on a disconnected client should not crash the server.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2064.
+    When a client disconnects during request handling, the error handler tries to
+    send a log message back. If the write stream is already closed, the resulting
+    ClosedResourceError/BrokenResourceError should be caught silently.
+    """
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+
+    exc_cls = getattr(anyio, error_class)
+    session.send_log_message = AsyncMock(side_effect=exc_cls())
+
+    test_exception = RuntimeError("Client disconnected")
+
+    # Should NOT raise — the ClosedResourceError from send_log_message is caught
+    await server._handle_message(test_exception, session, {}, raise_exceptions=False)
+
+    # send_log_message was still attempted
+    session.send_log_message.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_exception_handling_reraises_with_closed_stream():
+    """When raise_exceptions=True AND the write stream is closed, the original
+    exception should still be re-raised (not the ClosedResourceError)."""
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.ClosedResourceError())
+
+    test_exception = RuntimeError("Original error")
+
+    with pytest.raises(RuntimeError, match="Original error"):
+        await server._handle_message(test_exception, session, {}, raise_exceptions=True)
