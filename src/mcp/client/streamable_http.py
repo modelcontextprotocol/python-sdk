@@ -272,15 +272,15 @@ class StreamableHTTPTransport:
                     # Read body for error detail
                     await response.aread()
                     body_text = response.text[:200] if response.text else ""
-                    error_msg = f"HTTP {response.status_code}: {body_text}" if body_text else f"HTTP {response.status_code}"
+                    error_msg = (
+                        f"HTTP {response.status_code}: {body_text}" if body_text else f"HTTP {response.status_code}"
+                    )
                     if isinstance(message, JSONRPCRequest):
                         error_data = ErrorData(
                             code=INTERNAL_ERROR,
                             message=error_msg,
                         )
-                        session_message = SessionMessage(
-                            JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
-                        )
+                        session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                         await ctx.read_stream_writer.send(session_message)
                     return
 
@@ -307,9 +307,7 @@ class StreamableHTTPTransport:
             # so they don't hang waiting for a response that will never arrive.
             if isinstance(message, JSONRPCRequest):
                 error_data = ErrorData(code=INTERNAL_ERROR, message=str(exc))
-                session_message = SessionMessage(
-                    JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
-                )
+                session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                 with contextlib.suppress(Exception):
                     await ctx.read_stream_writer.send(session_message)
             raise
