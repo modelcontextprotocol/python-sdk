@@ -72,3 +72,49 @@ async def test_normal_message_handling_not_affected():
 
     # Verify _handle_request was called
     server._handle_request.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_exception_handling_tolerates_closed_write_stream():
+    """send_log_message should not crash when the client has already disconnected."""
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.ClosedResourceError)
+
+    test_exception = RuntimeError("client went away")
+
+    # Must not raise — the ClosedResourceError should be caught internally
+    await server._handle_message(test_exception, session, {}, raise_exceptions=False)
+
+
+@pytest.mark.anyio
+async def test_exception_handling_tolerates_broken_write_stream():
+    """send_log_message should not crash when the write stream is broken."""
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.BrokenResourceError)
+
+    test_exception = RuntimeError("client went away")
+
+    # Must not raise — the BrokenResourceError should be caught internally
+    await server._handle_message(test_exception, session, {}, raise_exceptions=False)
+
+
+@pytest.mark.anyio
+async def test_exception_handling_closed_stream_with_raise_exceptions():
+    """Even with raise_exceptions=True, ClosedResourceError from log should be tolerated."""
+    import anyio
+
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.ClosedResourceError)
+
+    test_exception = RuntimeError("client went away")
+
+    # raise_exceptions re-raises the *original* exception, not the ClosedResourceError
+    with pytest.raises(RuntimeError, match="client went away"):
+        await server._handle_message(test_exception, session, {}, raise_exceptions=True)
