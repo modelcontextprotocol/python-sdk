@@ -276,7 +276,14 @@ class StreamableHTTPTransport:
 
             if response.status_code >= 400:
                 if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                    try:
+                        response_text = (await response.aread()).decode(errors="replace")
+                    except Exception:
+                        response_text = ""
+                    error_data = ErrorData(
+                        code=INTERNAL_ERROR,
+                        message=f"HTTP {response.status_code}: {response_text[:200]}" if response_text else f"HTTP {response.status_code}",
+                    )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
