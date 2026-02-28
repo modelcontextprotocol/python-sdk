@@ -423,7 +423,7 @@ class Server(Generic[LifespanResultT]):
                             data="Internal Server Error",
                             logger="mcp.server.exception_handler",
                         )
-                    except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                    except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
                         logger.warning("Could not send error log to client: connection already closed")
                     if raise_exceptions:
                         raise message
