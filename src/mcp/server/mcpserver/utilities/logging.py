@@ -45,9 +45,7 @@ def configure_logging(
         from rich.console import Console
         from rich.logging import RichHandler
 
-        handler: logging.Handler = RichHandler(
-            console=Console(stderr=True), rich_tracebacks=True
-        )
+        handler: logging.Handler = RichHandler(console=Console(stderr=True), rich_tracebacks=True)
     except ImportError:  # pragma: no cover
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(message)s"))
