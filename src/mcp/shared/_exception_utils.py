@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator
 import anyio
 import anyio.abc
 
-if sys.version_info < (3, 11):  # pragma: no cover
+if sys.version_info < (3, 11):  # pragma: lax no cover
     from exceptiongroup import BaseExceptionGroup
 
 

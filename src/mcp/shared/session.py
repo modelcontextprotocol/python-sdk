@@ -14,7 +14,7 @@ from typing_extensions import Self
 
 from mcp.shared._exception_utils import collapse_exception_group
 
-if sys.version_info < (3, 11):  # pragma: no cover
+if sys.version_info < (3, 11):  # pragma: lax no cover
     from exceptiongroup import BaseExceptionGroup
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage

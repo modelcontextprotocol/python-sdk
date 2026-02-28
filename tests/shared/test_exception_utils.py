@@ -10,7 +10,7 @@ import pytest
 
 from mcp.shared._exception_utils import collapse_exception_group, open_task_group
 
-if sys.version_info < (3, 11):  # pragma: no cover
+if sys.version_info < (3, 11):  # pragma: lax no cover
     from exceptiongroup import BaseExceptionGroup
 
 
