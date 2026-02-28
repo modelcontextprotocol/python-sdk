@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 import anyio
 from anyio.abc import TaskGroup
 
-if sys.version_info < (3, 11):  # pragma: no branch
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup
 
 

@@ -5,7 +5,7 @@ import sys
 import anyio
 import pytest
 
-if sys.version_info < (3, 11):  # pragma: no branch
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup
 
 from mcp.shared._exception_utils import collapse_exception_group, create_task_group

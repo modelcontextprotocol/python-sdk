@@ -12,7 +12,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-if sys.version_info < (3, 11):  # pragma: no branch
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup
 
 from mcp.shared._exception_utils import collapse_exception_group
@@ -239,7 +239,7 @@ class BaseSession(
             collapsed = collapse_exception_group(eg)
             if collapsed is not eg:
                 raise collapsed from eg
-            raise
+            raise  # pragma: no cover
 
     async def send_request(
         self,
