@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -308,20 +307,6 @@ class MCPServer(Generic[LifespanResultT]):
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
         if isinstance(result, CallToolResult):
             return result
-        if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
-            return CallToolResult(
-                content=list(unstructured_content),  # type: ignore[arg-type]
-                structured_content=structured_content,  # type: ignore[arg-type]
-            )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
-            )
         return CallToolResult(content=list(result))
 
     async def _handle_list_resources(
@@ -399,7 +384,7 @@ class MCPServer(Generic[LifespanResultT]):
             request_context = None
         return Context(request_context=request_context, mcp_server=self)
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> CallToolResult | Sequence[ContentBlock]:
         """Call a tool by name with arguments."""
         context = self.get_context()
         return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
