@@ -14,8 +14,8 @@ from contextlib import asynccontextmanager
 import anyio
 from anyio.abc import TaskGroup
 
-if sys.version_info < (3, 11):  # pragma: no cover
-    from exceptiongroup import BaseExceptionGroup
+if sys.version_info < (3, 11):  # pragma: lax no cover
+    from exceptiongroup import BaseExceptionGroup  # pragma: lax no cover
 
 
 def collapse_exception_group(exc_group: BaseExceptionGroup[BaseException]) -> BaseException:

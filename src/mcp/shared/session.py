@@ -12,8 +12,8 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-if sys.version_info < (3, 11):  # pragma: no cover
-    from exceptiongroup import BaseExceptionGroup
+if sys.version_info < (3, 11):  # pragma: lax no cover
+    from exceptiongroup import BaseExceptionGroup  # pragma: lax no cover
 
 from mcp.shared._exception_utils import collapse_exception_group
 from mcp.shared.exceptions import MCPError
