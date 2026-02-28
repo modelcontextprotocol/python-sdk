@@ -7,11 +7,15 @@ cause. These utilities extract the single real error when possible.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import anyio
 from anyio.abc import TaskGroup
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 
 def collapse_exception_group(exc_group: BaseExceptionGroup[BaseException]) -> BaseException:
@@ -31,9 +35,7 @@ def collapse_exception_group(exc_group: BaseExceptionGroup[BaseException]) -> Ba
         otherwise the original exception group unchanged.
     """
     cancelled_class = anyio.get_cancelled_exc_class()
-    real_errors: list[BaseException] = [
-        exc for exc in exc_group.exceptions if not isinstance(exc, cancelled_class)
-    ]
+    real_errors: list[BaseException] = [exc for exc in exc_group.exceptions if not isinstance(exc, cancelled_class)]
 
     if len(real_errors) == 1:
         return real_errors[0]

@@ -1,8 +1,13 @@
 """Tests for exception group collapsing utilities."""
 
+import sys
+
 import pytest
 
 import anyio
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 from mcp.shared._exception_utils import collapse_exception_group, create_task_group
 
@@ -57,9 +62,7 @@ class TestCollapseExceptionGroup:
         cancelled_class = anyio.get_cancelled_exc_class()
         real_error = ConnectionError("lost connection")
 
-        group = BaseExceptionGroup(
-            "test", [cancelled_class(), real_error, cancelled_class()]
-        )
+        group = BaseExceptionGroup("test", [cancelled_class(), real_error, cancelled_class()])
         result = collapse_exception_group(group)
 
         assert result is real_error
