@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import sys
 from collections.abc import AsyncIterator
 
 import anyio
 import anyio.abc
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 
 def collapse_exception_group(

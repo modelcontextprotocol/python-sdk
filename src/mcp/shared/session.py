@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
@@ -12,6 +13,9 @@ from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
 from mcp.shared._exception_utils import collapse_exception_group
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
