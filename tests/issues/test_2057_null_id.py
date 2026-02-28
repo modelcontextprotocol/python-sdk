@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, jsonrpc_message_adapter
+from mcp.types import JSONRPCNotification, JSONRPCRequest, jsonrpc_message_adapter
 
 
 class TestNullIdRejection:
