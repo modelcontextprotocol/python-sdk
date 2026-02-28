@@ -303,7 +303,9 @@ class BaseSession(
         )
         session_message = SessionMessage(
             message=jsonrpc_notification,
-            metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id is not None else None,
+            metadata=ServerMessageMetadata(related_request_id=related_request_id)
+            if related_request_id is not None
+            else None,
         )
         await self._write_stream.send(session_message)
 
