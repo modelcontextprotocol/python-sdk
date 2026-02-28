@@ -381,7 +381,9 @@ class ServerSession(
             This method is deprecated in favor of elicit_form(). It remains for
             backward compatibility but new code should use elicit_form().
         """
-        return await self.elicit_form(message, requested_schema, related_request_id, progress_callback=progress_callback)
+        return await self.elicit_form(
+            message, requested_schema, related_request_id, progress_callback=progress_callback
+        )
 
     async def elicit_form(
         self,
