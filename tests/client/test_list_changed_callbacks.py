@@ -70,7 +70,7 @@ async def test_tool_list_changed_callback():
             with anyio.fail_after(2):
                 await callback_called.wait()
 
-            tg.cancel_scope.cancel()
+            tg.cancel_scope.cancel()  # pragma: no cover
 
 
 async def test_prompt_list_changed_callback():
@@ -123,7 +123,7 @@ async def test_prompt_list_changed_callback():
             with anyio.fail_after(2):
                 await callback_called.wait()
 
-            tg.cancel_scope.cancel()
+            tg.cancel_scope.cancel()  # pragma: no cover
 
 
 async def test_resource_list_changed_callback():
@@ -176,7 +176,7 @@ async def test_resource_list_changed_callback():
             with anyio.fail_after(2):
                 await callback_called.wait()
 
-            tg.cancel_scope.cancel()
+            tg.cancel_scope.cancel()  # pragma: no cover
 
 
 async def test_list_changed_default_no_error():
@@ -228,7 +228,7 @@ async def test_list_changed_default_no_error():
             # Give the session a moment to process
             await anyio.sleep(0.1)
 
-            tg.cancel_scope.cancel()
+            tg.cancel_scope.cancel()  # pragma: no cover
 
 
 async def test_callback_exception_does_not_crash_session():
@@ -288,4 +288,4 @@ async def test_callback_exception_does_not_crash_session():
             # Session should still be alive — verify by waiting for processing
             await anyio.sleep(0.1)
 
-            tg.cancel_scope.cancel()
+            tg.cancel_scope.cancel()  # pragma: no cover
