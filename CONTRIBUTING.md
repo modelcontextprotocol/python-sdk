@@ -143,4 +143,4 @@ Please note that this project is released with a [Code of Conduct](CODE_OF_CONDU
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your code contributions will be licensed under the Apache License 2.0. Documentation contributions (excluding specifications) are licensed under CC-BY 4.0. See the [LICENSE](LICENSE) file for details.
