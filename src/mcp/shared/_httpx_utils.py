@@ -85,7 +85,6 @@ class McpHttpClientFactory(Protocol):  # pragma: no branch
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
-        redirect_policy: RedirectPolicy = RedirectPolicy.BLOCK_SCHEME_DOWNGRADE,
     ) -> httpx.AsyncClient: ...
 
 
