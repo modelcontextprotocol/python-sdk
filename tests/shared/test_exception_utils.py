@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Sequence
 
 import anyio
 import pytest
@@ -12,6 +13,11 @@ from mcp.shared._exception_utils import collapse_exception_group, open_task_grou
 
 if sys.version_info < (3, 11):  # pragma: lax no cover
     from exceptiongroup import BaseExceptionGroup
+
+
+def _get_exceptions(eg: BaseExceptionGroup[BaseException]) -> Sequence[BaseException]:
+    """Return the exceptions tuple with a known type for pyright."""
+    return eg.exceptions
 
 
 # ---------------------------------------------------------------------------
@@ -51,9 +57,10 @@ class TestCollapseExceptionGroup:
         result = collapse_exception_group(eg)
         assert isinstance(result, BaseExceptionGroup)
         # Should contain only the two real errors
-        assert len(result.exceptions) == 2
-        assert e1 in result.exceptions
-        assert e2 in result.exceptions
+        excs = _get_exceptions(result)  # pyright: ignore[reportUnknownArgumentType]
+        assert len(excs) == 2
+        assert e1 in excs
+        assert e2 in excs
 
     def test_single_real_error_no_cancelled(self) -> None:
         """One real error, no Cancelled → unwrap to the real error."""
@@ -69,9 +76,10 @@ class TestCollapseExceptionGroup:
         eg = BaseExceptionGroup("task group", [e1, e2])
         result = collapse_exception_group(eg)
         assert isinstance(result, BaseExceptionGroup)
-        assert len(result.exceptions) == 2
-        assert e1 in result.exceptions
-        assert e2 in result.exceptions
+        excs = _get_exceptions(result)  # pyright: ignore[reportUnknownArgumentType]
+        assert len(excs) == 2
+        assert e1 in excs
+        assert e2 in excs
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +116,8 @@ class TestOpenTaskGroup:
 
         # The group should contain both real errors
         eg = exc_info.value
-        types = {type(e) for e in eg.exceptions}
+        excs = _get_exceptions(eg)  # pyright: ignore[reportUnknownArgumentType]
+        types = {type(e) for e in excs}
         assert ValueError in types
         assert RuntimeError in types
 
