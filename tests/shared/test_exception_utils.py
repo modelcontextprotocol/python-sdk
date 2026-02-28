@@ -2,9 +2,8 @@
 
 import sys
 
-import pytest
-
 import anyio
+import pytest
 
 if sys.version_info < (3, 11):
     from exceptiongroup import BaseExceptionGroup
