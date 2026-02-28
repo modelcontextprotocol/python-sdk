@@ -5,7 +5,7 @@ import pytest
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -39,9 +39,7 @@ async def test_tool_list_changed_callback():
                 InitializationOptions(
                     server_name="ListChangedServer",
                     server_version="0.1.0",
-                    capabilities=server.get_capabilities(
-                        NotificationOptions(tools_changed=True), {}
-                    ),
+                    capabilities=server.get_capabilities(NotificationOptions(tools_changed=True), {}),
                 ),
             ) as server_session:
                 async for message in server_session.incoming_messages:
@@ -61,9 +59,7 @@ async def test_tool_list_changed_callback():
                 SessionMessage(
                     message=types.JSONRPCNotification(
                         jsonrpc="2.0",
-                        **types.ToolListChangedNotification().model_dump(
-                            by_alias=True, mode="json", exclude_none=True
-                        ),
+                        **types.ToolListChangedNotification().model_dump(by_alias=True, mode="json", exclude_none=True),
                     ),
                 )
             )
@@ -95,9 +91,7 @@ async def test_prompt_list_changed_callback():
                 InitializationOptions(
                     server_name="ListChangedServer",
                     server_version="0.1.0",
-                    capabilities=server.get_capabilities(
-                        NotificationOptions(prompts_changed=True), {}
-                    ),
+                    capabilities=server.get_capabilities(NotificationOptions(prompts_changed=True), {}),
                 ),
             ) as server_session:
                 async for message in server_session.incoming_messages:
@@ -150,9 +144,7 @@ async def test_resource_list_changed_callback():
                 InitializationOptions(
                     server_name="ListChangedServer",
                     server_version="0.1.0",
-                    capabilities=server.get_capabilities(
-                        NotificationOptions(resources_changed=True), {}
-                    ),
+                    capabilities=server.get_capabilities(NotificationOptions(resources_changed=True), {}),
                 ),
             ) as server_session:
                 async for message in server_session.incoming_messages:
@@ -225,9 +217,7 @@ async def test_list_changed_default_no_error():
                     SessionMessage(
                         message=types.JSONRPCNotification(
                             jsonrpc="2.0",
-                            **notification_cls().model_dump(
-                                by_alias=True, mode="json", exclude_none=True
-                            ),
+                            **notification_cls().model_dump(by_alias=True, mode="json", exclude_none=True),
                         ),
                     )
                 )
@@ -278,9 +268,7 @@ async def test_callback_exception_does_not_crash_session():
                 SessionMessage(
                     message=types.JSONRPCNotification(
                         jsonrpc="2.0",
-                        **types.ToolListChangedNotification().model_dump(
-                            by_alias=True, mode="json", exclude_none=True
-                        ),
+                        **types.ToolListChangedNotification().model_dump(by_alias=True, mode="json", exclude_none=True),
                     ),
                 )
             )
