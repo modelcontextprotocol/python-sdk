@@ -523,6 +523,9 @@ async def streamable_http_client(
         http_client: Optional pre-configured httpx.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+            Note: User-provided clients do not receive SSRF redirect protection.
+            If redirect validation is required, use ``create_mcp_http_client()``
+            or configure redirect hooks manually.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:
@@ -543,6 +546,8 @@ async def streamable_http_client(
     if client is None:
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
+    else:
+        logger.debug("Using user-provided HTTP client; SSRF redirect protection is not applied")
 
     transport = StreamableHTTPTransport(url)
 
