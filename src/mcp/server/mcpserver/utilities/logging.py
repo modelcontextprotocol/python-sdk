@@ -3,6 +3,11 @@
 import logging
 from typing import Literal
 
+# Namespace logger for all MCP SDK logging.
+# Per Python logging best practices, library code should only configure
+# its own namespace logger, never the root logger.
+_MCP_LOGGER_NAME = "mcp"
+
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger nested under MCP namespace.
@@ -21,19 +26,30 @@ def configure_logging(
 ) -> None:
     """Configure logging for MCP.
 
+    Configures only the ``mcp`` namespace logger so that application-level
+    logging configuration is not overridden.  Per the Python logging docs,
+    library code should never call ``logging.basicConfig()`` or add handlers
+    to the root logger.
+
     Args:
         level: The log level to use.
     """
-    handlers: list[logging.Handler] = []
+    mcp_logger = logging.getLogger(_MCP_LOGGER_NAME)
+    mcp_logger.setLevel(level)
+
+    # Avoid adding duplicate handlers on repeated calls.
+    if mcp_logger.handlers:
+        return
+
     try:
         from rich.console import Console
         from rich.logging import RichHandler
 
-        handlers.append(RichHandler(console=Console(stderr=True), rich_tracebacks=True))
+        handler: logging.Handler = RichHandler(
+            console=Console(stderr=True), rich_tracebacks=True
+        )
     except ImportError:  # pragma: no cover
-        pass
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
 
-    if not handlers:  # pragma: no cover
-        handlers.append(logging.StreamHandler())
-
-    logging.basicConfig(level=level, format="%(message)s", handlers=handlers)
+    mcp_logger.addHandler(handler)
