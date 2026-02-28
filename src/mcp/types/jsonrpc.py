@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 RequestId = Annotated[int, Field(strict=True)] | str
 """The ID of a JSON-RPC request."""
@@ -21,6 +21,8 @@ class JSONRPCRequest(BaseModel):
 
 class JSONRPCNotification(BaseModel):
     """A JSON-RPC notification which does not expect a response."""
+
+    model_config = ConfigDict(extra="forbid")
 
     jsonrpc: Literal["2.0"]
     method: str
