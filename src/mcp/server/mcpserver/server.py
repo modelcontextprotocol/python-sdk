@@ -315,9 +315,6 @@ class MCPServer(Generic[LifespanResultT]):
                 structured_content=structured_content,  # type: ignore[arg-type]
             )
         if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
             return CallToolResult(
                 content=[TextContent(type="text", text=json.dumps(result, indent=2))],
                 structured_content=result,
@@ -399,7 +396,9 @@ class MCPServer(Generic[LifespanResultT]):
             request_context = None
         return Context(request_context=request_context, mcp_server=self)
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any]
+    ) -> Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]] | CallToolResult:
         """Call a tool by name with arguments."""
         context = self.get_context()
         return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
