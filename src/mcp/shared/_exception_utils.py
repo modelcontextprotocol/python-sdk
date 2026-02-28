@@ -46,7 +46,7 @@ def collapse_exception_group(
     # split(type) uses isinstance on leaf exceptions, NOT on the group.
     # Using split(lambda) is incorrect because the lambda would first be
     # called on the group object itself.
-    cancelled, non_cancelled = eg.split(cancelled_type)
+    _cancelled, non_cancelled = eg.split(cancelled_type)
 
     if non_cancelled is None:
         # Every exception is a cancellation – surface just one.
