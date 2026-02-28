@@ -386,6 +386,25 @@ class TestContextHandling:
         assert result == "42"
 
     @pytest.mark.anyio
+    async def test_context_injection_callable_class(self):
+        """Test that context is properly injected for callable class instances."""
+
+        class MyTool:
+            async def __call__(
+                self, x: int, ctx: Context[ServerSessionT, None]
+            ) -> str:
+                assert isinstance(ctx, Context)
+                return str(x)
+
+        manager = ToolManager()
+        manager.add_tool(MyTool(), name="callable_tool")
+
+        mcp = MCPServer()
+        ctx = mcp.get_context()
+        result = await manager.call_tool("callable_tool", {"x": 42}, context=ctx)
+        assert result == "42"
+
+    @pytest.mark.anyio
     async def test_context_optional(self):
         """Test that context is optional when calling tools."""
 

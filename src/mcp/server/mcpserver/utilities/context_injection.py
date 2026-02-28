@@ -22,9 +22,15 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
     """
     from mcp.server.mcpserver.server import Context
 
+    # Handle callable class instances by inspecting __call__ method
+    target = fn
+    if not (inspect.isfunction(fn) or inspect.ismethod(fn)):
+        if callable(fn) and hasattr(fn, "__call__"):
+            target = fn.__call__
+
     # Get type hints to properly resolve string annotations
     try:
-        hints = typing.get_type_hints(fn)
+        hints = typing.get_type_hints(target)
     except Exception:  # pragma: lax no cover
         # If we can't resolve type hints, we can't find the context parameter
         return None
