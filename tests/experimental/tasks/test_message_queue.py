@@ -1,5 +1,6 @@
 """Tests for TaskMessageQueue and InMemoryTaskMessageQueue."""
 
+from collections import deque
 from datetime import datetime, timezone
 
 import anyio
@@ -270,7 +271,7 @@ class TestInMemoryTaskMessageQueue:
             if call_count == 2 and tid == task_id:
                 # Before second check, inject a message - this simulates a message
                 # arriving between event creation and the double-check
-                queue._queues[task_id] = [QueuedMessage(type="request", message=make_request())]
+                queue._queues[task_id] = deque([QueuedMessage(type="request", message=make_request())])
             return await original_is_empty(tid)
 
         queue.is_empty = is_empty_with_injection  # type: ignore[method-assign]

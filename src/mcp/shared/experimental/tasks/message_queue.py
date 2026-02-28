@@ -12,6 +12,7 @@ This pattern enables:
 """
 
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -151,13 +152,13 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
     """
 
     def __init__(self) -> None:
-        self._queues: dict[str, list[QueuedMessage]] = {}
+        self._queues: dict[str, deque[QueuedMessage]] = {}
         self._events: dict[str, anyio.Event] = {}
 
-    def _get_queue(self, task_id: str) -> list[QueuedMessage]:
+    def _get_queue(self, task_id: str) -> deque[QueuedMessage]:
         """Get or create the queue for a task."""
         if task_id not in self._queues:
-            self._queues[task_id] = []
+            self._queues[task_id] = deque()
         return self._queues[task_id]
 
     async def enqueue(self, task_id: str, message: QueuedMessage) -> None:
@@ -172,7 +173,7 @@ class InMemoryTaskMessageQueue(TaskMessageQueue):
         queue = self._get_queue(task_id)
         if not queue:
             return None
-        return queue.pop(0)
+        return queue.popleft()
 
     async def peek(self, task_id: str) -> QueuedMessage | None:
         """Return the next message without removing it."""
