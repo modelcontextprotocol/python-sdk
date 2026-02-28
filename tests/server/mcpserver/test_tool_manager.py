@@ -413,6 +413,42 @@ class TestContextHandling:
         with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
             await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
 
+    def test_context_detection_callable_class(self):
+        """Test that context parameters are detected in callable class instances."""
+
+        class MyTool:
+            def __init__(self, name: str):
+                self.__name__ = name
+
+            async def __call__(self, query: str, ctx: Context[ServerSessionT, None]) -> str:  # pragma: no cover
+                return f"Result: {query}"
+
+        manager = ToolManager()
+        tool = manager.add_tool(MyTool(name="my_tool"), name="my_tool", description="A tool")
+        assert tool.context_kwarg == "ctx"
+        # ctx should not appear in the JSON schema
+        assert "ctx" not in json.dumps(tool.parameters)
+
+    @pytest.mark.anyio
+    async def test_context_injection_callable_class(self):
+        """Test that context is injected into callable class instances."""
+
+        class MyTool:
+            def __init__(self, name: str):
+                self.__name__ = name
+
+            async def __call__(self, x: int, ctx: Context[ServerSessionT, None]) -> str:
+                assert isinstance(ctx, Context)
+                return str(x)
+
+        manager = ToolManager()
+        manager.add_tool(MyTool(name="my_tool"), name="my_tool", description="A tool")
+
+        mcp = MCPServer()
+        ctx = mcp.get_context()
+        result = await manager.call_tool("my_tool", {"x": 42}, context=ctx)
+        assert result == "42"
+
 
 class TestToolAnnotations:
     def test_tool_annotations(self):
