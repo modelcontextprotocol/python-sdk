@@ -51,15 +51,14 @@ async def test_check_redirect_ignores_non_redirect():
     await _check_redirect(response, RedirectPolicy.ENFORCE_HTTPS)
 
 
-async def test_check_redirect_ignores_redirect_without_next_request():
-    """Test that redirect responses without next_request are ignored."""
+async def test_check_redirect_ignores_redirect_without_location_header():
+    """Test that redirect responses without a Location header are ignored."""
     response = httpx.Response(
         302,
-        headers={"Location": "http://evil.com"},
         request=httpx.Request("GET", "https://example.com"),
     )
-    # next_request is None on a manually constructed response
-    assert response.next_request is None
+    # No Location header → has_redirect_location is False
+    assert not response.has_redirect_location
     await _check_redirect(response, RedirectPolicy.BLOCK_SCHEME_DOWNGRADE)
 
 
@@ -73,7 +72,6 @@ async def test_block_scheme_downgrade_blocks_https_to_http():
         headers={"Location": "http://evil.com"},
         request=httpx.Request("GET", "https://example.com"),
     )
-    response.next_request = httpx.Request("GET", "http://evil.com")
 
     with pytest.raises(httpx.HTTPStatusError, match="HTTPS-to-HTTP redirect blocked"):
         await _check_redirect(response, RedirectPolicy.BLOCK_SCHEME_DOWNGRADE)
@@ -86,7 +84,6 @@ async def test_block_scheme_downgrade_allows_https_to_https():
         headers={"Location": "https://other.com"},
         request=httpx.Request("GET", "https://example.com"),
     )
-    response.next_request = httpx.Request("GET", "https://other.com")
     await _check_redirect(response, RedirectPolicy.BLOCK_SCHEME_DOWNGRADE)
 
 
@@ -97,7 +94,6 @@ async def test_block_scheme_downgrade_allows_http_to_http():
         headers={"Location": "http://other.com"},
         request=httpx.Request("GET", "http://example.com"),
     )
-    response.next_request = httpx.Request("GET", "http://other.com")
     await _check_redirect(response, RedirectPolicy.BLOCK_SCHEME_DOWNGRADE)
 
 
@@ -108,7 +104,6 @@ async def test_block_scheme_downgrade_allows_http_to_https():
         headers={"Location": "https://other.com"},
         request=httpx.Request("GET", "http://example.com"),
     )
-    response.next_request = httpx.Request("GET", "https://other.com")
     await _check_redirect(response, RedirectPolicy.BLOCK_SCHEME_DOWNGRADE)
 
 
@@ -122,7 +117,6 @@ async def test_enforce_https_blocks_http_target():
         headers={"Location": "http://evil.com"},
         request=httpx.Request("GET", "https://example.com"),
     )
-    response.next_request = httpx.Request("GET", "http://evil.com")
 
     with pytest.raises(httpx.HTTPStatusError, match="Non-HTTPS redirect blocked"):
         await _check_redirect(response, RedirectPolicy.ENFORCE_HTTPS)
@@ -135,7 +129,6 @@ async def test_enforce_https_blocks_http_to_http():
         headers={"Location": "http://other.com"},
         request=httpx.Request("GET", "http://example.com"),
     )
-    response.next_request = httpx.Request("GET", "http://other.com")
 
     with pytest.raises(httpx.HTTPStatusError, match="Non-HTTPS redirect blocked"):
         await _check_redirect(response, RedirectPolicy.ENFORCE_HTTPS)
@@ -148,7 +141,6 @@ async def test_enforce_https_allows_https_target():
         headers={"Location": "https://other.com"},
         request=httpx.Request("GET", "https://example.com"),
     )
-    response.next_request = httpx.Request("GET", "https://other.com")
     await _check_redirect(response, RedirectPolicy.ENFORCE_HTTPS)
 
 
@@ -162,5 +154,37 @@ async def test_allow_all_permits_https_to_http():
         headers={"Location": "http://evil.com"},
         request=httpx.Request("GET", "https://example.com"),
     )
-    response.next_request = httpx.Request("GET", "http://evil.com")
     await _check_redirect(response, RedirectPolicy.ALLOW_ALL)
+
+
+# --- Integration tests (exercise the event hook wiring end-to-end) ---
+
+
+async def test_redirect_hook_blocks_scheme_downgrade_via_transport():
+    """Test that the event hook installed by create_mcp_http_client blocks HTTPS->HTTP."""
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "https://example.com/start":
+            return httpx.Response(302, headers={"Location": "http://evil.com/stolen"})
+        return httpx.Response(200, text="OK")
+
+    async with create_mcp_http_client() as client:
+        client._transport = httpx.MockTransport(mock_handler)
+
+        with pytest.raises(httpx.HTTPStatusError, match="HTTPS-to-HTTP redirect blocked"):
+            await client.get("https://example.com/start")
+
+
+async def test_redirect_hook_allows_safe_redirect_via_transport():
+    """Test that the event hook allows HTTPS->HTTPS redirects through the client."""
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "https://example.com/start":
+            return httpx.Response(302, headers={"Location": "https://example.com/final"})
+        return httpx.Response(200, text="OK")
+
+    async with create_mcp_http_client() as client:
+        client._transport = httpx.MockTransport(mock_handler)
+
+        response = await client.get("https://example.com/start")
+        assert response.status_code == 200

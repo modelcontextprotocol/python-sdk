@@ -38,18 +38,20 @@ async def _check_redirect(response: httpx.Response, policy: RedirectPolicy) -> N
     """Validate redirect responses against the configured policy.
 
     This is installed as an httpx response event hook. It inspects redirect
-    responses (3xx with a ``next_request``) and raises
+    responses (3xx with a ``Location`` header) and raises
     :class:`httpx.HTTPStatusError` when the redirect violates *policy*.
 
     Args:
         response: The httpx response to check.
         policy: The redirect policy to enforce.
     """
-    if not response.is_redirect or response.next_request is None:
+    if not response.has_redirect_location:
         return
 
     original_url = response.request.url
-    redirect_url = response.next_request.url
+    redirect_url = httpx.URL(response.headers["Location"])
+    if redirect_url.is_relative_url:
+        redirect_url = original_url.join(redirect_url)
 
     if policy == RedirectPolicy.BLOCK_SCHEME_DOWNGRADE:
         if original_url.scheme == "https" and redirect_url.scheme == "http":
