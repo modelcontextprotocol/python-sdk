@@ -8,7 +8,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-import anyio
 from anyio.abc import TaskGroup
 
 from mcp.server.experimental.task_result_handler import TaskResultHandler

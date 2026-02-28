@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, TypeAlias
 
-import anyio
 import httpx
 from pydantic import BaseModel, Field
 from typing_extensions import Self

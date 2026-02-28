@@ -12,8 +12,6 @@ This is the core of the task message queue pattern.
 import logging
 from typing import Any
 
-import anyio
-
 from mcp.server.session import ServerSession
 from mcp.shared._exception_utils import open_task_group
 from mcp.shared.exceptions import MCPError

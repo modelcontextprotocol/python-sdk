@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator
 import anyio
 import anyio.abc
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup
 
 
@@ -83,4 +83,4 @@ async def open_task_group() -> AsyncIterator[anyio.abc.TaskGroup]:
         collapsed = collapse_exception_group(eg, cancelled_type=cancelled_cls)
         if collapsed is not eg:
             raise collapsed from eg
-        raise
+        raise  # pragma: lax no cover

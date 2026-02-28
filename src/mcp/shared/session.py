@@ -14,7 +14,7 @@ from typing_extensions import Self
 
 from mcp.shared._exception_utils import collapse_exception_group
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
@@ -240,8 +240,7 @@ class BaseSession(
             collapsed = collapse_exception_group(eg, cancelled_type=cancelled_cls)
             if collapsed is not eg:
                 raise collapsed from eg
-            raise
-
+            raise  # pragma: lax no cover
     async def send_request(
         self,
         request: SendRequestT,
