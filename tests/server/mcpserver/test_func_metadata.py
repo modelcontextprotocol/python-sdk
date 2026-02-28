@@ -551,6 +551,31 @@ async def test_str_annotation_runtime_validation():
     assert result == f"Handled payload of length {len(json_array_payload)}"
 
 
+def test_str_union_pre_parse_json():
+    """Regression test for #1873: pre_parse_json should not JSON-parse strings
+    when the annotation is a union of simple types like str | None.
+    """
+
+    def func_optional_str(value: str | None = None) -> str:  # pragma: no cover
+        return str(value)
+
+    meta = func_metadata(func_optional_str)
+
+    # str | None: JSON object/array strings should be preserved, not parsed
+    json_obj = '{"database": "postgres", "port": 5432}'
+    assert meta.pre_parse_json({"value": json_obj})["value"] == json_obj
+
+    json_array = '["item1", "item2"]'
+    assert meta.pre_parse_json({"value": json_array})["value"] == json_array
+
+    # Complex unions like list[str] | None should still pre-parse
+    def func_optional_list(items: list[str] | None = None) -> str:  # pragma: no cover
+        return str(items)
+
+    meta_list = func_metadata(func_optional_list)
+    assert meta_list.pre_parse_json({"items": '["a", "b", "c"]'})["items"] == ["a", "b", "c"]
+
+
 # Tests for structured output functionality
 
 
