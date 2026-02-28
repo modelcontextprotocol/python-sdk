@@ -17,6 +17,7 @@ Example:
     ```
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
@@ -34,14 +35,14 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
-    # Purposely not using context managers for these, as we don't want to close
-    # standard process handles. Encoding of stdin/stdout as text streams on
-    # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    # Duplicate the file descriptors so that closing the TextIOWrapper does not
+    # close the real sys.stdin / sys.stdout. Without this, any code that runs
+    # after the server exits (or after the transport is torn down) gets
+    # ``ValueError: I/O operation on closed file`` when touching stdio.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8"))
+        stdin = anyio.wrap_file(TextIOWrapper(os.fdopen(os.dup(sys.stdin.fileno()), "rb"), encoding="utf-8"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout = anyio.wrap_file(TextIOWrapper(os.fdopen(os.dup(sys.stdout.fileno()), "wb"), encoding="utf-8"))
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
