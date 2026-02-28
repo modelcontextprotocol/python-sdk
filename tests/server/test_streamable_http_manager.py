@@ -410,3 +410,25 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+@pytest.mark.anyio
+async def test_shutdown_terminates_active_sessions():
+    """Test that run() shutdown terminates active transports before cancelling tasks."""
+    app = Server("test-shutdown-terminate")
+    manager = StreamableHTTPSessionManager(app=app)
+
+    # We'll manually inject a mock transport into _server_instances
+    # and verify terminate() is called during shutdown.
+    mock_transport = AsyncMock(spec=StreamableHTTPServerTransport)
+    mock_transport.mcp_session_id = "test-session-1"
+    mock_transport.is_terminated = False
+
+    async with manager.run():
+        # Inject mock transport as if a session was created
+        manager._server_instances["test-session-1"] = mock_transport
+
+    # After exiting run(), terminate should have been called
+    mock_transport.terminate.assert_awaited_once()
+    # Server instances should be cleared
+    assert len(manager._server_instances) == 0
