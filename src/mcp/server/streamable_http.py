@@ -20,7 +20,7 @@ import pydantic_core
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
@@ -625,6 +625,15 @@ class StreamableHTTPServerTransport:
                     await self._clean_up_memory_streams(request_id)
                 finally:
                     await sse_stream_reader.aclose()
+
+        except ClientDisconnect:
+            logger.info("Client disconnected during request")
+            response = self._create_error_response(
+                "Client closed connection",
+                499,
+            )
+            await response(scope, receive, send)
+            return
 
         except Exception as err:  # pragma: no cover
             logger.exception("Error handling POST request")
