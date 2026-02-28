@@ -8,7 +8,17 @@ from typing import Any
 
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import Transport
-from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.session import (
+    ClientSession,
+    ElicitationFnT,
+    ListRootsFnT,
+    LoggingFnT,
+    MessageHandlerFnT,
+    PromptListChangedFnT,
+    ResourceListChangedFnT,
+    SamplingFnT,
+    ToolListChangedFnT,
+)
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
@@ -95,6 +105,15 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    tool_list_changed_callback: ToolListChangedFnT | None = None
+    """Callback invoked when the server sends a tools/list_changed notification."""
+
+    resource_list_changed_callback: ResourceListChangedFnT | None = None
+    """Callback invoked when the server sends a resources/list_changed notification."""
+
+    prompt_list_changed_callback: PromptListChangedFnT | None = None
+    """Callback invoked when the server sends a prompts/list_changed notification."""
+
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
@@ -126,6 +145,9 @@ class Client:
                     message_handler=self.message_handler,
                     client_info=self.client_info,
                     elicitation_callback=self.elicitation_callback,
+                    tool_list_changed_callback=self.tool_list_changed_callback,
+                    resource_list_changed_callback=self.resource_list_changed_callback,
+                    prompt_list_changed_callback=self.prompt_list_changed_callback,
                 )
             )
 

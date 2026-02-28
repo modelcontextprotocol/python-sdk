@@ -47,6 +47,18 @@ class LoggingFnT(Protocol):
     async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
 
 
+class ToolListChangedFnT(Protocol):
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
+class ResourceListChangedFnT(Protocol):
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
+class PromptListChangedFnT(Protocol):
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
@@ -95,6 +107,18 @@ async def _default_logging_callback(
     pass
 
 
+async def _default_tool_list_changed_callback() -> None:
+    pass
+
+
+async def _default_resource_list_changed_callback() -> None:
+    pass
+
+
+async def _default_prompt_list_changed_callback() -> None:
+    pass
+
+
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -120,6 +144,9 @@ class ClientSession(
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
+        tool_list_changed_callback: ToolListChangedFnT | None = None,
+        resource_list_changed_callback: ResourceListChangedFnT | None = None,
+        prompt_list_changed_callback: PromptListChangedFnT | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
@@ -129,6 +156,9 @@ class ClientSession(
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
+        self._tool_list_changed_callback = tool_list_changed_callback or _default_tool_list_changed_callback
+        self._resource_list_changed_callback = resource_list_changed_callback or _default_resource_list_changed_callback
+        self._prompt_list_changed_callback = prompt_list_changed_callback or _default_prompt_list_changed_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
@@ -475,5 +505,11 @@ class ClientSession(
                 # Clients MAY use this to retry requests or update UI
                 # The notification contains the elicitationId of the completed elicitation
                 pass
+            case types.ToolListChangedNotification():
+                await self._tool_list_changed_callback()
+            case types.ResourceListChangedNotification():
+                await self._resource_list_changed_callback()
+            case types.PromptListChangedNotification():
+                await self._prompt_list_changed_callback()
             case _:
                 pass
