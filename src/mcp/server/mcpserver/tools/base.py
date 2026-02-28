@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import functools
-import inspect
 from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
@@ -10,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
-from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata, is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
@@ -63,7 +61,7 @@ class Tool(BaseModel):
             raise ValueError("You must provide a name for lambda functions")
 
         func_doc = description or fn.__doc__ or ""
-        is_async = _is_async_callable(fn)
+        is_async = is_async_callable(fn)
 
         if context_kwarg is None:  # pragma: no branch
             context_kwarg = find_context_parameter(fn)
@@ -114,12 +112,3 @@ class Tool(BaseModel):
             raise
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
-
-
-def _is_async_callable(obj: Any) -> bool:
-    while isinstance(obj, functools.partial):  # pragma: lax no cover
-        obj = obj.func
-
-    return inspect.iscoroutinefunction(obj) or (
-        callable(obj) and inspect.iscoroutinefunction(getattr(obj, "__call__", None))
-    )

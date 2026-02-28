@@ -521,3 +521,13 @@ def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
         result = pydantic_core.to_json(result, fallback=str, indent=2).decode()
 
     return [TextContent(type="text", text=result)]
+
+
+def is_async_callable(obj: Any) -> bool:
+    """Check if an object is an async callable."""
+    while isinstance(obj, functools.partial):
+        obj = obj.func
+
+    return inspect.iscoroutinefunction(obj) or (
+        callable(obj) and inspect.iscoroutinefunction(getattr(obj, "__call__", None))
+    )

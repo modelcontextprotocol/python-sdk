@@ -1,7 +1,9 @@
 """Base classes and interfaces for MCPServer resources."""
 
+from __future__ import annotations
+
 import abc
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import (
     BaseModel,
@@ -12,6 +14,10 @@ from pydantic import (
 )
 
 from mcp.types import Annotations, Icon
+
+if TYPE_CHECKING:
+    from mcp.server.context import LifespanContextT, RequestT
+    from mcp.server.mcpserver.server import Context
 
 
 class Resource(BaseModel, abc.ABC):
@@ -43,6 +49,9 @@ class Resource(BaseModel, abc.ABC):
         raise ValueError("Either name or uri must be provided")
 
     @abc.abstractmethod
-    async def read(self) -> str | bytes:
+    async def read(
+        self,
+        context: Context[LifespanContextT, RequestT] | None = None,
+    ) -> str | bytes:
         """Read the resource content."""
         pass  # pragma: no cover

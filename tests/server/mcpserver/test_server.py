@@ -988,7 +988,7 @@ class TestServerResourceMetadata:
                         TextResourceContents(
                             uri="resource://data",
                             mime_type="text/plain",
-                            meta={"version": "1.0", "category": "config"},  # type: ignore[reportUnknownMemberType]
+                            meta={"version": "1.0", "category": "config"},  # type: ignore[reportCallIssue]
                             text="test data",
                         )
                     ]
