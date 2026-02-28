@@ -40,13 +40,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # after the server exits (or after the transport is torn down) gets
     # ``ValueError: I/O operation on closed file`` when touching stdio.
     if not stdin:
-        stdin = anyio.wrap_file(
-            TextIOWrapper(os.fdopen(os.dup(sys.stdin.fileno()), "rb"), encoding="utf-8")
-        )
+        stdin = anyio.wrap_file(TextIOWrapper(os.fdopen(os.dup(sys.stdin.fileno()), "rb"), encoding="utf-8"))
     if not stdout:
-        stdout = anyio.wrap_file(
-            TextIOWrapper(os.fdopen(os.dup(sys.stdout.fileno()), "wb"), encoding="utf-8")
-        )
+        stdout = anyio.wrap_file(TextIOWrapper(os.fdopen(os.dup(sys.stdout.fileno()), "wb"), encoding="utf-8"))
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
