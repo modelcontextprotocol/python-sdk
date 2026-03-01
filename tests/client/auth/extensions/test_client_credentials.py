@@ -282,7 +282,7 @@ class TestClientCredentialsOAuthProvider:
 
     @pytest.mark.anyio
     async def test_exchange_token_client_secret_post_without_client_id(self, mock_storage: MockTokenStorage):
-        """Test that client_secret_post skips body credentials when client_id is None (RFC 6749 §2.3.1 requires both)."""
+        """Test client_secret_post skips body credentials when client_id is None."""
         provider = ClientCredentialsOAuthProvider(
             server_url="https://api.example.com/v1/mcp",
             storage=mock_storage,
