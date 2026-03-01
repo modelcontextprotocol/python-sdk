@@ -360,3 +360,22 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert tool.input_schema["additionalProperties"] is False
+
+
+def test_request_params_allows_extra_fields():
+    """RequestParams should accept extra fields at the top level.
+
+    This matches the TypeScript SDK's behavior where params is defined as
+    { _meta?: {...}; [key: string]: unknown }.
+
+    See: https://github.com/modelcontextprotocol/python-sdk/issues/913
+    """
+    from mcp.types import RequestParams
+
+    params = RequestParams(**{"custom_field": "value", "another": 42})
+    assert params.model_extra == {"custom_field": "value", "another": 42}
+
+    # Extra fields survive serialization round-trip
+    dumped = params.model_dump(mode="json", exclude_none=True)
+    assert dumped["custom_field"] == "value"
+    assert dumped["another"] == 42

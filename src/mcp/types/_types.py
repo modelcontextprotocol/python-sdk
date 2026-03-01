@@ -66,6 +66,8 @@ class TaskMetadata(MCPModel):
 
 
 class RequestParams(MCPModel):
+    model_config = ConfigDict(extra="allow")
+
     task: TaskMetadata | None = None
     """
     If specified, the caller is requesting task-augmented execution for this request.
