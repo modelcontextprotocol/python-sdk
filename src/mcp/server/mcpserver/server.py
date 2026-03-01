@@ -982,10 +982,15 @@ class MCPServer(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if self.settings.auth and self.settings.auth.resource_server_url:
+                from pydantic import AnyHttpUrl
+
                 from mcp.server.auth.routes import build_resource_metadata_url
 
+                # The protected resource URL must include the transport path
+                # (e.g. http://localhost:8000/sse) per RFC 9728
+                actual_resource_url = AnyHttpUrl(str(self.settings.auth.resource_server_url).rstrip("/") + sse_path)
                 # Build compliant metadata URL for WWW-Authenticate header
-                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
+                resource_metadata_url = build_resource_metadata_url(actual_resource_url)
 
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
@@ -1023,11 +1028,14 @@ class MCPServer(Generic[LifespanResultT]):
             )
         # Add protected resource metadata endpoint if configured as RS
         if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
+            from pydantic import AnyHttpUrl
+
             from mcp.server.auth.routes import create_protected_resource_routes
 
+            actual_resource_url = AnyHttpUrl(str(self.settings.auth.resource_server_url).rstrip("/") + sse_path)
             routes.extend(
                 create_protected_resource_routes(
-                    resource_url=self.settings.auth.resource_server_url,
+                    resource_url=actual_resource_url,
                     authorization_servers=[self.settings.auth.issuer_url],
                     scopes_supported=self.settings.auth.required_scopes,
                 )
