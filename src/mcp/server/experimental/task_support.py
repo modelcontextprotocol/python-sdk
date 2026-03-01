@@ -33,18 +33,22 @@ class TaskSupport:
     Example:
         Simple in-memory setup:
 
+        <!-- snippet-source #TaskSupport_simple -->
         ```python
         server.experimental.enable_tasks()
         ```
+        <!-- /snippet-source -->
 
         Custom store/queue for distributed systems:
 
+        <!-- snippet-source #TaskSupport_custom -->
         ```python
         server.experimental.enable_tasks(
             store=RedisTaskStore(redis_url),
             queue=RedisTaskMessageQueue(redis_url),
         )
         ```
+        <!-- /snippet-source -->
     """
 
     store: TaskStore

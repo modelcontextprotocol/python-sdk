@@ -120,18 +120,22 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
         Example:
             Simple in-memory setup:
 
+            <!-- snippet-source #ExperimentalHandlers_enable_tasks_simple -->
             ```python
             server.experimental.enable_tasks()
             ```
+            <!-- /snippet-source -->
 
             Custom store/queue for distributed systems:
 
+            <!-- snippet-source #ExperimentalHandlers_enable_tasks_custom -->
             ```python
             server.experimental.enable_tasks(
                 store=RedisTaskStore(redis_url),
                 queue=RedisTaskMessageQueue(redis_url),
             )
             ```
+            <!-- /snippet-source -->
 
         WARNING: This API is experimental and may change without notice.
         """

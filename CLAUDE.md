@@ -109,6 +109,72 @@ rather than adding new standalone sections.
      - Update config rev
      - Commit config first
 
+## Code Snippet System
+
+`scripts/sync_snippets.py` replaces the content between
+`<!-- snippet-source ... -->` / `<!-- /snippet-source -->` markers with code
+from the referenced source file. The source file is the source of truth —
+never edit synced content directly in the target.
+
+To sync only part of a file, append `#RegionName` to the path. Regions are
+delimited in source files by `# region Name` / `# endregion Name` markers.
+Each example lives in a named function (returning `-> None`) wrapping a region.
+Names follow `ClassName_methodName_variant` for methods, `functionName_variant`
+for standalone functions, or `module_overview` for module docstrings. Pick a
+descriptive variant suffix (`_basic`, `_sync`/`_async`, `_with_context`, etc.):
+
+````python
+def MyClass_do_thing_basic(obj: MyClass) -> None:
+    # region MyClass_do_thing_basic
+    result = obj.do_thing("arg")
+    print(result)
+    # endregion MyClass_do_thing_basic
+````
+
+Function parameters supply typed dependencies the example needs but does not create
+(e.g., `server: MCPServer`); module-level stubs are only for truly undefined references
+(e.g., `async def fetch_data() -> str: ...`).
+
+NEVER put `# type: ignore`, `# pyright: ignore`, or `# noqa` inside a region — these
+sync verbatim into the target. Restructure the code to address the errors instead.
+
+After editing an example file, run `uv run --frozen pyright` to verify types, then
+`uv run python scripts/sync_snippets.py` to sync. Use `--check` to verify without
+modifying files.
+
+### Markdown Code Examples
+
+Code examples in `README.v2.md` and `docs/**/*.md` use explicit paths relative
+to the repo root:
+
+````markdown
+<!-- snippet-source examples/snippets/servers/basic_tool.py -->
+```python
+# replaced by sync script
+```
+<!-- /snippet-source -->
+````
+
+### Docstring Code Examples
+
+Code examples in `src/` docstrings use companion files in
+`examples/snippets/docstrings/`, mirroring the source tree
+(`src/mcp/foo/bar.py` → `examples/snippets/docstrings/mcp/foo/bar.py`).
+Companion files are standalone scripts (not packages) starting with
+`from __future__ import annotations`.
+
+Docstrings use path-less `#Region` markers (only supported in `src/` files):
+
+````text
+    Example:
+        <!-- snippet-source #MyClass_do_thing_basic -->
+        ```python
+        result = obj.do_thing("arg")
+        print(result)
+        ```
+        <!-- /snippet-source -->
+````
+
 ## Error Resolution
 
 1. CI Failures
