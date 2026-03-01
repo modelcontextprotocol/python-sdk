@@ -253,6 +253,72 @@ class TestClientCredentialsOAuthProvider:
         assert "resource=https://api.example.com/v1/mcp" in content
 
     @pytest.mark.anyio
+    async def test_exchange_token_client_secret_post_includes_client_id(self, mock_storage: MockTokenStorage):
+        """Test that client_secret_post includes both client_id and client_secret in body (RFC 6749 §2.3.1)."""
+        provider = ClientCredentialsOAuthProvider(
+            server_url="https://api.example.com/v1/mcp",
+            storage=mock_storage,
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+            token_endpoint_auth_method="client_secret_post",
+            scopes="read write",
+        )
+        await provider._initialize()
+        provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://api.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://api.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://api.example.com/token"),
+        )
+        provider.context.protocol_version = "2025-06-18"
+
+        request = await provider._perform_authorization()
+
+        content = urllib.parse.unquote_plus(request.content.decode())
+        assert "grant_type=client_credentials" in content
+        assert "client_id=test-client-id" in content
+        assert "client_secret=test-client-secret" in content
+        # Should NOT have Basic auth header
+        assert "Authorization" not in request.headers
+
+    @pytest.mark.anyio
+    async def test_exchange_token_client_secret_post_without_client_id(self, mock_storage: MockTokenStorage):
+        """Test that client_secret_post skips body credentials when client_id is None (RFC 6749 §2.3.1 requires both)."""
+        provider = ClientCredentialsOAuthProvider(
+            server_url="https://api.example.com/v1/mcp",
+            storage=mock_storage,
+            client_id="placeholder",
+            client_secret="test-client-secret",
+            token_endpoint_auth_method="client_secret_post",
+            scopes="read write",
+        )
+        await provider._initialize()
+        provider.context.oauth_metadata = OAuthMetadata(
+            issuer=AnyHttpUrl("https://api.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://api.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://api.example.com/token"),
+        )
+        provider.context.protocol_version = "2025-06-18"
+        # Override client_info to have client_id=None (edge case)
+        provider.context.client_info = OAuthClientInformationFull(
+            redirect_uris=None,
+            client_id=None,
+            client_secret="test-client-secret",
+            grant_types=["client_credentials"],
+            token_endpoint_auth_method="client_secret_post",
+            scope="read write",
+        )
+
+        request = await provider._perform_authorization()
+
+        content = urllib.parse.unquote_plus(request.content.decode())
+        assert "grant_type=client_credentials" in content
+        # Neither client_id nor client_secret should be in body since client_id is None
+        # (RFC 6749 §2.3.1 requires both for client_secret_post)
+        assert "client_id=" not in content
+        assert "client_secret=" not in content
+        assert "Authorization" not in request.headers
+
+    @pytest.mark.anyio
     async def test_exchange_token_without_scopes(self, mock_storage: MockTokenStorage):
         """Test token exchange without scopes."""
         provider = ClientCredentialsOAuthProvider(
