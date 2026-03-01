@@ -26,6 +26,7 @@ import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp import types
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.message import SessionMessage
 
 
@@ -77,7 +78,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
+    async with open_task_group() as tg:
         tg.start_soon(stdin_reader)
         tg.start_soon(stdout_writer)
         yield read_stream, write_stream

@@ -55,6 +55,7 @@ from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -174,7 +175,7 @@ class SseServerTransport:
                         }
                     )
 
-        async with anyio.create_task_group() as tg:
+        async with open_task_group() as tg:
 
             async def response_wrapper(scope: Scope, receive: Receive, send: Send):
                 """The EventSourceResponse returning signals a client close / disconnect.

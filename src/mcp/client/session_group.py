@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, TypeAlias
 
-import anyio
 import httpx
 from pydantic import BaseModel, Field
 from typing_extensions import Self
@@ -24,6 +23,7 @@ from mcp.client.session import ElicitationFnT, ListRootsFnT, LoggingFnT, Message
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.exceptions import MCPError
 from mcp.shared.session import ProgressFnT
@@ -166,7 +166,7 @@ class ClientSessionGroup:
             await self._exit_stack.aclose()
 
         # Concurrently close session stacks.
-        async with anyio.create_task_group() as tg:
+        async with open_task_group() as tg:
             for exit_stack in self._session_exit_stacks.values():
                 tg.start_soon(exit_stack.aclose)
 

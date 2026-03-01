@@ -21,6 +21,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._exception_utils import open_task_group
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
@@ -122,7 +123,7 @@ class StreamableHTTPSessionManager:
                 )
             self._has_started = True
 
-        async with anyio.create_task_group() as tg:
+        async with open_task_group() as tg:
             # Store the task group for later use
             self._task_group = tg
             logger.info("StreamableHTTP session manager started")

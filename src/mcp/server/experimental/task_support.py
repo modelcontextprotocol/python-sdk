@@ -8,11 +8,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-import anyio
 from anyio.abc import TaskGroup
 
 from mcp.server.experimental.task_result_handler import TaskResultHandler
 from mcp.server.session import ServerSession
+from mcp.shared._exception_utils import open_task_group
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue, TaskMessageQueue
 from mcp.shared.experimental.tasks.store import TaskStore
@@ -79,7 +79,7 @@ class TaskSupport:
                 # Task group is now available
                 ...
         """
-        async with anyio.create_task_group() as tg:
+        async with open_task_group() as tg:
             self._task_group = tg
             try:
                 yield
