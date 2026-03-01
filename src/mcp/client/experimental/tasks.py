@@ -5,6 +5,7 @@ This module provides client methods for interacting with MCP tasks.
 WARNING: These APIs are experimental and may change without notice.
 
 Example:
+    <!-- snippet-source #module_overview -->
     ```python
     # Call a tool as a task
     result = await session.experimental.call_tool_as_task("tool_name", {"arg": "value"})
@@ -23,6 +24,7 @@ Example:
     # Cancel a task
     await session.experimental.cancel_task(task_id)
     ```
+    <!-- /snippet-source -->
 """
 
 from collections.abc import AsyncIterator
@@ -74,11 +76,10 @@ class ExperimentalClientFeatures:
             CreateTaskResult containing the task reference
 
         Example:
+            <!-- snippet-source #ExperimentalClientFeatures_call_tool_as_task_usage -->
             ```python
             # Create task
-            result = await session.experimental.call_tool_as_task(
-                "long_running_tool", {"input": "data"}
-            )
+            result = await session.experimental.call_tool_as_task("long_running_tool", {"input": "data"})
             task_id = result.task.task_id
 
             # Poll for completion
@@ -91,6 +92,7 @@ class ExperimentalClientFeatures:
             # Get result
             final = await session.experimental.get_task_result(task_id, CallToolResult)
             ```
+            <!-- /snippet-source -->
         """
         return await self._session.send_request(
             types.CallToolRequest(
@@ -193,6 +195,7 @@ class ExperimentalClientFeatures:
             GetTaskResult for each poll
 
         Example:
+            <!-- snippet-source #ExperimentalClientFeatures_poll_task_usage -->
             ```python
             async for status in session.experimental.poll_task(task_id):
                 print(f"Status: {status.status}")
@@ -203,6 +206,7 @@ class ExperimentalClientFeatures:
             # Task is now terminal, get the result
             result = await session.experimental.get_task_result(task_id, CallToolResult)
             ```
+            <!-- /snippet-source -->
         """
         async for status in poll_until_terminal(self.get_task, task_id):
             yield status

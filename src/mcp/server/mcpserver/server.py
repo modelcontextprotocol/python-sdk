@@ -535,25 +535,31 @@ class MCPServer(Generic[LifespanResultT]):
                 - If False, unconditionally creates an unstructured tool
 
         Example:
+            <!-- snippet-source #MCPServer_tool_basic -->
             ```python
             @server.tool()
             def my_tool(x: int) -> str:
                 return str(x)
             ```
+            <!-- /snippet-source -->
 
+            <!-- snippet-source #MCPServer_tool_with_context -->
             ```python
             @server.tool()
             async def tool_with_context(x: int, ctx: Context) -> str:
                 await ctx.info(f"Processing {x}")
                 return str(x)
             ```
+            <!-- /snippet-source -->
 
+            <!-- snippet-source #MCPServer_tool_async -->
             ```python
             @server.tool()
             async def async_tool(x: int, context: Context) -> str:
                 await context.report_progress(50, 100)
                 return str(x)
             ```
+            <!-- /snippet-source -->
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -585,14 +591,20 @@ class MCPServer(Generic[LifespanResultT]):
         - context: Optional CompletionContext with previously resolved arguments
 
         Example:
+            <!-- snippet-source #MCPServer_completion -->
             ```python
-            @mcp.completion()
-            async def handle_completion(ref, argument, context):
+            @server.completion()
+            async def handle_completion(
+                ref: PromptReference | ResourceTemplateReference,
+                argument: CompletionArgument,
+                context: CompletionContext | None,
+            ) -> Completion | None:
                 if isinstance(ref, ResourceTemplateReference):
                     # Return completions based on ref, argument, and context
                     return Completion(values=["option1", "option2"])
                 return None
             ```
+            <!-- /snippet-source -->
         """
 
         def decorator(func: _CallableT) -> _CallableT:
@@ -655,25 +667,39 @@ class MCPServer(Generic[LifespanResultT]):
             meta: Optional metadata dictionary for the resource
 
         Example:
+            <!-- snippet-source #MCPServer_resource_sync_static -->
             ```python
             @server.resource("resource://my-resource")
             def get_data() -> str:
                 return "Hello, world!"
+            ```
+            <!-- /snippet-source -->
 
+            <!-- snippet-source #MCPServer_resource_async_static -->
+            ```python
             @server.resource("resource://my-resource")
             async def get_data() -> str:
                 data = await fetch_data()
                 return f"Hello, world! {data}"
+            ```
+            <!-- /snippet-source -->
 
+            <!-- snippet-source #MCPServer_resource_sync_template -->
+            ```python
             @server.resource("resource://{city}/weather")
             def get_weather(city: str) -> str:
                 return f"Weather for {city}"
+            ```
+            <!-- /snippet-source -->
 
+            <!-- snippet-source #MCPServer_resource_async_template -->
+            ```python
             @server.resource("resource://{city}/weather")
             async def get_weather(city: str) -> str:
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
             ```
+            <!-- /snippet-source -->
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -757,6 +783,7 @@ class MCPServer(Generic[LifespanResultT]):
             icons: Optional list of icons for the prompt
 
         Example:
+            <!-- snippet-source #MCPServer_prompt_sync -->
             ```python
             @server.prompt()
             def analyze_table(table_name: str) -> list[Message]:
@@ -764,10 +791,14 @@ class MCPServer(Generic[LifespanResultT]):
                 return [
                     {
                         "role": "user",
-                        "content": f"Analyze this schema:\n{schema}"
+                        "content": f"Analyze this schema:\n{schema}",
                     }
                 ]
+            ```
+            <!-- /snippet-source -->
 
+            <!-- snippet-source #MCPServer_prompt_async -->
+            ```python
             @server.prompt()
             async def analyze_file(path: str) -> list[Message]:
                 content = await read_file(path)
@@ -778,12 +809,13 @@ class MCPServer(Generic[LifespanResultT]):
                             "type": "resource",
                             "resource": {
                                 "uri": f"file://{path}",
-                                "text": content
-                            }
-                        }
+                                "text": content,
+                            },
+                        },
                     }
                 ]
             ```
+            <!-- /snippet-source -->
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -825,11 +857,13 @@ class MCPServer(Generic[LifespanResultT]):
             include_in_schema: Whether to include in OpenAPI schema, defaults to True
 
         Example:
+            <!-- snippet-source #MCPServer_custom_route -->
             ```python
             @server.custom_route("/health", methods=["GET"])
             async def health_check(request: Request) -> Response:
                 return JSONResponse({"status": "ok"})
             ```
+            <!-- /snippet-source -->
         """
 
         def decorator(  # pragma: no cover
@@ -1113,6 +1147,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     To use context in a tool function, add a parameter with the Context type annotation:
 
+    <!-- snippet-source #Context_usage -->
     ```python
     @server.tool()
     async def my_tool(x: int, ctx: Context) -> str:
@@ -1134,6 +1169,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         return str(x)
     ```
+    <!-- /snippet-source -->
 
     The context parameter name can be anything as long as it's annotated with Context.
     The context is optional - tools that don't need it can omit the parameter.

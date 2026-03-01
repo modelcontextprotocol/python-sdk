@@ -65,15 +65,19 @@ class UrlElicitationRequiredError(MCPError):
     must complete one or more URL elicitations before the request can be processed.
 
     Example:
+        <!-- snippet-source #UrlElicitationRequiredError_usage -->
         ```python
-        raise UrlElicitationRequiredError([
-            ElicitRequestURLParams(
-                message="Authorization required for your files",
-                url="https://example.com/oauth/authorize",
-                elicitation_id="auth-001"
-            )
-        ])
+        raise UrlElicitationRequiredError(
+            [
+                ElicitRequestURLParams(
+                    message="Authorization required for your files",
+                    url="https://example.com/oauth/authorize",
+                    elicitation_id="auth-001",
+                )
+            ]
+        )
         ```
+        <!-- /snippet-source -->
     """
 
     def __init__(self, elicitations: list[ElicitRequestURLParams], message: str | None = None):

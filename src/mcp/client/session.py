@@ -206,10 +206,12 @@ class ClientSession(
             These APIs are experimental and may change without notice.
 
         Example:
+            <!-- snippet-source #ClientSession_experimental_usage -->
             ```python
             status = await session.experimental.get_task(task_id)
             result = await session.experimental.get_task_result(task_id, CallToolResult)
             ```
+            <!-- /snippet-source -->
         """
         if self._experimental_features is None:
             self._experimental_features = ExperimentalClientFeatures(self)

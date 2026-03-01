@@ -18,6 +18,7 @@ def get_display_name(obj: Tool | Resource | Prompt | ResourceTemplate | Implemen
     For other objects: title > name
 
     Example:
+        <!-- snippet-source #get_display_name_usage -->
         ```python
         # In a client displaying available tools
         tools = await session.list_tools()
@@ -25,6 +26,7 @@ def get_display_name(obj: Tool | Resource | Prompt | ResourceTemplate | Implemen
             display_name = get_display_name(tool)
             print(f"Available tool: {display_name}")
         ```
+        <!-- /snippet-source -->
 
     Args:
         obj: An MCP object with name and optional title fields

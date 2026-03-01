@@ -160,18 +160,26 @@ class Experimental:
             RuntimeError: If task support is not enabled or task_metadata is missing
 
         Example:
+            <!-- snippet-source #Experimental_run_task_usage -->
             ```python
-            async def handle_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
+            async def handle_tool(
+                ctx: ServerRequestContext[Any, Any],
+                params: CallToolRequestParams,
+            ) -> CreateTaskResult:
                 async def work(task: ServerTaskContext) -> CallToolResult:
                     result = await task.elicit(
                         message="Are you sure?",
-                        requested_schema={"type": "object", ...}
+                        requested_schema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
                     )
-                    confirmed = result.content.get("confirm", False)
+                    if result.action == "accept" and result.content:
+                        confirmed = result.content.get("confirm", False)
+                    else:
+                        confirmed = False
                     return CallToolResult(content=[TextContent(text="Done" if confirmed else "Cancelled")])
 
                 return await ctx.experimental.run_task(work)
             ```
+            <!-- /snippet-source -->
 
         WARNING: This API is experimental and may change without notice.
         """
