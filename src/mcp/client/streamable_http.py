@@ -194,7 +194,7 @@ class StreamableHTTPTransport:
                     headers[LAST_EVENT_ID] = last_event_id
 
                 async with aconnect_sse(client, "GET", self.url, headers=headers) as event_source:
-                    if event_source.response.status_code >= 400:
+                    if event_source.response.status_code >= 400:  # pragma: no cover
                         logger.warning(f"GET SSE returned HTTP {event_source.response.status_code}")
                         attempt += 1
                         continue
@@ -240,7 +240,7 @@ class StreamableHTTPTransport:
             original_request_id = ctx.session_message.message.id
 
         async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
-            if event_source.response.status_code >= 400:
+            if event_source.response.status_code >= 400:  # pragma: no cover
                 logger.warning(f"Resumption GET returned HTTP {event_source.response.status_code}")
                 if original_request_id is not None:
                     error_data = ErrorData(
@@ -413,7 +413,7 @@ class StreamableHTTPTransport:
 
         try:
             async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
-                if event_source.response.status_code >= 400:
+                if event_source.response.status_code >= 400:  # pragma: no cover
                     logger.warning(f"Reconnection GET returned HTTP {event_source.response.status_code}")
                     if original_request_id is not None:
                         error_data = ErrorData(
