@@ -64,11 +64,11 @@ class _AsyncOAuth2ClientProtocol(Protocol):
     scope: str | None
     code_challenge_method: str
 
-    async def fetch_token(self, url: str, **kwargs: Any) -> dict[str, Any]: ...
+    async def fetch_token(self, url: str, **kwargs: Any) -> dict[str, Any]: ...  # pragma: no cover
 
-    def create_authorization_url(self, url: str, **kwargs: Any) -> tuple[str, str]: ...
+    def create_authorization_url(self, url: str, **kwargs: Any) -> tuple[str, str]: ...  # pragma: no cover
 
-    async def ensure_active_token(self, token: dict[str, Any]) -> None: ...
+    async def ensure_active_token(self, token: dict[str, Any]) -> None: ...  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
