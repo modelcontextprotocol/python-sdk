@@ -215,9 +215,7 @@ class AuthlibOAuthAdapter(httpx.Auth):
         # code_challenge_method is set on the client.
         self._client.code_challenge_method = "S256"
         # Generate a random code_verifier (Authlib will compute the challenge)
-        code_verifier = "".join(
-            secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(128)
-        )
+        code_verifier = "".join(secrets.choice(string.ascii_letters + string.digits + "-._~") for _ in range(128))
 
         auth_url, _ = self._client.create_authorization_url(
             self.config.authorization_endpoint,
@@ -255,9 +253,7 @@ class AuthlibOAuthAdapter(httpx.Auth):
     # httpx.Auth entry point
     # ------------------------------------------------------------------
 
-    async def async_auth_flow(
-        self, request: httpx.Request
-    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+    async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow: ensure a valid token then inject it into the request.
 
         On a ``401`` response the adapter acquires a fresh token (via
