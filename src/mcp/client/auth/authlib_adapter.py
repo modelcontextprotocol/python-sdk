@@ -34,7 +34,7 @@ import logging
 import secrets
 import string
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 import anyio
 import httpx
@@ -46,6 +46,30 @@ from mcp.client.auth.oauth2 import TokenStorage
 from mcp.shared.auth import OAuthToken
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Internal protocol — typed interface for untyped Authlib client
+# ---------------------------------------------------------------------------
+
+
+class _AsyncOAuth2ClientProtocol(Protocol):
+    """Minimal typed interface for authlib.integrations.httpx_client.AsyncOAuth2Client.
+
+    Defined as a Protocol so that pyright strict mode can type-check all member
+    accesses on the Authlib client without requiring upstream type stubs.
+    """
+
+    token: dict[str, Any] | None
+    scope: str | None
+    code_challenge_method: str
+
+    async def fetch_token(self, url: str, **kwargs: Any) -> dict[str, Any]: ...
+
+    def create_authorization_url(self, url: str, **kwargs: Any) -> tuple[str, str]: ...
+
+    async def ensure_active_token(self, token: dict[str, Any]) -> None: ...
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -128,7 +152,7 @@ class AuthlibOAuthAdapter(httpx.Auth):
         self._initialized: bool = False
 
         scope_str = " ".join(config.scopes) if config.scopes else None
-        self._client: AsyncOAuth2Client = AsyncOAuth2Client(
+        self._client: _AsyncOAuth2ClientProtocol = AsyncOAuth2Client(  # type: ignore[assignment]
             client_id=config.client_id,
             client_secret=config.client_secret,
             scope=scope_str,
