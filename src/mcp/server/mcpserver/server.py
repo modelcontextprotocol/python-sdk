@@ -448,7 +448,10 @@ class MCPServer(Generic[LifespanResultT]):
             raise ResourceError(f"Unknown resource: {uri}")
 
         try:
-            content = await resource.read()
+            if isinstance(resource, FunctionResource):
+                content = await resource.read(context=context)
+            else:
+                content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as exc:
             logger.exception(f"Error getting resource {uri}")
@@ -686,12 +689,12 @@ class MCPServer(Generic[LifespanResultT]):
             # Check if this should be a template
             sig = inspect.signature(fn)
             has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(sig.parameters)
+
+            # Exclude Context parameter when checking for function params
+            context_param = find_context_parameter(fn)
+            has_func_params = bool({p for p in sig.parameters if p != context_param})
 
             if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
                 # Validate that URI params match function params (excluding context)
                 uri_params = set(re.findall(r"{(\w+)}", uri))
                 # We need to remove the context_param from the resource function if

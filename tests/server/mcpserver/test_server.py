@@ -1189,6 +1189,29 @@ class TestContextInjection:
                 )
             )
 
+    async def test_resource_with_context_only_not_classified_as_template(self):
+        """Test that a resource with only a Context param is registered as a resource, not a template."""
+        mcp = MCPServer()
+
+        @mcp.resource("time://current")
+        def current_time(ctx: Context[ServerSession, None]) -> str:
+            """Resource with only context parameter."""
+            return "11:41"
+
+        # Should be registered as a regular resource, not a template
+        resources = await mcp.list_resources()
+        templates = mcp._resource_manager.list_templates()
+        assert len(resources) == 1
+        assert str(resources[0].uri) == "time://current"
+        assert len(templates) == 0
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("time://current")
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert content.text == "11:41"
+
     async def test_prompt_with_context(self):
         """Test that prompts can receive context parameter."""
         mcp = MCPServer()

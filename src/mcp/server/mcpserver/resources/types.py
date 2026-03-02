@@ -51,12 +51,18 @@ class FunctionResource(Resource):
     """
 
     fn: Callable[[], Any] = Field(exclude=True)
+    context_kwarg: str | None = Field(default=None, exclude=True)
 
-    async def read(self) -> str | bytes:
+    async def read(self, context: Any | None = None) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
+            # Inject context if needed
+            kwargs: dict[str, Any] = {}
+            if self.context_kwarg is not None and context is not None:
+                kwargs[self.context_kwarg] = context
+
             # Call the function first to see if it returns a coroutine
-            result = self.fn()
+            result = self.fn(**kwargs)
             # If it's a coroutine, await it
             if inspect.iscoroutine(result):
                 result = await result
@@ -84,11 +90,18 @@ class FunctionResource(Resource):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        context_kwarg: str | None = None,
     ) -> "FunctionResource":
         """Create a FunctionResource from a function."""
+        from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+
         func_name = name or fn.__name__
         if func_name == "<lambda>":  # pragma: no cover
             raise ValueError("You must provide a name for lambda functions")
+
+        # Detect context parameter
+        if context_kwarg is None:  # pragma: no branch
+            context_kwarg = find_context_parameter(fn)
 
         # ensure the arguments are properly cast
         fn = validate_call(fn)
@@ -103,6 +116,7 @@ class FunctionResource(Resource):
             icons=icons,
             annotations=annotations,
             meta=meta,
+            context_kwarg=context_kwarg,
         )
 
 
