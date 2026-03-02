@@ -10,7 +10,7 @@ Follows codebase conventions:
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -18,7 +18,6 @@ import pytest
 from mcp.client.auth import AuthlibAdapterConfig, AuthlibOAuthAdapter
 from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.shared.auth import OAuthToken
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

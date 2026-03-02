@@ -4,7 +4,7 @@ from urllib.parse import urljoin, urlparse
 from httpx import Request, Response
 from pydantic import AnyUrl, ValidationError
 
-from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
+from mcp.client.auth.exceptions import OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
