@@ -1410,6 +1410,52 @@ class TestAuthFlow:
         except StopAsyncIteration:
             pass  # Expected
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("www_authenticate", "expected_error_substring"),
+        [
+            ('Bearer error="invalid_token"', "invalid_token"),
+            ("Bearer", "insufficient permissions"),
+            ('Bearer error="access_denied"', "access_denied"),
+        ],
+    )
+    async def test_403_non_insufficient_scope_raises_error(
+        self,
+        oauth_provider: OAuthClientProvider,
+        mock_storage: MockTokenStorage,
+        valid_tokens: OAuthToken,
+        www_authenticate: str,
+        expected_error_substring: str,
+    ):
+        """Test that 403 without insufficient_scope raises OAuthFlowError instead of retrying."""
+        client_info = OAuthClientInformationFull(
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        await mock_storage.set_tokens(valid_tokens)
+        await mock_storage.set_client_info(client_info)
+        oauth_provider.context.current_tokens = valid_tokens
+        oauth_provider.context.token_expiry_time = time.time() + 1800
+        oauth_provider.context.client_info = client_info
+        oauth_provider._initialized = True
+
+        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # First request with auth header
+        request = await auth_flow.__anext__()
+
+        # Send 403 with non-insufficient_scope error
+        response_403 = httpx.Response(
+            403,
+            headers={"WWW-Authenticate": www_authenticate},
+            request=request,
+        )
+
+        with pytest.raises(OAuthFlowError, match=expected_error_substring):
+            await auth_flow.asend(response_403)
+
 
 @pytest.mark.parametrize(
     (
