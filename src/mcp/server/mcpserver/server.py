@@ -33,7 +33,7 @@ from mcp.server.elicitation import elicit_url as _elicit_url
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server, request_ctx
 from mcp.server.lowlevel.server import lifespan as default_lifespan
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -304,8 +304,14 @@ class MCPServer(Generic[LifespanResultT]):
             result = await self.call_tool(params.name, params.arguments or {})
         except MCPError:
             raise
-        except Exception as e:
+        except ToolError as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        except Exception:
+            logger.exception(f"Error calling tool {params.name}")
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"An unexpected error occurred calling tool {params.name}")],
+                is_error=True,
+            )
         if isinstance(result, CallToolResult):
             return result
         if isinstance(result, tuple) and len(result) == 2:

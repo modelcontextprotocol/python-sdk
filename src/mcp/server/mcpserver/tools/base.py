@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import logging
 from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
@@ -14,6 +15,8 @@ from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_meta
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -112,8 +115,11 @@ class Tool(BaseModel):
             # Re-raise UrlElicitationRequiredError so it can be properly handled
             # as an MCP error response with code -32042
             raise
+        except ToolError:
+            raise
         except Exception as e:
-            raise ToolError(f"Error executing tool {self.name}: {e}") from e
+            logger.exception(f"Error executing tool {self.name}")
+            raise ToolError(f"An unexpected error occurred executing tool {self.name}") from e
 
 
 def _is_async_callable(obj: Any) -> bool:
