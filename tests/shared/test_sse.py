@@ -611,3 +611,41 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             assert not isinstance(msg, Exception)
             assert isinstance(msg.message, types.JSONRPCResponse)
             assert msg.message.id == 1
+
+
+@pytest.mark.anyio
+async def test_sse_session_cleanup_on_disconnect(server: None, server_url: str) -> None:
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/423
+
+    When a client disconnects, the server should remove the session from
+    _read_stream_writers. Without this cleanup, stale sessions accumulate and
+    POST requests to disconnected sessions are incorrectly accepted instead
+    of returning 404.
+    """
+    captured_session_id: str | None = None
+
+    def on_session_created(session_id: str) -> None:
+        nonlocal captured_session_id
+        captured_session_id = session_id
+
+    # Connect a client session, then disconnect
+    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+        async with ClientSession(*streams) as session:
+            await session.initialize()
+
+    assert captured_session_id is not None
+
+    # After disconnect, POST to the stale session should return 404
+    # (not 202 as it did before the fix)
+    async with httpx.AsyncClient() as client:
+        with anyio.fail_after(5):
+            while True:
+                response = await client.post(
+                    f"{server_url}/messages/?session_id={captured_session_id}",
+                    json={"jsonrpc": "2.0", "method": "ping", "id": 99},
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.status_code == 404:
+                    break
+                await anyio.sleep(0.1)
+        assert response.status_code == 404
