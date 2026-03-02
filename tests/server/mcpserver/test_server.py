@@ -212,6 +212,10 @@ def error_tool_fn() -> None:
     raise ValueError("Test error")
 
 
+def tool_error_fn() -> None:
+    raise ToolError("Intentional tool error")
+
+
 def image_tool_fn(path: str) -> Image:
     return Image(path)
 
@@ -286,6 +290,17 @@ class TestServerTools:
             assert "error_tool_fn" in content.text
             assert "Test error" not in content.text
             assert result.is_error is True
+
+    async def test_tool_error_passthrough(self):
+        """Test that ToolError raised in tool is passed through with its message."""
+        mcp = MCPServer()
+        mcp.add_tool(tool_error_fn)
+        async with Client(mcp) as client:
+            result = await client.call_tool("tool_error_fn", {})
+            assert result.is_error is True
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert "Intentional tool error" in content.text
 
     async def test_tool_return_value_conversion(self):
         mcp = MCPServer()
