@@ -372,7 +372,7 @@ def test_request_params_allows_extra_fields():
     """
     from mcp.types import RequestParams
 
-    params = RequestParams(**{"custom_field": "value", "another": 42})
+    params = RequestParams.model_validate({"custom_field": "value", "another": 42})
     assert params.model_extra == {"custom_field": "value", "another": 42}
 
     # Extra fields survive serialization round-trip
