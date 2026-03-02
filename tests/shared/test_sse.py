@@ -638,14 +638,9 @@ async def test_sse_session_cleanup_on_disconnect(server: None, server_url: str) 
     # After disconnect, POST to the stale session should return 404
     # (not 202 as it did before the fix)
     async with httpx.AsyncClient() as client:
-        with anyio.fail_after(5):
-            while True:
-                response = await client.post(
-                    f"{server_url}/messages/?session_id={captured_session_id}",
-                    json={"jsonrpc": "2.0", "method": "ping", "id": 99},
-                    headers={"Content-Type": "application/json"},
-                )
-                if response.status_code == 404:
-                    break
-                await anyio.sleep(0.1)
+        response = await client.post(
+            f"{server_url}/messages/?session_id={captured_session_id}",
+            json={"jsonrpc": "2.0", "method": "ping", "id": 99},
+            headers={"Content-Type": "application/json"},
+        )
         assert response.status_code == 404
