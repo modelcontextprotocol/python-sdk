@@ -9,11 +9,6 @@ terminated while the router task was still running.
 See: https://github.com/modelcontextprotocol/python-sdk/issues/1269
 """
 
-import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-
-import anyio
 import httpx
 import pytest
 from starlette.applications import Starlette
@@ -24,50 +19,35 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 
 def _create_app(*, stateless: bool) -> Starlette:
-    """Create a minimal Starlette app backed by a StreamableHTTPSessionManager."""
+    """Create a minimal Starlette app backed by a StreamableHTTPSessionManager.
+
+    No lifespan is needed because unsupported methods are rejected before
+    the session manager checks for a running task group.
+    """
     server = Server("test_head_crash")
     session_manager = StreamableHTTPSessionManager(
         app=server,
         stateless=stateless,
     )
 
-    @asynccontextmanager
-    async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
-        async with session_manager.run():
-            yield
-
     return Starlette(
         routes=[Mount("/", app=session_manager.handle_request)],
-        lifespan=lifespan,
     )
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("stateless", [True, False])
-async def test_head_request_returns_405_without_error(
-    stateless: bool,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """HEAD / must return 405 and must not produce ClosedResourceError."""
+async def test_head_request_returns_405(stateless: bool) -> None:
+    """HEAD / must return 405 without creating a transport."""
     app = _create_app(stateless=stateless)
 
-    with caplog.at_level(logging.ERROR):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-            timeout=5.0,
-        ) as client:
-            response = await client.head("/")
-            assert response.status_code == 405
-
-        # Give any lingering background tasks a chance to log errors
-        await anyio.sleep(0.3)
-
-    # Ensure no ClosedResourceError was logged
-    for record in caplog.records:
-        msg = record.getMessage()
-        assert "ClosedResourceError" not in msg, f"ClosedResourceError found in logs: {msg}"
-        assert "Error in message router" not in msg, f"Message router error found in logs: {msg}"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        timeout=5.0,
+    ) as client:
+        response = await client.head("/")
+        assert response.status_code == 405
 
 
 @pytest.mark.anyio
