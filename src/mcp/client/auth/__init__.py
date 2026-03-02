@@ -9,8 +9,11 @@ from mcp.client.auth.oauth2 import (
     PKCEParameters,
     TokenStorage,
 )
+from mcp.client.auth.authlib_adapter import AuthlibAdapterConfig, AuthlibOAuthAdapter
 
 __all__ = [
+    "AuthlibAdapterConfig",
+    "AuthlibOAuthAdapter",
     "OAuthClientProvider",
     "OAuthFlowError",
     "OAuthRegistrationError",
