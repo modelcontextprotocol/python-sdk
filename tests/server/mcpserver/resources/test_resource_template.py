@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
 from mcp.types import Annotations
 
@@ -305,3 +305,17 @@ class TestResourceTemplateMetadata:
         assert resource.meta == metadata
         assert resource.meta["category"] == "inventory"
         assert resource.meta["cacheable"] is True
+
+
+@pytest.mark.anyio
+async def test_create_resource_raises_when_context_required_but_not_provided():
+    def my_func(key: str, ctx: Context) -> str:
+        raise NotImplementedError
+
+    template = ResourceTemplate.from_function(
+        fn=my_func,
+        uri_template="test://{key}",
+        name="test",
+    )
+    with pytest.raises(ValueError, match="requires a Context"):
+        await template.create_resource("test://foo", {"key": "foo"})

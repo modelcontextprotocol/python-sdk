@@ -15,7 +15,7 @@ from mcp.types import ContentBlock, Icon, TextContent
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
-    from mcp.server.mcpserver.server import Context
+    from mcp.server.mcpserver.context import Context
 
 
 class Message(BaseModel):
@@ -138,7 +138,14 @@ class Prompt(BaseModel):
         arguments: dict[str, Any] | None = None,
         context: Context[LifespanContextT, RequestT] | None = None,
     ) -> list[Message]:
-        """Render the prompt with arguments."""
+        """Render the prompt with arguments.
+
+        Raises:
+            ValueError: If the prompt requires a Context but none was provided,
+                if required arguments are missing, or if rendering fails.
+        """
+        if self.context_kwarg is not None and context is None:
+            raise ValueError(f"Prompt {self.name!r} requires a Context, but none was provided")
         # Validate required arguments
         if self.arguments:
             required = {arg.name for arg in self.arguments if arg.required}

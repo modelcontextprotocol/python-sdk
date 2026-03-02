@@ -17,7 +17,7 @@ from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
-    from mcp.server.mcpserver.server import Context
+    from mcp.server.mcpserver.context import Context
 
 
 class Tool(BaseModel):
@@ -95,7 +95,14 @@ class Tool(BaseModel):
         context: Context[LifespanContextT, RequestT] | None = None,
         convert_result: bool = False,
     ) -> Any:
-        """Run the tool with arguments."""
+        """Run the tool with arguments.
+
+        Raises:
+            ToolError: If the tool requires a Context but none was provided,
+                or if the tool function raises during execution.
+        """
+        if self.context_kwarg is not None and context is None:
+            raise ToolError(f"Tool {self.name!r} requires a Context, but none was provided")
         try:
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,

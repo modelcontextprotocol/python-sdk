@@ -288,6 +288,37 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
+### `MCPServer.get_context()` removed
+
+`MCPServer.get_context()` has been removed. Context is now constructed by the framework and passed explicitly — there is no ambient ContextVar to read from.
+
+**If you were calling `get_context()` from inside a tool/resource/prompt:** use the `ctx: Context` parameter injection instead.
+
+**Before (v1):**
+
+```python
+@mcp.tool()
+async def my_tool(x: int) -> str:
+    ctx = mcp.get_context()
+    await ctx.info("Processing...")
+    return str(x)
+```
+
+**After (v2):**
+
+```python
+@mcp.tool()
+async def my_tool(x: int, ctx: Context) -> str:
+    await ctx.info("Processing...")
+    return str(x)
+```
+
+### `MCPServer.call_tool()`, `read_resource()`, `get_prompt()` now accept a `context` parameter
+
+`MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling — you only need to supply it when calling these methods directly.
+
+If the tool, resource template, or prompt you're invoking declares a `ctx: Context` parameter, you must pass a `Context`. Calling without one raises `ToolError` for tools or `ValueError` for prompts and resource templates.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:
@@ -694,7 +725,7 @@ If you prefer the convenience of automatic wrapping, use `MCPServer` which still
 
 ### Lowlevel `Server`: `request_context` property removed
 
-The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar is now an internal implementation detail and should not be relied upon.
+The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar has been removed entirely.
 
 **Before (v1):**
 

@@ -297,7 +297,7 @@ class TestCallTools:
             shrimp: list[Shrimp]
             x: None
 
-        def name_shrimp(tank: MyShrimpTank, ctx: Context[ServerSessionT, None]) -> list[str]:
+        def name_shrimp(tank: MyShrimpTank) -> list[str]:
             return [x.name for x in tank.shrimp]
 
         manager = ToolManager()
@@ -364,9 +364,7 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(tool_with_context)
 
-        mcp = MCPServer()
-        ctx = mcp.get_context()
-        result = await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
+        result = await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
         assert result == "42"
 
     @pytest.mark.anyio
@@ -380,22 +378,7 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(async_tool)
 
-        mcp = MCPServer()
-        ctx = mcp.get_context()
-        result = await manager.call_tool("async_tool", {"x": 42}, context=ctx)
-        assert result == "42"
-
-    @pytest.mark.anyio
-    async def test_context_optional(self):
-        """Test that context is optional when calling tools."""
-
-        def tool_with_context(x: int, ctx: Context[ServerSessionT, None] | None = None) -> str:
-            return str(x)
-
-        manager = ToolManager()
-        manager.add_tool(tool_with_context)
-        # Should not raise an error when context is not provided
-        result = await manager.call_tool("tool_with_context", {"x": 42})
+        result = await manager.call_tool("async_tool", {"x": 42}, context=Context())
         assert result == "42"
 
     @pytest.mark.anyio
@@ -408,10 +391,8 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(tool_with_context)
 
-        mcp = MCPServer()
-        ctx = mcp.get_context()
         with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
-            await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
+            await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
 
 
 class TestToolAnnotations:

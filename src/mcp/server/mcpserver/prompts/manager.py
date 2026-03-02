@@ -9,7 +9,7 @@ from mcp.server.mcpserver.utilities.logging import get_logger
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
-    from mcp.server.mcpserver.server import Context
+    from mcp.server.mcpserver.context import Context
 
 logger = get_logger(__name__)
 

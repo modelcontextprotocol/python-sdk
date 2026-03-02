@@ -17,7 +17,7 @@ from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
-    from mcp.server.mcpserver.server import Context
+    from mcp.server.mcpserver.context import Context
 
 
 class ResourceTemplate(BaseModel):
@@ -101,7 +101,14 @@ class ResourceTemplate(BaseModel):
         params: dict[str, Any],
         context: Context[LifespanContextT, RequestT] | None = None,
     ) -> Resource:
-        """Create a resource from the template with the given parameters."""
+        """Create a resource from the template with the given parameters.
+
+        Raises:
+            ValueError: If the template requires a Context but none was provided,
+                or if creating the resource fails.
+        """
+        if self.context_kwarg is not None and context is None:
+            raise ValueError(f"Resource template {self.name!r} requires a Context, but none was provided")
         try:
             # Add context to params if needed
             params = inject_context(self.fn, params, context, self.context_kwarg)

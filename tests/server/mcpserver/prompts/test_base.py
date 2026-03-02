@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, Prompt, UserMessage
 from mcp.types import EmbeddedResource, TextContent, TextResourceContents
 
@@ -181,3 +182,13 @@ class TestRenderPrompt:
                 )
             )
         ]
+
+
+@pytest.mark.anyio
+async def test_render_raises_when_context_required_but_not_provided():
+    def fn(name: str, ctx: Context) -> str:
+        raise NotImplementedError
+
+    prompt = Prompt.from_function(fn)
+    with pytest.raises(ValueError, match="requires a Context"):
+        await prompt.render({"name": "world"})
