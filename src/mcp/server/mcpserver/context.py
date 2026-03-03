@@ -10,10 +10,8 @@ from mcp.server.elicitation import (
     ElicitationResult,
     ElicitSchemaModelT,
     UrlElicitationResult,
+    elicit_url,
     elicit_with_validation,
-)
-from mcp.server.elicitation import (
-    elicit_url as _elicit_url,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 
@@ -178,7 +176,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         Returns:
             UrlElicitationResult indicating accept, decline, or cancel
         """
-        return await _elicit_url(
+        return await elicit_url(
             session=self.request_context.session,
             message=message,
             url=url,
