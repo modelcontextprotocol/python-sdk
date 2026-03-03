@@ -315,9 +315,9 @@ async def my_tool(x: int, ctx: Context) -> str:
 
 ### `MCPServer.call_tool()`, `read_resource()`, `get_prompt()` now accept a `context` parameter
 
-`MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling — you only need to supply it when calling these methods directly.
+`MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling. If you call these methods directly and omit `context`, a Context with no active request is constructed for you — tools that don't use `ctx` work normally, but any attempt to use `ctx.session`, `ctx.request_id`, etc. will raise.
 
-If the tool, resource template, or prompt you're invoking declares a `ctx: Context` parameter, you must pass a `Context`. Calling without one raises `ToolError` for tools or `ValueError` for prompts and resource templates.
+The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
 
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 

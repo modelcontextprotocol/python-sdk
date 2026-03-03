@@ -135,17 +135,14 @@ class Prompt(BaseModel):
 
     async def render(
         self,
-        arguments: dict[str, Any] | None = None,
-        context: Context[LifespanContextT, RequestT] | None = None,
+        arguments: dict[str, Any] | None,
+        context: Context[LifespanContextT, RequestT],
     ) -> list[Message]:
         """Render the prompt with arguments.
 
         Raises:
-            ValueError: If the prompt requires a Context but none was provided,
-                if required arguments are missing, or if rendering fails.
+            ValueError: If required arguments are missing, or if rendering fails.
         """
-        if self.context_kwarg is not None and context is None:
-            raise ValueError(f"Prompt {self.name!r} requires a Context, but none was provided")
         # Validate required arguments
         if self.arguments:
             required = {arg.name for arg in self.arguments if arg.required}

@@ -92,17 +92,14 @@ class Tool(BaseModel):
     async def run(
         self,
         arguments: dict[str, Any],
-        context: Context[LifespanContextT, RequestT] | None = None,
+        context: Context[LifespanContextT, RequestT],
         convert_result: bool = False,
     ) -> Any:
         """Run the tool with arguments.
 
         Raises:
-            ToolError: If the tool requires a Context but none was provided,
-                or if the tool function raises during execution.
+            ToolError: If the tool function raises during execution.
         """
-        if self.context_kwarg is not None and context is None:
-            raise ToolError(f"Tool {self.name!r} requires a Context, but none was provided")
         try:
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,

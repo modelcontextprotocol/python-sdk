@@ -58,6 +58,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
 
+    # TODO(maxisbey): Consider making request_context/mcp_server required, or refactor Context entirely.
     def __init__(
         self,
         *,

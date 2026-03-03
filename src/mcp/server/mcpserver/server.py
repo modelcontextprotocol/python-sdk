@@ -392,7 +392,9 @@ class MCPServer(Generic[LifespanResultT]):
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
     ) -> Sequence[ContentBlock] | dict[str, Any]:
         """Call a tool by name with arguments."""
-        return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
+        if context is None:
+            context = Context(mcp_server=self)
+        return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
@@ -432,8 +434,10 @@ class MCPServer(Generic[LifespanResultT]):
         self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
     ) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
+        if context is None:
+            context = Context(mcp_server=self)
         try:
-            resource = await self._resource_manager.get_resource(uri, context=context)
+            resource = await self._resource_manager.get_resource(uri, context)
         except ValueError:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -1081,12 +1085,14 @@ class MCPServer(Generic[LifespanResultT]):
         self, name: str, arguments: dict[str, Any] | None = None, context: Context[LifespanResultT, Any] | None = None
     ) -> GetPromptResult:
         """Get a prompt by name with arguments."""
+        if context is None:
+            context = Context(mcp_server=self)
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
                 raise ValueError(f"Unknown prompt: {name}")
 
-            messages = await prompt.render(arguments, context=context)
+            messages = await prompt.render(arguments, context)
 
             return GetPromptResult(
                 description=prompt.description,

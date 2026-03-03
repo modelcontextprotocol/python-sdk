@@ -48,12 +48,12 @@ class PromptManager:
     async def render_prompt(
         self,
         name: str,
-        arguments: dict[str, Any] | None = None,
-        context: Context[LifespanContextT, RequestT] | None = None,
+        arguments: dict[str, Any] | None,
+        context: Context[LifespanContextT, RequestT],
     ) -> list[Message]:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
 
-        return await prompt.render(arguments, context=context)
+        return await prompt.render(arguments, context)

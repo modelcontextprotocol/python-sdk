@@ -81,7 +81,7 @@ class ToolManager:
         self,
         name: str,
         arguments: dict[str, Any],
-        context: Context[LifespanContextT, RequestT] | None = None,
+        context: Context[LifespanContextT, RequestT],
         convert_result: bool = False,
     ) -> Any:
         """Call a tool by name with arguments."""
@@ -89,4 +89,4 @@ class ToolManager:
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
 
-        return await tool.run(arguments, context=context, convert_result=convert_result)
+        return await tool.run(arguments, context, convert_result=convert_result)

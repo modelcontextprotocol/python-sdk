@@ -891,7 +891,7 @@ class TestServerResourceTemplates:
         assert len(await mcp.list_resources()) == 0
 
         # When accessed, should create a concrete resource
-        resource = await mcp._resource_manager.get_resource("resource://test/data")
+        resource = await mcp._resource_manager.get_resource("resource://test/data", Context())
         assert isinstance(resource, FunctionResource)
         result = await resource.read()
         assert result == "Data for test"
@@ -1243,7 +1243,7 @@ class TestServerPrompts:
         assert len(prompts) == 1
         assert prompts[0].name == "fn"
         # Don't compare functions directly since validate_call wraps them
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1258,7 +1258,7 @@ class TestServerPrompts:
         prompts = mcp._prompt_manager.list_prompts()
         assert len(prompts) == 1
         assert prompts[0].name == "custom_name"
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1273,7 +1273,7 @@ class TestServerPrompts:
         prompts = mcp._prompt_manager.list_prompts()
         assert len(prompts) == 1
         assert prompts[0].description == "A custom description"
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
