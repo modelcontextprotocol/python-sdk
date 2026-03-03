@@ -290,7 +290,7 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 ### `MCPServer.get_context()` removed
 
-`MCPServer.get_context()` has been removed. Context is now constructed by the framework and passed explicitly — there is no ambient ContextVar to read from.
+`MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.
 
 **If you were calling `get_context()` from inside a tool/resource/prompt:** use the `ctx: Context` parameter injection instead.
 
