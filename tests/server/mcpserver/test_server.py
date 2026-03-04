@@ -1231,6 +1231,19 @@ class TestContextInjection:
 class TestServerPrompts:
     """Test prompt functionality in MCPServer server."""
 
+    async def test_get_prompt_direct_call_without_context(self):
+        """Test calling mcp.get_prompt() directly without passing context."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def fn() -> str:
+            return "Hello, world!"
+
+        result = await mcp.get_prompt("fn")
+        content = result.messages[0].content
+        assert isinstance(content, TextContent)
+        assert content.text == "Hello, world!"
+
     async def test_prompt_decorator(self):
         """Test that the prompt decorator registers prompts correctly."""
         mcp = MCPServer()

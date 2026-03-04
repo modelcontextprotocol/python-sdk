@@ -93,7 +93,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         progress_token = self.request_context.meta.get("progress_token") if self.request_context.meta else None
 
-        if progress_token is None:  # pragma: no branch
+        if progress_token is None:  # pragma: no cover
             return
 
         await self.request_context.session.send_progress_notification(
