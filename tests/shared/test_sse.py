@@ -203,19 +203,15 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 
 @pytest.mark.anyio
 async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
-    captured_session_id: str | None = None
+    captured: list[str] = []
 
-    def on_session_created(session_id: str) -> None:
-        nonlocal captured_session_id
-        captured_session_id = session_id
-
-    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+    async with sse_client(server_url + "/sse", on_session_created=captured.append) as streams:
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-
-    assert captured_session_id is not None  # pragma: lax no cover
-    assert len(captured_session_id) > 0  # pragma: lax no cover
+            # Callback fires when the endpoint event arrives, before sse_client yields.
+            assert len(captured) == 1
+            assert len(captured[0]) > 0
 
 
 @pytest.mark.parametrize(
@@ -248,8 +244,9 @@ async def test_sse_client_on_session_created_not_called_when_no_session_id(
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-
-    callback_mock.assert_not_called()  # pragma: lax no cover
+            # Callback would have fired by now (endpoint event arrives before
+            # sse_client yields); if it hasn't, it won't.
+            callback_mock.assert_not_called()
 
 
 @pytest.fixture
