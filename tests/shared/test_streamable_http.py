@@ -1132,7 +1132,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
             read_stream,
             write_stream,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Initialize the session
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
@@ -1193,7 +1193,7 @@ async def test_streamable_http_client_session_termination_204(
             read_stream,
             write_stream,
         ):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 # Initialize the session
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
@@ -1251,7 +1251,9 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
             read_stream,
             write_stream,
         ):
-            async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            async with ClientSession(  # pragma: no branch
+                read_stream, write_stream, message_handler=message_handler
+            ) as session:
                 # Initialize the session
                 result = await session.initialize()
                 assert isinstance(result, InitializeResult)
