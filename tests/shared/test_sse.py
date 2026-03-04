@@ -622,24 +622,18 @@ async def test_sse_session_cleanup_on_disconnect(server: None, server_url: str) 
     POST requests to disconnected sessions return 202 Accepted followed by a
     ClosedResourceError when the server tries to write to the dead stream.
     """
-    captured_session_id: str | None = None
-
-    def on_session_created(session_id: str) -> None:
-        nonlocal captured_session_id
-        captured_session_id = session_id
+    captured: list[str] = []
 
     # Connect a client session, then disconnect
-    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+    async with sse_client(server_url + "/sse", on_session_created=captured.append) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
-
-    assert captured_session_id is not None
 
     # After disconnect, POST to the stale session should return 404
     # (not 202 as it did before the fix)
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{server_url}/messages/?session_id={captured_session_id}",
+            f"{server_url}/messages/?session_id={captured[0]}",
             json={"jsonrpc": "2.0", "method": "ping", "id": 99},
             headers={"Content-Type": "application/json"},
         )
