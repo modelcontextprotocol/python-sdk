@@ -249,6 +249,7 @@ class TestClientCredentialsOAuthProvider:
 
         content = urllib.parse.unquote_plus(request.content.decode())
         assert "grant_type=client_credentials" in content
+        assert "client_id=test-client-id" in content
         assert "scope=read write" in content
         assert "resource=https://api.example.com/v1/mcp" in content
 
@@ -272,6 +273,7 @@ class TestClientCredentialsOAuthProvider:
 
         content = urllib.parse.unquote_plus(request.content.decode())
         assert "grant_type=client_credentials" in content
+        assert "client_id=test-client-id" in content
         assert "scope=" not in content
         assert "resource=" not in content
 
