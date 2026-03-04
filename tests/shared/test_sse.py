@@ -615,12 +615,12 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
 
 @pytest.mark.anyio
 async def test_sse_session_cleanup_on_disconnect(server: None, server_url: str) -> None:
-    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/423
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1227
 
     When a client disconnects, the server should remove the session from
     _read_stream_writers. Without this cleanup, stale sessions accumulate and
-    POST requests to disconnected sessions are incorrectly accepted instead
-    of returning 404.
+    POST requests to disconnected sessions return 202 Accepted followed by a
+    ClosedResourceError when the server tries to write to the dead stream.
     """
     captured_session_id: str | None = None
 
