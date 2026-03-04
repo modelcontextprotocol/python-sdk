@@ -222,6 +222,16 @@ class SamplingToolsCapability(MCPModel):
     """
 
 
+class FileInputsCapability(MCPModel):
+    """Capability for declarative file inputs on tools and elicitation forms.
+
+    When a client declares this capability, servers may include ``input_files``
+    on Tool definitions and ``requested_files`` on form-mode elicitation
+    requests. Servers must not send those fields unless this capability is
+    present.
+    """
+
+
 class FormElicitationCapability(MCPModel):
     """Capability for form mode elicitation."""
 
@@ -323,6 +333,8 @@ class ClientCapabilities(MCPModel):
     """Present if the client supports listing roots."""
     tasks: ClientTasksCapability | None = None
     """Present if the client supports task-augmented requests."""
+    file_inputs: FileInputsCapability | None = None
+    """Present if the client supports declarative file inputs for tools and elicitation."""
 
 
 class PromptsCapability(MCPModel):
@@ -1150,6 +1162,28 @@ class ToolExecution(MCPModel):
     """
 
 
+class FileInputDescriptor(MCPModel):
+    """Describes a single file input argument for a tool or elicitation form.
+
+    Provides optional hints for client-side file picker filtering and validation.
+    All fields are advisory; servers must still validate inputs independently.
+    """
+
+    accept: list[str] | None = None
+    """MIME type patterns the server will accept for this input.
+
+    Supports exact types (``"image/png"``) and wildcard subtypes (``"image/*"``).
+    If omitted, any file type is accepted.
+    """
+
+    max_size: int | None = None
+    """Maximum file size in bytes (decoded size, per file).
+
+    Servers should reject larger files with JSON-RPC ``-32602`` (Invalid Params)
+    and the structured reason ``"file_too_large"``.
+    """
+
+
 class Tool(BaseMetadata):
     """Definition for a tool the client can call."""
 
@@ -1173,6 +1207,20 @@ class Tool(BaseMetadata):
     """
 
     execution: ToolExecution | None = None
+
+    input_files: dict[str, FileInputDescriptor] | None = None
+    """Declares which arguments in ``input_schema`` are file inputs.
+
+    Keys must match property names in ``input_schema["properties"]`` and the
+    corresponding schema properties must be ``{"type": "string", "format": "uri"}``
+    or an array thereof. Servers must not include this field unless the client
+    declared the ``file_inputs`` capability during initialization.
+
+    Clients should render a native file picker for these arguments and encode
+    selected files as RFC 2397 data URIs of the form
+    ``data:<mediatype>;name=<filename>;base64,<data>`` where the ``name=``
+    parameter (percent-encoded) carries the original filename.
+    """
 
 
 class ListToolsResult(PaginatedResult):
@@ -1647,6 +1695,20 @@ class ElicitRequestFormParams(RequestParams):
     """
     A restricted subset of JSON Schema defining the structure of the expected response.
     Only top-level properties are allowed, without nesting.
+    """
+
+    requested_files: dict[str, FileInputDescriptor] | None = None
+    """Declares which fields in ``requested_schema`` are file inputs.
+
+    Keys must match property names in ``requested_schema["properties"]`` and the
+    corresponding schema properties must be a string schema with ``format: "uri"``
+    or an array of such string schemas. Servers must not include this field unless
+    the client declared the ``file_inputs`` capability during initialization.
+
+    Clients should render a native file picker for these fields and encode
+    selected files as RFC 2397 data URIs of the form
+    ``data:<mediatype>;name=<filename>;base64,<data>`` where the ``name=``
+    parameter (percent-encoded) carries the original filename.
     """
 
 
