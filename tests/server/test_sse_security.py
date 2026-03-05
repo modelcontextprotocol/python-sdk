@@ -257,6 +257,59 @@ async def test_sse_security_wildcard_ports(server_port: int):
 
 
 @pytest.mark.anyio
+async def test_sse_security_ipv6_host_header(server_port: int):
+    """Test SSE with IPv6 Host header ([::1] and [::1]:port) to cover _hostname_from_host."""
+    settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["127.0.0.1:*", "[::1]:*", "[::1]"],
+        allowed_origins=["http://127.0.0.1:*", "http://[::1]:*"],
+    )
+    process = start_server_process(server_port, settings)
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            async with client.stream(
+                "GET", f"http://127.0.0.1:{server_port}/sse", headers={"Host": "[::1]:8080"}
+            ) as response:
+                assert response.status_code == 200
+            async with client.stream(
+                "GET", f"http://127.0.0.1:{server_port}/sse", headers={"Host": "[::1]"}
+            ) as response:
+                assert response.status_code == 200
+    finally:
+        process.terminate()
+        process.join()
+
+
+@pytest.mark.anyio
+async def test_sse_security_subdomain_wildcard_host(server_port: int):
+    """Test SSE with *.domain subdomain wildcard in allowed_hosts (issue #2141)."""
+    settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["*.mysite.com", "127.0.0.1:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://app.mysite.com:*"],
+    )
+    process = start_server_process(server_port, settings)
+
+    try:
+        # Allowed: subdomain and base domain
+        for host in ["app.mysite.com", "api.mysite.com", "mysite.com"]:
+            headers = {"Host": host}
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                async with client.stream("GET", f"http://127.0.0.1:{server_port}/sse", headers=headers) as response:
+                    assert response.status_code == 200, f"Host {host} should be allowed"
+
+        # Rejected: other domain
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers={"Host": "other.com"})
+            assert response.status_code == 421
+            assert response.text == "Invalid Host header"
+    finally:
+        process.terminate()
+        process.join()
+
+
+@pytest.mark.anyio
 async def test_sse_security_post_valid_content_type(server_port: int):
     """Test POST endpoint with valid Content-Type headers."""
     # Configure security to allow the host
