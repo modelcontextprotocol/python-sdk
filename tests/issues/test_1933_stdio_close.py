@@ -11,7 +11,6 @@ from mcp.server.stdio import stdio_server
 
 
 @pytest.mark.anyio
-@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 async def test_stdio_server_preserves_process_handles():
     """After stdio_server() exits, the underlying stdin/stdout fds should still be open.
 
