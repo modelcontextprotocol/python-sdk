@@ -41,7 +41,7 @@ import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -52,8 +52,8 @@ from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
 from mcp import types
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware, auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
@@ -471,7 +471,15 @@ class Server(Generic[LifespanResultT]):
                     close_sse_stream=close_sse_stream_cb,
                     close_standalone_sse_stream=close_standalone_sse_stream_cb,
                 )
-                response = await handler(ctx, req.params)
+                request_scope = cast(dict[str, object] | None, getattr(request_data, "scope", None))
+                request_user = request_scope.get("user") if request_scope is not None else None
+                auth_context_token = auth_context_var.set(
+                    request_user if isinstance(request_user, AuthenticatedUser) else None
+                )
+                try:
+                    response = await handler(ctx, req.params)
+                finally:
+                    auth_context_var.reset(auth_context_token)
             except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
