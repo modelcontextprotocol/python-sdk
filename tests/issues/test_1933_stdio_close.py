@@ -1,6 +1,5 @@
 """Test for issue #1933: stdio_server closes real process stdio handles."""
 
-import gc
 import io
 import os
 import sys
@@ -12,12 +11,7 @@ from mcp.server.stdio import stdio_server
 
 @pytest.mark.anyio
 async def test_stdio_server_preserves_process_handles():
-    """After stdio_server() exits, the underlying stdin/stdout fds should still be open.
-
-    Before the fix, TextIOWrapper took ownership of sys.stdin.buffer and
-    sys.stdout.buffer. When the wrapper was garbage-collected, it closed the
-    underlying buffer, permanently killing process stdio.
-    """
+    """After stdio_server() exits, the underlying stdin/stdout fds should still be open."""
     # Create real pipes to stand in for process stdin/stdout.
     # Real fds are required because the bug involves TextIOWrapper closing
     # the underlying fd — StringIO doesn't have file descriptors.
@@ -39,7 +33,6 @@ async def test_stdio_server_preserves_process_handles():
             await write_stream.aclose()
 
         await read_stream.aclose()
-        gc.collect()
 
         # os.fstat raises OSError if the fd was closed
         os.fstat(stdin_r_fd)
@@ -47,8 +40,10 @@ async def test_stdio_server_preserves_process_handles():
     finally:
         sys.stdin = saved_stdin
         sys.stdout = saved_stdout
+        fake_stdin.close()
+        fake_stdout.close()
         for fd in [stdin_r_fd, stdout_r_fd, stdout_w_fd]:
             try:
                 os.close(fd)
-            except OSError:  # pragma: no cover
+            except OSError:
                 pass

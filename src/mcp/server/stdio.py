@@ -35,12 +35,15 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     from the current process' stdin and writing to stdout.
     """
     # Re-wrap the `fd` with `closefd=False` to force UTF-8 (Windows encoding is
-    # platform-dependant) without taking ownership of process stdio.
+    # platform-dependent) without taking ownership of process stdio.
+    stdin_opened = stdout_opened = False
     if not stdin:
         stdin = anyio.wrap_file(TextIOWrapper(open(sys.stdin.fileno(), "rb", closefd=False), encoding="utf-8"))
+        stdin_opened = True
     if not stdout:
         stdout = anyio.wrap_file(TextIOWrapper(open(sys.stdout.fileno(), "wb", closefd=False), encoding="utf-8"))
-        
+        stdout_opened = True
+
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
@@ -75,7 +78,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(stdin_reader)
-        tg.start_soon(stdout_writer)
-        yield read_stream, write_stream
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(stdin_reader)
+            tg.start_soon(stdout_writer)
+            yield read_stream, write_stream
+    finally:
+        if stdin_opened:
+            await stdin.aclose()
+        if stdout_opened:
+            await stdout.aclose()
