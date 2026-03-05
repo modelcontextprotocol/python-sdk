@@ -272,6 +272,7 @@ class StreamableHTTPSessionManager:
             # Unknown or expired session ID - return 404 per MCP spec
             # TODO: Align error code once spec clarifies
             # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
+            logger.warning("Rejected request with unknown or expired session ID: %s", request_mcp_session_id)
             error_response = JSONRPCError(
                 jsonrpc="2.0",
                 id=None,
