@@ -30,7 +30,12 @@ from mcp.shared.message import SessionMessage
 
 
 @asynccontextmanager
-async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
+async def stdio_server(
+    stdin: anyio.AsyncFile[str] | None = None,
+    stdout: anyio.AsyncFile[str] | None = None,
+    read_stream_buffer_size: int = 0,
+    write_stream_buffer_size: int = 0,
+):
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
@@ -49,8 +54,8 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    read_stream_writer, read_stream = anyio.create_memory_object_stream(read_stream_buffer_size)
+    write_stream, write_stream_reader = anyio.create_memory_object_stream(write_stream_buffer_size)
 
     async def stdin_reader():
         try:
