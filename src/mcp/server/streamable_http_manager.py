@@ -225,7 +225,7 @@ class StreamableHTTPSessionManager:
                         read_stream, write_stream = streams
                         task_status.started()
                         try:
-                            # Use a cancel scope for idle timeout — when the
+                            # Use a cancel scope for idle timeout \u2014 when the
                             # deadline passes the scope cancels app.run() and
                             # execution continues after the ``with`` block.
                             # Incoming requests push the deadline forward.
@@ -272,6 +272,7 @@ class StreamableHTTPSessionManager:
             # Unknown or expired session ID - return 404 per MCP spec
             # TODO: Align error code once spec clarifies
             # See: https://github.com/modelcontextprotocol/python-sdk/issues/1821
+            logger.warning("Rejected request with unknown or expired session ID: %s", request_mcp_session_id)
             error_response = JSONRPCError(
                 jsonrpc="2.0",
                 id=None,
