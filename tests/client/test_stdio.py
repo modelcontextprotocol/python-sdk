@@ -156,6 +156,35 @@ async def test_stdio_client_universal_cleanup():
 
 
 @pytest.mark.anyio
+async def test_stdio_client_cleanup_cancels_backpressured_stdout_reader():
+    """Regression test for issue #1960.
+
+    Exiting the client without consuming the read stream leaves stdout_reader
+    blocked on a zero-buffer send. Cleanup must cancel the task before closing
+    its memory stream.
+    """
+    script_content = textwrap.dedent(
+        """
+        import sys
+        import time
+
+        sys.stdout.write('{"jsonrpc":"2.0","id":1,"result":{}}\\n')
+        sys.stdout.flush()
+        time.sleep(2.0)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    with anyio.fail_after(5.0):
+        async with stdio_client(server_params) as (_, _):
+            await anyio.sleep(0.2)
+
+
+@pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
 async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
     """Test cleanup with a process that ignores SIGTERM but responds to SIGINT."""
