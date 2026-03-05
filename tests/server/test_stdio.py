@@ -82,7 +82,7 @@ async def test_stdio_server_with_buffer_size():
         stdout=anyio.AsyncFile(stdout),
         read_stream_buffer_size=5,
         write_stream_buffer_size=5,
-    ) as (read_stream, write_stream):
+    ) as (read_stream, _write_stream):
         received_messages: list[JSONRPCMessage] = []
         async with read_stream:
             async for message in read_stream:
@@ -118,7 +118,7 @@ async def test_stdio_server_buffered_does_not_block_reader():
         stdin=anyio.AsyncFile(stdin),
         stdout=anyio.AsyncFile(stdout),
         read_stream_buffer_size=num_messages,
-    ) as (read_stream, write_stream):
+    ) as (read_stream, _write_stream):
         # Give the reader time to buffer all messages
         await anyio.sleep(0.1)
 
