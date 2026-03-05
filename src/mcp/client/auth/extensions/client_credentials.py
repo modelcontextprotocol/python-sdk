@@ -450,7 +450,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         # When using private_key_jwt, in a client_credentials flow, we use RFC 7523 Section 2.2
         token_data["client_assertion"] = assertion
         token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-        # We need to set the audience to the resource server, the audience is difference from the one in claims
+        # We need to set the audience to the resource server, the audience is different from the one in claims
         # it represents the resource server that will validate the token
         token_data["audience"] = self.context.get_resource_url()
 

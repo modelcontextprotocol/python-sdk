@@ -87,9 +87,9 @@ class StdioServerParameters(BaseModel):
 
     encoding: str = "utf-8"
     """
-    The text encoding used when sending/receiving messages to the server
+    The text encoding used when sending/receiving messages to the server.
 
-    defaults to utf-8
+    Defaults to utf-8.
     """
 
     encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
@@ -97,7 +97,7 @@ class StdioServerParameters(BaseModel):
     The text encoding error handler.
 
     See https://docs.python.org/3/library/codecs.html#codec-base-classes for
-    explanations of possible values
+    explanations of possible values.
     """
 
 

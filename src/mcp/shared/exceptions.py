@@ -65,6 +65,7 @@ class UrlElicitationRequiredError(MCPError):
     must complete one or more URL elicitations before the request can be processed.
 
     Example:
+        ```python
         raise UrlElicitationRequiredError([
             ElicitRequestURLParams(
                 message="Authorization required for your files",
@@ -72,6 +73,7 @@ class UrlElicitationRequiredError(MCPError):
                 elicitation_id="auth-001"
             )
         ])
+        ```
     """
 
     def __init__(self, elicitations: list[ElicitRequestURLParams], message: str | None = None):

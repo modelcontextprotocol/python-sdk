@@ -288,6 +288,37 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
+### `MCPServer.get_context()` removed
+
+`MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.
+
+**If you were calling `get_context()` from inside a tool/resource/prompt:** use the `ctx: Context` parameter injection instead.
+
+**Before (v1):**
+
+```python
+@mcp.tool()
+async def my_tool(x: int) -> str:
+    ctx = mcp.get_context()
+    await ctx.info("Processing...")
+    return str(x)
+```
+
+**After (v2):**
+
+```python
+@mcp.tool()
+async def my_tool(x: int, ctx: Context) -> str:
+    await ctx.info("Processing...")
+    return str(x)
+```
+
+### `MCPServer.call_tool()`, `read_resource()`, `get_prompt()` now accept a `context` parameter
+
+`MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling. If you call these methods directly and omit `context`, a Context with no active request is constructed for you — tools that don't use `ctx` work normally, but any attempt to use `ctx.session`, `ctx.request_id`, etc. will raise.
+
+The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:
@@ -371,7 +402,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestPar
 server = Server("my-server", on_call_tool=handle_call_tool)
 ```
 
-### `RequestContext` and `ProgressContext` type parameters simplified
+### `RequestContext` type parameters simplified
 
 The `RequestContext` class has been split to separate shared fields from server-specific fields. The shared `RequestContext` now only takes 1 type parameter (the session type) instead of 3.
 
@@ -380,40 +411,59 @@ The `RequestContext` class has been split to separate shared fields from server-
 - Type parameters reduced from `RequestContext[SessionT, LifespanContextT, RequestT]` to `RequestContext[SessionT]`
 - Server-specific fields (`lifespan_context`, `experimental`, `request`, `close_sse_stream`, `close_standalone_sse_stream`) moved to new `ServerRequestContext` class in `mcp.server.context`
 
-**`ProgressContext` changes:**
-
-- Type parameters reduced from `ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]` to `ProgressContext[SessionT]`
-
 **Before (v1):**
 
 ```python
 from mcp.client.session import ClientSession
 from mcp.shared.context import RequestContext, LifespanContextT, RequestT
-from mcp.shared.progress import ProgressContext
 
 # RequestContext with 3 type parameters
 ctx: RequestContext[ClientSession, LifespanContextT, RequestT]
-
-# ProgressContext with 5 type parameters
-progress_ctx: ProgressContext[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT]
 ```
 
 **After (v2):**
 
 ```python
 from mcp.client.context import ClientRequestContext
-from mcp.client.session import ClientSession
 from mcp.server.context import ServerRequestContext, LifespanContextT, RequestT
-from mcp.shared.progress import ProgressContext
 
 # For client-side context (sampling, elicitation, list_roots callbacks)
 ctx: ClientRequestContext
 
 # For server-specific context with lifespan and request types
 server_ctx: ServerRequestContext[LifespanContextT, RequestT]
+```
 
-# ProgressContext with 1 type parameter
-progress_ctx: ProgressContext[ClientSession]
+### `ProgressContext` and `progress()` context manager removed
+
+The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.
+
+**Before:**
+
+```python
+from mcp.shared.progress import progress
+
+with progress(ctx, total=100) as p:
+    await p.progress(25)
+```
+
+**After — use `Context.report_progress()` (recommended):**
+
+```python
+@server.tool()
+async def my_tool(x: int, ctx: Context) -> str:
+    await ctx.report_progress(25, 100)
+    return "done"
+```
+
+**After — use `session.send_progress_notification()` (low-level):**
+
+```python
+await session.send_progress_notification(
+    progress_token=progress_token,
+    progress=25,
+    total=100,
+)
 ```
 
 ### Resource URI type changed from `AnyUrl` to `str`
@@ -675,7 +725,7 @@ If you prefer the convenience of automatic wrapping, use `MCPServer` which still
 
 ### Lowlevel `Server`: `request_context` property removed
 
-The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar is now an internal implementation detail and should not be relied upon.
+The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar has been removed entirely.
 
 **Before (v1):**
 

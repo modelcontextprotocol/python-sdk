@@ -77,7 +77,8 @@ class StreamSpyCollection:
 def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
     """Fixture that provides spies for both client and server write streams.
 
-    Example usage:
+    Example:
+        ```python
         async def test_something(stream_spy):
             # ... set up server and client ...
 
@@ -92,6 +93,7 @@ def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
 
             # Clear for the next operation
             spies.clear()
+        ```
     """
     client_spy = None
     server_spy = None

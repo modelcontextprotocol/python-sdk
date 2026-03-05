@@ -36,7 +36,6 @@ handler callables by method string.
 
 from __future__ import annotations
 
-import contextvars
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -74,8 +73,6 @@ logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 
-request_ctx: contextvars.ContextVar[ServerRequestContext[Any]] = contextvars.ContextVar("request_ctx")
-
 
 class NotificationOptions:
     def __init__(self, prompts_changed: bool = False, resources_changed: bool = False, tools_changed: bool = False):
@@ -87,9 +84,6 @@ class NotificationOptions:
 @asynccontextmanager
 async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
-
-    Args:
-        server: The server instance this lifespan is managing
 
     Returns:
         An empty context object
@@ -477,11 +471,7 @@ class Server(Generic[LifespanResultT]):
                     close_sse_stream=close_sse_stream_cb,
                     close_standalone_sse_stream=close_standalone_sse_stream_cb,
                 )
-                token = request_ctx.set(ctx)
-                try:
-                    response = await handler(ctx, req.params)
-                finally:
-                    request_ctx.reset(token)
+                response = await handler(ctx, req.params)
             except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():

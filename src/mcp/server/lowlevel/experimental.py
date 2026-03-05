@@ -118,14 +118,20 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
             The TaskSupport configuration object
 
         Example:
-            # Simple in-memory setup
-            server.experimental.enable_tasks()
+            Simple in-memory setup:
 
-            # Custom store/queue for distributed systems
+            ```python
+            server.experimental.enable_tasks()
+            ```
+
+            Custom store/queue for distributed systems:
+
+            ```python
             server.experimental.enable_tasks(
                 store=RedisTaskStore(redis_url),
                 queue=RedisTaskMessageQueue(redis_url),
             )
+            ```
 
         WARNING: This API is experimental and may change without notice.
         """
