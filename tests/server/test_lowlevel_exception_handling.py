@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, Mock
 
+import anyio
 import pytest
 
 from mcp import types
@@ -50,6 +51,19 @@ async def test_exception_handling_with_raise_exceptions_false(exception_class: t
     assert call_args.kwargs["level"] == "error"
     assert call_args.kwargs["data"] == "Internal Server Error"
     assert call_args.kwargs["logger"] == "mcp.server.exception_handler"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stream_error", [anyio.ClosedResourceError(), anyio.BrokenResourceError()])
+async def test_exception_handling_ignores_closed_log_stream(stream_error: Exception):
+    """Logging an exception should not crash shutdown if the write stream is already gone."""
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=stream_error)
+
+    await server._handle_message(RuntimeError("Test error"), session, {}, raise_exceptions=False)
+
+    session.send_log_message.assert_called_once()
 
 
 @pytest.mark.anyio

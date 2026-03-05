@@ -414,11 +414,14 @@ class Server(Generic[LifespanResultT]):
                         )
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
-                    await session.send_log_message(
-                        level="error",
-                        data="Internal Server Error",
-                        logger="mcp.server.exception_handler",
-                    )
+                    try:
+                        await session.send_log_message(
+                            level="error",
+                            data="Internal Server Error",
+                            logger="mcp.server.exception_handler",
+                        )
+                    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                        logger.debug("Skipping exception log message because the session write stream is closed")
                     if raise_exceptions:
                         raise message
                 case _:
