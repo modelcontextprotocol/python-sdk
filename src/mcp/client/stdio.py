@@ -158,7 +158,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: lax no cover
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: lax no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
@@ -174,7 +174,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             errors=server.encoding_error_handler,
                         )
                     )
-        except anyio.ClosedResourceError:  # pragma: no cover
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg, process:
@@ -205,13 +205,10 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
             except ProcessLookupError:  # pragma: no cover
                 # Process already exited, which is fine
                 pass
-            # Stop background stream tasks before closing the memory streams they use.
-            tg.cancel_scope.cancel()
-
-    await read_stream.aclose()
-    await write_stream.aclose()
-    await read_stream_writer.aclose()
-    await write_stream_reader.aclose()
+            await read_stream.aclose()
+            await write_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
 
 
 def _get_executable_command(command: str) -> str:
