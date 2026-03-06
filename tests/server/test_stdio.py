@@ -82,7 +82,7 @@ async def test_stdio_server_with_buffer_size():
         stdout=anyio.AsyncFile(stdout),
         read_stream_buffer_size=5,
         write_stream_buffer_size=5,
-    ) as (read_stream, _write_stream):
+    ) as (read_stream, write_stream):
         received_messages: list[JSONRPCMessage] = []
         async with read_stream:
             async for message in read_stream:
@@ -95,6 +95,7 @@ async def test_stdio_server_with_buffer_size():
         assert len(received_messages) == 3
         for i, msg in enumerate(received_messages, 1):
             assert msg == JSONRPCRequest(jsonrpc="2.0", id=i, method="ping")
+        await write_stream.aclose()
 
 
 @pytest.mark.anyio
@@ -118,7 +119,7 @@ async def test_stdio_server_buffered_does_not_block_reader():
         stdin=anyio.AsyncFile(stdin),
         stdout=anyio.AsyncFile(stdout),
         read_stream_buffer_size=num_messages,
-    ) as (read_stream, _write_stream):
+    ) as (read_stream, write_stream):
         # Give the reader time to buffer all messages
         await anyio.sleep(0.1)
 
@@ -134,3 +135,4 @@ async def test_stdio_server_buffered_does_not_block_reader():
                     break
 
         assert len(received) == num_messages
+        await write_stream.aclose()
