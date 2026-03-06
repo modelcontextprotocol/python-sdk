@@ -28,9 +28,19 @@ This document contains critical information about working with this codebase. Fo
    - Bug fixes require regression tests
    - IMPORTANT: The `tests/client/test_client.py` is the most well designed test file. Follow its patterns.
    - IMPORTANT: Be minimal, and focus on E2E tests: Use the `mcp.client.Client` whenever possible.
-   - IMPORTANT: Before pushing, verify 100% branch coverage on changed files by running
-     `uv run --frozen pytest -x` (coverage is configured in `pyproject.toml` with `fail_under = 100`
-     and `branch = true`). If any branch is uncovered, add a test for it before pushing.
+   - Coverage: CI requires 100% (`fail_under = 100`, `branch = true`).
+     - Full check: `./scripts/test` (~20s, matches CI exactly)
+     - Targeted check while iterating:
+
+       ```bash
+       uv run --frozen coverage erase
+       uv run --frozen coverage run -m pytest tests/path/test_foo.py
+       uv run --frozen coverage combine
+       uv run --frozen coverage report --include='src/mcp/path/foo.py' --fail-under=0
+       ```
+
+       Partial runs can't hit 100% (coverage tracks `tests/` too), so `--fail-under=0`
+       and `--include` scope the report to what you actually changed.
    - Avoid `anyio.sleep()` with a fixed duration to wait for async operations. Instead:
      - Use `anyio.Event` — set it in the callback/handler, `await event.wait()` in the test
      - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
