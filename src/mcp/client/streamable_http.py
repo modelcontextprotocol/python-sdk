@@ -4,11 +4,17 @@ from __future__ import annotations as _annotations
 
 import contextlib
 import logging
+import sys
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import anyio
+
+if sys.version_info >= (3, 11):
+    from builtins import BaseExceptionGroup  # pragma: lax no cover
+else:
+    from exceptiongroup import BaseExceptionGroup  # pragma: lax no cover
 import httpx
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -570,10 +576,21 @@ async def streamable_http_client(
 
                 try:
                     yield read_stream, write_stream
+                # Suppress GeneratorExit to prevent "generator didn't stop after athrow()"
+                # when client code exits the context manager during cancellation.
+                # See https://github.com/python/cpython/issues/95571
+                except GeneratorExit:
+                    pass
+                # anyio wraps GeneratorExit in BaseExceptionGroup; extract and re-raise other exceptions
+                except BaseExceptionGroup as eg:
+                    _, rest = eg.split(GeneratorExit)
+                    if rest:
+                        raise rest from None
                 finally:
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
         finally:
             await read_stream_writer.aclose()
+            await read_stream.aclose()
             await write_stream.aclose()
