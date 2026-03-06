@@ -83,9 +83,12 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        *,
+        session_id: str | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream)
         self._stateless = stateless
+        self.session_id = session_id
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )

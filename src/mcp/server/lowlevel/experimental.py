@@ -153,13 +153,23 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
         if on_cancel_task is not None:
             self._add_request_handler("tasks/cancel", on_cancel_task)
 
+        def _require_session_id(ctx: ServerRequestContext[LifespanResultT]) -> str:
+            session_id = ctx.session.session_id
+            if session_id is None:
+                raise MCPError(
+                    code=INVALID_PARAMS,
+                    message="Session ID is required for task operations.",
+                )
+            return session_id
+
         # Fill in defaults for any not provided
         if not self._has_handler("tasks/get"):
 
             async def _default_get_task(
                 ctx: ServerRequestContext[LifespanResultT], params: GetTaskRequestParams
             ) -> GetTaskResult:
-                task = await task_support.store.get_task(params.task_id)
+                session_id = _require_session_id(ctx)
+                task = await task_support.store.get_task(params.task_id, session_id=session_id)
                 if task is None:
                     raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {params.task_id}")
                 return GetTaskResult(
@@ -180,8 +190,9 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
                 ctx: ServerRequestContext[LifespanResultT], params: GetTaskPayloadRequestParams
             ) -> GetTaskPayloadResult:
                 assert ctx.request_id is not None
+                session_id = _require_session_id(ctx)
                 req = GetTaskPayloadRequest(params=params)
-                result = await task_support.handler.handle(req, ctx.session, ctx.request_id)
+                result = await task_support.handler.handle(req, ctx.session, ctx.request_id, session_id=session_id)
                 return result
 
             self._add_request_handler("tasks/result", _default_get_task_result)
@@ -192,7 +203,8 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
                 ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
             ) -> ListTasksResult:
                 cursor = params.cursor if params else None
-                tasks, next_cursor = await task_support.store.list_tasks(cursor)
+                session_id = _require_session_id(ctx)
+                tasks, next_cursor = await task_support.store.list_tasks(cursor, session_id=session_id)
                 return ListTasksResult(tasks=tasks, next_cursor=next_cursor)
 
             self._add_request_handler("tasks/list", _default_list_tasks)
@@ -202,7 +214,8 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
             async def _default_cancel_task(
                 ctx: ServerRequestContext[LifespanResultT], params: CancelTaskRequestParams
             ) -> CancelTaskResult:
-                result = await cancel_task(task_support.store, params.task_id)
+                session_id = _require_session_id(ctx)
+                result = await cancel_task(task_support.store, params.task_id, session_id=session_id)
                 return result
 
             self._add_request_handler("tasks/cancel", _default_cancel_task)

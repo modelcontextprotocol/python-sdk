@@ -22,6 +22,7 @@ class StoredTask:
     """Internal storage representation of a task."""
 
     task: Task
+    session_id: str
     result: Result | None = None
     # Time when this task should be removed (None = never)
     expires_at: datetime | None = field(default=None)
@@ -32,6 +33,7 @@ class InMemoryTaskStore(TaskStore):
 
     Features:
     - Automatic TTL-based cleanup (lazy expiration)
+    - Session isolation (tasks are scoped to their creating session)
     - Thread-safe for single-process async use
     - Pagination support for list_tasks
 
@@ -66,10 +68,24 @@ class InMemoryTaskStore(TaskStore):
         for task_id in expired_ids:
             del self._tasks[task_id]
 
+    def _get_stored_task(self, task_id: str, *, session_id: str) -> StoredTask | None:
+        """Retrieve a stored task, enforcing session ownership.
+
+        Returns None if the task does not exist or belongs to a different session.
+        """
+        stored = self._tasks.get(task_id)
+        if stored is None:
+            return None
+        if stored.session_id != session_id:
+            return None
+        return stored
+
     async def create_task(
         self,
         metadata: TaskMetadata,
         task_id: str | None = None,
+        *,
+        session_id: str,
     ) -> Task:
         """Create a new task with the given metadata."""
         # Cleanup expired tasks on access
@@ -82,6 +98,7 @@ class InMemoryTaskStore(TaskStore):
 
         stored = StoredTask(
             task=task,
+            session_id=session_id,
             expires_at=self._calculate_expiry(metadata.ttl),
         )
         self._tasks[task.task_id] = stored
@@ -89,12 +106,12 @@ class InMemoryTaskStore(TaskStore):
         # Return a copy to prevent external modification
         return Task(**task.model_dump())
 
-    async def get_task(self, task_id: str) -> Task | None:
+    async def get_task(self, task_id: str, *, session_id: str) -> Task | None:
         """Get a task by ID."""
         # Cleanup expired tasks on access
         self._cleanup_expired()
 
-        stored = self._tasks.get(task_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             return None
 
@@ -106,9 +123,11 @@ class InMemoryTaskStore(TaskStore):
         task_id: str,
         status: TaskStatus | None = None,
         status_message: str | None = None,
+        *,
+        session_id: str,
     ) -> Task:
         """Update a task's status and/or message."""
-        stored = self._tasks.get(task_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             raise ValueError(f"Task with ID {task_id} not found")
 
@@ -137,17 +156,17 @@ class InMemoryTaskStore(TaskStore):
 
         return Task(**stored.task.model_dump())
 
-    async def store_result(self, task_id: str, result: Result) -> None:
+    async def store_result(self, task_id: str, result: Result, *, session_id: str) -> None:
         """Store the result for a task."""
-        stored = self._tasks.get(task_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             raise ValueError(f"Task with ID {task_id} not found")
 
         stored.result = result
 
-    async def get_result(self, task_id: str) -> Result | None:
+    async def get_result(self, task_id: str, *, session_id: str) -> Result | None:
         """Get the stored result for a task."""
-        stored = self._tasks.get(task_id)
+        stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
             return None
 
@@ -156,34 +175,38 @@ class InMemoryTaskStore(TaskStore):
     async def list_tasks(
         self,
         cursor: str | None = None,
+        *,
+        session_id: str,
     ) -> tuple[list[Task], str | None]:
         """List tasks with pagination."""
         # Cleanup expired tasks on access
         self._cleanup_expired()
 
-        all_task_ids = list(self._tasks.keys())
+        # Filter tasks by session ownership before pagination
+        filtered_task_ids = [task_id for task_id, stored in self._tasks.items() if stored.session_id == session_id]
 
         start_index = 0
         if cursor is not None:
             try:
-                cursor_index = all_task_ids.index(cursor)
+                cursor_index = filtered_task_ids.index(cursor)
                 start_index = cursor_index + 1
             except ValueError:
                 raise ValueError(f"Invalid cursor: {cursor}")
 
-        page_task_ids = all_task_ids[start_index : start_index + self._page_size]
+        page_task_ids = filtered_task_ids[start_index : start_index + self._page_size]
         tasks = [Task(**self._tasks[tid].task.model_dump()) for tid in page_task_ids]
 
         # Determine next cursor
         next_cursor = None
-        if start_index + self._page_size < len(all_task_ids) and page_task_ids:
+        if start_index + self._page_size < len(filtered_task_ids) and page_task_ids:
             next_cursor = page_task_ids[-1]
 
         return tasks, next_cursor
 
-    async def delete_task(self, task_id: str) -> bool:
+    async def delete_task(self, task_id: str, *, session_id: str) -> bool:
         """Delete a task."""
-        if task_id not in self._tasks:
+        stored = self._get_stored_task(task_id, session_id=session_id)
+        if stored is None:
             return False
 
         del self._tasks[task_id]
