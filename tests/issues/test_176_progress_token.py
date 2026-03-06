@@ -2,8 +2,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from mcp.server.context import ServerRequestContext
+from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context
-from mcp.shared.context import RequestContext
 
 pytestmark = pytest.mark.anyio
 
@@ -16,11 +17,12 @@ async def test_progress_token_zero_first_call():
     mock_session.send_progress_notification = AsyncMock()
 
     # Create request context with progress token 0
-    request_context = RequestContext(
+    request_context = ServerRequestContext(
         request_id="test-request",
         session=mock_session,
         meta={"progress_token": 0},
         lifespan_context=None,
+        experimental=Experimental(),
     )
 
     # Create context with our mocks
@@ -33,6 +35,12 @@ async def test_progress_token_zero_first_call():
 
     # Verify progress notifications
     assert mock_session.send_progress_notification.call_count == 3, "All progress notifications should be sent"
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=0.0, total=10.0, message=None)
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=5.0, total=10.0, message=None)
-    mock_session.send_progress_notification.assert_any_call(progress_token=0, progress=10.0, total=10.0, message=None)
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0, progress=0.0, total=10.0, message=None, related_request_id="test-request"
+    )
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0, progress=5.0, total=10.0, message=None, related_request_id="test-request"
+    )
+    mock_session.send_progress_notification.assert_any_call(
+        progress_token=0, progress=10.0, total=10.0, message=None, related_request_id="test-request"
+    )

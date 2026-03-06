@@ -9,7 +9,7 @@ This is critical for HTTP transport where requests can arrive in any order.
 import anyio
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.message import SessionMessage

@@ -44,17 +44,14 @@ class TaskResultHandler:
     5. Returns the final result
 
     Usage:
-        # Create handler with store and queue
-        handler = TaskResultHandler(task_store, message_queue)
+        async def handle_task_result(
+            ctx: ServerRequestContext, params: GetTaskPayloadRequestParams
+        ) -> GetTaskPayloadResult:
+            ...
 
-        # Register it with the server
-        @server.experimental.get_task_result()
-        async def handle_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-            ctx = server.request_context
-            return await handler.handle(req, ctx.session, ctx.request_id)
-
-        # Or use the convenience method
-        handler.register(server)
+        server.experimental.enable_tasks(
+            on_task_result=handle_task_result,
+        )
     """
 
     def __init__(

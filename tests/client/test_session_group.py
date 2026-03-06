@@ -278,6 +278,7 @@ async def test_client_session_group_disconnect_non_existent_server():
         await group.disconnect_from_server(session)
 
 
+# TODO(Marcelo): This is horrible. We should drop this test.
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "server_params_instance, client_type_name, patch_target_for_client_func",
@@ -310,19 +311,8 @@ async def test_client_session_group_establish_session_parameterized(
             mock_read_stream = mock.AsyncMock(name=f"{client_type_name}Read")
             mock_write_stream = mock.AsyncMock(name=f"{client_type_name}Write")
 
-            # streamable_http_client's __aenter__ returns three values
-            if client_type_name == "streamablehttp":
-                mock_extra_stream_val = mock.AsyncMock(name="StreamableExtra")
-                mock_client_cm_instance.__aenter__.return_value = (
-                    mock_read_stream,
-                    mock_write_stream,
-                    mock_extra_stream_val,
-                )
-            else:
-                mock_client_cm_instance.__aenter__.return_value = (
-                    mock_read_stream,
-                    mock_write_stream,
-                )
+            # All client context managers return (read_stream, write_stream)
+            mock_client_cm_instance.__aenter__.return_value = (mock_read_stream, mock_write_stream)
 
             mock_client_cm_instance.__aexit__ = mock.AsyncMock(return_value=None)
             mock_specific_client_func.return_value = mock_client_cm_instance

@@ -6,12 +6,12 @@ from typing import Any, TypedDict
 import pytest
 from pydantic import BaseModel
 
+from mcp.server.context import LifespanContextT, RequestT
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.server.session import ServerSessionT
-from mcp.shared.context import LifespanContextT, RequestT
 from mcp.types import TextContent, ToolAnnotations
 
 
@@ -188,7 +188,7 @@ class TestCallTools:
 
         manager = ToolManager()
         manager.add_tool(sum)
-        result = await manager.call_tool("sum", {"a": 1, "b": 2})
+        result = await manager.call_tool("sum", {"a": 1, "b": 2}, Context())
         assert result == 3
 
     @pytest.mark.anyio
@@ -199,7 +199,7 @@ class TestCallTools:
 
         manager = ToolManager()
         manager.add_tool(double)
-        result = await manager.call_tool("double", {"n": 5})
+        result = await manager.call_tool("double", {"n": 5}, Context())
         assert result == 10
 
     @pytest.mark.anyio
@@ -213,7 +213,7 @@ class TestCallTools:
 
         manager = ToolManager()
         tool = manager.add_tool(MyTool())
-        result = await tool.run({"x": 5})
+        result = await tool.run({"x": 5}, Context())
         assert result == 10
 
     @pytest.mark.anyio
@@ -227,7 +227,7 @@ class TestCallTools:
 
         manager = ToolManager()
         tool = manager.add_tool(MyAsyncTool())
-        result = await tool.run({"x": 5})
+        result = await tool.run({"x": 5}, Context())
         assert result == 10
 
     @pytest.mark.anyio
@@ -238,7 +238,7 @@ class TestCallTools:
 
         manager = ToolManager()
         manager.add_tool(sum)
-        result = await manager.call_tool("sum", {"a": 1})
+        result = await manager.call_tool("sum", {"a": 1}, Context())
         assert result == 2
 
     @pytest.mark.anyio
@@ -250,13 +250,13 @@ class TestCallTools:
         manager = ToolManager()
         manager.add_tool(sum)
         with pytest.raises(ToolError):
-            await manager.call_tool("sum", {"a": 1})
+            await manager.call_tool("sum", {"a": 1}, Context())
 
     @pytest.mark.anyio
     async def test_call_unknown_tool(self):
         manager = ToolManager()
         with pytest.raises(ToolError):
-            await manager.call_tool("unknown", {"a": 1})
+            await manager.call_tool("unknown", {"a": 1}, Context())
 
     @pytest.mark.anyio
     async def test_call_tool_with_list_int_input(self):
@@ -266,9 +266,9 @@ class TestCallTools:
         manager = ToolManager()
         manager.add_tool(sum_vals)
         # Try both with plain list and with JSON list
-        result = await manager.call_tool("sum_vals", {"vals": "[1, 2, 3]"})
+        result = await manager.call_tool("sum_vals", {"vals": "[1, 2, 3]"}, Context())
         assert result == 6
-        result = await manager.call_tool("sum_vals", {"vals": [1, 2, 3]})
+        result = await manager.call_tool("sum_vals", {"vals": [1, 2, 3]}, Context())
         assert result == 6
 
     @pytest.mark.anyio
@@ -279,13 +279,13 @@ class TestCallTools:
         manager = ToolManager()
         manager.add_tool(concat_strs)
         # Try both with plain python object and with JSON list
-        result = await manager.call_tool("concat_strs", {"vals": ["a", "b", "c"]})
+        result = await manager.call_tool("concat_strs", {"vals": ["a", "b", "c"]}, Context())
         assert result == "abc"
-        result = await manager.call_tool("concat_strs", {"vals": '["a", "b", "c"]'})
+        result = await manager.call_tool("concat_strs", {"vals": '["a", "b", "c"]'}, Context())
         assert result == "abc"
-        result = await manager.call_tool("concat_strs", {"vals": "a"})
+        result = await manager.call_tool("concat_strs", {"vals": "a"}, Context())
         assert result == "a"
-        result = await manager.call_tool("concat_strs", {"vals": '"a"'})
+        result = await manager.call_tool("concat_strs", {"vals": '"a"'}, Context())
         assert result == '"a"'
 
     @pytest.mark.anyio
@@ -297,7 +297,7 @@ class TestCallTools:
             shrimp: list[Shrimp]
             x: None
 
-        def name_shrimp(tank: MyShrimpTank, ctx: Context[ServerSessionT, None]) -> list[str]:
+        def name_shrimp(tank: MyShrimpTank) -> list[str]:
             return [x.name for x in tank.shrimp]
 
         manager = ToolManager()
@@ -305,11 +305,13 @@ class TestCallTools:
         result = await manager.call_tool(
             "name_shrimp",
             {"tank": {"x": None, "shrimp": [{"name": "rex"}, {"name": "gertrude"}]}},
+            Context(),
         )
         assert result == ["rex", "gertrude"]
         result = await manager.call_tool(
             "name_shrimp",
             {"tank": '{"x": null, "shrimp": [{"name": "rex"}, {"name": "gertrude"}]}'},
+            Context(),
         )
         assert result == ["rex", "gertrude"]
 
@@ -347,9 +349,7 @@ class TestContextHandling:
         tool = manager.add_tool(tool_without_context)
         assert tool.context_kwarg is None
 
-        def tool_with_parametrized_context(
-            x: int, ctx: Context[ServerSessionT, LifespanContextT, RequestT]
-        ) -> str:  # pragma: no cover
+        def tool_with_parametrized_context(x: int, ctx: Context[LifespanContextT, RequestT]) -> str:  # pragma: no cover
             return str(x)
 
         tool = manager.add_tool(tool_with_parametrized_context)
@@ -366,9 +366,7 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(tool_with_context)
 
-        mcp = MCPServer()
-        ctx = mcp.get_context()
-        result = await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
+        result = await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
         assert result == "42"
 
     @pytest.mark.anyio
@@ -382,22 +380,7 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(async_tool)
 
-        mcp = MCPServer()
-        ctx = mcp.get_context()
-        result = await manager.call_tool("async_tool", {"x": 42}, context=ctx)
-        assert result == "42"
-
-    @pytest.mark.anyio
-    async def test_context_optional(self):
-        """Test that context is optional when calling tools."""
-
-        def tool_with_context(x: int, ctx: Context[ServerSessionT, None] | None = None) -> str:
-            return str(x)
-
-        manager = ToolManager()
-        manager.add_tool(tool_with_context)
-        # Should not raise an error when context is not provided
-        result = await manager.call_tool("tool_with_context", {"x": 42})
+        result = await manager.call_tool("async_tool", {"x": 42}, context=Context())
         assert result == "42"
 
     @pytest.mark.anyio
@@ -410,10 +393,8 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(tool_with_context)
 
-        mcp = MCPServer()
-        ctx = mcp.get_context()
         with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
-            await manager.call_tool("tool_with_context", {"x": 42}, context=ctx)
+            await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
 
 
 class TestToolAnnotations:
@@ -473,7 +454,7 @@ class TestStructuredOutput:
 
         manager = ToolManager()
         manager.add_tool(get_user)
-        result = await manager.call_tool("get_user", {"user_id": 1}, convert_result=True)
+        result = await manager.call_tool("get_user", {"user_id": 1}, Context(), convert_result=True)
         # don't test unstructured output here, just the structured conversion
         assert len(result) == 2 and result[1] == {"name": "John", "age": 30}
 
@@ -487,9 +468,9 @@ class TestStructuredOutput:
 
         manager = ToolManager()
         manager.add_tool(double_number)
-        result = await manager.call_tool("double_number", {"n": 5})
+        result = await manager.call_tool("double_number", {"n": 5}, Context())
         assert result == 10
-        result = await manager.call_tool("double_number", {"n": 5}, convert_result=True)
+        result = await manager.call_tool("double_number", {"n": 5}, Context(), convert_result=True)
         assert isinstance(result[0][0], TextContent) and result[1] == {"result": 10}
 
     @pytest.mark.anyio
@@ -508,7 +489,7 @@ class TestStructuredOutput:
 
         manager = ToolManager()
         manager.add_tool(get_user_dict)
-        result = await manager.call_tool("get_user_dict", {"user_id": 1})
+        result = await manager.call_tool("get_user_dict", {"user_id": 1}, Context())
         assert result == expected_output
 
     @pytest.mark.anyio
@@ -528,7 +509,7 @@ class TestStructuredOutput:
 
         manager = ToolManager()
         manager.add_tool(get_person)
-        result = await manager.call_tool("get_person", {}, convert_result=True)
+        result = await manager.call_tool("get_person", {}, Context(), convert_result=True)
         # don't test unstructured output here, just the structured conversion
         assert len(result) == 2 and result[1] == expected_output
 
@@ -545,9 +526,9 @@ class TestStructuredOutput:
 
         manager = ToolManager()
         manager.add_tool(get_numbers)
-        result = await manager.call_tool("get_numbers", {})
+        result = await manager.call_tool("get_numbers", {}, Context())
         assert result == expected_list
-        result = await manager.call_tool("get_numbers", {}, convert_result=True)
+        result = await manager.call_tool("get_numbers", {}, Context(), convert_result=True)
         assert isinstance(result[0][0], TextContent) and result[1] == expected_output
 
     @pytest.mark.anyio
@@ -560,7 +541,7 @@ class TestStructuredOutput:
 
         manager = ToolManager()
         manager.add_tool(get_dict, structured_output=False)
-        result = await manager.call_tool("get_dict", {})
+        result = await manager.call_tool("get_dict", {}, Context())
         assert isinstance(result, dict)
         assert result == {"key": "value"}
 
@@ -603,12 +584,12 @@ class TestStructuredOutput:
         assert "properties" not in tool.output_schema  # dict[str, Any] has no constraints
 
         # Test raw result
-        result = await manager.call_tool("get_config", {})
+        result = await manager.call_tool("get_config", {}, Context())
         expected = {"debug": True, "port": 8080, "features": ["auth", "logging"]}
         assert result == expected
 
         # Test converted result
-        result = await manager.call_tool("get_config", {})
+        result = await manager.call_tool("get_config", {}, Context())
         assert result == expected
 
     @pytest.mark.anyio
@@ -628,12 +609,12 @@ class TestStructuredOutput:
         assert tool.output_schema["additionalProperties"]["type"] == "integer"
 
         # Test raw result
-        result = await manager.call_tool("get_scores", {})
+        result = await manager.call_tool("get_scores", {}, Context())
         expected = {"alice": 100, "bob": 85, "charlie": 92}
         assert result == expected
 
         # Test converted result
-        result = await manager.call_tool("get_scores", {})
+        result = await manager.call_tool("get_scores", {}, Context())
         assert result == expected
 
 
@@ -887,7 +868,7 @@ class TestRemoveTools:
         manager.add_tool(greet)
 
         # Verify tool works before removal
-        result = await manager.call_tool("greet", {"name": "World"})
+        result = await manager.call_tool("greet", {"name": "World"}, Context())
         assert result == "Hello, World!"
 
         # Remove the tool
@@ -895,7 +876,7 @@ class TestRemoveTools:
 
         # Verify calling removed tool raises error
         with pytest.raises(ToolError, match="Unknown tool: greet"):
-            await manager.call_tool("greet", {"name": "World"})
+            await manager.call_tool("greet", {"name": "World"}, Context())
 
     def test_remove_tool_case_sensitive(self):
         """Test that tool removal is case-sensitive."""

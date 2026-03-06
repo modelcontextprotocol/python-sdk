@@ -8,9 +8,8 @@ from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
 
 if TYPE_CHECKING:
-    from mcp.server.mcpserver.server import Context
-    from mcp.server.session import ServerSessionT
-    from mcp.shared.context import LifespanContextT, RequestT
+    from mcp.server.context import LifespanContextT, RequestT
+    from mcp.server.mcpserver.context import Context
 
 logger = get_logger(__name__)
 
@@ -49,12 +48,12 @@ class PromptManager:
     async def render_prompt(
         self,
         name: str,
-        arguments: dict[str, Any] | None = None,
-        context: Context[ServerSessionT, LifespanContextT, RequestT] | None = None,
+        arguments: dict[str, Any] | None,
+        context: Context[LifespanContextT, RequestT],
     ) -> list[Message]:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
 
-        return await prompt.render(arguments, context=context)
+        return await prompt.render(arguments, context)

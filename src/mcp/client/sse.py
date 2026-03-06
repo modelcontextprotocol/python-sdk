@@ -11,7 +11,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from httpx_sse import aconnect_sse
 from httpx_sse._exceptions import SSEError
 
-import mcp.types as types
+from mcp import types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
@@ -47,6 +47,7 @@ async def sse_client(
         headers: Optional headers to include in requests.
         timeout: HTTP timeout for regular operations (in seconds).
         sse_read_timeout: Timeout for SSE read operations (in seconds).
+        httpx_client_factory: Factory function for creating the HTTPX client.
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
@@ -138,7 +139,7 @@ async def sse_client(
                                         json=session_message.message.model_dump(
                                             by_alias=True,
                                             mode="json",
-                                            exclude_none=True,
+                                            exclude_unset=True,
                                         ),
                                     )
                                     response.raise_for_status()

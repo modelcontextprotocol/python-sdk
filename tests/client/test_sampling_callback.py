@@ -2,8 +2,8 @@ import pytest
 
 from mcp import Client
 from mcp.client.session import ClientSession
-from mcp.server.mcpserver import MCPServer
-from mcp.shared.context import RequestContext
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared._context import RequestContext
 from mcp.types import (
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -26,14 +26,14 @@ async def test_sampling_callback():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientSession],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
 
     @server.tool("test_sampling")
-    async def test_sampling_tool(message: str):
-        value = await server.get_context().session.create_message(
+    async def test_sampling_tool(message: str, ctx: Context) -> bool:
+        value = await ctx.session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )
@@ -71,15 +71,15 @@ async def test_create_message_backwards_compat_single_content():
     )
 
     async def sampling_callback(
-        context: RequestContext[ClientSession, None],
+        context: RequestContext[ClientSession],
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult:
         return callback_return
 
     @server.tool("test_backwards_compat")
-    async def test_tool(message: str):
+    async def test_tool(message: str, ctx: Context) -> bool:
         # Call create_message WITHOUT tools
-        result = await server.get_context().session.create_message(
+        result = await ctx.session.create_message(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
             max_tokens=100,
         )

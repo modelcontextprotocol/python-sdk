@@ -1,106 +1,58 @@
-from collections.abc import Iterable
-from pathlib import Path
-from tempfile import NamedTemporaryFile
+import base64
 
 import pytest
 
-import mcp.types as types
-from mcp.server.lowlevel.server import ReadResourceContents, Server
+from mcp import Client
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
+    BlobResourceContents,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextResourceContents,
+)
+
+pytestmark = pytest.mark.anyio
 
 
-@pytest.fixture
-def temp_file():
-    """Create a temporary file for testing."""
-    with NamedTemporaryFile(mode="w", delete=False) as f:
-        f.write("test content")
-        path = Path(f.name).resolve()
-    yield path
-    try:
-        path.unlink()
-    except FileNotFoundError:  # pragma: no cover
-        pass
+async def test_read_resource_text():
+    async def handle_read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+        return ReadResourceResult(
+            contents=[TextResourceContents(uri=str(params.uri), text="Hello World", mime_type="text/plain")]
+        )
+
+    server = Server("test", on_read_resource=handle_read_resource)
+
+    async with Client(server) as client:
+        result = await client.read_resource("test://resource")
+        assert len(result.contents) == 1
+
+        content = result.contents[0]
+        assert isinstance(content, TextResourceContents)
+        assert content.text == "Hello World"
+        assert content.mime_type == "text/plain"
 
 
-@pytest.mark.anyio
-async def test_read_resource_text(temp_file: Path):
-    server = Server("test")
+async def test_read_resource_binary():
+    binary_data = b"Hello World"
 
-    @server.read_resource()
-    async def read_resource(uri: str) -> Iterable[ReadResourceContents]:
-        return [ReadResourceContents(content="Hello World", mime_type="text/plain")]
+    async def handle_read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+        return ReadResourceResult(
+            contents=[
+                BlobResourceContents(
+                    uri=str(params.uri),
+                    blob=base64.b64encode(binary_data).decode("utf-8"),
+                    mime_type="application/octet-stream",
+                )
+            ]
+        )
 
-    # Get the handler directly from the server
-    handler = server.request_handlers[types.ReadResourceRequest]
+    server = Server("test", on_read_resource=handle_read_resource)
 
-    # Create a request
-    request = types.ReadResourceRequest(
-        params=types.ReadResourceRequestParams(uri=temp_file.as_uri()),
-    )
+    async with Client(server) as client:
+        result = await client.read_resource("test://resource")
+        assert len(result.contents) == 1
 
-    # Call the handler
-    result = await handler(request)
-    assert isinstance(result, types.ReadResourceResult)
-    assert len(result.contents) == 1
-
-    content = result.contents[0]
-    assert isinstance(content, types.TextResourceContents)
-    assert content.text == "Hello World"
-    assert content.mime_type == "text/plain"
-
-
-@pytest.mark.anyio
-async def test_read_resource_binary(temp_file: Path):
-    server = Server("test")
-
-    @server.read_resource()
-    async def read_resource(uri: str) -> Iterable[ReadResourceContents]:
-        return [ReadResourceContents(content=b"Hello World", mime_type="application/octet-stream")]
-
-    # Get the handler directly from the server
-    handler = server.request_handlers[types.ReadResourceRequest]
-
-    # Create a request
-    request = types.ReadResourceRequest(
-        params=types.ReadResourceRequestParams(uri=temp_file.as_uri()),
-    )
-
-    # Call the handler
-    result = await handler(request)
-    assert isinstance(result, types.ReadResourceResult)
-    assert len(result.contents) == 1
-
-    content = result.contents[0]
-    assert isinstance(content, types.BlobResourceContents)
-    assert content.mime_type == "application/octet-stream"
-
-
-@pytest.mark.anyio
-async def test_read_resource_default_mime(temp_file: Path):
-    server = Server("test")
-
-    @server.read_resource()
-    async def read_resource(uri: str) -> Iterable[ReadResourceContents]:
-        return [
-            ReadResourceContents(
-                content="Hello World",
-                # No mime_type specified, should default to text/plain
-            )
-        ]
-
-    # Get the handler directly from the server
-    handler = server.request_handlers[types.ReadResourceRequest]
-
-    # Create a request
-    request = types.ReadResourceRequest(
-        params=types.ReadResourceRequestParams(uri=temp_file.as_uri()),
-    )
-
-    # Call the handler
-    result = await handler(request)
-    assert isinstance(result, types.ReadResourceResult)
-    assert len(result.contents) == 1
-
-    content = result.contents[0]
-    assert isinstance(content, types.TextResourceContents)
-    assert content.text == "Hello World"
-    assert content.mime_type == "text/plain"
+        content = result.contents[0]
+        assert isinstance(content, BlobResourceContents)
+        assert content.mime_type == "application/octet-stream"
+        assert base64.b64decode(content.blob) == binary_data

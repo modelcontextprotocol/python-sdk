@@ -1,50 +1,41 @@
-import inspect
 import logging
-from contextlib import contextmanager
 from typing import Any
-from unittest.mock import patch
 
-import jsonschema
 import pytest
 
 from mcp import Client
-from mcp.server.lowlevel import Server
-from mcp.types import Tool
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
 
 
-@contextmanager
-def bypass_server_output_validation():
-    """Context manager that bypasses server-side output validation.
-    This simulates a malicious or non-compliant server that doesn't validate
-    its outputs, allowing us to test client-side validation.
-    """
-    # Save the original validate function
-    original_validate = jsonschema.validate
+def _make_server(
+    tools: list[Tool],
+    structured_content: dict[str, Any],
+) -> Server:
+    """Create a low-level server that returns the given structured_content for any tool call."""
 
-    # Create a mock that tracks which module is calling it
-    def selective_mock(instance: Any = None, schema: Any = None, *args: Any, **kwargs: Any) -> None:
-        # Check the call stack to see where this is being called from
-        for frame_info in inspect.stack():
-            # If called from the server module, skip validation
-            # TODO: fix this as it's a rather gross workaround and will eventually break
-            # Normalize path separators for cross-platform compatibility
-            normalized_path = frame_info.filename.replace("\\", "/")
-            if "mcp/server/lowlevel/server.py" in normalized_path:
-                return None
-        # Otherwise, use the real validation (for client-side)
-        return original_validate(instance=instance, schema=schema, *args, **kwargs)
+    async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=tools)
 
-    with patch("jsonschema.validate", selective_mock):
-        yield
+    async def on_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="result")],
+            structured_content=structured_content,
+        )
+
+    return Server("test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_basemodel():
     """Test that client validates structured content against schema for BaseModel outputs"""
-    # Create a malicious low-level server that returns invalid structured content
-    server = Server("test-server")
-
-    # Define the expected schema for our tool
     output_schema = {
         "type": "object",
         "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "title": "Age"}},
@@ -52,39 +43,27 @@ async def test_tool_structured_output_client_side_validation_basemodel():
         "title": "UserOutput",
     }
 
-    @server.list_tools()
-    async def list_tools():
-        return [
+    server = _make_server(
+        tools=[
             Tool(
                 name="get_user",
                 description="Get user data",
                 input_schema={"type": "object"},
                 output_schema=output_schema,
             )
-        ]
+        ],
+        structured_content={"name": "John", "age": "invalid"},  # Invalid: age should be int
+    )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
-        # Return invalid structured content - age is string instead of integer
-        # The low-level server will wrap this in CallToolResult
-        return {"name": "John", "age": "invalid"}  # Invalid: age should be int
-
-    # Test that client validates the structured content
-    with bypass_server_output_validation():
-        async with Client(server) as client:
-            # The client validates structured content and should raise an error
-            with pytest.raises(RuntimeError) as exc_info:
-                await client.call_tool("get_user", {})
-            # Verify it's a validation error
-            assert "Invalid structured content returned by tool get_user" in str(exc_info.value)
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("get_user", {})
+        assert "Invalid structured content returned by tool get_user" in str(exc_info.value)
 
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_primitive():
     """Test that client validates structured content for primitive outputs"""
-    server = Server("test-server")
-
-    # Primitive types are wrapped in {"result": value}
     output_schema = {
         "type": "object",
         "properties": {"result": {"type": "integer", "title": "Result"}},
@@ -92,122 +71,95 @@ async def test_tool_structured_output_client_side_validation_primitive():
         "title": "calculate_Output",
     }
 
-    @server.list_tools()
-    async def list_tools():
-        return [
+    server = _make_server(
+        tools=[
             Tool(
                 name="calculate",
                 description="Calculate something",
                 input_schema={"type": "object"},
                 output_schema=output_schema,
             )
-        ]
+        ],
+        structured_content={"result": "not_a_number"},  # Invalid: should be int
+    )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
-        # Return invalid structured content - result is string instead of integer
-        return {"result": "not_a_number"}  # Invalid: should be int
-
-    with bypass_server_output_validation():
-        async with Client(server) as client:
-            # The client validates structured content and should raise an error
-            with pytest.raises(RuntimeError) as exc_info:
-                await client.call_tool("calculate", {})
-            assert "Invalid structured content returned by tool calculate" in str(exc_info.value)
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("calculate", {})
+        assert "Invalid structured content returned by tool calculate" in str(exc_info.value)
 
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_dict_typed():
     """Test that client validates dict[str, T] structured content"""
-    server = Server("test-server")
-
-    # dict[str, int] schema
     output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
 
-    @server.list_tools()
-    async def list_tools():
-        return [
+    server = _make_server(
+        tools=[
             Tool(
                 name="get_scores",
                 description="Get scores",
                 input_schema={"type": "object"},
                 output_schema=output_schema,
             )
-        ]
+        ],
+        structured_content={"alice": "100", "bob": "85"},  # Invalid: values should be int
+    )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
-        # Return invalid structured content - values should be integers
-        return {"alice": "100", "bob": "85"}  # Invalid: values should be int
-
-    with bypass_server_output_validation():
-        async with Client(server) as client:
-            # The client validates structured content and should raise an error
-            with pytest.raises(RuntimeError) as exc_info:
-                await client.call_tool("get_scores", {})
-            assert "Invalid structured content returned by tool get_scores" in str(exc_info.value)
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("get_scores", {})
+        assert "Invalid structured content returned by tool get_scores" in str(exc_info.value)
 
 
 @pytest.mark.anyio
 async def test_tool_structured_output_client_side_validation_missing_required():
     """Test that client validates missing required fields"""
-    server = Server("test-server")
-
     output_schema = {
         "type": "object",
         "properties": {"name": {"type": "string"}, "age": {"type": "integer"}, "email": {"type": "string"}},
-        "required": ["name", "age", "email"],  # All fields required
+        "required": ["name", "age", "email"],
         "title": "PersonOutput",
     }
 
-    @server.list_tools()
-    async def list_tools():
-        return [
+    server = _make_server(
+        tools=[
             Tool(
                 name="get_person",
                 description="Get person data",
                 input_schema={"type": "object"},
                 output_schema=output_schema,
             )
-        ]
+        ],
+        structured_content={"name": "John", "age": 30},  # Missing required 'email'
+    )
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]):
-        # Return structured content missing required field 'email'
-        return {"name": "John", "age": 30}  # Missing required 'email'
-
-    with bypass_server_output_validation():
-        async with Client(server) as client:
-            # The client validates structured content and should raise an error
-            with pytest.raises(RuntimeError) as exc_info:
-                await client.call_tool("get_person", {})
-            assert "Invalid structured content returned by tool get_person" in str(exc_info.value)
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("get_person", {})
+        assert "Invalid structured content returned by tool get_person" in str(exc_info.value)
 
 
 @pytest.mark.anyio
 async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
     """Test that client logs warning when tool is not in list_tools but has output_schema"""
-    server = Server("test-server")
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        # Return empty list - tool is not listed
-        return []
+    async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[])
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        # Server still responds to the tool call with structured content
-        return {"result": 42}
+    async def on_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        return CallToolResult(
+            content=[TextContent(type="text", text="result")],
+            structured_content={"result": 42},
+        )
 
-    # Set logging level to capture warnings
+    server = Server("test-server", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+
     caplog.set_level(logging.WARNING)
 
-    with bypass_server_output_validation():
-        async with Client(server) as client:
-            # Call a tool that wasn't listed
-            result = await client.call_tool("mystery_tool", {})
-            assert result.structured_content == {"result": 42}
-            assert result.is_error is False
+    async with Client(server) as client:
+        result = await client.call_tool("mystery_tool", {})
+        assert result.structured_content == {"result": 42}
+        assert result.is_error is False
 
-            # Check that warning was logged
-            assert "Tool mystery_tool not listed" in caplog.text
+        assert "Tool mystery_tool not listed" in caplog.text

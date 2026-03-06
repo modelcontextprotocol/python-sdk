@@ -1,7 +1,7 @@
 import base64
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from inline_snapshot import snapshot
@@ -10,6 +10,8 @@ from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
 from mcp.client import Client
+from mcp.server.context import ServerRequestContext
+from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
@@ -21,6 +23,9 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
+    Completion,
+    CompletionArgument,
+    CompletionContext,
     ContentBlock,
     EmbeddedResource,
     GetPromptResult,
@@ -30,6 +35,7 @@ from mcp.types import (
     Prompt,
     PromptArgument,
     PromptMessage,
+    PromptReference,
     ReadResourceResult,
     Resource,
     ResourceTemplate,
@@ -885,7 +891,7 @@ class TestServerResourceTemplates:
         assert len(await mcp.list_resources()) == 0
 
         # When accessed, should create a concrete resource
-        resource = await mcp._resource_manager.get_resource("resource://test/data")
+        resource = await mcp._resource_manager.get_resource("resource://test/data", Context())
         assert isinstance(resource, FunctionResource)
         result = await resource.read()
         assert result == "Data for test"
@@ -1225,6 +1231,19 @@ class TestContextInjection:
 class TestServerPrompts:
     """Test prompt functionality in MCPServer server."""
 
+    async def test_get_prompt_direct_call_without_context(self):
+        """Test calling mcp.get_prompt() directly without passing context."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def fn() -> str:
+            return "Hello, world!"
+
+        result = await mcp.get_prompt("fn")
+        content = result.messages[0].content
+        assert isinstance(content, TextContent)
+        assert content.text == "Hello, world!"
+
     async def test_prompt_decorator(self):
         """Test that the prompt decorator registers prompts correctly."""
         mcp = MCPServer()
@@ -1237,7 +1256,7 @@ class TestServerPrompts:
         assert len(prompts) == 1
         assert prompts[0].name == "fn"
         # Don't compare functions directly since validate_call wraps them
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1252,7 +1271,7 @@ class TestServerPrompts:
         prompts = mcp._prompt_manager.list_prompts()
         assert len(prompts) == 1
         assert prompts[0].name == "custom_name"
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1267,7 +1286,7 @@ class TestServerPrompts:
         prompts = mcp._prompt_manager.list_prompts()
         assert len(prompts) == 1
         assert prompts[0].description == "A custom description"
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1401,6 +1420,23 @@ class TestServerPrompts:
                 await client.get_prompt("prompt_fn")
 
 
+async def test_completion_decorator() -> None:
+    """Test that the completion decorator registers a working handler."""
+    mcp = MCPServer()
+
+    @mcp.completion()
+    async def handle_completion(
+        ref: PromptReference, argument: CompletionArgument, context: CompletionContext | None
+    ) -> Completion:
+        assert argument.name == "style"
+        return Completion(values=["bold", "italic", "underline"])
+
+    async with Client(mcp) as client:
+        ref = PromptReference(type="ref/prompt", name="test")
+        result = await client.complete(ref=ref, argument={"name": "style", "value": "b"})
+        assert result.completion.values == ["bold", "italic", "underline"]
+
+
 def test_streamable_http_no_redirect() -> None:
     """Test that streamable HTTP routes are correctly configured."""
     mcp = MCPServer()
@@ -1415,3 +1451,34 @@ def test_streamable_http_no_redirect() -> None:
 
     # Verify path values
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
+
+
+async def test_report_progress_passes_related_request_id():
+    """Test that report_progress passes the request_id as related_request_id.
+
+    Without related_request_id, the streamable HTTP transport cannot route
+    progress notifications to the correct SSE stream, causing them to be
+    silently dropped. See #953 and #2001.
+    """
+    mock_session = AsyncMock()
+    mock_session.send_progress_notification = AsyncMock()
+
+    request_context = ServerRequestContext(
+        request_id="req-abc-123",
+        session=mock_session,
+        meta={"progress_token": "tok-1"},
+        lifespan_context=None,
+        experimental=Experimental(),
+    )
+
+    ctx = Context(request_context=request_context, mcp_server=MagicMock())
+
+    await ctx.report_progress(50, 100, message="halfway")
+
+    mock_session.send_progress_notification.assert_awaited_once_with(
+        progress_token="tok-1",
+        progress=50,
+        total=100,
+        message="halfway",
+        related_request_id="req-abc-123",
+    )

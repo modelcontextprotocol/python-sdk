@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A simple MCP client demonstrating task polling"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Anthropic, PBC." }]
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 keywords = ["mcp", "llm", "tasks", "client"]
 license = { text = "MIT" }
 classifiers = [
