@@ -82,7 +82,7 @@ class ResourceTemplate(BaseModel):
             context_kwarg=context_kwarg,
         )
 
-    def matches(self, uri: str) -> dict[str, Any] | None:
+    def matches(self, uri: str) -> dict[str, str] | None:
         """Check if URI matches template and extract parameters.
 
         Extracted parameters are URL-decoded to handle percent-encoded characters.

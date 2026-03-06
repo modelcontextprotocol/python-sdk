@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeVar, cast, overload
 
 import anyio
 import pydantic_core
@@ -36,6 +35,7 @@ from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+from mcp.server.mcpserver.utilities.func_metadata import ConvertedToolResult
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
@@ -308,18 +308,13 @@ class MCPServer(Generic[LifespanResultT]):
         if isinstance(result, CallToolResult):
             return result
         if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
-            return CallToolResult(
-                content=list(unstructured_content),  # type: ignore[arg-type]
-                structured_content=structured_content,  # type: ignore[arg-type]
+            unstructured_content, structured_content = cast(
+                tuple[Sequence[ContentBlock], dict[str, Any]],
+                result,
             )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
             return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
+                content=list(unstructured_content),
+                structured_content=structured_content,
             )
         return CallToolResult(content=list(result))
 
@@ -390,7 +385,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
+    ) -> ConvertedToolResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)
