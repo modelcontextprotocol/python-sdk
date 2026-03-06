@@ -1,5 +1,7 @@
+from typing import cast
 from unittest.mock import Mock
 
+import pytest
 from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -22,6 +24,22 @@ def route_paths(app: Starlette) -> set[str]:
         if isinstance(path, str):
             paths.add(path)
     return paths
+
+
+@pytest.mark.anyio
+async def test_dummy_token_verifier_returns_none():
+    verifier = DummyTokenVerifier()
+
+    assert await verifier.verify_token("token") is None
+
+
+def test_route_paths_ignores_non_string_paths():
+    app = Starlette()
+    routes = cast(list[object], app.router.routes)
+    routes.append(Mock(path="/ok"))
+    routes.append(object())
+
+    assert route_paths(app) == {"/ok"}
 
 
 def test_streamable_http_app_adds_auth_routes_without_token_verifier():
