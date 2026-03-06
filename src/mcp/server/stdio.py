@@ -64,6 +64,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
 
                     session_message = SessionMessage(message)
                     await read_stream_writer.send(session_message)
+                # EOF reached - stdin closed, parent process likely died
+                # Signal shutdown by closing the write stream
+                await read_stream_writer.aclose()
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
