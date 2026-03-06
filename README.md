@@ -394,23 +394,6 @@ Structured results are automatically validated against the output schema
 generated from the annotation. This ensures the tool returns well-typed,
 validated data that clients can easily process.
 
-##### Validation Timing and Side Effects
-
-Output-schema validation happens after the tool function returns. If a tool
-performs side effects before returning, those side effects are not rolled back
-when structured-output validation fails.
-
-A validation failure means the tool implementation and its declared schema are
-out of sync. Treat it as a server bug, not as a signal that the operation was
-safe to retry.
-
-For tools with important side effects, prefer patterns that make the state
-explicit, for example:
-
-- return an operation or job identifier and expose completion state separately
-- separate "start work" from "fetch result" into different tools or resources
-- keep the structured result shape stable and version schema changes carefully
-
 **Note:** For backward compatibility, unstructured results are also
 returned. Unstructured results are provided for backward compatibility
 with previous versions of the MCP specification, and are quirks-compatible
