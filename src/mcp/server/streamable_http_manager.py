@@ -141,6 +141,26 @@ class StreamableHTTPSessionManager:
 
         Dispatches to the appropriate handler based on stateless mode.
         """
+        # Reject unsupported HTTP methods early, before creating any
+        # transport or session.  This avoids the race condition where a
+        # stateless transport is created, a background server task is
+        # spawned, the 405 response is sent, and then terminate() closes
+        # the streams while the message-router task is still running —
+        # resulting in a ClosedResourceError that kills the server.
+        # See: https://github.com/modelcontextprotocol/python-sdk/issues/1269
+        request = Request(scope, receive)
+        if request.method not in ("GET", "POST", "DELETE"):
+            response = Response(
+                content='{"error": "Method Not Allowed"}',
+                status_code=HTTPStatus.METHOD_NOT_ALLOWED,
+                headers={
+                    "Content-Type": "application/json",
+                    "Allow": "GET, POST, DELETE",
+                },
+            )
+            await response(scope, receive, send)
+            return
+
         if self._task_group is None:
             raise RuntimeError("Task group is not initialized. Make sure to use run().")
 
