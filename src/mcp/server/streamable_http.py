@@ -809,7 +809,7 @@ class StreamableHTTPServerTransport:
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
-        if not self.mcp_session_id:  # pragma: no cover
+        if not self.mcp_session_id:
             # If we're not using session IDs, return True
             return True
 
@@ -842,7 +842,7 @@ class StreamableHTTPServerTransport:
         protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
         # If no protocol version provided, assume default version
-        if protocol_version is None:  # pragma: no cover
+        if protocol_version is None:
             protocol_version = DEFAULT_NEGOTIATED_VERSION
 
         # Check if the protocol version is supported
