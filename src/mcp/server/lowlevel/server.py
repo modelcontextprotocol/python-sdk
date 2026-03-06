@@ -36,7 +36,6 @@ handler callables by method string.
 
 from __future__ import annotations
 
-import contextvars
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -73,8 +72,6 @@ from mcp.shared.session import RequestResponder
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
-
-request_ctx: contextvars.ContextVar[ServerRequestContext[Any]] = contextvars.ContextVar("request_ctx")
 
 
 class NotificationOptions:
@@ -474,11 +471,7 @@ class Server(Generic[LifespanResultT]):
                     close_sse_stream=close_sse_stream_cb,
                     close_standalone_sse_stream=close_standalone_sse_stream_cb,
                 )
-                token = request_ctx.set(ctx)
-                try:
-                    response = await handler(ctx, req.params)
-                finally:
-                    request_ctx.reset(token)
+                response = await handler(ctx, req.params)
             except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
