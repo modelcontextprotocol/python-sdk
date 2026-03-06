@@ -47,6 +47,7 @@ from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
     RequestResponder,
+    request_methods_for_union,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
@@ -62,6 +63,8 @@ ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 ServerRequestResponder = (
     RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
 )
+
+KNOWN_CLIENT_REQUEST_METHODS = request_methods_for_union(types.ClientRequest)
 
 
 class ServerSession(
@@ -99,6 +102,10 @@ class ServerSession(
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ClientRequest]:
         return types.client_request_adapter
+
+    @property
+    def _known_request_methods(self) -> frozenset[str]:
+        return KNOWN_CLIENT_REQUEST_METHODS
 
     @property
     def _receive_notification_adapter(self) -> TypeAdapter[types.ClientNotification]:
