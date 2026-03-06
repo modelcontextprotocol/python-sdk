@@ -148,7 +148,7 @@ async def test_http_error_status_sends_jsonrpc_error() -> None:
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                 await session.initialize()
 
-                with pytest.raises(MCPError, match="Server returned an error response"):  # pragma: no branch
+                with pytest.raises(MCPError, match="Server returned HTTP 500"):  # pragma: no branch
                     await session.list_tools()
 
 
