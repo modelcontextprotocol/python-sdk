@@ -102,6 +102,64 @@ def no_expiry_access_token() -> AccessToken:
     )
 
 
+class TestAccessTokenFields:
+    """Tests for AccessToken model fields including subject and claims."""
+
+    def test_backward_compat_without_subject_and_claims(self):
+        """Existing code that omits subject/claims should still work."""
+        token = AccessToken(
+            token="tok",
+            client_id="client",
+            scopes=["read"],
+        )
+        assert token.subject is None
+        assert token.claims is None
+
+    def test_subject_field(self):
+        """subject stores the JWT sub claim."""
+        token = AccessToken(
+            token="tok",
+            client_id="client",
+            scopes=["read"],
+            subject="user-123",
+        )
+        assert token.subject == "user-123"
+
+    def test_claims_field(self):
+        """claims stores arbitrary additional JWT claims."""
+        custom_claims = {"org": "acme", "role": "admin", "tier": 2}
+        token = AccessToken(
+            token="tok",
+            client_id="client",
+            scopes=["read"],
+            claims=custom_claims,
+        )
+        assert token.claims == custom_claims
+
+    def test_subject_and_claims_together(self):
+        """subject and claims can both be set simultaneously."""
+        token = AccessToken(
+            token="tok",
+            client_id="client",
+            scopes=["read"],
+            subject="user-456",
+            claims={"org": "acme"},
+        )
+        assert token.subject == "user-456"
+        assert token.claims == {"org": "acme"}
+
+    def test_subject_flows_through_authenticated_user(self):
+        """AuthenticatedUser carries the subject via its access_token attribute."""
+        token = AccessToken(
+            token="tok",
+            client_id="client",
+            scopes=["read"],
+            subject="user-789",
+        )
+        user = AuthenticatedUser(token)
+        assert user.access_token.subject == "user-789"
+
+
 @pytest.mark.anyio
 class TestBearerAuthBackend:
     """Tests for the BearerAuthBackend class."""
