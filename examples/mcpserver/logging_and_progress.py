@@ -12,7 +12,9 @@ mcp = MCPServer("Echo Server with logging and progress updates")
 async def echo(text: str, ctx: Context) -> str:
     """Echo the input text sending log messages and progress updates during processing."""
     await ctx.report_progress(progress=0, total=100)
-    await ctx.info("Starting to process echo for input: " + text)
+    
+    # Test logging with objects (not just strings) - now valid per MCP spec
+    await ctx.info({"status": "starting", "input_length": len(text), "text": text})
 
     await asyncio.sleep(2)
 
@@ -21,7 +23,8 @@ async def echo(text: str, ctx: Context) -> str:
 
     await asyncio.sleep(2)
 
-    await ctx.info("Finished processing echo for input: " + text)
+    # Test logging with a list
+    await ctx.info(["processing", "complete", "returning"])
     await ctx.report_progress(progress=100, total=100)
 
     # Progress notifications are process asynchronously by the client.
