@@ -87,6 +87,6 @@ class ToolManager:
         """Call a tool by name with arguments."""
         tool = self.get_tool(name)
         if not tool:
-            raise ToolError(f"Unknown tool: {name}")
+            raise ToolError(f"Unknown tool: {name[:128]}")
 
         return await tool.run(arguments, context, convert_result=convert_result)

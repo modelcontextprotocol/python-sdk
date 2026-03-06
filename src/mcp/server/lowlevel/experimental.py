@@ -161,7 +161,7 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
             ) -> GetTaskResult:
                 task = await task_support.store.get_task(params.task_id)
                 if task is None:
-                    raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {params.task_id}")
+                    raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {params.task_id[:64]}")
                 return GetTaskResult(
                     task_id=task.task_id,
                     status=task.status,

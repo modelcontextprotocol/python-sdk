@@ -352,7 +352,7 @@ class ClientSessionGroup:
                 prompts_temp[name] = prompt
                 component_names.prompts.add(name)
         except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch prompts: {err}")
+            logging.warning(f"Could not fetch prompts: {str(err)[:256]}")
 
         # Query the server for its resources and aggregate to list.
         try:
@@ -362,7 +362,7 @@ class ClientSessionGroup:
                 resources_temp[name] = resource
                 component_names.resources.add(name)
         except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch resources: {err}")
+            logging.warning(f"Could not fetch resources: {str(err)[:256]}")
 
         # Query the server for its tools and aggregate to list.
         try:
@@ -373,7 +373,7 @@ class ClientSessionGroup:
                 tool_to_session_temp[name] = session
                 component_names.tools.add(name)
         except MCPError as err:  # pragma: no cover
-            logging.warning(f"Could not fetch tools: {err}")
+            logging.warning(f"Could not fetch tools: {str(err)[:256]}")
 
         # Clean up exit stack for session if we couldn't retrieve anything
         # from the server.

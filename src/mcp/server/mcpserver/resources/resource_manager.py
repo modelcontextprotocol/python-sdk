@@ -97,7 +97,7 @@ class ResourceManager:
                 except Exception as e:  # pragma: no cover
                     raise ValueError(f"Error creating resource from template: {e}")
 
-        raise ValueError(f"Unknown resource: {uri}")
+        raise ValueError(f"Unknown resource: {str(uri)[:256]}")
 
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""

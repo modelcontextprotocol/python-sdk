@@ -849,7 +849,7 @@ class StreamableHTTPServerTransport:
         if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:  # pragma: no cover
             supported_versions = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
             response = self._create_error_response(
-                f"Bad Request: Unsupported protocol version: {protocol_version}. "
+                f"Bad Request: Unsupported protocol version: {protocol_version[:32]}. "
                 + f"Supported versions: {supported_versions}",
                 HTTPStatus.BAD_REQUEST,
             )

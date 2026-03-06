@@ -59,7 +59,7 @@ class TransportSecurityMiddleware:
                 if host.startswith(base_host + ":"):
                     return True
 
-        logger.warning(f"Invalid Host header: {host}")
+        logger.warning(f"Invalid Host header: {host[:128]}")
         return False
 
     def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
@@ -81,7 +81,7 @@ class TransportSecurityMiddleware:
                 if origin.startswith(base_origin + ":"):
                     return True
 
-        logger.warning(f"Invalid Origin header: {origin}")
+        logger.warning(f"Invalid Origin header: {origin[:128]}")
         return False
 
     def _validate_content_type(self, content_type: str | None) -> bool:

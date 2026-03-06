@@ -112,7 +112,7 @@ class StreamableHTTPTransport:
         new_session_id = response.headers.get(MCP_SESSION_ID)
         if new_session_id:
             self.session_id = new_session_id
-            logger.info(f"Received session ID: {self.session_id}")
+            logger.info(f"Received session ID: {new_session_id[:64]}")
 
     def _maybe_extract_protocol_version_from_message(self, message: JSONRPCMessage) -> None:
         """Extract protocol version from initialization response message."""
@@ -121,10 +121,10 @@ class StreamableHTTPTransport:
                 # Parse the result as InitializeResult for type safety
                 init_result = InitializeResult.model_validate(message.result, by_name=False)
                 self.protocol_version = str(init_result.protocol_version)
-                logger.info(f"Negotiated protocol version: {self.protocol_version}")
+                logger.info(f"Negotiated protocol version: {self.protocol_version[:32]}")
             except Exception:  # pragma: no cover
                 logger.warning("Failed to parse initialization response as InitializeResult", exc_info=True)
-                logger.warning(f"Raw result: {message.result}")
+                logger.warning(f"Raw result: {str(message.result)[:512]}")
 
     async def _handle_sse_event(
         self,
@@ -175,7 +175,7 @@ class StreamableHTTPTransport:
                 await read_stream_writer.send(exc)
                 return False
         else:  # pragma: no cover
-            logger.warning(f"Unknown SSE event: {sse.event}")
+            logger.warning(f"Unknown SSE event: {sse.event[:64]}")
             return False
 
     async def handle_get_stream(self, client: httpx.AsyncClient, read_stream_writer: StreamWriter) -> None:
@@ -295,8 +295,10 @@ class StreamableHTTPTransport:
                 elif content_type.startswith("text/event-stream"):
                     await self._handle_sse_response(response, ctx, is_initialization)
                 else:
-                    logger.error(f"Unexpected content type: {content_type}")
-                    error_data = ErrorData(code=INVALID_REQUEST, message=f"Unexpected content type: {content_type}")
+                    logger.error(f"Unexpected content type: {content_type[:64]}")
+                    error_data = ErrorData(
+                        code=INVALID_REQUEST, message=f"Unexpected content type: {content_type[:64]}"
+                    )
                     error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(error_msg)
 

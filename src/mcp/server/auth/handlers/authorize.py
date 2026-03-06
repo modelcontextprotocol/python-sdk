@@ -171,7 +171,7 @@ class AuthorizationHandler:
                 # For client_id validation errors, return direct error (no redirect)
                 return await error_response(
                     error="invalid_request",
-                    error_description=f"Client ID '{auth_request.client_id}' not found",
+                    error_description=f"Client ID '{auth_request.client_id[:128]}' not found",
                     attempt_load_client=False,
                 )
 
