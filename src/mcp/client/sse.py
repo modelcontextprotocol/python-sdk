@@ -132,7 +132,8 @@ async def sse_client(
                     async def post_writer(endpoint_url: str):
                         try:
                             async with write_stream_reader:
-                                async for session_message in write_stream_reader:
+
+                                async def handle_message(session_message: SessionMessage) -> None:
                                     logger.debug(f"Sending client message: {session_message}")
                                     response = await client.post(
                                         endpoint_url,
@@ -144,6 +145,13 @@ async def sse_client(
                                     )
                                     response.raise_for_status()
                                     logger.debug(f"Client message sent successfully: {response.status_code}")
+
+                                async for session_message in write_stream_reader:
+                                    async with anyio.create_task_group() as tg_local:
+                                        session_message.context.run(
+                                            tg_local.start_soon, handle_message, session_message
+                                        )
+
                         except Exception:  # pragma: lax no cover
                             logger.exception("Error in post_writer")
                         finally:
