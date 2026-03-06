@@ -54,7 +54,7 @@ class ExperimentalHandlers(Generic[LifespanResultT]):
 
     def __init__(
         self,
-        server: Server[LifespanResultT, Any],
+        server: Server[LifespanResultT],
     ) -> None:
         self._server = server
         self._task_support: TaskSupport | None = None
