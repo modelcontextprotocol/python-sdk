@@ -319,9 +319,9 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
         assert error_data["error"]["message"] == "Session not found"
 
         # Verify warning was logged with the session ID
-        assert any(
-            "non-existent-session-id" in record.message for record in caplog.records
-        ), "Should log a warning with the unknown session ID"
+        assert any("non-existent-session-id" in record.message for record in caplog.records), (
+            "Should log a warning with the unknown session ID"
+        )
 
 
 @pytest.mark.anyio
