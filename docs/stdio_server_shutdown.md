@@ -16,6 +16,7 @@ gracefully instead of becoming an orphan process.
 ## Parent Process Death
 
 If the parent process (MCP client) dies unexpectedly:
+
 - The server's stdin will be closed by the operating system
 - The server detects EOF and initiates graceful shutdown
 - No orphan processes remain
