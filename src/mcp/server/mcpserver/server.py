@@ -12,6 +12,7 @@ from typing import Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
+from opentelemetry.trace import TracerProvider
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -144,6 +145,7 @@ class MCPServer(Generic[LifespanResultT]):
         warn_on_duplicate_prompts: bool = True,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
+        tracer_provider: TracerProvider | None = None,
     ):
         self.settings = Settings(
             debug=debug,
@@ -176,6 +178,7 @@ class MCPServer(Generic[LifespanResultT]):
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
+            tracer_provider=tracer_provider,
         )
         # Validate auth configuration
         if self.settings.auth is not None:
