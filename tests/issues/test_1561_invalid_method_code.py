@@ -48,7 +48,7 @@ async def test_invalid_method_returns_method_not_found() -> None:
             assert response.id == 1
             assert response.error.code == METHOD_NOT_FOUND
             assert response.error.message == "Method not found"
-    finally:  # pragma: no cover
+    finally:
         await read_send_stream.aclose()
         await write_send_stream.aclose()
         await read_receive_stream.aclose()
@@ -74,7 +74,7 @@ async def test_client_session_known_request_methods_match_server_request_union()
     try:
         session = ClientSession(read_stream=read_receive_stream, write_stream=write_send_stream)
         assert session._known_request_methods == KNOWN_SERVER_REQUEST_METHODS
-    finally:  # pragma: no cover
+    finally:
         await read_send_stream.aclose()
         await write_send_stream.aclose()
         await read_receive_stream.aclose()
@@ -109,7 +109,7 @@ async def test_base_session_known_request_methods_default_to_empty() -> None:
         assert session._known_request_methods == frozenset()
         assert session._receive_request_adapter is types.server_request_adapter
         assert session._receive_notification_adapter is types.server_notification_adapter
-    finally:  # pragma: no cover
+    finally:
         await read_send_stream.aclose()
         await write_send_stream.aclose()
         await read_receive_stream.aclose()
