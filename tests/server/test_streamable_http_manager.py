@@ -10,11 +10,11 @@ import httpx
 import pytest
 from starlette.types import Message
 
-from mcp import Client
+from mcp import Client, types
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext, streamable_http_manager
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, StreamableHTTPServerTransport
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 
 
@@ -413,3 +413,192 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+MCP_HEADERS = {
+    "Accept": "application/json, text/event-stream",
+    "Content-Type": "application/json",
+}
+
+_INITIALIZE_REQUEST = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {},
+        "clientInfo": {"name": "test", "version": "0.1"},
+    },
+}
+
+_INITIALIZED_NOTIFICATION = {
+    "jsonrpc": "2.0",
+    "method": "notifications/initialized",
+}
+
+_TOOL_CALL_REQUEST = {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {"name": "slow_tool", "arguments": {"message": "hello"}},
+}
+
+
+def _make_slow_tool_server() -> tuple[Server, anyio.Event]:
+    """Create an MCP server with a tool that blocks forever, returning
+    the server and an event that fires when the tool starts executing."""
+    tool_started = anyio.Event()
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        tool_started.set()
+        await anyio.sleep_forever()
+        return types.CallToolResult(  # pragma: no cover
+            content=[types.TextContent(type="text", text="never reached")]
+        )
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:  # pragma: no cover
+        return ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="slow_tool",
+                    description="A tool that blocks forever",
+                    input_schema={"type": "object", "properties": {"message": {"type": "string"}}},
+                )
+            ]
+        )
+
+    app = Server("test-graceful-shutdown", on_call_tool=handle_call_tool, on_list_tools=handle_list_tools)
+    return app, tool_started
+
+
+@pytest.mark.anyio
+async def test_graceful_shutdown_terminates_active_stateless_transports():
+    """Verify that shutting down the session manager terminates in-flight
+    stateless transports so SSE streams close cleanly (``more_body=False``)
+    instead of being abruptly cancelled.
+
+    This prevents "upstream prematurely closed connection" errors at reverse
+    proxies like nginx.
+    """
+    app, tool_started = _make_slow_tool_server()
+    manager = StreamableHTTPSessionManager(app=app, stateless=True)
+
+    mcp_app = StreamableHTTPASGIApp(manager)
+
+    manager_ready = anyio.Event()
+    stream_outcome: str | None = None
+
+    with anyio.fail_after(10):
+        async with anyio.create_task_group() as tg:
+
+            async def run_lifespan_and_shutdown():
+                async with manager.run():
+                    manager_ready.set()
+                    with anyio.fail_after(5):
+                        await tool_started.wait()
+
+            async def make_requests():
+                nonlocal stream_outcome
+                with anyio.fail_after(5):
+                    await manager_ready.wait()
+                async with (
+                    httpx.ASGITransport(mcp_app) as transport,
+                    httpx.AsyncClient(transport=transport, base_url="http://testserver") as client,
+                ):
+                    # Initialize
+                    resp = await client.post("/mcp/", json=_INITIALIZE_REQUEST, headers=MCP_HEADERS)
+                    resp.raise_for_status()
+
+                    # Send initialized notification
+                    resp = await client.post("/mcp/", json=_INITIALIZED_NOTIFICATION, headers=MCP_HEADERS)
+                    assert resp.status_code == 202
+
+                    # Send slow tool call — this returns an SSE stream
+                    try:
+                        async with client.stream(
+                            "POST",
+                            "/mcp/",
+                            json=_TOOL_CALL_REQUEST,
+                            headers=MCP_HEADERS,
+                            timeout=httpx.Timeout(10, connect=5),
+                        ) as stream:
+                            stream.raise_for_status()
+                            async for _chunk in stream.aiter_bytes():
+                                pass  # pragma: no cover
+                        stream_outcome = "clean"
+                    except httpx.RemoteProtocolError:  # pragma: no cover
+                        stream_outcome = "reset"
+
+            tg.start_soon(run_lifespan_and_shutdown)
+            tg.start_soon(make_requests)
+
+    assert stream_outcome == "clean", f"Expected clean HTTP close, got {stream_outcome}"
+
+
+@pytest.mark.anyio
+async def test_graceful_shutdown_terminates_active_stateful_transports():
+    """Verify that shutting down the session manager terminates in-flight
+    stateful transports so SSE streams close cleanly."""
+    app, tool_started = _make_slow_tool_server()
+    manager = StreamableHTTPSessionManager(app=app, stateless=False)
+
+    mcp_app = StreamableHTTPASGIApp(manager)
+
+    manager_ready = anyio.Event()
+    stream_outcome: str | None = None
+
+    with anyio.fail_after(10):
+        async with anyio.create_task_group() as tg:
+
+            async def run_lifespan_and_shutdown():
+                async with manager.run():
+                    manager_ready.set()
+                    with anyio.fail_after(5):
+                        await tool_started.wait()
+
+            async def make_requests():
+                nonlocal stream_outcome
+                with anyio.fail_after(5):
+                    await manager_ready.wait()
+                async with (
+                    httpx.ASGITransport(mcp_app) as transport,
+                    httpx.AsyncClient(transport=transport, base_url="http://testserver") as client,
+                ):
+                    # Initialize (creates a session)
+                    resp = await client.post("/mcp/", json=_INITIALIZE_REQUEST, headers=MCP_HEADERS)
+                    resp.raise_for_status()
+                    session_id = resp.headers.get(MCP_SESSION_ID_HEADER)
+                    assert session_id is not None
+
+                    session_headers = {
+                        **MCP_HEADERS,
+                        MCP_SESSION_ID_HEADER: session_id,
+                        "mcp-protocol-version": "2025-03-26",
+                    }
+
+                    # Send initialized notification
+                    resp = await client.post("/mcp/", json=_INITIALIZED_NOTIFICATION, headers=session_headers)
+                    assert resp.status_code == 202
+
+                    # Send slow tool call
+                    try:
+                        async with client.stream(
+                            "POST",
+                            "/mcp/",
+                            json=_TOOL_CALL_REQUEST,
+                            headers=session_headers,
+                            timeout=httpx.Timeout(10, connect=5),
+                        ) as stream:
+                            stream.raise_for_status()
+                            async for _chunk in stream.aiter_bytes():
+                                pass  # pragma: no cover
+                        stream_outcome = "clean"
+                    except httpx.RemoteProtocolError:  # pragma: no cover
+                        stream_outcome = "reset"
+
+            tg.start_soon(run_lifespan_and_shutdown)
+            tg.start_soon(make_requests)
+
+    assert stream_outcome == "clean", f"Expected clean HTTP close, got {stream_outcome}"
