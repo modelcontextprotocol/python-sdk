@@ -54,6 +54,6 @@ class PromptManager:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
-            raise ValueError(f"Unknown prompt: {name}")
+            raise ValueError(f"Unknown prompt: {name[:128]}")
 
         return await prompt.render(arguments, context)
