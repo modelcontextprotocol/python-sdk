@@ -224,9 +224,10 @@ class BaseSession(
         exc_tb: TracebackType | None,
     ) -> bool | None:
         await self._exit_stack.aclose()
-        # Using BaseSession as a context manager should not block on exit (this
-        # would be very surprising behavior), so make sure to cancel the tasks
-        # in the task group.
+        # Close streams first so _receive_loop exits cooperatively,
+        # then cancel the task group as a fallback.
+        await self._read_stream.aclose()
+        await self._write_stream.aclose()
         self._task_group.cancel_scope.cancel()
         return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
 
