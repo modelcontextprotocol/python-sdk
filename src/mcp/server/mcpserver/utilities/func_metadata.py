@@ -4,7 +4,7 @@ import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, TypeAlias, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
@@ -27,6 +27,8 @@ from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult, ContentBlock, TextContent
 
 logger = get_logger(__name__)
+
+ConvertedToolResult: TypeAlias = CallToolResult | Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]]
 
 
 class StrictJsonSchema(GenerateJsonSchema):

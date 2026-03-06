@@ -69,14 +69,14 @@ class Prompt(BaseModel):
     title: str | None = Field(None, description="Human-readable title of the prompt")
     description: str | None = Field(None, description="Description of what the prompt does")
     arguments: list[PromptArgument] | None = Field(None, description="Arguments that can be passed to the prompt")
-    fn: Callable[..., PromptResult | Awaitable[PromptResult]] = Field(exclude=True)
+    fn: Callable[..., PromptResult] = Field(exclude=True)
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this prompt")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context", exclude=True)
 
     @classmethod
     def from_function(
         cls,
-        fn: Callable[..., PromptResult | Awaitable[PromptResult]],
+        fn: Callable[..., PromptResult],
         name: str | None = None,
         title: str | None = None,
         description: str | None = None,
