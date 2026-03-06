@@ -1138,27 +1138,6 @@ The request context accessible via `ctx.request_context` contains request-specif
 - `ctx.request_context.request` - The original MCP request object for advanced processing
 - `ctx.request_context.request_id` - Unique identifier for this request
 
-Inside a FastMCP tool, the current request ID is available as `ctx.request_id`
-or `ctx.request_context.request_id`. This is the same JSON-RPC request ID that
-would be used in a `notifications/cancelled` message.
-
-Use `notifications/cancelled` for cancelling normal in-flight requests such as
-`tools/call`. For task-based work, use `tasks/cancel` instead.
-
-```python
-@mcp.tool()
-async def slow_tool(ctx: Context) -> str:
-    current_request_id = ctx.request_id
-    return f"handling request {current_request_id}"
-```
-
-If you are using the SDK's high-level client helpers such as
-`client.call_tool()` or `client.session.call_tool()`, the SDK manages request
-IDs for you and does not currently expose them directly. If you need explicit
-client-driven cancellation, prefer a task-based workflow (`tasks/cancel`) or a
-lower-level integration where you control request/notification correlation
-yourself.
-
 ```python
 # Example with typed lifespan context
 @dataclass
