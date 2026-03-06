@@ -574,7 +574,7 @@ def test_accept_header_validation(basic_server: None, basic_server_url: str):
     """Test that Accept header is properly validated."""
     # Test without Accept header (suppress requests library default Accept: */*)
     session = requests.Session()
-    session.headers.update({"Accept": None})  # type: ignore[arg-type]
+    session.headers.pop("Accept")
     response = session.post(
         f"{basic_server_url}/mcp",
         headers={"Content-Type": "application/json"},
@@ -876,7 +876,7 @@ def test_json_response_missing_accept_header(json_response_server: None, json_se
     mcp_url = f"{json_server_url}/mcp"
     # Suppress requests library default Accept: */* header
     session = requests.Session()
-    session.headers.update({"Accept": None})  # type: ignore[arg-type]
+    session.headers.pop("Accept")
     response = session.post(
         mcp_url,
         headers={
@@ -1017,7 +1017,7 @@ def test_get_validation(basic_server: None, basic_server_url: str):
 
     # Test without Accept header (suppress requests library default Accept: */*)
     session = requests.Session()
-    session.headers.update({"Accept": None})  # type: ignore[arg-type]
+    session.headers.pop("Accept")
     response = session.get(
         mcp_url,
         headers={

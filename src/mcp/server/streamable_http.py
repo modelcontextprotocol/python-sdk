@@ -399,15 +399,11 @@ class StreamableHTTPServerTransport:
         - text/* matches any text/ subtype
         """
         accept_header = request.headers.get("accept", "")
-        accept_types = [media_type.strip().split(";")[0].strip() for media_type in accept_header.split(",")]
+        accept_types = [media_type.strip().split(";")[0].strip().lower() for media_type in accept_header.split(",")]
 
         has_wildcard = "*/*" in accept_types
-        has_json = has_wildcard or any(
-            media_type.startswith(CONTENT_TYPE_JSON) or media_type == "application/*" for media_type in accept_types
-        )
-        has_sse = has_wildcard or any(
-            media_type.startswith(CONTENT_TYPE_SSE) or media_type == "text/*" for media_type in accept_types
-        )
+        has_json = has_wildcard or any(t in (CONTENT_TYPE_JSON, "application/*") for t in accept_types)
+        has_sse = has_wildcard or any(t in (CONTENT_TYPE_SSE, "text/*") for t in accept_types)
 
         return has_json, has_sse
 
