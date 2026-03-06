@@ -416,3 +416,43 @@ async def test_null_id_error_does_not_affect_pending_request():
     # Pending request completed successfully
     assert len(result_holder) == 1
     assert isinstance(result_holder[0], EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_send_notification_preserves_zero_related_request_id():
+    """Test that send_notification preserves related_request_id=0.
+
+    When related_request_id is 0 (a valid JSON-RPC id), the metadata must
+    still be set. Previously, the falsy check `if related_request_id`
+    treated 0 as False and dropped the metadata.
+
+    See: https://github.com/modelcontextprotocol/python-sdk/issues/1218
+    """
+    from mcp.shared.message import ServerMessageMetadata
+    from mcp.types import LoggingMessageNotification, LoggingMessageNotificationParams
+
+    send_stream, receive_stream = anyio.create_memory_object_stream[SessionMessage](1)
+
+    notification = LoggingMessageNotification(
+        method="notifications/message",
+        params=LoggingMessageNotificationParams(level="info", data="test"),
+    )
+    jsonrpc_notification = types.JSONRPCNotification(
+        jsonrpc="2.0",
+        **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+
+    # Construct a message with related_request_id=0 — the fix ensures this
+    # metadata is preserved instead of being dropped by a falsy check.
+    session_message = SessionMessage(
+        message=jsonrpc_notification,
+        metadata=ServerMessageMetadata(related_request_id=0),
+    )
+
+    async with send_stream, receive_stream:
+        await send_stream.send(session_message)
+        received = await receive_stream.receive()
+
+    assert received.metadata is not None, "metadata must not be None when related_request_id=0"
+    assert isinstance(received.metadata, ServerMessageMetadata)
+    assert received.metadata.related_request_id == 0
