@@ -212,6 +212,10 @@ def error_tool_fn() -> None:
     raise ValueError("Test error")
 
 
+def tool_error_fn() -> None:
+    raise ToolError("Intentional tool error")
+
+
 def image_tool_fn(path: str) -> Image:
     return Image(path)
 
@@ -258,7 +262,8 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert "unexpected error" in content.text.lower()
+            assert "Test error" not in content.text
             assert result.is_error is True
 
     async def test_tool_error_handling(self):
@@ -269,11 +274,12 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert "unexpected error" in content.text.lower()
+            assert "Test error" not in content.text
             assert result.is_error is True
 
     async def test_tool_error_details(self):
-        """Test that exception details are properly formatted in the response"""
+        """Test that exception details are NOT exposed to the client"""
         mcp = MCPServer()
         mcp.add_tool(error_tool_fn)
         async with Client(mcp) as client:
@@ -281,8 +287,34 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert isinstance(content.text, str)
-            assert "Test error" in content.text
+            assert "error_tool_fn" in content.text
+            assert "Test error" not in content.text
             assert result.is_error is True
+
+    async def test_tool_error_passthrough(self):
+        """Test that ToolError raised in tool is passed through with its message."""
+        mcp = MCPServer()
+        mcp.add_tool(tool_error_fn)
+        async with Client(mcp) as client:
+            result = await client.call_tool("tool_error_fn", {})
+            assert result.is_error is True
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert "Intentional tool error" in content.text
+
+    async def test_handle_call_tool_defensive_exception_handler(self):
+        """Test that _handle_call_tool returns generic error when call_tool raises unexpected Exception."""
+        mcp = MCPServer()
+        mcp.add_tool(tool_fn)
+
+        async with Client(mcp) as client:
+            with patch.object(mcp, "call_tool", new_callable=AsyncMock, side_effect=RuntimeError("internal db leak")):
+                result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+                assert result.is_error is True
+                content = result.content[0]
+                assert isinstance(content, TextContent)
+                assert "unexpected error" in content.text.lower()
+                assert "internal db leak" not in content.text
 
     async def test_tool_return_value_conversion(self):
         mcp = MCPServer()

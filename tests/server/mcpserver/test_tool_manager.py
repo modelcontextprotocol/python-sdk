@@ -393,7 +393,7 @@ class TestContextHandling:
         manager = ToolManager()
         manager.add_tool(tool_with_context)
 
-        with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
+        with pytest.raises(ToolError, match="unexpected error occurred executing tool tool_with_context"):
             await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
 
 

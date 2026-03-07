@@ -116,8 +116,10 @@ class Tool(BaseModel):
             # Re-raise UrlElicitationRequiredError so it can be properly handled
             # as an MCP error response with code -32042
             raise
+        except ToolError:
+            raise
         except Exception as e:
-            raise ToolError(f"Error executing tool {self.name}: {e}") from e
+            raise ToolError(f"An unexpected error occurred executing tool {self.name}") from e
 
 
 def _is_async_callable(obj: Any) -> bool:
