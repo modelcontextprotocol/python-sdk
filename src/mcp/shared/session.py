@@ -11,6 +11,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
+from mcp.shared._task_group import create_mcp_task_group
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -212,7 +213,7 @@ class BaseSession(
         self._response_routers.append(router)
 
     async def __aenter__(self) -> Self:
-        self._task_group = anyio.create_task_group()
+        self._task_group = create_mcp_task_group()
         await self._task_group.__aenter__()
         self._task_group.start_soon(self._receive_loop)
         return self
