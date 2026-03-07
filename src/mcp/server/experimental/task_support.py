@@ -80,7 +80,7 @@ class TaskSupport:
                 ...
         """
         async with create_mcp_task_group() as tg:
-            self._task_group = tg
+            self._task_group = tg  # type: ignore[assignment]
             try:
                 yield
             finally:

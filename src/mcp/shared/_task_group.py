@@ -18,7 +18,7 @@ from types import TracebackType
 import anyio
 from anyio.abc import TaskGroup
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup
 
 
@@ -28,7 +28,7 @@ def collapse_exception_group(exc: BaseExceptionGroup) -> BaseException:  # type:
     If the group (and any nested groups) each contain exactly one exception,
     return the innermost real exception.  Otherwise return *exc* unchanged.
     """
-    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:  # type: ignore[reportUnnecessaryIsInstance]
         exc = exc.exceptions[0]  # type: ignore[assignment]
     return exc
 

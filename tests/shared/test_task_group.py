@@ -12,7 +12,7 @@ from mcp.shared._task_group import (
     create_mcp_task_group,
 )
 
-if sys.version_info < (3, 11):
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup, ExceptionGroup
 
 # ---------------------------------------------------------------------------
