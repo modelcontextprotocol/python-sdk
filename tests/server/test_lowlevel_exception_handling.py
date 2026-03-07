@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, Mock
 
+import anyio
 import pytest
 
 from mcp import types
@@ -72,3 +73,40 @@ async def test_normal_message_handling_not_affected():
 
     # Verify _handle_request was called
     server._handle_request.assert_called_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_class",
+    [anyio.ClosedResourceError, anyio.BrokenResourceError],
+)
+async def test_exception_handling_tolerates_closed_write_stream(error_class: type[Exception]):
+    """Test that _handle_message does not crash when send_log_message fails
+    because the client already disconnected (write stream closed).
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2064
+    """
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=error_class())
+
+    test_exception = RuntimeError("client disconnected mid-request")
+
+    # Should not raise — the ClosedResourceError/BrokenResourceError from
+    # send_log_message must be caught and logged, not propagated.
+    await server._handle_message(test_exception, session, {}, raise_exceptions=False)
+
+    session.send_log_message.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_exception_handling_closed_stream_still_reraises_when_requested():
+    """Test that raise_exceptions=True still works even when the write stream is closed."""
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=anyio.ClosedResourceError())
+
+    test_exception = RuntimeError("original error")
+
+    with pytest.raises(RuntimeError, match="original error"):
+        await server._handle_message(test_exception, session, {}, raise_exceptions=True)
