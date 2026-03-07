@@ -126,6 +126,7 @@ executionEnvironments = [
 line-length = 120
 target-version = "py310"
 extend-exclude = ["README.md", "README.v2.md"]
+builtins = ["BaseExceptionGroup", "ExceptionGroup"]
 
 [tool.ruff.lint]
 select = [

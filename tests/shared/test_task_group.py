@@ -1,0 +1,158 @@
+"""Tests for mcp.shared._task_group — collapsing ExceptionGroup wrapper."""
+
+import anyio
+import pytest
+
+from mcp.shared._task_group import (
+    _CollapsingTaskGroup,
+    collapse_exception_group,
+    create_mcp_task_group,
+)
+
+# ---------------------------------------------------------------------------
+# collapse_exception_group unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_collapse_single_exception() -> None:
+    """A group containing one exception is unwrapped."""
+    inner = ConnectionError("boom")
+    group = ExceptionGroup("g", [inner])
+    assert collapse_exception_group(group) is inner
+
+
+def test_collapse_nested_single() -> None:
+    """Recursively unwraps nested single-exception groups."""
+    inner = ValueError("deep")
+    group = ExceptionGroup("outer", [ExceptionGroup("inner", [inner])])
+    assert collapse_exception_group(group) is inner
+
+
+def test_collapse_multiple_exceptions_unchanged() -> None:
+    """Groups with >1 exception are returned unchanged."""
+    exc_a = TypeError("a")
+    exc_b = RuntimeError("b")
+    group = ExceptionGroup("g", [exc_a, exc_b])
+    assert collapse_exception_group(group) is group
+
+
+def test_collapse_base_exception_group() -> None:
+    """Works with BaseExceptionGroup (e.g. containing KeyboardInterrupt)."""
+    inner = KeyboardInterrupt()
+    group = BaseExceptionGroup("g", [inner])
+    assert collapse_exception_group(group) is inner
+
+
+# ---------------------------------------------------------------------------
+# _CollapsingTaskGroup integration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_single_task_failure_is_unwrapped() -> None:
+    """A single failing task raises its exception directly, not wrapped."""
+    with pytest.raises(ConnectionError, match="server down"):
+        async with create_mcp_task_group() as tg:
+
+            async def failing() -> None:
+                raise ConnectionError("server down")
+
+            tg.start_soon(failing)
+
+
+@pytest.mark.anyio
+async def test_single_task_failure_with_cancelled_sibling() -> None:
+    """When one task fails and another is cancelled, the real error surfaces."""
+    with pytest.raises(ConnectionError, match="oops"):
+        async with create_mcp_task_group() as tg:
+
+            async def failing() -> None:
+                raise ConnectionError("oops")
+
+            async def long_running() -> None:
+                await anyio.sleep(999)
+
+            tg.start_soon(failing)
+            tg.start_soon(long_running)
+
+
+@pytest.mark.anyio
+async def test_multiple_failures_stay_grouped() -> None:
+    """When multiple tasks fail, an ExceptionGroup is raised."""
+    with pytest.raises(BaseExceptionGroup):
+        async with create_mcp_task_group() as tg:
+            ready = anyio.Event()
+
+            async def fail_a() -> None:
+                await ready.wait()
+                raise ConnectionError("a")
+
+            async def fail_b() -> None:
+                ready.set()
+                raise ValueError("b")
+
+            tg.start_soon(fail_a)
+            tg.start_soon(fail_b)
+
+
+@pytest.mark.anyio
+async def test_no_failure_passes_cleanly() -> None:
+    """Normal execution does not raise."""
+    results: list[int] = []
+    async with create_mcp_task_group() as tg:
+
+        async def worker(n: int) -> None:
+            results.append(n)
+
+        tg.start_soon(worker, 1)
+        tg.start_soon(worker, 2)
+
+    assert sorted(results) == [1, 2]
+
+
+@pytest.mark.anyio
+async def test_cancel_scope_is_delegated() -> None:
+    """cancel_scope is accessible and works."""
+    async with create_mcp_task_group() as tg:
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_start_delegates_to_task_group() -> None:
+    """start() delegates to the underlying task group."""
+
+    async def task_with_status(*, task_status: anyio.abc.TaskStatus[str] = anyio.TASK_STATUS_IGNORED) -> None:
+        task_status.started("ready")
+        await anyio.sleep(999)
+
+    async with create_mcp_task_group() as tg:
+        result = await tg.start(task_with_status)
+        assert result == "ready"
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_task_group_not_entered_raises() -> None:
+    """Accessing methods before __aenter__ raises RuntimeError."""
+    ctg = _CollapsingTaskGroup()
+    with pytest.raises(RuntimeError, match="not been entered"):
+        ctg.cancel_scope
+    with pytest.raises(RuntimeError, match="not been entered"):
+        ctg.start_soon(lambda: None)
+
+
+@pytest.mark.anyio
+async def test_collapsed_exception_preserves_cause_chain() -> None:
+    """The collapsed exception has the original ExceptionGroup as __cause__."""
+    try:
+        async with create_mcp_task_group() as tg:
+
+            async def failing() -> None:
+                raise RuntimeError("root cause")
+
+            tg.start_soon(failing)
+    except RuntimeError as exc:
+        assert isinstance(exc.__cause__, BaseExceptionGroup)
+        assert str(exc) == "root cause"
+    else:
+        pytest.fail("Expected RuntimeError")
