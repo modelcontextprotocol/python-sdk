@@ -12,8 +12,8 @@ from mcp.shared._task_group import (
     create_mcp_task_group,
 )
 
-if sys.version_info < (3, 11):  # pragma: no cover
-    from exceptiongroup import BaseExceptionGroup, ExceptionGroup
+if sys.version_info < (3, 11):  # pragma: lax no cover
+    from exceptiongroup import BaseExceptionGroup, ExceptionGroup  # pragma: lax no cover
 
 # ---------------------------------------------------------------------------
 # collapse_exception_group unit tests
@@ -159,3 +159,48 @@ async def test_collapsed_exception_preserves_cause_chain() -> None:
             tg.start_soon(failing)
 
     assert isinstance(exc_info.value.__cause__, BaseExceptionGroup)
+
+
+@pytest.mark.anyio
+async def test_start_failure_is_unwrapped() -> None:
+    """An exception from start() is also unwrapped."""
+
+    async def fail_on_start(*, task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED) -> None:
+        raise ConnectionError("startup failed")
+
+    with pytest.raises(ConnectionError, match="startup failed"):
+        async with create_mcp_task_group() as tg:
+            await tg.start(fail_on_start)
+
+
+# ---------------------------------------------------------------------------
+# Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2114
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_issue_2114_except_specific_error_type() -> None:
+    """Callers can catch specific exception types without ExceptionGroup wrapping.
+
+    Before the fix, anyio task groups always wrapped exceptions in
+    ExceptionGroup, making ``except ConnectionError:`` impossible.
+    """
+    caught: BaseException | None = None
+    try:
+        async with create_mcp_task_group() as tg:
+
+            async def background() -> None:
+                await anyio.sleep(999)
+
+            async def connect() -> None:
+                raise ConnectionError("connection refused")
+
+            tg.start_soon(background)
+            tg.start_soon(connect)
+
+    except ConnectionError as exc:
+        caught = exc
+
+    assert caught is not None
+    assert str(caught) == "connection refused"
+    assert isinstance(caught.__cause__, BaseExceptionGroup)
