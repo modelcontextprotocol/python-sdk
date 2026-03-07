@@ -8,10 +8,10 @@ def get_logger(name: str) -> logging.Logger:
     """Get a logger nested under MCP namespace.
 
     Args:
-        name: the name of the logger
+        name: The name of the logger.
 
     Returns:
-        a configured logger instance
+        A configured logger instance.
     """
     return logging.getLogger(name)
 
@@ -22,7 +22,7 @@ def configure_logging(
     """Configure logging for MCP.
 
     Args:
-        level: the log level to use
+        level: The log level to use.
     """
     handlers: list[logging.Handler] = []
     try:

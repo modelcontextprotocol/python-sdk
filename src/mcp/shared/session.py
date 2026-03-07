@@ -60,8 +60,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     cancellation handling:
 
     Example:
+        ```python
         with request_responder as resp:
             await resp.respond(result)
+        ```
 
     The context manager ensures:
     1. Proper cancellation scope setup and cleanup
@@ -115,6 +117,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         """Send a response for this request.
 
         Must be called within a context manager block.
+
         Raises:
             RuntimeError: If not used within a context manager
             AssertionError: If request was already responded to
@@ -142,7 +145,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         # Send an error response to indicate cancellation
         await self._session._send_response(  # type: ignore[reportPrivateUsage]
             request_id=self.request_id,
-            response=ErrorData(code=0, message="Request cancelled", data=None),
+            response=ErrorData(code=0, message="Request cancelled"),
         )
 
     @property
@@ -235,7 +238,7 @@ class BaseSession(
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
-        """Sends a request and wait for a response.
+        """Sends a request and waits for a response.
 
         Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
         precedence over the session read timeout.
@@ -458,6 +461,12 @@ class BaseSession(
         if not isinstance(message.message, JSONRPCResponse | JSONRPCError):
             return  # pragma: no cover
 
+        if message.message.id is None:
+            # Narrows to JSONRPCError since JSONRPCResponse.id is always RequestId
+            error = message.message.error
+            logging.warning(f"Received error with null ID: {error.message}")
+            await self._handle_incoming(MCPError(error.code, error.message, error.data))
+            return
         # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
         response_id = self._normalize_request_id(message.message.id)
 
@@ -506,4 +515,4 @@ class BaseSession(
     async def _handle_incoming(
         self, req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception
     ) -> None:
-        """A generic handler for incoming messages. Overwritten by subclasses."""
+        """A generic handler for incoming messages. Overridden by subclasses."""

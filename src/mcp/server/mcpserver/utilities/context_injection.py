@@ -7,6 +7,8 @@ import typing
 from collections.abc import Callable
 from typing import Any
 
+from mcp.server.mcpserver.context import Context
+
 
 def find_context_parameter(fn: Callable[..., Any]) -> str | None:
     """Find the parameter that should receive the Context object.
@@ -20,8 +22,6 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
     Returns:
         The name of the context parameter, or None if not found
     """
-    from mcp.server.mcpserver.server import Context
-
     # Get type hints to properly resolve string annotations
     try:
         hints = typing.get_type_hints(fn)

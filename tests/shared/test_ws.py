@@ -1,6 +1,5 @@
 import multiprocessing
 import socket
-import time
 from collections.abc import AsyncGenerator, Generator
 from urllib.parse import urlparse
 
@@ -113,11 +112,6 @@ def run_server(server_port: int) -> None:  # pragma: no cover
     server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
     server.run()
-
-    # Give server time to start
-    while not server.started:
-        print("waiting for server to start")
-        time.sleep(0.5)
 
 
 @pytest.fixture()

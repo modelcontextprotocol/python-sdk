@@ -5,7 +5,6 @@
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -65,12 +64,17 @@ async def test_direct_call_tool_result_return():
 
 
 @pytest.mark.anyio
-async def test_desktop(monkeypatch: pytest.MonkeyPatch):
+async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Test the desktop server"""
-    # Mock desktop directory listing
-    mock_files = [Path("/fake/path/file1.txt"), Path("/fake/path/file2.txt")]
-    monkeypatch.setattr(Path, "iterdir", lambda self: mock_files)  # type: ignore[reportUnknownArgumentType]
-    monkeypatch.setattr(Path, "home", lambda: Path("/fake/home"))
+    # Build a real Desktop directory under tmp_path rather than patching
+    # Path.iterdir — a class-level patch breaks jsonschema_specifications'
+    # import-time schema discovery when this test happens to be the first
+    # tool call in an xdist worker.
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    (desktop / "file1.txt").touch()
+    (desktop / "file2.txt").touch()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     from examples.mcpserver.desktop import mcp
 
@@ -85,15 +89,8 @@ async def test_desktop(monkeypatch: pytest.MonkeyPatch):
         content = result.contents[0]
         assert isinstance(content, TextResourceContents)
         assert isinstance(content.text, str)
-        if sys.platform == "win32":  # pragma: no cover
-            file_1 = "/fake/path/file1.txt".replace("/", "\\\\")  # might be a bug
-            file_2 = "/fake/path/file2.txt".replace("/", "\\\\")  # might be a bug
-            assert file_1 in content.text
-            assert file_2 in content.text
-            # might be a bug, but the test is passing
-        else:  # pragma: lax no cover
-            assert "/fake/path/file1.txt" in content.text
-            assert "/fake/path/file2.txt" in content.text
+        assert "file1.txt" in content.text
+        assert "file2.txt" in content.text
 
 
 # TODO(v2): Change back to README.md when v2 is released

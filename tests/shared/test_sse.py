@@ -1,7 +1,6 @@
 import json
 import multiprocessing
 import socket
-import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -134,11 +133,6 @@ def run_server(server_port: int) -> None:  # pragma: no cover
     print(f"starting server on {server_port}")
     server.run()
 
-    # Give server time to start
-    while not server.started:
-        print("waiting for server to start")
-        time.sleep(0.5)
-
 
 @pytest.fixture()
 def server(server_port: int) -> Generator[None, None, None]:
@@ -209,19 +203,15 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 
 @pytest.mark.anyio
 async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
-    captured_session_id: str | None = None
+    captured: list[str] = []
 
-    def on_session_created(session_id: str) -> None:
-        nonlocal captured_session_id
-        captured_session_id = session_id
-
-    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+    async with sse_client(server_url + "/sse", on_session_created=captured.append) as streams:
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-
-    assert captured_session_id is not None  # pragma: lax no cover
-    assert len(captured_session_id) > 0  # pragma: lax no cover
+            # Callback fires when the endpoint event arrives, before sse_client yields.
+            assert len(captured) == 1
+            assert len(captured[0]) > 0
 
 
 @pytest.mark.parametrize(
@@ -254,8 +244,9 @@ async def test_sse_client_on_session_created_not_called_when_no_session_id(
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-
-    callback_mock.assert_not_called()  # pragma: lax no cover
+            # Callback would have fired by now (endpoint event arrives before
+            # sse_client yields); if it hasn't, it won't.
+            callback_mock.assert_not_called()
 
 
 @pytest.fixture
@@ -312,11 +303,6 @@ def run_mounted_server(server_port: int) -> None:  # pragma: no cover
     server = uvicorn.Server(config=uvicorn.Config(app=main_app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
     server.run()
-
-    # Give server time to start
-    while not server.started:
-        print("waiting for server to start")
-        time.sleep(0.5)
 
 
 @pytest.fixture()
@@ -622,3 +608,30 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             assert not isinstance(msg, Exception)
             assert isinstance(msg.message, types.JSONRPCResponse)
             assert msg.message.id == 1
+
+
+@pytest.mark.anyio
+async def test_sse_session_cleanup_on_disconnect(server: None, server_url: str) -> None:
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1227
+
+    When a client disconnects, the server should remove the session from
+    _read_stream_writers. Without this cleanup, stale sessions accumulate and
+    POST requests to disconnected sessions return 202 Accepted followed by a
+    ClosedResourceError when the server tries to write to the dead stream.
+    """
+    captured: list[str] = []
+
+    # Connect a client session, then disconnect
+    async with sse_client(server_url + "/sse", on_session_created=captured.append) as streams:
+        async with ClientSession(*streams) as session:
+            await session.initialize()
+
+    # After disconnect, POST to the stale session should return 404
+    # (not 202 as it did before the fix)
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{server_url}/messages/?session_id={captured[0]}",
+            json={"jsonrpc": "2.0", "method": "ping", "id": 99},
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 404

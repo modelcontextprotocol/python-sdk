@@ -5,6 +5,7 @@ This module provides client methods for interacting with MCP tasks.
 WARNING: These APIs are experimental and may change without notice.
 
 Example:
+    ```python
     # Call a tool as a task
     result = await session.experimental.call_tool_as_task("tool_name", {"arg": "value"})
     task_id = result.task.task_id
@@ -21,6 +22,7 @@ Example:
 
     # Cancel a task
     await session.experimental.cancel_task(task_id)
+    ```
 """
 
 from collections.abc import AsyncIterator
@@ -72,6 +74,7 @@ class ExperimentalClientFeatures:
             CreateTaskResult containing the task reference
 
         Example:
+            ```python
             # Create task
             result = await session.experimental.call_tool_as_task(
                 "long_running_tool", {"input": "data"}
@@ -83,10 +86,11 @@ class ExperimentalClientFeatures:
                 status = await session.experimental.get_task(task_id)
                 if status.status == "completed":
                     break
-                await asyncio.sleep(0.5)
+                await anyio.sleep(0.5)
 
             # Get result
             final = await session.experimental.get_task_result(task_id, CallToolResult)
+            ```
         """
         return await self._session.send_request(
             types.CallToolRequest(
@@ -177,7 +181,7 @@ class ExperimentalClientFeatures:
         """Poll a task until it reaches a terminal status.
 
         Yields GetTaskResult for each poll, allowing the caller to react to
-        status changes (e.g., handle input_required). Exits when task reaches
+        status changes (e.g., handle input_required). Exits when the task reaches
         a terminal status (completed, failed, cancelled).
 
         Respects the pollInterval hint from the server.
@@ -189,6 +193,7 @@ class ExperimentalClientFeatures:
             GetTaskResult for each poll
 
         Example:
+            ```python
             async for status in session.experimental.poll_task(task_id):
                 print(f"Status: {status.status}")
                 if status.status == "input_required":
@@ -197,6 +202,7 @@ class ExperimentalClientFeatures:
 
             # Task is now terminal, get the result
             result = await session.experimental.get_task_result(task_id, CallToolResult)
+            ```
         """
         async for status in poll_until_terminal(self.get_task, task_id):
             yield status

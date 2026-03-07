@@ -47,6 +47,7 @@ async def sse_client(
         headers: Optional headers to include in requests.
         timeout: HTTP timeout for regular operations (in seconds).
         sse_read_timeout: Timeout for SSE read operations (in seconds).
+        httpx_client_factory: Factory function for creating the HTTPX client.
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
@@ -138,7 +139,7 @@ async def sse_client(
                                         json=session_message.message.model_dump(
                                             by_alias=True,
                                             mode="json",
-                                            exclude_none=True,
+                                            exclude_unset=True,
                                         ),
                                     )
                                     response.raise_for_status()

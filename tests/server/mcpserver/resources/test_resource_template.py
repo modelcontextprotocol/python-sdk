@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
 from mcp.types import Annotations
 
@@ -64,6 +64,7 @@ class TestResourceTemplate:
         resource = await template.create_resource(
             "test://foo/123",
             {"key": "foo", "value": 123},
+            Context(),
         )
 
         assert isinstance(resource, FunctionResource)
@@ -86,7 +87,7 @@ class TestResourceTemplate:
         )
 
         with pytest.raises(ValueError, match="Error creating resource from template"):
-            await template.create_resource("fail://test", {"x": "test"})
+            await template.create_resource("fail://test", {"x": "test"}, Context())
 
     @pytest.mark.anyio
     async def test_async_text_resource(self):
@@ -104,6 +105,7 @@ class TestResourceTemplate:
         resource = await template.create_resource(
             "greet://world",
             {"name": "world"},
+            Context(),
         )
 
         assert isinstance(resource, FunctionResource)
@@ -126,6 +128,7 @@ class TestResourceTemplate:
         resource = await template.create_resource(
             "bytes://test",
             {"value": "test"},
+            Context(),
         )
 
         assert isinstance(resource, FunctionResource)
@@ -152,6 +155,7 @@ class TestResourceTemplate:
         resource = await template.create_resource(
             "test://foo/123",
             {"key": "foo", "value": 123},
+            Context(),
         )
 
         assert isinstance(resource, FunctionResource)
@@ -183,6 +187,7 @@ class TestResourceTemplate:
         resource = await template.create_resource(
             "test://hello",
             {"value": "hello"},
+            Context(),
         )
 
         assert isinstance(resource, FunctionResource)
@@ -249,7 +254,7 @@ class TestResourceTemplateAnnotations:
         )
 
         # Create a resource from the template
-        resource = await template.create_resource("resource://items/123", {"item_id": "123"})
+        resource = await template.create_resource("resource://items/123", {"item_id": "123"}, Context())
 
         # The resource should inherit the template's annotations
         assert resource.annotations is not None
@@ -298,7 +303,7 @@ class TestResourceTemplateMetadata:
         )
 
         # Create a resource from the template
-        resource = await template.create_resource("resource://items/123", {"item_id": "123"})
+        resource = await template.create_resource("resource://items/123", {"item_id": "123"}, Context())
 
         # The resource should inherit the template's metadata
         assert resource.meta is not None

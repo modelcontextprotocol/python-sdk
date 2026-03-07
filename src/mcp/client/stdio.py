@@ -87,9 +87,9 @@ class StdioServerParameters(BaseModel):
 
     encoding: str = "utf-8"
     """
-    The text encoding used when sending/receiving messages to the server
+    The text encoding used when sending/receiving messages to the server.
 
-    defaults to utf-8
+    Defaults to utf-8.
     """
 
     encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
@@ -97,7 +97,7 @@ class StdioServerParameters(BaseModel):
     The text encoding error handler.
 
     See https://docs.python.org/3/library/codecs.html#codec-base-classes for
-    explanations of possible values
+    explanations of possible values.
     """
 
 
@@ -167,7 +167,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    json = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    json = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await process.stdin.send(
                         (json + "\n").encode(
                             encoding=server.encoding,
