@@ -929,7 +929,7 @@ class TestServerResourceTemplates:
         assert len(await mcp.list_resources()) == 0
 
         # When accessed, should create a concrete resource
-        resource = await mcp._resource_manager.get_resource("resource://test/data")
+        resource = await mcp._resource_manager.get_resource("resource://test/data", Context())
         assert isinstance(resource, FunctionResource)
         result = await resource.read()
         assert result == "Data for test"
@@ -1269,6 +1269,19 @@ class TestContextInjection:
 class TestServerPrompts:
     """Test prompt functionality in MCPServer server."""
 
+    async def test_get_prompt_direct_call_without_context(self):
+        """Test calling mcp.get_prompt() directly without passing context."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def fn() -> str:
+            return "Hello, world!"
+
+        result = await mcp.get_prompt("fn")
+        content = result.messages[0].content
+        assert isinstance(content, TextContent)
+        assert content.text == "Hello, world!"
+
     async def test_prompt_decorator(self):
         """Test that the prompt decorator registers prompts correctly."""
         mcp = MCPServer()
@@ -1281,7 +1294,7 @@ class TestServerPrompts:
         assert len(prompts) == 1
         assert prompts[0].name == "fn"
         # Don't compare functions directly since validate_call wraps them
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1296,7 +1309,7 @@ class TestServerPrompts:
         prompts = mcp._prompt_manager.list_prompts()
         assert len(prompts) == 1
         assert prompts[0].name == "custom_name"
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
@@ -1311,7 +1324,7 @@ class TestServerPrompts:
         prompts = mcp._prompt_manager.list_prompts()
         assert len(prompts) == 1
         assert prompts[0].description == "A custom description"
-        content = await prompts[0].render()
+        content = await prompts[0].render(None, Context())
         assert isinstance(content[0].content, TextContent)
         assert content[0].content.text == "Hello, world!"
 
