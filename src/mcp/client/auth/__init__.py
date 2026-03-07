@@ -3,6 +3,7 @@
 Implements authorization code flow with PKCE and automatic token refresh.
 """
 
+from mcp.client.auth.authlib_adapter import AuthlibAdapterConfig, AuthlibOAuthAdapter
 from mcp.client.auth.exceptions import OAuthFlowError, OAuthRegistrationError, OAuthTokenError
 from mcp.client.auth.oauth2 import (
     OAuthClientProvider,
@@ -11,6 +12,8 @@ from mcp.client.auth.oauth2 import (
 )
 
 __all__ = [
+    "AuthlibAdapterConfig",
+    "AuthlibOAuthAdapter",
     "OAuthClientProvider",
     "OAuthFlowError",
     "OAuthRegistrationError",
