@@ -12,10 +12,14 @@ original exception directly.
 
 from __future__ import annotations
 
+import sys
 from types import TracebackType
 
 import anyio
 from anyio.abc import TaskGroup
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 
 def collapse_exception_group(exc: BaseExceptionGroup) -> BaseException:  # type: ignore[type-arg]

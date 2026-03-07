@@ -1,13 +1,19 @@
 """Tests for mcp.shared._task_group — collapsing ExceptionGroup wrapper."""
 
+import sys
+
 import anyio
 import pytest
+from anyio.abc import TaskStatus
 
 from mcp.shared._task_group import (
     _CollapsingTaskGroup,
     collapse_exception_group,
     create_mcp_task_group,
 )
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup, ExceptionGroup
 
 # ---------------------------------------------------------------------------
 # collapse_exception_group unit tests
@@ -121,7 +127,7 @@ async def test_cancel_scope_is_delegated() -> None:
 async def test_start_delegates_to_task_group() -> None:
     """start() delegates to the underlying task group."""
 
-    async def task_with_status(*, task_status: anyio.abc.TaskStatus[str] = anyio.TASK_STATUS_IGNORED) -> None:
+    async def task_with_status(*, task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED) -> None:
         task_status.started("ready")
         await anyio.sleep(999)
 
@@ -144,15 +150,12 @@ async def test_task_group_not_entered_raises() -> None:
 @pytest.mark.anyio
 async def test_collapsed_exception_preserves_cause_chain() -> None:
     """The collapsed exception has the original ExceptionGroup as __cause__."""
-    try:
+    with pytest.raises(RuntimeError, match="root cause") as exc_info:
         async with create_mcp_task_group() as tg:
 
             async def failing() -> None:
                 raise RuntimeError("root cause")
 
             tg.start_soon(failing)
-    except RuntimeError as exc:
-        assert isinstance(exc.__cause__, BaseExceptionGroup)
-        assert str(exc) == "root cause"
-    else:
-        pytest.fail("Expected RuntimeError")
+
+    assert isinstance(exc_info.value.__cause__, BaseExceptionGroup)
