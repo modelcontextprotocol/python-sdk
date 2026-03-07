@@ -278,6 +278,12 @@ def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | Non
             "/api/messages/?session_id=abc",
             "https://example.com/gw/api/messages/?session_id=abc",
         ),
+        # --- Empty path (just /) — no segments to match ---
+        (
+            "https://example.com/gw/v1/sse",
+            "/?session_id=abc",
+            "https://example.com/?session_id=abc",
+        ),
     ],
     ids=[
         "gateway_prefix",
@@ -288,6 +294,7 @@ def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | Non
         "relative_path",
         "absolute_url",
         "endpoint_at_path_end",
+        "empty_path_root_slash",
     ],
 )
 def test_resolve_endpoint_url(base_url: str, endpoint: str, expected: str) -> None:
