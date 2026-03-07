@@ -302,6 +302,26 @@ class TestServerTools:
             assert isinstance(content, TextContent)
             assert "Intentional tool error" in content.text
 
+    async def test_handle_call_tool_defensive_exception_handler(self):
+        """Test that _handle_call_tool returns generic error when call_tool raises unexpected Exception."""
+        mcp = MCPServer()
+        mcp.add_tool(tool_fn)
+
+        original_call_tool = mcp.call_tool
+
+        async def patched_call_tool(name: str, arguments: dict[str, Any]) -> Any:
+            raise RuntimeError("internal db connection string leaked")
+
+        async with Client(mcp) as client:
+            mcp.call_tool = patched_call_tool  # type: ignore[assignment]
+            result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
+            mcp.call_tool = original_call_tool  # type: ignore[assignment]
+            assert result.is_error is True
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert "unexpected error" in content.text.lower()
+            assert "internal db connection string leaked" not in content.text
+
     async def test_tool_return_value_conversion(self):
         mcp = MCPServer()
         mcp.add_tool(tool_fn)

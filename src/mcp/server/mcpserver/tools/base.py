@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import functools
 import inspect
-import logging
 from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
@@ -15,8 +14,6 @@ from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_meta
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
 from mcp.types import Icon, ToolAnnotations
-
-logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -118,7 +115,6 @@ class Tool(BaseModel):
         except ToolError:
             raise
         except Exception as e:
-            logger.exception(f"Error executing tool {self.name}")
             raise ToolError(f"An unexpected error occurred executing tool {self.name}") from e
 
 

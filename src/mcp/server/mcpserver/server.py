@@ -306,7 +306,7 @@ class MCPServer(Generic[LifespanResultT]):
             raise
         except ToolError as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-        except Exception:  # pragma: no cover
+        except Exception:
             logger.exception(f"Error calling tool {params.name}")
             return CallToolResult(
                 content=[TextContent(type="text", text=f"An unexpected error occurred calling tool {params.name}")],
