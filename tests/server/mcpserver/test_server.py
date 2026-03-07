@@ -308,9 +308,7 @@ class TestServerTools:
         mcp.add_tool(tool_fn)
 
         async with Client(mcp) as client:
-            with patch.object(
-                mcp, "call_tool", new_callable=AsyncMock, side_effect=RuntimeError("internal db leak")
-            ):
+            with patch.object(mcp, "call_tool", new_callable=AsyncMock, side_effect=RuntimeError("internal db leak")):
                 result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
                 assert result.is_error is True
                 content = result.content[0]
