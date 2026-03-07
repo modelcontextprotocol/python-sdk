@@ -20,7 +20,7 @@ from starlette.routing import Mount, Route
 import mcp.client.sse
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
+from mcp.client.sse import _extract_session_id_from_endpoint, _resolve_endpoint_url, sse_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
@@ -227,6 +227,78 @@ async def test_sse_client_on_session_created(server: None, server_url: str) -> N
 )
 def test_extract_session_id_from_endpoint(endpoint_url: str, expected: str | None) -> None:
     assert _extract_session_id_from_endpoint(endpoint_url) == expected
+
+
+@pytest.mark.parametrize(
+    "base_url,endpoint,expected",
+    [
+        # --- Gateway / reverse proxy prefix (the bug from issue #795) ---
+        (
+            "https://example.com/gateway/v1/sse",
+            "/v1/messages/?session_id=abc",
+            "https://example.com/gateway/v1/messages/?session_id=abc",
+        ),
+        (
+            "https://example.com/gateway_prefix/v1/sse",
+            "/v1/messages/?session_id=abc",
+            "https://example.com/gateway_prefix/v1/messages/?session_id=abc",
+        ),
+        # Deep gateway prefix
+        (
+            "https://example.com/org/team/v1/sse",
+            "/v1/messages/?session_id=abc",
+            "https://example.com/org/team/v1/messages/?session_id=abc",
+        ),
+        # --- No gateway prefix (should behave like urljoin) ---
+        (
+            "https://example.com/v1/sse",
+            "/v1/messages/?session_id=abc",
+            "https://example.com/v1/messages/?session_id=abc",
+        ),
+        (
+            "https://example.com/sse",
+            "/messages/?session_id=abc",
+            "https://example.com/messages/?session_id=abc",
+        ),
+        # --- Relative path (urljoin handles correctly) ---
+        (
+            "https://example.com/gateway/v1/sse",
+            "messages/?session_id=abc",
+            "https://example.com/gateway/v1/messages/?session_id=abc",
+        ),
+        # --- Absolute URL endpoint (use as-is) ---
+        (
+            "https://example.com/gateway/v1/sse",
+            "https://example.com/v1/messages/?session_id=abc",
+            "https://example.com/v1/messages/?session_id=abc",
+        ),
+        # --- Endpoint at end of base path (no trailing slash match) ---
+        (
+            "https://example.com/gw/api",
+            "/api/messages/?session_id=abc",
+            "https://example.com/gw/api/messages/?session_id=abc",
+        ),
+        # --- Empty path (just /) — no segments to match ---
+        (
+            "https://example.com/gw/v1/sse",
+            "/?session_id=abc",
+            "https://example.com/?session_id=abc",
+        ),
+    ],
+    ids=[
+        "gateway_prefix",
+        "gateway_prefix_underscore",
+        "deep_gateway_prefix",
+        "no_prefix_same_root",
+        "no_prefix_root_level",
+        "relative_path",
+        "absolute_url",
+        "endpoint_at_path_end",
+        "empty_path_root_slash",
+    ],
+)
+def test_resolve_endpoint_url(base_url: str, endpoint: str, expected: str) -> None:
+    assert _resolve_endpoint_url(base_url, endpoint) == expected
 
 
 @pytest.mark.anyio
