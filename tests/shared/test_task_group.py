@@ -145,6 +145,8 @@ async def test_task_group_not_entered_raises() -> None:
         ctg.cancel_scope
     with pytest.raises(RuntimeError, match="not been entered"):
         ctg.start_soon(lambda: None)
+    with pytest.raises(RuntimeError, match="not been entered"):
+        await ctg.start(lambda: None)
 
 
 @pytest.mark.anyio
