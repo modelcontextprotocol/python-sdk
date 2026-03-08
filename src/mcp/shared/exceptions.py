@@ -41,6 +41,26 @@ class MCPError(Exception):
         return self.message
 
 
+class HttpError(Exception):
+    """Raised when an MCP HTTP transport receives a non-2xx response.
+
+    Preserves the original HTTP status code so callers can distinguish
+    auth errors (401/403) from other failures (404, 5xx, etc.).
+    """
+
+    def __init__(self, status_code: int, message: str | None = None, body: str | None = None):
+        self.status_code = status_code
+        self.body = body
+        if message is None:
+            message = f"HTTP {status_code}"
+        super().__init__(message)
+
+    @property
+    def is_auth_error(self) -> bool:
+        """True for 401 Unauthorized or 403 Forbidden responses."""
+        return self.status_code in (401, 403)
+
+
 class StatelessModeNotSupported(RuntimeError):
     """Raised when attempting to use a method that is not supported in stateless mode.
 
