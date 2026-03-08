@@ -1,6 +1,9 @@
 """Tests for OAuth 2.0 shared code."""
 
-from mcp.shared.auth import OAuthMetadata
+import pytest
+from pydantic import AnyUrl
+
+from mcp.shared.auth import InvalidScopeError, OAuthClientMetadata, OAuthMetadata
 
 
 def test_oauth():
@@ -58,3 +61,52 @@ def test_oauth_with_jarm():
             "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
         }
     )
+
+
+class TestValidateScope:
+    """Tests for OAuthClientMetadata.validate_scope()."""
+
+    def _make_client(self, scope=None):
+        return OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+            scope=scope,
+        )
+
+    def test_requested_none_returns_none(self):
+        """When no scope is requested, validate_scope returns None."""
+        client = self._make_client(scope="read write")
+        assert client.validate_scope(None) is None
+
+    def test_client_scope_none_allows_any_requested_scopes(self):
+        """When client has no scope restrictions (None), any requested scopes are allowed.
+
+        Regression test for #2216: validate_scope treated None as empty list,
+        rejecting all scopes with InvalidScopeError.
+        """
+        client = self._make_client(scope=None)
+        result = client.validate_scope("read write admin")
+        assert result == ["read", "write", "admin"]
+
+    def test_client_scope_none_allows_single_scope(self):
+        """When client has no scope restrictions, a single requested scope is allowed."""
+        client = self._make_client(scope=None)
+        result = client.validate_scope("read")
+        assert result == ["read"]
+
+    def test_allowed_scopes_accepted(self):
+        """Requested scopes that are a subset of client scopes are accepted."""
+        client = self._make_client(scope="read write admin")
+        result = client.validate_scope("read write")
+        assert result == ["read", "write"]
+
+    def test_disallowed_scope_raises(self):
+        """Requesting a scope not in the client's registered scopes raises InvalidScopeError."""
+        client = self._make_client(scope="read write")
+        with pytest.raises(InvalidScopeError, match="admin"):
+            client.validate_scope("read admin")
+
+    def test_all_scopes_match(self):
+        """Requesting exactly the registered scopes works."""
+        client = self._make_client(scope="read write")
+        result = client.validate_scope("read write")
+        assert result == ["read", "write"]
