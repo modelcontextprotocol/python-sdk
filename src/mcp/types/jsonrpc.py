@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, model_validator
 
 RequestId = Annotated[int, Field(strict=True)] | str
 """The ID of a JSON-RPC request."""
@@ -25,6 +25,20 @@ class JSONRPCNotification(BaseModel):
     jsonrpc: Literal["2.0"]
     method: str
     params: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_id_field(cls, data: Any) -> Any:
+        """Reject messages that contain an 'id' field.
+
+        Per JSON-RPC 2.0, notifications MUST NOT have an 'id' member.
+        Without this check, a request with an invalid id (e.g. null)
+        would silently fall through union validation and be misclassified
+        as a notification.
+        """
+        if isinstance(data, dict) and "id" in data:
+            raise ValueError("Notifications must not contain an 'id' field")
+        return data
 
 
 # TODO(Marcelo): This is actually not correct. A JSONRPCResponse is the union of a successful response and an error.
