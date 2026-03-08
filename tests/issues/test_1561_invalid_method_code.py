@@ -18,7 +18,7 @@ async def test_invalid_method_returns_method_not_found() -> None:
     read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
     write_send_stream, write_receive_stream = anyio.create_memory_object_stream[SessionMessage](10)
 
-    try:
+    async with read_send_stream, read_receive_stream, write_send_stream, write_receive_stream:
         async with ServerSession(
             read_stream=read_receive_stream,
             write_stream=write_send_stream,
@@ -48,11 +48,6 @@ async def test_invalid_method_returns_method_not_found() -> None:
             assert response.id == 1
             assert response.error.code == METHOD_NOT_FOUND
             assert response.error.message == "Method not found"
-    finally:
-        await read_send_stream.aclose()
-        await write_send_stream.aclose()
-        await read_receive_stream.aclose()
-        await write_receive_stream.aclose()
 
 
 class MissingDefaultMethodRequest(BaseModel):
@@ -71,14 +66,9 @@ async def test_client_session_known_request_methods_match_server_request_union()
     read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
     write_send_stream, write_receive_stream = anyio.create_memory_object_stream[SessionMessage](10)
 
-    try:
+    async with read_send_stream, read_receive_stream, write_send_stream, write_receive_stream:
         session = ClientSession(read_stream=read_receive_stream, write_stream=write_send_stream)
         assert session._known_request_methods == KNOWN_SERVER_REQUEST_METHODS
-    finally:
-        await read_send_stream.aclose()
-        await write_send_stream.aclose()
-        await read_receive_stream.aclose()
-        await write_receive_stream.aclose()
 
 
 class DummyBaseSession(
@@ -104,13 +94,8 @@ async def test_base_session_known_request_methods_default_to_empty() -> None:
     read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](10)
     write_send_stream, write_receive_stream = anyio.create_memory_object_stream[SessionMessage](10)
 
-    try:
+    async with read_send_stream, read_receive_stream, write_send_stream, write_receive_stream:
         session = DummyBaseSession(read_stream=read_receive_stream, write_stream=write_send_stream)
         assert session._known_request_methods == frozenset()
         assert session._receive_request_adapter is types.server_request_adapter
         assert session._receive_notification_adapter is types.server_notification_adapter
-    finally:
-        await read_send_stream.aclose()
-        await write_send_stream.aclose()
-        await read_receive_stream.aclose()
-        await write_receive_stream.aclose()
