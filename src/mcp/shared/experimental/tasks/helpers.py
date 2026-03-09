@@ -51,7 +51,7 @@ async def cancel_task(
     store: TaskStore,
     task_id: str,
     *,
-    session_id: str,
+    session_id: str | None,
 ) -> CancelTaskResult:
     """Cancel a task with spec-compliant validation.
 
@@ -64,7 +64,8 @@ async def cancel_task(
     Args:
         store: The task store
         task_id: The task identifier to cancel
-        session_id: Session identifier for access control.
+        session_id: Session identifier for access control. Must exactly match
+            the session_id the task was created with (including None).
 
     Returns:
         CancelTaskResult with the cancelled task state
@@ -128,7 +129,7 @@ async def task_execution(
     task_id: str,
     store: TaskStore,
     *,
-    session_id: str,
+    session_id: str | None,
 ) -> AsyncIterator[TaskContext]:
     """Context manager for safe task execution (pure, no server dependencies).
 
@@ -141,7 +142,8 @@ async def task_execution(
     Args:
         task_id: The task identifier to execute
         store: The task store (must be accessible by the worker)
-        session_id: Session identifier for access control.
+        session_id: Session identifier for access control. Must exactly match
+            the session_id the task was created with (including None).
 
     Yields:
         TaskContext for updating status and completing/failing the task
@@ -150,7 +152,7 @@ async def task_execution(
         ValueError: If the task is not found in the store
 
     Example (distributed worker):
-        async def worker_process(task_id: str, session_id: str):
+        async def worker_process(task_id: str, session_id: str | None):
             store = RedisTaskStore(redis_url)
             async with task_execution(task_id, store, session_id=session_id) as ctx:
                 await ctx.update_status("Working...")

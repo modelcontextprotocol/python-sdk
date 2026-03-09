@@ -90,11 +90,8 @@ class ServerTaskContext:
             queue: The message queue for elicitation/sampling
             handler: The result handler for response routing (required for elicit/create_message)
         """
-        session_id = session.session_id
-        if session_id is None:
-            raise RuntimeError("Session ID is required for task operations but session has no ID.")
-        self._session_id = session_id
-        self._ctx = TaskContext(task=task, store=store, session_id=session_id)
+        self._session_id = session.session_id
+        self._ctx = TaskContext(task=task, store=store, session_id=self._session_id)
         self._session = session
         self._queue = queue
         self._handler = handler

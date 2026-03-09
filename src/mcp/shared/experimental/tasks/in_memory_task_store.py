@@ -22,7 +22,7 @@ class StoredTask:
     """Internal storage representation of a task."""
 
     task: Task
-    session_id: str
+    session_id: str | None
     result: Result | None = None
     # Time when this task should be removed (None = never)
     expires_at: datetime | None = field(default=None)
@@ -68,10 +68,13 @@ class InMemoryTaskStore(TaskStore):
         for task_id in expired_ids:
             del self._tasks[task_id]
 
-    def _get_stored_task(self, task_id: str, *, session_id: str) -> StoredTask | None:
+    def _get_stored_task(self, task_id: str, *, session_id: str | None) -> StoredTask | None:
         """Retrieve a stored task, enforcing session ownership.
 
         Returns None if the task does not exist or belongs to a different session.
+        Isolation uses strict equality: None only matches None, so tasks created
+        by sessionless transports (stdio) are not visible to session-scoped
+        transports (HTTP) and vice versa.
         """
         stored = self._tasks.get(task_id)
         if stored is None:
@@ -85,7 +88,7 @@ class InMemoryTaskStore(TaskStore):
         metadata: TaskMetadata,
         task_id: str | None = None,
         *,
-        session_id: str,
+        session_id: str | None,
     ) -> Task:
         """Create a new task with the given metadata."""
         # Cleanup expired tasks on access
@@ -106,7 +109,7 @@ class InMemoryTaskStore(TaskStore):
         # Return a copy to prevent external modification
         return Task(**task.model_dump())
 
-    async def get_task(self, task_id: str, *, session_id: str) -> Task | None:
+    async def get_task(self, task_id: str, *, session_id: str | None) -> Task | None:
         """Get a task by ID."""
         # Cleanup expired tasks on access
         self._cleanup_expired()
@@ -124,7 +127,7 @@ class InMemoryTaskStore(TaskStore):
         status: TaskStatus | None = None,
         status_message: str | None = None,
         *,
-        session_id: str,
+        session_id: str | None,
     ) -> Task:
         """Update a task's status and/or message."""
         stored = self._get_stored_task(task_id, session_id=session_id)
@@ -156,7 +159,7 @@ class InMemoryTaskStore(TaskStore):
 
         return Task(**stored.task.model_dump())
 
-    async def store_result(self, task_id: str, result: Result, *, session_id: str) -> None:
+    async def store_result(self, task_id: str, result: Result, *, session_id: str | None) -> None:
         """Store the result for a task."""
         stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
@@ -164,7 +167,7 @@ class InMemoryTaskStore(TaskStore):
 
         stored.result = result
 
-    async def get_result(self, task_id: str, *, session_id: str) -> Result | None:
+    async def get_result(self, task_id: str, *, session_id: str | None) -> Result | None:
         """Get the stored result for a task."""
         stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:
@@ -176,13 +179,14 @@ class InMemoryTaskStore(TaskStore):
         self,
         cursor: str | None = None,
         *,
-        session_id: str,
+        session_id: str | None,
     ) -> tuple[list[Task], str | None]:
         """List tasks with pagination."""
         # Cleanup expired tasks on access
         self._cleanup_expired()
 
-        # Filter tasks by session ownership before pagination
+        # Filter tasks by session ownership before pagination.
+        # Strict equality: None only matches None (sessionless transports).
         filtered_task_ids = [task_id for task_id, stored in self._tasks.items() if stored.session_id == session_id]
 
         start_index = 0
@@ -203,7 +207,7 @@ class InMemoryTaskStore(TaskStore):
 
         return tasks, next_cursor
 
-    async def delete_task(self, task_id: str, *, session_id: str) -> bool:
+    async def delete_task(self, task_id: str, *, session_id: str | None) -> bool:
         """Delete a task."""
         stored = self._get_stored_task(task_id, session_id=session_id)
         if stored is None:

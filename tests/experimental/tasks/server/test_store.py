@@ -541,3 +541,76 @@ async def test_cancel_task_with_session_isolation(store: InMemoryTaskStore) -> N
     # session-a should be able to cancel its own task
     result = await cancel_task(store, task.task_id, session_id="session-a")
     assert result.status == "cancelled"
+
+
+# --- None session_id (sessionless transports like stdio) ---
+
+
+@pytest.mark.anyio
+async def test_none_session_id_can_access_own_tasks(store: InMemoryTaskStore) -> None:
+    """Test that a None session_id (sessionless transport) can access tasks it created.
+
+    This verifies stdio/memory transports work: they have no session concept, so
+    they create and retrieve tasks with session_id=None.
+    """
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id=None)
+
+    retrieved = await store.get_task(task.task_id, session_id=None)
+    assert retrieved is not None
+    assert retrieved.task_id == task.task_id
+
+    tasks, _ = await store.list_tasks(session_id=None)
+    assert len(tasks) == 1
+    assert tasks[0].task_id == task.task_id
+
+
+@pytest.mark.anyio
+async def test_none_session_cannot_read_session_scoped_task(store: InMemoryTaskStore) -> None:
+    """Test that a None session_id cannot read tasks created with a real session_id.
+
+    Strict equality isolation: a sessionless client (stdio) cannot see tasks
+    created by a session-scoped client (HTTP), even when sharing a store.
+    """
+    http_task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="http-session-1")
+
+    assert await store.get_task(http_task.task_id, session_id=None) is None
+    assert await store.get_result(http_task.task_id, session_id=None) is None
+    assert await store.delete_task(http_task.task_id, session_id=None) is False
+
+    tasks, _ = await store.list_tasks(session_id=None)
+    assert len(tasks) == 0
+
+
+@pytest.mark.anyio
+async def test_session_cannot_read_none_session_task(store: InMemoryTaskStore) -> None:
+    """Test that a real session_id cannot read tasks created with session_id=None.
+
+    Strict equality isolation: an HTTP session cannot see tasks created by a
+    sessionless client (stdio), closing the gap present in the TypeScript SDK.
+    """
+    stdio_task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id=None)
+
+    assert await store.get_task(stdio_task.task_id, session_id="http-session-1") is None
+    assert await store.get_result(stdio_task.task_id, session_id="http-session-1") is None
+    assert await store.delete_task(stdio_task.task_id, session_id="http-session-1") is False
+
+    tasks, _ = await store.list_tasks(session_id="http-session-1")
+    assert len(tasks) == 0
+
+
+@pytest.mark.anyio
+async def test_none_and_session_scoped_tasks_coexist(store: InMemoryTaskStore) -> None:
+    """Test that None-session and session-scoped tasks coexist without leaking."""
+    stdio_task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id=None)
+    http_a_task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="http-a")
+    http_b_task = await store.create_task(metadata=TaskMetadata(ttl=60000), session_id="http-b")
+
+    # Each scope sees exactly its own task
+    stdio_tasks, _ = await store.list_tasks(session_id=None)
+    assert [t.task_id for t in stdio_tasks] == [stdio_task.task_id]
+
+    http_a_tasks, _ = await store.list_tasks(session_id="http-a")
+    assert [t.task_id for t in http_a_tasks] == [http_a_task.task_id]
+
+    http_b_tasks, _ = await store.list_tasks(session_id="http-b")
+    assert [t.task_id for t in http_b_tasks] == [http_b_task.task_id]

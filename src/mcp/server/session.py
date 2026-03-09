@@ -112,6 +112,11 @@ class ServerSession(
         return self._client_params
 
     @property
+    def stateless(self) -> bool:
+        """Whether this session is in stateless mode (no persistent server-side state)."""
+        return self._stateless
+
+    @property
     def experimental(self) -> ExperimentalServerSessionFeatures:
         """Experimental APIs for server→client task operations.
 

@@ -21,7 +21,7 @@ class TaskContext:
     use ServerTaskContext from mcp.server.experimental.
 
     Example (distributed worker):
-        async def worker_job(task_id: str, session_id: str):
+        async def worker_job(task_id: str, session_id: str | None):
             store = RedisTaskStore(redis_url)
             task = await store.get_task(task_id, session_id=session_id)
             ctx = TaskContext(task=task, store=store, session_id=session_id)
@@ -31,7 +31,7 @@ class TaskContext:
             await ctx.complete(result)
     """
 
-    def __init__(self, task: Task, store: TaskStore, *, session_id: str):
+    def __init__(self, task: Task, store: TaskStore, *, session_id: str | None):
         self._task = task
         self._store = store
         self._session_id = session_id

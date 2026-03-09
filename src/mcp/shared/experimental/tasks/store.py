@@ -20,15 +20,17 @@ class TaskStore(ABC):
         metadata: TaskMetadata,
         task_id: str | None = None,
         *,
-        session_id: str,
+        session_id: str | None,
     ) -> Task:
         """Create a new task.
 
         Args:
             metadata: Task metadata (ttl, etc.)
             task_id: Optional task ID. If None, implementation should generate one.
-            session_id: Session identifier. The task is bound to this session
-                for isolation purposes.
+            session_id: Session identifier for isolation. If None, the task is
+                not bound to a session (single-client transports like stdio).
+                If a string, the task is scoped to that session and only
+                accessible with the same session_id.
 
         Returns:
             The created Task with status="working"
@@ -38,12 +40,13 @@ class TaskStore(ABC):
         """
 
     @abstractmethod
-    async def get_task(self, task_id: str, *, session_id: str) -> Task | None:
+    async def get_task(self, task_id: str, *, session_id: str | None) -> Task | None:
         """Get a task by ID.
 
         Args:
             task_id: The task identifier
-            session_id: Session identifier for access control.
+            session_id: Session identifier for access control. Must exactly
+                match the session_id the task was created with (including None).
 
         Returns:
             The Task, or None if not found or not accessible by this session.
@@ -56,7 +59,7 @@ class TaskStore(ABC):
         status: TaskStatus | None = None,
         status_message: str | None = None,
         *,
-        session_id: str,
+        session_id: str | None,
     ) -> Task:
         """Update a task's status and/or message.
 
@@ -64,7 +67,8 @@ class TaskStore(ABC):
             task_id: The task identifier
             status: New status (if changing)
             status_message: New status message (if changing)
-            session_id: Session identifier for access control.
+            session_id: Session identifier for access control. Must exactly
+                match the session_id the task was created with (including None).
 
         Returns:
             The updated Task
@@ -77,25 +81,27 @@ class TaskStore(ABC):
         """
 
     @abstractmethod
-    async def store_result(self, task_id: str, result: Result, *, session_id: str) -> None:
+    async def store_result(self, task_id: str, result: Result, *, session_id: str | None) -> None:
         """Store the result for a task.
 
         Args:
             task_id: The task identifier
             result: The result to store
-            session_id: Session identifier for access control.
+            session_id: Session identifier for access control. Must exactly
+                match the session_id the task was created with (including None).
 
         Raises:
             ValueError: If task not found or not accessible by this session.
         """
 
     @abstractmethod
-    async def get_result(self, task_id: str, *, session_id: str) -> Result | None:
+    async def get_result(self, task_id: str, *, session_id: str | None) -> Result | None:
         """Get the stored result for a task.
 
         Args:
             task_id: The task identifier
-            session_id: Session identifier for access control.
+            session_id: Session identifier for access control. Must exactly
+                match the session_id the task was created with (including None).
 
         Returns:
             The stored Result, or None if not available.
@@ -106,26 +112,27 @@ class TaskStore(ABC):
         self,
         cursor: str | None = None,
         *,
-        session_id: str,
+        session_id: str | None,
     ) -> tuple[list[Task], str | None]:
         """List tasks with pagination.
 
         Args:
             cursor: Optional cursor for pagination
-            session_id: Session identifier. Only tasks belonging to this
-                session are returned.
+            session_id: Session identifier. Only tasks with an exactly matching
+                session_id are returned (None only matches tasks created with None).
 
         Returns:
             Tuple of (tasks, next_cursor). next_cursor is None if no more pages.
         """
 
     @abstractmethod
-    async def delete_task(self, task_id: str, *, session_id: str) -> bool:
+    async def delete_task(self, task_id: str, *, session_id: str | None) -> bool:
         """Delete a task.
 
         Args:
             task_id: The task identifier
-            session_id: Session identifier for access control.
+            session_id: Session identifier for access control. Must exactly
+                match the session_id the task was created with (including None).
 
         Returns:
             True if deleted, False if not found or not accessible by this session.

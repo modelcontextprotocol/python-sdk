@@ -400,9 +400,13 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
 
 
 @pytest.mark.anyio
-async def test_default_task_handlers_require_session_id() -> None:
-    """Test that default task handlers reject requests when session has no session_id."""
-    server = Server("test-no-session-id")
+async def test_default_task_handlers_reject_stateless_mode() -> None:
+    """Test that default task handlers reject requests in stateless mode.
+
+    Task operations require a persistent session for result retrieval; stateless
+    mode creates a fresh session per request, so tasks cannot survive across requests.
+    """
+    server = Server("test-stateless")
     server.experimental.enable_tasks()
 
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
@@ -424,8 +428,8 @@ async def test_default_task_handlers_require_session_id() -> None:
                     experimental_capabilities={},
                 ),
             ),
+            stateless=True,
         ) as server_session:
-            # session_id is None (no session_id passed)
             async for message in server_session.incoming_messages:
                 await server._handle_message(message, server_session, {}, False)
 
@@ -439,8 +443,7 @@ async def test_default_task_handlers_require_session_id() -> None:
         ) as client_session:
             await client_session.initialize()
 
-            # All default task handlers should fail with "Session ID is required"
-            with pytest.raises(MCPError, match="Session ID is required"):
+            with pytest.raises(MCPError, match="do not support stateless mode"):
                 await client_session.experimental.list_tasks()
 
             tg.cancel_scope.cancel()

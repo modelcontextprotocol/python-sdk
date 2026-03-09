@@ -369,12 +369,13 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_task_without_session_id_raises() -> None:
-    """Test that run_task raises when session has no session_id."""
+async def test_run_task_in_stateless_mode_raises() -> None:
+    """Test that run_task raises when the session is in stateless mode."""
     task_support = TaskSupport.in_memory()
 
     mock_session = Mock()
     mock_session.session_id = None
+    mock_session.stateless = True
 
     experimental = Experimental(
         task_metadata=TaskMetadata(ttl=60000),
@@ -387,5 +388,5 @@ async def test_run_task_without_session_id_raises() -> None:
         raise NotImplementedError
 
     async with task_support.run():
-        with pytest.raises(RuntimeError, match="Session ID is required"):
+        with pytest.raises(RuntimeError, match="does not support stateless mode"):
             await experimental.run_task(work)

@@ -728,16 +728,21 @@ async def test_create_message_as_task_raises_without_handler() -> None:
 
 
 @pytest.mark.anyio
-async def test_server_task_context_requires_session_id() -> None:
-    """Test that ServerTaskContext raises when session has no session_id."""
+async def test_server_task_context_accepts_none_session_id() -> None:
+    """Test that ServerTaskContext works with session_id=None (sessionless transports like stdio)."""
     store = InMemoryTaskStore()
     queue = InMemoryTaskMessageQueue()
-    task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
+    task = await store.create_task(TaskMetadata(ttl=60000), session_id=None)
 
     mock_session = Mock()
     mock_session.session_id = None
+    mock_session.send_notification = AsyncMock()
 
-    with pytest.raises(RuntimeError, match="Session ID is required for task operations"):
-        ServerTaskContext(task=task, store=store, session=mock_session, queue=queue)
+    ctx = ServerTaskContext(task=task, store=store, session=mock_session, queue=queue)
+    await ctx.update_status("Working...")
+
+    retrieved = await store.get_task(task.task_id, session_id=None)
+    assert retrieved is not None
+    assert retrieved.status_message == "Working..."
 
     store.cleanup()
