@@ -791,9 +791,6 @@ class StreamableHTTPServerTransport:
             if writer:
                 writer.close()
 
-        # Clear the SSE stream writers dictionary
-        self._sse_stream_writers.clear()
-
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())
 
