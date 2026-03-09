@@ -3,7 +3,8 @@
 from mcp.types import Icon
 
 from .context import Context
+from .exceptions import PromptError, ResourceError, ToolError
 from .server import MCPServer
 from .utilities.types import Audio, Image
 
-__all__ = ["MCPServer", "Context", "Image", "Audio", "Icon"]
+__all__ = ["MCPServer", "Context", "Image", "Audio", "Icon", "ToolError", "ResourceError", "PromptError"]

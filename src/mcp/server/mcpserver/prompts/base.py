@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING, Any, Literal
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
+from mcp.server.mcpserver.exceptions import PromptError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.shared.exceptions import MCPError
 from mcp.types import ContentBlock, Icon, TextContent
 
 if TYPE_CHECKING:
@@ -141,7 +143,7 @@ class Prompt(BaseModel):
         """Render the prompt with arguments.
 
         Raises:
-            ValueError: If required arguments are missing, or if rendering fails.
+            PromptError: If required arguments are missing, or if rendering fails.
         """
         # Validate required arguments
         if self.arguments:
@@ -149,7 +151,7 @@ class Prompt(BaseModel):
             provided = set(arguments or {})
             missing = required - provided
             if missing:
-                raise ValueError(f"Missing required arguments: {missing}")
+                raise PromptError(f"Missing required arguments: {missing}")
 
         try:
             # Add context to arguments if needed
@@ -182,5 +184,7 @@ class Prompt(BaseModel):
                     raise ValueError(f"Could not convert prompt result to message: {msg}")
 
             return messages
+        except (PromptError, MCPError):  # pragma: no cover
+            raise
         except Exception as e:  # pragma: no cover
             raise ValueError(f"Error rendering prompt {self.name}: {e}")
