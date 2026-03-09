@@ -1,8 +1,10 @@
 """Common test utilities for MCP server tests."""
 
+import gc
 import socket
 import threading
 import time
+import warnings
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
@@ -56,6 +58,16 @@ def run_uvicorn_in_thread(app: Any, **config_kwargs: Any) -> Generator[str, None
     finally:
         server.should_exit = True
         thread.join(timeout=_SERVER_SHUTDOWN_TIMEOUT_S)
+        # When uvicorn shuts down with in-flight SSE connections, the server
+        # cancels request handlers mid-operation. SseServerTransport's internal
+        # memory streams may not get their `finally` cleanup run before GC,
+        # causing ResourceWarnings. These are artifacts of test abrupt-disconnect
+        # patterns (open SSE stream → check status → exit without consuming),
+        # not bugs. Force GC here and suppress the warnings so they don't leak
+        # into the next test's PytestUnraisableExceptionWarning collector.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ResourceWarning)
+            gc.collect()
 
 
 def wait_for_server(port: int, timeout: float = 20.0) -> None:
