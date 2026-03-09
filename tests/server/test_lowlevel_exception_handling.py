@@ -82,20 +82,25 @@ async def test_server_run_exits_cleanly_when_transport_yields_exception_then_clo
     """
     server = Server("test-server")
 
-    read_send, read_recv = anyio.create_memory_object_stream[SessionMessage | Exception](10)
-    write_send, write_recv = anyio.create_memory_object_stream[SessionMessage](10)
+    read_send, read_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    # Zero-buffer on the write stream forces send() to block until received.
+    # With no receiver, a send() sits blocked until _receive_loop exits its
+    # `async with self._read_stream, self._write_stream:` block and closes the
+    # stream, at which point the blocked send raises ClosedResourceError.
+    # This deterministically reproduces the race without sleeps.
+    write_send, write_recv = anyio.create_memory_object_stream[SessionMessage](0)
 
-    async def transport_side() -> None:
-        # What the streamable HTTP transport does: push the exception, then close.
-        await read_send.send(RuntimeError("simulated transport error"))
-        await read_send.aclose()
-        # Drain the write side so it doesn't back-pressure; it must see no messages.
-        async with write_recv:
-            async for _ in write_recv:  # pragma: no cover
-                pytest.fail("server must not write back when the transport reported an error")
+    # What the streamable HTTP transport does: push the exception, then close.
+    read_send.send_nowait(RuntimeError("simulated transport error"))
+    read_send.close()
 
     with anyio.fail_after(5):
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(transport_side)
-            # stateless=True so server.run doesn't wait for initialize handshake
-            await server.run(read_recv, write_send, server.create_initialization_options(), stateless=True)
+        # stateless=True so server.run doesn't wait for initialize handshake.
+        # Before this fix, this raised ExceptionGroup(ClosedResourceError).
+        await server.run(read_recv, write_send, server.create_initialization_options(), stateless=True)
+
+    # write_send was closed inside _receive_loop's `async with`; receive_nowait
+    # raises EndOfStream iff the buffer is empty (i.e., server wrote nothing).
+    with pytest.raises(anyio.EndOfStream):
+        write_recv.receive_nowait()
+    write_recv.close()
