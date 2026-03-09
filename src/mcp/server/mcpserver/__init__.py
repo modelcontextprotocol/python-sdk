@@ -2,7 +2,8 @@
 
 from mcp.types import Icon
 
-from .server import Context, MCPServer
+from .context import Context
+from .server import MCPServer
 from .utilities.types import Audio, Image
 
 __all__ = ["MCPServer", "Context", "Image", "Audio", "Icon"]

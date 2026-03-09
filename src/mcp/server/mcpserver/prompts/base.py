@@ -15,7 +15,7 @@ from mcp.types import ContentBlock, Icon, TextContent
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
-    from mcp.server.mcpserver.server import Context
+    from mcp.server.mcpserver.context import Context
 
 
 class Message(BaseModel):
@@ -135,10 +135,14 @@ class Prompt(BaseModel):
 
     async def render(
         self,
-        arguments: dict[str, Any] | None = None,
-        context: Context[LifespanContextT, RequestT] | None = None,
+        arguments: dict[str, Any] | None,
+        context: Context[LifespanContextT, RequestT],
     ) -> list[Message]:
-        """Render the prompt with arguments."""
+        """Render the prompt with arguments.
+
+        Raises:
+            ValueError: If required arguments are missing, or if rendering fails.
+        """
         # Validate required arguments
         if self.arguments:
             required = {arg.name for arg in self.arguments if arg.required}

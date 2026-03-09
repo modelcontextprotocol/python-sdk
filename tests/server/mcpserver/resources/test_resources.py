@@ -91,6 +91,14 @@ class TestResourceValidation:
         )
         assert resource.mime_type == "application/json"
 
+        # RFC 2045 quoted parameter value (gh-1756)
+        resource = FunctionResource(
+            uri="resource://test",
+            fn=dummy_func,
+            mime_type='text/plain; charset="utf-8"',
+        )
+        assert resource.mime_type == 'text/plain; charset="utf-8"'
+
     @pytest.mark.anyio
     async def test_resource_read_abstract(self):
         """Test that Resource.read() is abstract."""
