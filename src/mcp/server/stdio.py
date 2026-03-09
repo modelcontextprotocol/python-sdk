@@ -17,12 +17,15 @@ Example:
     ```
 """
 
+import select
 import sys
+from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 
 import anyio
 import anyio.lowlevel
+from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp import types
@@ -33,8 +36,8 @@ STDIN_EOF_CHECK_INTERVAL = 0.1
 
 
 def _create_stdin_eof_monitor(
-    tg: anyio.abc.TaskGroup,
-):
+    tg: TaskGroup,
+) -> Callable[[], Coroutine[object, object, None]] | None:
     """Create a platform-appropriate stdin EOF monitor.
 
     Returns an async callable that monitors stdin for EOF and cancels the task
@@ -49,14 +52,15 @@ def _create_stdin_eof_monitor(
     if sys.platform == "win32":
         return None
 
-    import select
+    if not hasattr(select, "poll"):
+        return None  # pragma: no cover
 
     try:
         fd = sys.stdin.buffer.fileno()
     except Exception:
         return None
 
-    async def monitor():
+    async def monitor() -> None:
         poll_obj = select.poll()
         poll_obj.register(fd, select.POLLIN | select.POLLHUP)
         try:
