@@ -1,13 +1,10 @@
 """Tests for StreamableHTTP server DNS rebinding protection."""
 
-import multiprocessing
-import socket
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import httpx
 import pytest
-import uvicorn
 from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.types import Receive, Scope, Send
@@ -16,36 +13,21 @@ from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool
-from tests.test_helpers import wait_for_server
 
 SERVER_NAME = "test_streamable_http_security_server"
 
 
-@pytest.fixture
-def server_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.fixture
-def server_url(server_port: int) -> str:  # pragma: no cover
-    return f"http://127.0.0.1:{server_port}"
-
-
-class SecurityTestServer(Server):  # pragma: no cover
+class SecurityTestServer(Server):
     def __init__(self):
         super().__init__(SERVER_NAME)
 
     async def on_list_tools(self) -> list[Tool]:
-        return []
+        return []  # pragma: no cover
 
 
-def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):  # pragma: no cover
-    """Run the StreamableHTTP server with specified security settings."""
+def make_app(security_settings: TransportSecuritySettings | None = None) -> Starlette:
+    """Build a Starlette app with the given security settings."""
     app = SecurityTestServer()
-
-    # Create session manager with security settings
     session_manager = StreamableHTTPSessionManager(
         app=app,
         json_response=False,
@@ -53,239 +35,164 @@ def run_server_with_settings(port: int, security_settings: TransportSecuritySett
         security_settings=security_settings,
     )
 
-    # Create the ASGI handler
     async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
         await session_manager.handle_request(scope, receive, send)
 
-    # Create Starlette app with lifespan
     @asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
         async with session_manager.run():
             yield
 
-    routes = [
-        Mount("/", app=handle_streamable_http),
-    ]
-
-    starlette_app = Starlette(routes=routes, lifespan=lifespan)
-    uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="error")
+    return Starlette(routes=[Mount("/", app=handle_streamable_http)], lifespan=lifespan)
 
 
-def start_server_process(port: int, security_settings: TransportSecuritySettings | None = None):
-    """Start server in a separate process."""
-    process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
-    process.start()
-    # Wait for server to be ready to accept connections
-    wait_for_server(port)
-    return process
+@asynccontextmanager
+async def make_client(
+    security_settings: TransportSecuritySettings | None = None,
+) -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Create an httpx client wired to an in-process ASGI app via ASGITransport.
+
+    StreamableHTTP POST requests return promptly (SSE body then close), so the
+    ASGITransport buffering behavior is not an issue here.
+    """
+    app = make_app(security_settings)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver", timeout=5.0) as client:
+            yield client
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_default_settings(server_port: int):
+async def test_streamable_http_security_default_settings():
     """Test StreamableHTTP with default security settings (protection enabled)."""
-    process = start_server_process(server_port)
-
-    try:
-        # Test with valid localhost headers
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # POST request to initialize session
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                headers={
-                    "Accept": "application/json, text/event-stream",
-                    "Content-Type": "application/json",
-                },
-            )
-            assert response.status_code == 200
-            assert "mcp-session-id" in response.headers
-
-    finally:
-        process.terminate()
-        process.join()
+    async with make_client() as client:
+        response = await client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 200
+        assert "mcp-session-id" in response.headers
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_host_header(server_port: int):
+async def test_streamable_http_security_invalid_host_header():
     """Test StreamableHTTP with invalid Host header."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True)
-    process = start_server_process(server_port, security_settings)
-
-    try:
-        # Test with invalid host header
-        headers = {
-            "Host": "evil.com",
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        }
-
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                headers=headers,
-            )
-            assert response.status_code == 421
-            assert response.text == "Invalid Host header"
-
-    finally:
-        process.terminate()
-        process.join()
+    async with make_client(security_settings) as client:
+        response = await client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+            headers={
+                "Host": "evil.com",
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 421
+        assert response.text == "Invalid Host header"
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_origin_header(server_port: int):
+async def test_streamable_http_security_invalid_origin_header():
     """Test StreamableHTTP with invalid Origin header."""
-    security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"])
-    process = start_server_process(server_port, security_settings)
-
-    try:
-        # Test with invalid origin header
-        headers = {
-            "Origin": "http://evil.com",
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        }
-
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                headers=headers,
-            )
-            assert response.status_code == 403
-            assert response.text == "Invalid Origin header"
-
-    finally:
-        process.terminate()
-        process.join()
+    security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["testserver"])
+    async with make_client(security_settings) as client:
+        response = await client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+            headers={
+                "Origin": "http://evil.com",
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 403
+        assert response.text == "Invalid Origin header"
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_content_type(server_port: int):
+async def test_streamable_http_security_invalid_content_type():
     """Test StreamableHTTP POST with invalid Content-Type header."""
-    process = start_server_process(server_port)
+    async with make_client() as client:
+        # Test POST with invalid content type
+        response = await client.post(
+            "/",
+            headers={
+                "Content-Type": "text/plain",
+                "Accept": "application/json, text/event-stream",
+            },
+            content="test",
+        )
+        assert response.status_code == 400
+        assert response.text == "Invalid Content-Type header"
 
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # Test POST with invalid content type
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                headers={
-                    "Content-Type": "text/plain",
-                    "Accept": "application/json, text/event-stream",
-                },
-                content="test",
-            )
-            assert response.status_code == 400
-            assert response.text == "Invalid Content-Type header"
-
-            # Test POST with missing content type
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                headers={"Accept": "application/json, text/event-stream"},
-                content="test",
-            )
-            assert response.status_code == 400
-            assert response.text == "Invalid Content-Type header"
-
-    finally:
-        process.terminate()
-        process.join()
+        # Test POST with missing content type
+        response = await client.post(
+            "/",
+            headers={"Accept": "application/json, text/event-stream"},
+            content="test",
+        )
+        assert response.status_code == 400
+        assert response.text == "Invalid Content-Type header"
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_disabled(server_port: int):
+async def test_streamable_http_security_disabled():
     """Test StreamableHTTP with security disabled."""
     settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-    process = start_server_process(server_port, settings)
-
-    try:
-        # Test with invalid host header - should still work
-        headers = {
-            "Host": "evil.com",
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        }
-
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                headers=headers,
-            )
-            # Should connect successfully even with invalid host
-            assert response.status_code == 200
-
-    finally:
-        process.terminate()
-        process.join()
+    async with make_client(settings) as client:
+        response = await client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+            headers={
+                "Host": "evil.com",
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+        # Should connect successfully even with invalid host
+        assert response.status_code == 200
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
+async def test_streamable_http_security_custom_allowed_hosts():
     """Test StreamableHTTP with custom allowed hosts."""
     settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=["localhost", "127.0.0.1", "custom.host"],
-        allowed_origins=["http://localhost", "http://127.0.0.1", "http://custom.host"],
+        allowed_hosts=["localhost", "testserver", "custom.host"],
+        allowed_origins=["http://localhost", "http://testserver", "http://custom.host"],
     )
-    process = start_server_process(server_port, settings)
-
-    try:
-        # Test with custom allowed host
-        headers = {
-            "Host": "custom.host",
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        }
-
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(
-                f"http://127.0.0.1:{server_port}/",
-                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
-                headers=headers,
-            )
-            # Should connect successfully with custom host
-            assert response.status_code == 200
-    finally:
-        process.terminate()
-        process.join()
+    async with make_client(settings) as client:
+        response = await client.post(
+            "/",
+            json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+            headers={
+                "Host": "custom.host",
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+            },
+        )
+        # Should connect successfully with custom host
+        assert response.status_code == 200
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_get_request(server_port: int):
+async def test_streamable_http_security_get_request():
     """Test StreamableHTTP GET request with security."""
-    security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1"])
-    process = start_server_process(server_port, security_settings)
-
-    try:
+    security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["testserver"])
+    async with make_client(security_settings) as client:
         # Test GET request with invalid host header
-        headers = {
-            "Host": "evil.com",
-            "Accept": "text/event-stream",
-        }
+        response = await client.get("/", headers={"Host": "evil.com", "Accept": "text/event-stream"})
+        assert response.status_code == 421
+        assert response.text == "Invalid Host header"
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"http://127.0.0.1:{server_port}/", headers=headers)
-            assert response.status_code == 421
-            assert response.text == "Invalid Host header"
-
-        # Test GET request with valid host header
-        headers = {
-            "Host": "127.0.0.1",
-            "Accept": "text/event-stream",
-        }
-
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # GET requests need a session ID in StreamableHTTP
-            # So it will fail with "Missing session ID" not security error
-            response = await client.get(f"http://127.0.0.1:{server_port}/", headers=headers)
-            # This should pass security but fail on session validation
-            assert response.status_code == 400
-            body = response.json()
-            assert "Missing session ID" in body["error"]["message"]
-
-    finally:
-        process.terminate()
-        process.join()
+        # Test GET request with valid host header but no session ID
+        # Should pass security but fail on session validation
+        response = await client.get("/", headers={"Host": "testserver", "Accept": "text/event-stream"})
+        assert response.status_code == 400
+        body = response.json()
+        assert "Missing session ID" in body["error"]["message"]
