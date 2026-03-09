@@ -109,7 +109,7 @@ async def test_stdin_eof_monitor_detects_hangup():
                         await anyio.sleep(0.05)
     finally:
         os.close(read_fd)
-        if write_fd != -1:
+        if write_fd != -1:  # pragma: no cover
             os.close(write_fd)
 
 
@@ -146,5 +146,5 @@ async def test_stdin_eof_monitor_ignores_pollin_events():
                         await anyio.sleep(0.05)
     finally:
         os.close(read_fd)
-        if write_fd != -1:
+        if write_fd != -1:  # pragma: no cover
             os.close(write_fd)
