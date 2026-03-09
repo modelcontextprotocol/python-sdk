@@ -413,3 +413,51 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+@pytest.mark.anyio
+async def test_terminate_closes_sse_stream_writers():
+    """Test that terminate() closes all active SSE stream writers."""
+    transport = StreamableHTTPServerTransport(mcp_session_id="test-sse-close")
+
+    # Create memory object streams to simulate active SSE writers
+    send1, recv1 = anyio.create_memory_object_stream[dict[str, str]]()
+    send2, recv2 = anyio.create_memory_object_stream[dict[str, str]]()
+
+    # Inject fake SSE writers into the transport
+    transport._sse_stream_writers["req-1"] = send1
+    transport._sse_stream_writers["req-2"] = send2
+
+    await transport.terminate()
+
+    # Writers should be closed (sending raises ClosedResourceError)
+    with pytest.raises(anyio.ClosedResourceError):
+        await send1.send({"data": "test"})
+    with pytest.raises(anyio.ClosedResourceError):
+        await send2.send({"data": "test"})
+
+    # Dict should be cleared
+    assert len(transport._sse_stream_writers) == 0
+
+    # Clean up receive streams
+    recv1.close()
+    recv2.close()
+
+
+@pytest.mark.anyio
+async def test_manager_shutdown_handles_terminate_exception(caplog: pytest.LogCaptureFixture):
+    """Test that manager shutdown continues even if transport.terminate() raises."""
+    app = Server("test-shutdown-error")
+    manager = StreamableHTTPSessionManager(app=app)
+
+    with caplog.at_level(logging.DEBUG):
+        async with manager.run():
+            # Inject a mock transport that raises on terminate
+            mock_transport = AsyncMock(spec=StreamableHTTPServerTransport)
+            mock_transport.terminate = AsyncMock(side_effect=RuntimeError("terminate failed"))
+            mock_transport.idle_scope = None
+            manager._server_instances["bad-session"] = mock_transport
+
+    # Manager should have shut down cleanly despite the exception
+    assert len(manager._server_instances) == 0
+    assert "Error terminating transport during shutdown" in caplog.text
