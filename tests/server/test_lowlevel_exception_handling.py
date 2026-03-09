@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, Mock
 
+import anyio
 import pytest
 
 from mcp import types
@@ -72,3 +73,51 @@ async def test_normal_message_handling_not_affected():
 
     # Verify _handle_request was called
     server._handle_request.assert_called_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_class",
+    [anyio.ClosedResourceError, anyio.BrokenResourceError],
+)
+async def test_exception_handling_with_disconnected_client(error_class: type[Exception]):
+    """Test that send_log_message failure due to client disconnect is handled gracefully.
+
+    When a client disconnects and the write stream is closed, send_log_message
+    raises ClosedResourceError or BrokenResourceError. The server should catch
+    these and not crash the session (fixes #2064).
+    """
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=error_class())
+
+    test_exception = RuntimeError("Client disconnected mid-request")
+
+    # Should NOT raise — the ClosedResourceError/BrokenResourceError from
+    # send_log_message should be caught and suppressed.
+    await server._handle_message(test_exception, session, {}, raise_exceptions=False)
+
+    # send_log_message was still attempted
+    session.send_log_message.assert_called_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error_class",
+    [anyio.ClosedResourceError, anyio.BrokenResourceError],
+)
+async def test_exception_handling_with_disconnected_client_raise_exceptions(error_class: type[Exception]):
+    """Test that the original exception is still raised when raise_exceptions=True,
+    even if send_log_message fails due to client disconnect.
+    """
+    server = Server("test-server")
+    session = Mock(spec=ServerSession)
+    session.send_log_message = AsyncMock(side_effect=error_class())
+
+    test_exception = RuntimeError("Client disconnected mid-request")
+
+    # The original exception should still be raised
+    with pytest.raises(RuntimeError, match="Client disconnected mid-request"):
+        await server._handle_message(test_exception, session, {}, raise_exceptions=True)
+
+    session.send_log_message.assert_called_once()
