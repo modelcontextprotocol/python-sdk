@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import anyio
 import httpx
 import pytest
-from starlette.types import Message
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mcp import Client, types
 from mcp.client.streamable_http import streamable_http_client
@@ -563,15 +563,15 @@ class SSECloseTracker:
     "upstream prematurely closed connection while reading upstream".
     """
 
-    def __init__(self, app: StreamableHTTPASGIApp) -> None:
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
         self.sse_streams_opened = 0
         self.sse_streams_closed_cleanly = 0
 
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         is_sse = False
 
-        async def tracking_send(message: dict[str, Any]) -> None:
+        async def tracking_send(message: Message) -> None:
             nonlocal is_sse
             if message["type"] == "http.response.start":
                 for name, value in message.get("headers", []):
