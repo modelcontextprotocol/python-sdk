@@ -88,25 +88,27 @@ async def test_stdin_eof_monitor_detects_hangup():
     """The EOF monitor cancels the task group when stdin pipe closes."""
     read_fd, write_fd = os.pipe()
     try:
-        # Patch sys.stdin.buffer.fileno to return our read end
         mock_buffer = MagicMock()
         mock_buffer.fileno.return_value = read_fd
 
+        cancelled = False
         with patch.object(sys, "platform", "linux"), patch.object(sys, "stdin", MagicMock(buffer=mock_buffer)):
-            async with anyio.create_task_group() as tg:
-                monitor = _create_stdin_eof_monitor(tg)
-                assert monitor is not None
-                tg.start_soon(monitor)
+            with anyio.CancelScope() as scope:
+                async with anyio.create_task_group() as tg:
+                    monitor = _create_stdin_eof_monitor(tg)
+                    assert monitor is not None
+                    tg.start_soon(monitor)
 
-                # Close the write end to trigger POLLHUP on read end
-                os.close(write_fd)
-                write_fd = -1
+                    # Close the write end to trigger POLLHUP on read end
+                    os.close(write_fd)
+                    write_fd = -1
 
-                # Monitor should detect POLLHUP and cancel the scope
-                # Wait for the cancellation (with timeout to avoid hanging)
-                with anyio.fail_after(5):
-                    while not tg.cancel_scope.cancel_called:
-                        await anyio.sleep(0.05)
+                    # The monitor will cancel the task group scope when it
+                    # detects POLLHUP. Wait with a timeout to avoid hanging.
+                    with anyio.fail_after(5):
+                        await anyio.sleep(10)  # will be cancelled by monitor
+            cancelled = scope.cancel_called or tg.cancel_scope.cancel_called
+        assert cancelled
     finally:
         os.close(read_fd)
         if write_fd != -1:  # pragma: no cover
@@ -141,9 +143,9 @@ async def test_stdin_eof_monitor_ignores_pollin_events():
                 os.close(write_fd)
                 write_fd = -1
 
+                # Wait for the monitor to detect POLLHUP and cancel
                 with anyio.fail_after(5):
-                    while not tg.cancel_scope.cancel_called:
-                        await anyio.sleep(0.05)
+                    await anyio.sleep(10)  # will be cancelled by monitor
     finally:
         os.close(read_fd)
         if write_fd != -1:  # pragma: no cover
