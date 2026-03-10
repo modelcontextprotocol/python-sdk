@@ -13,6 +13,10 @@ nondeterministically in an unrelated later test.
 
 import gc
 import socket
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
 import httpx
 import pytest
@@ -29,6 +33,35 @@ def _unused_tcp_port() -> int:
         return s.getsockname()[1]
 
 
+@contextmanager
+def _assert_no_memory_stream_leak() -> Iterator[None]:
+    """Fail if any anyio MemoryObject stream emits ResourceWarning during the block.
+
+    Uses a custom sys.unraisablehook to capture ONLY MemoryObject stream leaks,
+    ignoring unrelated resources (e.g. PipeHandle from flaky stdio tests on the
+    same xdist worker). gc.collect() is forced after the block to make leaks
+    deterministic.
+    """
+    leaked: list[Any] = []
+    old_hook = sys.unraisablehook
+
+    def hook(args: Any) -> None:  # pragma: no cover
+        # Only executes if a leak occurs (i.e. the bug is present).
+        # Non-MemoryObject unraisables (e.g. PipeHandle leaked by an earlier
+        # flaky test on the same xdist worker) are deliberately ignored —
+        # this test should not fail for another test's resource leak.
+        if "MemoryObject" in repr(args.object):
+            leaked.append(args)
+
+    sys.unraisablehook = hook
+    try:
+        yield
+        gc.collect()
+        assert not leaked, f"Memory streams leaked: {[repr(x.object) for x in leaked]}"
+    finally:
+        sys.unraisablehook = old_hook
+
+
 @pytest.mark.anyio
 async def test_sse_client_closes_all_streams_on_connection_error() -> None:
     """sse_client must close all 4 stream ends when the connection fails.
@@ -38,18 +71,17 @@ async def test_sse_client_closes_all_streams_on_connection_error() -> None:
     """
     port = _unused_tcp_port()
 
-    # sse_client enters a task group BEFORE connecting, so anyio wraps the
-    # ConnectError from aconnect_sse in an ExceptionGroup. ExceptionGroup is
-    # an Exception subclass, so we catch broadly and verify the sub-exception.
-    with pytest.raises(Exception) as exc_info:  # noqa: B017
-        async with sse_client(f"http://127.0.0.1:{port}/sse"):
-            pytest.fail("should not reach here")  # pragma: no cover
+    with _assert_no_memory_stream_leak():
+        # sse_client enters a task group BEFORE connecting, so anyio wraps the
+        # ConnectError from aconnect_sse in an ExceptionGroup.
+        with pytest.raises(Exception) as exc_info:  # noqa: B017
+            async with sse_client(f"http://127.0.0.1:{port}/sse"):
+                pytest.fail("should not reach here")  # pragma: no cover
 
-    assert exc_info.group_contains(httpx.ConnectError)
-
-    # If any stream leaked, gc.collect() triggers ResourceWarning in __del__,
-    # which pytest's filterwarnings=["error"] promotes to a test failure.
-    gc.collect()
+        assert exc_info.group_contains(httpx.ConnectError)
+        # exc_info holds the traceback → holds frame locals → keeps leaked
+        # streams alive. Must drop it before gc.collect() can detect a leak.
+        del exc_info
 
 
 @pytest.mark.anyio
@@ -60,10 +92,9 @@ async def test_streamable_http_client_closes_all_streams_on_exit() -> None:
     This test enters and exits the context without sending any messages, so no
     network connection is ever attempted (streamable_http connects lazily).
     """
-    async with streamable_http_client("http://127.0.0.1:1/mcp"):
-        pass
-
-    gc.collect()
+    with _assert_no_memory_stream_leak():
+        async with streamable_http_client("http://127.0.0.1:1/mcp"):
+            pass
 
 
 @pytest.mark.anyio
@@ -75,8 +106,7 @@ async def test_websocket_client_closes_all_streams_on_connection_error() -> None
     """
     port = _unused_tcp_port()
 
-    with pytest.raises(OSError):
-        async with websocket_client(f"ws://127.0.0.1:{port}/ws"):
-            pytest.fail("should not reach here")  # pragma: no cover
-
-    gc.collect()
+    with _assert_no_memory_stream_leak():
+        with pytest.raises(OSError):
+            async with websocket_client(f"ws://127.0.0.1:{port}/ws"):
+                pytest.fail("should not reach here")  # pragma: no cover
