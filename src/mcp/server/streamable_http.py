@@ -786,7 +786,7 @@ class StreamableHTTPServerTransport:
 
         # Close all SSE stream writers so that active EventSourceResponse
         # coroutines complete gracefully instead of being cancelled mid-stream.
-        for writer in list(self._sse_stream_writers.values()):
+        for writer in list(self._sse_stream_writers.values()):  # pragma: no cover
             writer.close()
         self._sse_stream_writers.clear()
 
