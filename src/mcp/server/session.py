@@ -222,7 +222,7 @@ class ServerSession(
             related_request_id,
         )
 
-    async def send_resource_updated(self, uri: str | AnyUrl) -> None:  # pragma: no cover
+    async def send_resource_updated(self, uri: str | AnyUrl) -> None:  # pragma: lax no cover
         """Send a resource updated notification."""
         await self.send_notification(
             types.ResourceUpdatedNotification(

@@ -40,7 +40,7 @@ class TransportSecurityMiddleware:
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-    def _validate_host(self, host: str | None) -> bool:  # pragma: no cover
+    def _validate_host(self, host: str | None) -> bool:  # pragma: lax no cover
         """Validate the Host header against allowed values."""
         if not host:
             logger.warning("Missing Host header in request")
@@ -62,7 +62,7 @@ class TransportSecurityMiddleware:
         logger.warning(f"Invalid Host header: {host}")
         return False
 
-    def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
+    def _validate_origin(self, origin: str | None) -> bool:  # pragma: lax no cover
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
@@ -104,13 +104,13 @@ class TransportSecurityMiddleware:
             return None
 
         # Validate Host header  # pragma: no cover
-        host = request.headers.get("host")  # pragma: no cover
-        if not self._validate_host(host):  # pragma: no cover
-            return Response("Invalid Host header", status_code=421)  # pragma: no cover
+        host = request.headers.get("host")  # pragma: lax no cover
+        if not self._validate_host(host):  # pragma: lax no cover
+            return Response("Invalid Host header", status_code=421)  # pragma: lax no cover
 
         # Validate Origin header  # pragma: no cover
-        origin = request.headers.get("origin")  # pragma: no cover
-        if not self._validate_origin(origin):  # pragma: no cover
-            return Response("Invalid Origin header", status_code=403)  # pragma: no cover
+        origin = request.headers.get("origin")  # pragma: lax no cover
+        if not self._validate_origin(origin):  # pragma: lax no cover
+            return Response("Invalid Origin header", status_code=403)  # pragma: lax no cover
 
-        return None  # pragma: no cover
+        return None  # pragma: lax no cover
