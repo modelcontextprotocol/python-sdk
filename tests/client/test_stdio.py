@@ -233,9 +233,10 @@ async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
 #   1. `await listener.accept()` blocks until the subprocess connects,
 #      proving it is running.
 #   2. After `_terminate_process_tree()`, `await stream.receive(1)` raises
-#      `EndOfStream` (or `ConnectionResetError` on some platforms) because the
-#      kernel closes all file descriptors — including sockets — when a process
-#      terminates. This is the direct, OS-level proof that the child is dead.
+#      `EndOfStream` (clean close / FIN) or `BrokenResourceError` (abrupt
+#      close / RST — typical on Windows after TerminateJobObject) because the
+#      kernel closes all file descriptors when a process terminates. Either
+#      is the direct, OS-level proof that the child is dead.
 #
 # This replaces an older file-growth-watching approach whose fixed `sleep()`
 # durations raced against slow Python interpreter startup on loaded CI runners.
@@ -289,16 +290,21 @@ async def _accept_alive(sock: anyio.abc.SocketListener) -> anyio.abc.SocketStrea
 async def _assert_stream_closed(stream: anyio.abc.SocketStream) -> None:
     """Assert the peer holding the other end of ``stream`` has terminated.
 
-    When a process dies, the kernel closes all its file descriptors. The next
-    ``receive()`` on the peer socket returns EOF (raises ``anyio.EndOfStream``)
-    or, if the process was killed abruptly, the connection is reset (raises
-    ``ConnectionResetError``). Either is a deterministic, kernel-level signal
-    that the process is dead — no sleeps or polling required.
+    When a process dies, the kernel closes its file descriptors including
+    sockets. The next ``receive()`` on the peer socket unblocks with one of:
+
+    - ``anyio.EndOfStream`` — clean close (FIN), typical after graceful exit
+      or POSIX ``SIGTERM``.
+    - ``anyio.BrokenResourceError`` — abrupt close (RST), typical after
+      Windows ``TerminateJobObject`` or POSIX ``SIGKILL``.
+
+    Either is a deterministic, kernel-level signal that the process is dead —
+    no sleeps or polling required.
     """
     with anyio.fail_after(5.0):
         try:
             data = await stream.receive(1)
-        except (anyio.EndOfStream, ConnectionResetError):
+        except (anyio.EndOfStream, anyio.BrokenResourceError):
             return
     pytest.fail(  # pragma: no cover
         f"subprocess still alive after _terminate_process_tree (received {data!r})"
