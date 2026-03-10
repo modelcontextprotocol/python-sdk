@@ -1,12 +1,11 @@
 import errno
-import os
 import shutil
 import sys
-import tempfile
 import textwrap
 import time
 
 import anyio
+import anyio.abc
 import pytest
 
 from mcp.client.session import ClientSession
@@ -19,8 +18,6 @@ from mcp.client.stdio import (
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
-
-from ..shared.test_win32_utils import escape_path_for_python
 
 # Timeout for cleanup of processes that ignore SIGTERM
 # This timeout ensures the test fails quickly if the cleanup logic doesn't have
@@ -221,283 +218,214 @@ async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
             raise
 
 
-async def _wait_for_file_size(path: str, larger_than: int = 0, *, timeout: float = 10.0) -> int:
-    """Poll until the file at ``path`` has size strictly greater than ``larger_than``.
+# ---------------------------------------------------------------------------
+# TestChildProcessCleanup — socket-based deterministic child liveness probe
+# ---------------------------------------------------------------------------
+#
+# These tests verify that `_terminate_process_tree()` kills the *entire* process
+# tree (not just the immediate child), which is critical for cleaning up tools
+# like `npx` that spawn their own subprocesses.
+#
+# Mechanism: each subprocess in the tree connects a TCP socket back to a
+# listener owned by the test. We then use two kernel-guaranteed blocking-I/O
+# signals — neither requires any `sleep()` or polling loop:
+#
+#   1. `await listener.accept()` blocks until the subprocess connects,
+#      proving it is running.
+#   2. After `_terminate_process_tree()`, `await stream.receive(1)` raises
+#      `EndOfStream` (or `ConnectionResetError` on some platforms) because the
+#      kernel closes all file descriptors — including sockets — when a process
+#      terminates. This is the direct, OS-level proof that the child is dead.
+#
+# This replaces an older file-growth-watching approach whose fixed `sleep()`
+# durations raced against slow Python interpreter startup on loaded CI runners.
 
-    Returns the observed size once the threshold is crossed. Raises ``TimeoutError``
-    (via ``anyio.fail_after``) if the file does not grow past the threshold within
-    ``timeout`` seconds. Used by ``TestChildProcessCleanup`` to deterministically
-    wait for subprocess chains to start writing, replacing fixed ``sleep()`` durations
-    that caused flakiness on loaded CI runners.
+
+def _connect_back_script(port: int) -> str:
+    """Return a ``python -c`` script body that connects to the given port,
+    sends ``b'alive'``, then blocks forever. Used by TestChildProcessCleanup
+    subprocesses as a liveness probe."""
+    return (
+        f"import socket, time\n"
+        f"s = socket.create_connection(('127.0.0.1', {port}))\n"
+        f"s.sendall(b'alive')\n"
+        f"time.sleep(3600)\n"
+    )
+
+
+def _spawn_then_block(child_script: str) -> str:
+    """Return a ``python -c`` script body that spawns ``child_script`` as a
+    subprocess, then blocks forever. The ``!r`` injection avoids nested-quote
+    escaping for arbitrary child script content."""
+    return (
+        f"import subprocess, sys, time\nsubprocess.Popen([sys.executable, '-c', {child_script!r}])\ntime.sleep(3600)\n"
+    )
+
+
+async def _open_liveness_listener() -> tuple[anyio.abc.SocketListener, int]:
+    """Open a TCP listener on localhost and return it along with its port."""
+    multi = await anyio.create_tcp_listener(local_host="127.0.0.1")
+    sock = multi.listeners[0]
+    assert isinstance(sock, anyio.abc.SocketListener)
+    addr = sock.extra(anyio.abc.SocketAttribute.local_address)
+    # IPv4 local_address is (host: str, port: int)
+    assert isinstance(addr, tuple) and len(addr) >= 2 and isinstance(addr[1], int)
+    return sock, addr[1]
+
+
+async def _accept_alive(sock: anyio.abc.SocketListener) -> anyio.abc.SocketStream:
+    """Accept one connection and assert the peer sent ``b'alive'``.
+
+    Blocks deterministically until a subprocess connects (no polling). The
+    outer test bounds this with ``anyio.fail_after`` to catch the case where
+    the subprocess chain failed to start.
     """
-    with anyio.fail_after(timeout):
-        while os.path.getsize(path) <= larger_than:
-            await anyio.sleep(0.05)
-    return os.path.getsize(path)
+    stream = await sock.accept()
+    msg = await stream.receive(5)
+    assert msg == b"alive", f"expected b'alive', got {msg!r}"
+    return stream
+
+
+async def _assert_stream_closed(stream: anyio.abc.SocketStream) -> None:
+    """Assert the peer holding the other end of ``stream`` has terminated.
+
+    When a process dies, the kernel closes all its file descriptors. The next
+    ``receive()`` on the peer socket returns EOF (raises ``anyio.EndOfStream``)
+    or, if the process was killed abruptly, the connection is reset (raises
+    ``ConnectionResetError``). Either is a deterministic, kernel-level signal
+    that the process is dead — no sleeps or polling required.
+    """
+    with anyio.fail_after(5.0):
+        try:
+            data = await stream.receive(1)
+        except (anyio.EndOfStream, ConnectionResetError):
+            return
+    pytest.fail(  # pragma: no cover
+        f"subprocess still alive after _terminate_process_tree (received {data!r})"
+    )
 
 
 class TestChildProcessCleanup:
-    """Tests for child process cleanup functionality using _terminate_process_tree.
-
-    These tests verify that child processes are properly terminated when the parent
-    is killed, addressing the issue where processes like npx spawn child processes
-    that need to be cleaned up. The tests cover various process tree scenarios:
-
-    - Basic parent-child relationship (single child process)
-    - Multi-level process trees (parent → child → grandchild)
-    - Race conditions where parent exits during cleanup
-
-    Note on Windows ResourceWarning:
-    On Windows, we may see ResourceWarning about subprocess still running. This is
-    expected behavior due to how Windows process termination works:
-    - anyio's process.terminate() calls Windows TerminateProcess() API
-    - TerminateProcess() immediately kills the process without allowing cleanup
-    - subprocess.Popen objects in the killed process can't run their cleanup code
-    - Python detects this during garbage collection and issues a ResourceWarning
-
-    This warning does NOT indicate a process leak - the processes are properly
-    terminated. It only means the Popen objects couldn't clean up gracefully.
-    This is a fundamental difference between Windows and Unix process termination.
+    """Integration tests for ``_terminate_process_tree`` covering basic,
+    nested, and early-parent-exit process tree scenarios. See module-level
+    comment above for the socket-based liveness probe mechanism.
     """
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_basic_child_process_cleanup(self):
-        """Test basic parent-child process cleanup.
-        Parent spawns a single child process that writes continuously to a file.
-        """
-        # Create a marker file for the child process to write to
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
-            marker_file = f.name
-
-        # Parent script that spawns a child process
-        parent_script = textwrap.dedent(
-            f"""
-            import subprocess
-            import sys
-            import time
-
-            # Child script that writes continuously
-            child_script = f'''
-            import time
-            with open({escape_path_for_python(marker_file)}, 'a') as f:
-                while True:
-                    f.write(f"{time.time()}")
-                    f.flush()
-                    time.sleep(0.1)
-            '''
-
-            # Start the child process
-            child = subprocess.Popen([sys.executable, '-c', child_script])
-
-            # Parent just sleeps
-            while True:
-                time.sleep(0.1)
-            """
-        )
-
+        """Parent spawns one child; terminating the tree kills both."""
+        sock, port = await _open_liveness_listener()
+        stream: anyio.abc.SocketStream | None = None
         proc = None
         try:
+            # Parent spawns a child; the child connects back to us.
+            parent_script = _spawn_then_block(_connect_back_script(port))
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
 
-            # Poll for child to start writing (bounded wait replaces fixed sleep(0.5)+sleep(0.3))
-            initial_size = await _wait_for_file_size(marker_file, larger_than=0)
-            # Poll for further growth to confirm the child is actively writing in a loop
-            grown_size = await _wait_for_file_size(marker_file, larger_than=initial_size)
-            print(f"Child is writing (file grew from {initial_size} to {grown_size} bytes)")
+            # Deterministic: accept() blocks until the child connects. No sleep.
+            with anyio.fail_after(10.0):
+                stream = await _accept_alive(sock)
 
-            # Terminate using our function (the behavior under test)
+            # Terminate the process tree (the behavior under test).
             await _terminate_process_tree(proc)
-            proc = None  # Successfully terminated; skip redundant cleanup in finally
+            proc = None
 
-            # Verify child stopped writing. _terminate_process_tree on POSIX already polls
-            # for process group death; a single 0.3s check (3x child write interval) suffices.
-            size_after_term = os.path.getsize(marker_file)
-            await anyio.sleep(0.3)
-            final_size = os.path.getsize(marker_file)
-            assert final_size == size_after_term, (
-                f"Child process still running! File grew by {final_size - size_after_term} bytes"
-            )
+            # Deterministic: kernel closed child's socket when it died.
+            await _assert_stream_closed(stream)
 
         finally:
-            # Ensure process tree is terminated even if an assertion above failed,
-            # preventing leaked subprocesses from causing knock-on failures in later tests.
             if proc is not None:  # pragma: no cover
-                # Only reached if an assertion failed before _terminate_process_tree;
-                # ensures the subprocess tree doesn't leak into later tests.
                 with anyio.move_on_after(5.0):
                     await _terminate_process_tree(proc)
-            try:
-                os.unlink(marker_file)
-            except OSError:  # pragma: no cover
-                pass
+            if stream is not None:  # pragma: no branch
+                await stream.aclose()
+            await sock.aclose()
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_nested_process_tree(self):
-        """Test nested process tree cleanup (parent → child → grandchild).
-        Each level writes to a different file to verify all processes are terminated.
-        """
-        # Create temporary files for each process level
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f1:
-            parent_file = f1.name
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f2:
-            child_file = f2.name
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f3:
-            grandchild_file = f3.name
-
-        # Simple nested process tree test
-        # We create parent -> child -> grandchild, each writing to a file
-        parent_script = textwrap.dedent(
-            f"""
-            import subprocess
-            import sys
-            import time
-            import os
-
-            # Child will spawn grandchild and write to child file
-            child_script = f'''import subprocess
-            import sys
-            import time
-
-            # Grandchild just writes to file
-            grandchild_script = \"\"\"import time
-            with open({escape_path_for_python(grandchild_file)}, 'a') as f:
-                while True:
-                    f.write(f"gc {{time.time()}}")
-                    f.flush()
-                    time.sleep(0.1)\"\"\"
-
-            # Spawn grandchild
-            subprocess.Popen([sys.executable, '-c', grandchild_script])
-
-            # Child writes to its file
-            with open({escape_path_for_python(child_file)}, 'a') as f:
-                while True:
-                    f.write(f"c {time.time()}")
-                    f.flush()
-                    time.sleep(0.1)'''
-
-            # Spawn child process
-            subprocess.Popen([sys.executable, '-c', child_script])
-
-            # Parent writes to its file
-            with open({escape_path_for_python(parent_file)}, 'a') as f:
-                while True:
-                    f.write(f"p {time.time()}")
-                    f.flush()
-                    time.sleep(0.1)
-            """
-        )
-
-        files = [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]
+        """Parent → child → grandchild; terminating the tree kills all three."""
+        sock, port = await _open_liveness_listener()
+        streams: list[anyio.abc.SocketStream] = []
         proc = None
         try:
+            # Build a three-level chain: parent spawns child, child spawns
+            # grandchild. Every level connects back to our socket.
+            grandchild = _connect_back_script(port)
+            child = (
+                f"import subprocess, sys\n"
+                f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n" + _connect_back_script(port)
+            )
+            parent_script = (
+                f"import subprocess, sys\n"
+                f"subprocess.Popen([sys.executable, '-c', {child!r}])\n" + _connect_back_script(port)
+            )
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
 
-            # Poll for each level of the tree to start writing (bounded wait).
-            # Grandchild is deepest, so once it's writing, the whole chain is up.
-            for file_path, name in files:
-                size = await _wait_for_file_size(file_path, larger_than=0)
-                await _wait_for_file_size(file_path, larger_than=size)
-                print(f"{name} is writing")
+            # Deterministic: three blocking accepts, one per tree level.
+            with anyio.fail_after(10.0):
+                for _ in range(3):
+                    # Append-in-loop intentional: preserves partially-accepted
+                    # streams for cleanup in `finally` if a later accept fails.
+                    streams.append(await _accept_alive(sock))  # noqa: PERF401
 
-            # Terminate the whole tree (the behavior under test)
+            # Terminate the entire tree.
             await _terminate_process_tree(proc)
-            proc = None  # Successfully terminated; skip redundant cleanup in finally
+            proc = None
 
-            # Verify all stopped. Record sizes once, wait 3x write interval, check none grew.
-            sizes_after_term = {path: os.path.getsize(path) for path, _ in files}
-            await anyio.sleep(0.3)
-            for file_path, name in files:
-                final_size = os.path.getsize(file_path)
-                assert final_size == sizes_after_term[file_path], f"{name} still writing after cleanup!"
+            # Every level of the tree must be dead: three kernel-level EOFs.
+            for stream in streams:
+                await _assert_stream_closed(stream)
 
         finally:
-            # Ensure process tree is terminated even if an assertion above failed.
             if proc is not None:  # pragma: no cover
-                # Only reached if an assertion failed before _terminate_process_tree;
-                # ensures the subprocess tree doesn't leak into later tests.
                 with anyio.move_on_after(5.0):
                     await _terminate_process_tree(proc)
-            for f in [parent_file, child_file, grandchild_file]:
-                try:
-                    os.unlink(f)
-                except OSError:  # pragma: no cover
-                    pass
+            for stream in streams:
+                await stream.aclose()
+            await sock.aclose()
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_early_parent_exit(self):
-        """Test cleanup when parent exits during termination sequence.
-        Tests the race condition where parent might die during our termination
-        sequence but we can still clean up the children via the process group.
+        """Parent exits immediately on SIGTERM; process-group termination still
+        catches the child (exercises the race where the parent dies mid-cleanup).
         """
-        # Create a temporary file for the child
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
-            marker_file = f.name
-
-        # Parent that spawns child and exits immediately on SIGTERM
-        parent_script = textwrap.dedent(
-            f"""
-            import subprocess
-            import sys
-            import time
-            import signal
-
-            # Child that continues running
-            child_script = f'''import time
-            with open({escape_path_for_python(marker_file)}, 'a') as f:
-                while True:
-                    f.write(f"child {time.time()}")
-                    f.flush()
-                    time.sleep(0.1)'''
-
-            # Start child in same process group
-            subprocess.Popen([sys.executable, '-c', child_script])
-
-            # Parent exits immediately on SIGTERM (the race this test exercises)
-            def handle_term(sig, frame):
-                sys.exit(0)
-
-            signal.signal(signal.SIGTERM, handle_term)
-
-            # Wait
-            while True:
-                time.sleep(0.1)
-            """
-        )
-
+        sock, port = await _open_liveness_listener()
+        stream: anyio.abc.SocketStream | None = None
         proc = None
         try:
+            # Parent installs a SIGTERM handler that exits immediately, spawns a
+            # child that connects back to us, then blocks.
+            child = _connect_back_script(port)
+            parent_script = (
+                f"import signal, subprocess, sys, time\n"
+                f"signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
+                f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+                f"time.sleep(3600)\n"
+            )
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
 
-            # Poll for child to start writing (bounded wait)
-            initial_size = await _wait_for_file_size(marker_file, larger_than=0)
-            await _wait_for_file_size(marker_file, larger_than=initial_size)
+            # Deterministic: child connected means both parent and child are up.
+            with anyio.fail_after(10.0):
+                stream = await _accept_alive(sock)
 
-            # Terminate — parent exits immediately on SIGTERM, but process group kill
-            # should still catch the child
+            # Parent will sys.exit(0) on SIGTERM, but the process-group kill
+            # (POSIX killpg / Windows Job Object) must still terminate the child.
             await _terminate_process_tree(proc)
-            proc = None  # Successfully terminated; skip redundant cleanup in finally
+            proc = None
 
-            # Verify child stopped writing
-            size_after_term = os.path.getsize(marker_file)
-            await anyio.sleep(0.3)
-            final_size = os.path.getsize(marker_file)
-            assert final_size == size_after_term, "Child should be terminated"
+            # Child must be dead despite parent's early exit.
+            await _assert_stream_closed(stream)
 
         finally:
-            # Ensure process tree is terminated even if an assertion above failed.
             if proc is not None:  # pragma: no cover
-                # Only reached if an assertion failed before _terminate_process_tree;
-                # ensures the subprocess tree doesn't leak into later tests.
                 with anyio.move_on_after(5.0):
                     await _terminate_process_tree(proc)
-            try:
-                os.unlink(marker_file)
-            except OSError:  # pragma: no cover
-                pass
+            if stream is not None:  # pragma: no branch
+                await stream.aclose()
+            await sock.aclose()
 
 
 @pytest.mark.anyio
