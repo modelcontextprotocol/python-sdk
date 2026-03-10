@@ -104,7 +104,7 @@ class SimpleEventStore(EventStore):
         self._events.append((stream_id, event_id, message))
         return event_id
 
-    async def replay_events_after(  # pragma: no cover
+    async def replay_events_after(  # pragma: lax no cover
         self,
         last_event_id: EventId,
         send_callback: EventCallback,
@@ -140,11 +140,11 @@ class ServerState:
 
 
 @asynccontextmanager
-async def _server_lifespan(_server: Server[ServerState]) -> AsyncIterator[ServerState]:  # pragma: no cover
+async def _server_lifespan(_server: Server[ServerState]) -> AsyncIterator[ServerState]:  # pragma: lax no cover
     yield ServerState()
 
 
-async def _handle_read_resource(  # pragma: no cover
+async def _handle_read_resource(  # pragma: lax no cover
     ctx: ServerRequestContext[ServerState], params: ReadResourceRequestParams
 ) -> ReadResourceResult:
     uri = str(params.uri)
@@ -159,7 +159,7 @@ async def _handle_read_resource(  # pragma: no cover
     return ReadResourceResult(contents=[TextResourceContents(uri=uri, text=text, mime_type="text/plain")])
 
 
-async def _handle_list_tools(  # pragma: no cover
+async def _handle_list_tools(  # pragma: lax no cover
     ctx: ServerRequestContext[ServerState], params: PaginatedRequestParams | None
 ) -> ListToolsResult:
     return ListToolsResult(
@@ -224,7 +224,7 @@ async def _handle_list_tools(  # pragma: no cover
     )
 
 
-async def _handle_call_tool(  # pragma: no cover
+async def _handle_call_tool(  # pragma: lax no cover
     ctx: ServerRequestContext[ServerState], params: CallToolRequestParams
 ) -> CallToolResult:
     name = params.name
@@ -378,7 +378,7 @@ async def _handle_call_tool(  # pragma: no cover
     return CallToolResult(content=[TextContent(type="text", text=f"Called {name}")])
 
 
-def _create_server() -> Server[ServerState]:  # pragma: no cover
+def _create_server() -> Server[ServerState]:  # pragma: lax no cover
     return Server(
         SERVER_NAME,
         lifespan=_server_lifespan,
@@ -392,7 +392,7 @@ def create_app(
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
-) -> Starlette:  # pragma: no cover
+) -> Starlette:  # pragma: lax no cover
     """Create a Starlette application for testing using the session manager.
 
     Args:
@@ -1365,7 +1365,7 @@ async def test_streamablehttp_server_sampling(basic_server: str, basic_server_ur
 
 
 # Context-aware server implementation for testing request context propagation
-async def _handle_context_list_tools(  # pragma: no cover
+async def _handle_context_list_tools(  # pragma: lax no cover
     ctx: ServerRequestContext, params: PaginatedRequestParams | None
 ) -> ListToolsResult:
     return ListToolsResult(
@@ -1390,7 +1390,7 @@ async def _handle_context_list_tools(  # pragma: no cover
     )
 
 
-async def _handle_context_call_tool(  # pragma: no cover
+async def _handle_context_call_tool(  # pragma: lax no cover
     ctx: ServerRequestContext, params: CallToolRequestParams
 ) -> CallToolResult:
     name = params.name
