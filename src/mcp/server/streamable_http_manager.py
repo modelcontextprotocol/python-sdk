@@ -152,6 +152,21 @@ class StreamableHTTPSessionManager:
 
     async def _handle_stateless_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process request in stateless mode - creating a new transport for each request."""
+        # In stateless mode only POST is meaningful.  GET would open a
+        # session-less SSE stream that idles until the platform kills it,
+        # and DELETE has no session to terminate.  Return 405 per spec.
+        request = Request(scope, receive)
+        if request.method != "POST":
+            from starlette.responses import Response
+
+            response = Response(
+                content="Method Not Allowed",
+                status_code=405,
+                headers={"Allow": "POST"},
+            )
+            await response(scope, receive, send)
+            return
+
         logger.debug("Stateless mode: Creating new transport for this request")
         # No session ID needed in stateless mode
         http_transport = StreamableHTTPServerTransport(
