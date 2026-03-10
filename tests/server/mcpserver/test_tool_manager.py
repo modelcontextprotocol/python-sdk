@@ -11,7 +11,6 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
-from mcp.server.session import ServerSessionT
 from mcp.types import TextContent, ToolAnnotations
 
 
@@ -319,7 +318,7 @@ class TestCallTools:
 class TestToolSchema:
     @pytest.mark.anyio
     async def test_context_arg_excluded_from_schema(self):
-        def something(a: int, ctx: Context[ServerSessionT, None]) -> int:  # pragma: no cover
+        def something(a: int, ctx: Context) -> int:  # pragma: no cover
             return a
 
         manager = ToolManager()
@@ -336,7 +335,7 @@ class TestContextHandling:
         """Test that context parameters are properly detected in
         Tool.from_function()."""
 
-        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:  # pragma: no cover
+        def tool_with_context(x: int, ctx: Context) -> str:  # pragma: no cover
             return str(x)
 
         manager = ToolManager()
@@ -359,7 +358,7 @@ class TestContextHandling:
     async def test_context_injection(self):
         """Test that context is properly injected during tool execution."""
 
-        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:
+        def tool_with_context(x: int, ctx: Context) -> str:
             assert isinstance(ctx, Context)
             return str(x)
 
@@ -373,7 +372,7 @@ class TestContextHandling:
     async def test_context_injection_async(self):
         """Test that context is properly injected in async tools."""
 
-        async def async_tool(x: int, ctx: Context[ServerSessionT, None]) -> str:
+        async def async_tool(x: int, ctx: Context) -> str:
             assert isinstance(ctx, Context)
             return str(x)
 
@@ -387,7 +386,7 @@ class TestContextHandling:
     async def test_context_error_handling(self):
         """Test error handling when context injection fails."""
 
-        def tool_with_context(x: int, ctx: Context[ServerSessionT, None]) -> str:
+        def tool_with_context(x: int, ctx: Context) -> str:
             raise ValueError("Test error")
 
         manager = ToolManager()
