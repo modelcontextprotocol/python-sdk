@@ -784,12 +784,11 @@ class StreamableHTTPServerTransport:
         self._terminated = True
         logger.info(f"Terminating session: {self.mcp_session_id}")
 
-        # Close all SSE stream writers
-        sse_stream_writer_keys = list(self._sse_stream_writers.keys())
-        for key in sse_stream_writer_keys:  # pragma: no cover
-            writer = self._sse_stream_writers.pop(key, None)
-            if writer:
-                writer.close()
+        # Close all SSE stream writers so that active EventSourceResponse
+        # coroutines complete gracefully instead of being cancelled mid-stream.
+        for writer in list(self._sse_stream_writers.values()):
+            writer.close()
+        self._sse_stream_writers.clear()
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())
