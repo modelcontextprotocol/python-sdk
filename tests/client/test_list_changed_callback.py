@@ -56,7 +56,6 @@ async def test_resources_list_changed_callback():
 
     @server.tool("trigger_resource_change")
     async def trigger_resource_change(ctx: Context) -> str:
-        # Notify clients that the resource list has changed
         await ctx.session.send_resource_list_changed()
         return "triggered"
 
