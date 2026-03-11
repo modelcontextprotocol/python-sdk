@@ -1,7 +1,9 @@
 import pytest
 
-from mcp.server.mcpserver.prompts.base import Prompt, TextContent, UserMessage
+from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.mcpserver.prompts.manager import PromptManager
+from mcp.types import TextContent
 
 
 class TestPromptManager:
@@ -71,7 +73,7 @@ class TestPromptManager:
         manager = PromptManager()
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
-        messages = await manager.render_prompt("fn")
+        messages = await manager.render_prompt("fn", None, Context())
         assert messages == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
@@ -84,7 +86,7 @@ class TestPromptManager:
         manager = PromptManager()
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
-        messages = await manager.render_prompt("fn", arguments={"name": "World"})
+        messages = await manager.render_prompt("fn", {"name": "World"}, Context())
         assert messages == [UserMessage(content=TextContent(type="text", text="Hello, World!"))]
 
     @pytest.mark.anyio
@@ -92,7 +94,7 @@ class TestPromptManager:
         """Test rendering a non-existent prompt."""
         manager = PromptManager()
         with pytest.raises(ValueError, match="Unknown prompt: unknown"):
-            await manager.render_prompt("unknown")
+            await manager.render_prompt("unknown", None, Context())
 
     @pytest.mark.anyio
     async def test_render_prompt_with_missing_args(self):
@@ -105,4 +107,4 @@ class TestPromptManager:
         prompt = Prompt.from_function(fn)
         manager.add_prompt(prompt)
         with pytest.raises(ValueError, match="Missing required arguments"):
-            await manager.render_prompt("fn")
+            await manager.render_prompt("fn", None, Context())

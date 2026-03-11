@@ -3,8 +3,7 @@ from pydantic import FileUrl
 
 from mcp import Client
 from mcp.client.session import ClientSession
-from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.server import Context
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared._context import RequestContext
 from mcp.types import ListRootsResult, Root, TextContent
 
@@ -26,7 +25,7 @@ async def test_list_roots_callback():
         return callback_return
 
     @server.tool("test_list_roots")
-    async def test_list_roots(context: Context[None], message: str):
+    async def test_list_roots(context: Context, message: str):
         roots = await context.session.list_roots()
         assert roots == callback_return
         return True

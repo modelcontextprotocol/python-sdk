@@ -13,8 +13,12 @@ SessionT = TypeVar("SessionT", bound=BaseSession[Any, Any, Any, Any, Any])
 
 @dataclass(kw_only=True)
 class RequestContext(Generic[SessionT]):
-    """Common context for handling incoming requests."""
+    """Common context for handling incoming requests.
 
-    request_id: RequestId
-    meta: RequestParamsMeta | None
+    For request handlers, request_id is always populated.
+    For notification handlers, request_id is None.
+    """
+
     session: SessionT
+    request_id: RequestId | None = None
+    meta: RequestParamsMeta | None = None

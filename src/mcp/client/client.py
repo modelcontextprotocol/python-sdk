@@ -37,8 +37,8 @@ from mcp.types import (
 class Client:
     """A high-level MCP client for connecting to MCP servers.
 
-    Currently supports in-memory transport for testing. Pass a Server or
-    MCPServer instance directly to the constructor.
+    Supports in-memory transport for testing (pass a Server or MCPServer instance),
+    Streamable HTTP transport (pass a URL string), or a custom Transport instance.
 
     Example:
         ```python
@@ -205,7 +205,7 @@ class Client:
 
         Args:
             uri: The URI of the resource to read.
-            meta: Additional metadata for the request
+            meta: Additional metadata for the request.
 
         Returns:
             The resource content.
@@ -239,7 +239,7 @@ class Client:
             meta: Additional metadata for the request
 
         Returns:
-            The tool result
+            The tool result.
         """
         return await self.session.call_tool(
             name=name,

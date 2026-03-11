@@ -12,7 +12,10 @@ class MCPError(Exception):
 
     def __init__(self, code: int, message: str, data: Any = None):
         super().__init__(code, message, data)
-        self.error = ErrorData(code=code, message=message, data=data)
+        if data is not None:
+            self.error = ErrorData(code=code, message=message, data=data)
+        else:
+            self.error = ErrorData(code=code, message=message)
 
     @property
     def code(self) -> int:
@@ -62,6 +65,7 @@ class UrlElicitationRequiredError(MCPError):
     must complete one or more URL elicitations before the request can be processed.
 
     Example:
+        ```python
         raise UrlElicitationRequiredError([
             ElicitRequestURLParams(
                 message="Authorization required for your files",
@@ -69,6 +73,7 @@ class UrlElicitationRequiredError(MCPError):
                 elicitation_id="auth-001"
             )
         ])
+        ```
     """
 
     def __init__(self, elicitations: list[ElicitRequestURLParams], message: str | None = None):

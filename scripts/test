@@ -2,6 +2,7 @@
 
 set -ex
 
+uv run --frozen coverage erase
 uv run --frozen coverage run -m pytest -n auto $@
 uv run --frozen coverage combine
 uv run --frozen coverage report

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import inspect
+import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -10,7 +12,6 @@ from typing import Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
-from pydantic import BaseModel
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -25,12 +26,11 @@ from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, ProviderTokenVerifier, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
-from mcp.server.elicitation import ElicitationResult, ElicitSchemaModelT, UrlElicitationResult, elicit_with_validation
-from mcp.server.elicitation import elicit_url as _elicit_url
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
+from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
@@ -42,7 +42,30 @@ from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import Annotations, ContentBlock, GetPromptResult, Icon, ToolAnnotations
+from mcp.shared.exceptions import MCPError
+from mcp.types import (
+    Annotations,
+    BlobResourceContents,
+    CallToolRequestParams,
+    CallToolResult,
+    CompleteRequestParams,
+    CompleteResult,
+    Completion,
+    ContentBlock,
+    GetPromptRequestParams,
+    GetPromptResult,
+    Icon,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextContent,
+    TextResourceContents,
+    ToolAnnotations,
+)
 from mcp.types import Prompt as MCPPrompt
 from mcp.types import PromptArgument as MCPPromptArgument
 from mcp.types import Resource as MCPResource
@@ -83,7 +106,7 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     warn_on_duplicate_prompts: bool
 
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
-    """A async context manager that will be called when the server is started."""
+    """An async context manager that will be called when the server is started."""
 
     auth: AuthSettings | None
 
@@ -91,9 +114,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
 def lifespan_wrapper(
     app: MCPServer[LifespanResultT],
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
-) -> Callable[[Server[LifespanResultT, Request]], AbstractAsyncContextManager[LifespanResultT]]:
+) -> Callable[[Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]]:
     @asynccontextmanager
-    async def wrap(_: Server[LifespanResultT, Request]) -> AsyncIterator[LifespanResultT]:
+    async def wrap(_: Server[LifespanResultT]) -> AsyncIterator[LifespanResultT]:
         async with lifespan(app) as context:
             yield context
 
@@ -132,6 +155,9 @@ class MCPServer(Generic[LifespanResultT]):
             auth=auth,
         )
 
+        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
+        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
+        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -140,13 +166,17 @@ class MCPServer(Generic[LifespanResultT]):
             website_url=website_url,
             icons=icons,
             version=version,
+            on_list_tools=self._handle_list_tools,
+            on_call_tool=self._handle_call_tool,
+            on_list_resources=self._handle_list_resources,
+            on_read_resource=self._handle_read_resource,
+            on_list_resource_templates=self._handle_list_resource_templates,
+            on_list_prompts=self._handle_list_prompts,
+            on_get_prompt=self._handle_get_prompt,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
         )
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
-        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
-        self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         # Validate auth configuration
         if self.settings.auth is not None:
             if auth_server_provider and token_verifier:  # pragma: no cover
@@ -163,9 +193,6 @@ class MCPServer(Generic[LifespanResultT]):
         if auth_server_provider and not token_verifier:  # pragma: no cover
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
-
-        # Set up MCP protocol handlers
-        self._setup_handlers()
 
         # Configure logging
         configure_logging(self.settings.log_level)
@@ -263,18 +290,86 @@ class MCPServer(Generic[LifespanResultT]):
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
 
-    def _setup_handlers(self) -> None:
-        """Set up core MCP protocol handlers."""
-        self._lowlevel_server.list_tools()(self.list_tools)
-        # Note: we disable the lowlevel server's input validation.
-        # MCPServer does ad hoc conversion of incoming data before validating -
-        # for now we preserve this for backwards compatibility.
-        self._lowlevel_server.call_tool(validate_input=False)(self.call_tool)
-        self._lowlevel_server.list_resources()(self.list_resources)
-        self._lowlevel_server.read_resource()(self.read_resource)
-        self._lowlevel_server.list_prompts()(self.list_prompts)
-        self._lowlevel_server.get_prompt()(self.get_prompt)
-        self._lowlevel_server.list_resource_templates()(self.list_resource_templates)
+    async def _handle_list_tools(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(tools=await self.list_tools())
+
+    async def _handle_call_tool(
+        self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
+    ) -> CallToolResult:
+        context = Context(request_context=ctx, mcp_server=self)
+        try:
+            result = await self.call_tool(params.name, params.arguments or {}, context)
+        except MCPError:
+            raise
+        except Exception as e:
+            return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        if isinstance(result, CallToolResult):
+            return result
+        if isinstance(result, tuple) and len(result) == 2:
+            unstructured_content, structured_content = result
+            return CallToolResult(
+                content=list(unstructured_content),  # type: ignore[arg-type]
+                structured_content=structured_content,  # type: ignore[arg-type]
+            )
+        if isinstance(result, dict):  # pragma: no cover
+            # TODO: this code path is unreachable — convert_result never returns a raw dict.
+            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
+            # and needs to be cleaned up.
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
+                structured_content=result,
+            )
+        return CallToolResult(content=list(result))
+
+    async def _handle_list_resources(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        return ListResourcesResult(resources=await self.list_resources())
+
+    async def _handle_read_resource(
+        self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
+    ) -> ReadResourceResult:
+        context = Context(request_context=ctx, mcp_server=self)
+        results = await self.read_resource(params.uri, context)
+        contents: list[TextResourceContents | BlobResourceContents] = []
+        for item in results:
+            if isinstance(item.content, bytes):
+                contents.append(
+                    BlobResourceContents(
+                        uri=params.uri,
+                        blob=base64.b64encode(item.content).decode(),
+                        mime_type=item.mime_type or "application/octet-stream",
+                        _meta=item.meta,
+                    )
+                )
+            else:
+                contents.append(
+                    TextResourceContents(
+                        uri=params.uri,
+                        text=item.content,
+                        mime_type=item.mime_type or "text/plain",
+                        _meta=item.meta,
+                    )
+                )
+        return ReadResourceResult(contents=contents)
+
+    async def _handle_list_resource_templates(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
+
+    async def _handle_list_prompts(
+        self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
+    ) -> ListPromptsResult:
+        return ListPromptsResult(prompts=await self.list_prompts())
+
+    async def _handle_get_prompt(
+        self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
+    ) -> GetPromptResult:
+        context = Context(request_context=ctx, mcp_server=self)
+        return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
@@ -293,20 +388,13 @@ class MCPServer(Generic[LifespanResultT]):
             for info in tools
         ]
 
-    def get_context(self) -> Context[LifespanResultT, Request]:
-        """Returns a Context object. Note that the context will only be valid
-        during a request; outside a request, most methods will error.
-        """
-        try:
-            request_context = self._lowlevel_server.request_context
-        except LookupError:
-            request_context = None
-        return Context(request_context=request_context, mcp_server=self)
-
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[ContentBlock] | dict[str, Any]:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
+    ) -> Sequence[ContentBlock] | dict[str, Any]:
         """Call a tool by name with arguments."""
-        context = self.get_context()
-        return await self._tool_manager.call_tool(name, arguments, context=context, convert_result=True)
+        if context is None:
+            context = Context(mcp_server=self)
+        return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
 
     async def list_resources(self) -> list[MCPResource]:
         """List all available resources."""
@@ -342,12 +430,14 @@ class MCPServer(Generic[LifespanResultT]):
             for template in templates
         ]
 
-    async def read_resource(self, uri: AnyUrl | str) -> Iterable[ReadResourceContents]:
+    async def read_resource(
+        self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
+    ) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
-
-        context = self.get_context()
+        if context is None:
+            context = Context(mcp_server=self)
         try:
-            resource = await self._resource_manager.get_resource(uri, context=context)
+            resource = await self._resource_manager.get_resource(uri, context)
         except ValueError:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -381,6 +471,8 @@ class MCPServer(Generic[LifespanResultT]):
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            icons: Optional list of icons for the tool
+            meta: Optional metadata dictionary for the tool
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
@@ -429,25 +521,33 @@ class MCPServer(Generic[LifespanResultT]):
             title: Optional human-readable title for the tool
             description: Optional description of what the tool does
             annotations: Optional ToolAnnotations providing additional tool information
+            icons: Optional list of icons for the tool
+            meta: Optional metadata dictionary for the tool
             structured_output: Controls whether the tool's output is structured or unstructured
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
 
         Example:
+            ```python
             @server.tool()
             def my_tool(x: int) -> str:
                 return str(x)
+            ```
 
+            ```python
             @server.tool()
-            def tool_with_context(x: int, ctx: Context) -> str:
-                ctx.info(f"Processing {x}")
+            async def tool_with_context(x: int, ctx: Context) -> str:
+                await ctx.info(f"Processing {x}")
                 return str(x)
+            ```
 
+            ```python
             @server.tool()
             async def async_tool(x: int, context: Context) -> str:
                 await context.report_progress(50, 100)
                 return str(x)
+            ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -479,14 +579,33 @@ class MCPServer(Generic[LifespanResultT]):
         - context: Optional CompletionContext with previously resolved arguments
 
         Example:
+            ```python
             @mcp.completion()
             async def handle_completion(ref, argument, context):
                 if isinstance(ref, ResourceTemplateReference):
                     # Return completions based on ref, argument, and context
                     return Completion(values=["option1", "option2"])
                 return None
+            ```
         """
-        return self._lowlevel_server.completion()
+
+        def decorator(func: _CallableT) -> _CallableT:
+            async def handler(
+                ctx: ServerRequestContext[LifespanResultT], params: CompleteRequestParams
+            ) -> CompleteResult:
+                result = await func(params.ref, params.argument, params.context)
+                return CompleteResult(
+                    completion=result if result is not None else Completion(values=[], total=None, has_more=None),
+                )
+
+            # TODO(maxisbey): remove private access — completion needs post-construction
+            #   handler registration, find a better pattern for this
+            self._lowlevel_server._add_request_handler(  # pyright: ignore[reportPrivateUsage]
+                "completion/complete", handler
+            )
+            return func
+
+        return decorator
 
     def add_resource(self, resource: Resource) -> None:
         """Add a resource to the server.
@@ -525,15 +644,18 @@ class MCPServer(Generic[LifespanResultT]):
             title: Optional human-readable title for the resource
             description: Optional description of the resource
             mime_type: Optional MIME type for the resource
+            icons: Optional list of icons for the resource
+            annotations: Optional annotations for the resource
             meta: Optional metadata dictionary for the resource
 
         Example:
+            ```python
             @server.resource("resource://my-resource")
             def get_data() -> str:
                 return "Hello, world!"
 
             @server.resource("resource://my-resource")
-            async get_data() -> str:
+            async def get_data() -> str:
                 data = await fetch_data()
                 return f"Hello, world! {data}"
 
@@ -545,6 +667,7 @@ class MCPServer(Generic[LifespanResultT]):
             async def get_weather(city: str) -> str:
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
+            ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -625,8 +748,10 @@ class MCPServer(Generic[LifespanResultT]):
             name: Optional name for the prompt (defaults to function name)
             title: Optional human-readable title for the prompt
             description: Optional description of what the prompt does
+            icons: Optional list of icons for the prompt
 
         Example:
+            ```python
             @server.prompt()
             def analyze_table(table_name: str) -> list[Message]:
                 schema = read_table_schema(table_name)
@@ -652,6 +777,7 @@ class MCPServer(Generic[LifespanResultT]):
                         }
                     }
                 ]
+            ```
         """
         # Check if user passed function directly instead of calling decorator
         if callable(name):
@@ -693,9 +819,11 @@ class MCPServer(Generic[LifespanResultT]):
             include_in_schema: Whether to include in OpenAPI schema, defaults to True
 
         Example:
+            ```python
             @server.custom_route("/health", methods=["GET"])
             async def health_check(request: Request) -> Response:
                 return JSONResponse({"status": "ok"})
+            ```
         """
 
         def decorator(  # pragma: no cover
@@ -953,14 +1081,18 @@ class MCPServer(Generic[LifespanResultT]):
             for prompt in prompts
         ]
 
-    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> GetPromptResult:
+    async def get_prompt(
+        self, name: str, arguments: dict[str, Any] | None = None, context: Context[LifespanResultT, Any] | None = None
+    ) -> GetPromptResult:
         """Get a prompt by name with arguments."""
+        if context is None:
+            context = Context(mcp_server=self)
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
                 raise ValueError(f"Unknown prompt: {name}")
 
-            messages = await prompt.render(arguments, context=self.get_context())
+            messages = await prompt.render(arguments, context)
 
             return GetPromptResult(
                 description=prompt.description,
@@ -969,263 +1101,3 @@ class MCPServer(Generic[LifespanResultT]):
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
             raise ValueError(str(e))
-
-
-class Context(BaseModel, Generic[LifespanContextT, RequestT]):
-    """Context object providing access to MCP capabilities.
-
-    This provides a cleaner interface to MCP's RequestContext functionality.
-    It gets injected into tool and resource functions that request it via type hints.
-
-    To use context in a tool function, add a parameter with the Context type annotation:
-
-    ```python
-    @server.tool()
-    def my_tool(x: int, ctx: Context) -> str:
-        # Log messages to the client
-        ctx.info(f"Processing {x}")
-        ctx.debug("Debug info")
-        ctx.warning("Warning message")
-        ctx.error("Error message")
-
-        # Report progress
-        ctx.report_progress(50, 100)
-
-        # Access resources
-        data = ctx.read_resource("resource://data")
-
-        # Get request info
-        request_id = ctx.request_id
-        client_id = ctx.client_id
-
-        return str(x)
-    ```
-
-    The context parameter name can be anything as long as it's annotated with Context.
-    The context is optional - tools that don't need it can omit the parameter.
-    """
-
-    _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
-    _mcp_server: MCPServer | None
-
-    def __init__(
-        self,
-        *,
-        request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
-        mcp_server: MCPServer | None = None,
-        # TODO(Marcelo): We should drop this kwargs parameter.
-        **kwargs: Any,
-    ):
-        super().__init__(**kwargs)
-        self._request_context = request_context
-        self._mcp_server = mcp_server
-
-    @property
-    def mcp_server(self) -> MCPServer:
-        """Access to the MCPServer instance."""
-        if self._mcp_server is None:  # pragma: no cover
-            raise ValueError("Context is not available outside of a request")
-        return self._mcp_server  # pragma: no cover
-
-    @property
-    def request_context(self) -> ServerRequestContext[LifespanContextT, RequestT]:
-        """Access to the underlying request context."""
-        if self._request_context is None:  # pragma: no cover
-            raise ValueError("Context is not available outside of a request")
-        return self._request_context
-
-    async def report_progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
-        """Report progress for the current operation.
-
-        Args:
-            progress: Current progress value e.g. 24
-            total: Optional total value e.g. 100
-            message: Optional message e.g. Starting render...
-        """
-        progress_token = self.request_context.meta.get("progress_token") if self.request_context.meta else None
-
-        if progress_token is None:  # pragma: no cover
-            return
-
-        await self.request_context.session.send_progress_notification(
-            progress_token=progress_token,
-            progress=progress,
-            total=total,
-            message=message,
-        )
-
-    async def read_resource(self, uri: str | AnyUrl) -> Iterable[ReadResourceContents]:
-        """Read a resource by URI.
-
-        Args:
-            uri: Resource URI to read
-
-        Returns:
-            The resource content as either text or bytes
-        """
-        assert self._mcp_server is not None, "Context is not available outside of a request"
-        return await self._mcp_server.read_resource(uri)
-
-    async def elicit(
-        self,
-        message: str,
-        schema: type[ElicitSchemaModelT],
-    ) -> ElicitationResult[ElicitSchemaModelT]:
-        """Elicit information from the client/user.
-
-        This method can be used to interactively ask for additional information from the
-        client within a tool's execution. The client might display the message to the
-        user and collect a response according to the provided schema. Or in case a
-        client is an agent, it might decide how to handle the elicitation -- either by asking
-        the user or automatically generating a response.
-
-        Args:
-            schema: A Pydantic model class defining the expected response structure, according to the specification,
-                    only primitive types are allowed.
-            message: Optional message to present to the user. If not provided, will use
-                    a default message based on the schema
-
-        Returns:
-            An ElicitationResult containing the action taken and the data if accepted
-
-        Note:
-            Check the result.action to determine if the user accepted, declined, or cancelled.
-            The result.data will only be populated if action is "accept" and validation succeeded.
-        """
-
-        return await elicit_with_validation(
-            session=self.request_context.session,
-            message=message,
-            schema=schema,
-            related_request_id=self.request_id,
-        )
-
-    async def elicit_url(
-        self,
-        message: str,
-        url: str,
-        elicitation_id: str,
-    ) -> UrlElicitationResult:
-        """Request URL mode elicitation from the client.
-
-        This directs the user to an external URL for out-of-band interactions
-        that must not pass through the MCP client. Use this for:
-        - Collecting sensitive credentials (API keys, passwords)
-        - OAuth authorization flows with third-party services
-        - Payment and subscription flows
-        - Any interaction where data should not pass through the LLM context
-
-        The response indicates whether the user consented to navigate to the URL.
-        The actual interaction happens out-of-band. When the elicitation completes,
-        call `self.session.send_elicit_complete(elicitation_id)` to notify the client.
-
-        Args:
-            message: Human-readable explanation of why the interaction is needed
-            url: The URL the user should navigate to
-            elicitation_id: Unique identifier for tracking this elicitation
-
-        Returns:
-            UrlElicitationResult indicating accept, decline, or cancel
-        """
-        return await _elicit_url(
-            session=self.request_context.session,
-            message=message,
-            url=url,
-            elicitation_id=elicitation_id,
-            related_request_id=self.request_id,
-        )
-
-    async def log(
-        self,
-        level: Literal["debug", "info", "warning", "error"],
-        message: str,
-        *,
-        logger_name: str | None = None,
-        extra: dict[str, Any] | None = None,
-    ) -> None:
-        """Send a log message to the client.
-
-        Args:
-            level: Log level (debug, info, warning, error)
-            message: Log message
-            logger_name: Optional logger name
-            extra: Optional dictionary with additional structured data to include
-        """
-
-        if extra:
-            log_data = {"message": message, **extra}
-        else:
-            log_data = message
-
-        await self.request_context.session.send_log_message(
-            level=level,
-            data=log_data,
-            logger=logger_name,
-            related_request_id=self.request_id,
-        )
-
-    @property
-    def client_id(self) -> str | None:
-        """Get the client ID if available."""
-        return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
-
-    @property
-    def request_id(self) -> str:
-        """Get the unique ID for this request."""
-        return str(self.request_context.request_id)
-
-    @property
-    def session(self):
-        """Access to the underlying session for advanced usage."""
-        return self.request_context.session
-
-    async def close_sse_stream(self) -> None:
-        """Close the SSE stream to trigger client reconnection.
-
-        This method closes the HTTP connection for the current request, triggering
-        client reconnection. Events continue to be stored in the event store and will
-        be replayed when the client reconnects with Last-Event-ID.
-
-        Use this to implement polling behavior during long-running operations -
-        client will reconnect after the retry interval specified in the priming event.
-
-        Note:
-            This is a no-op if not using StreamableHTTP transport with event_store.
-            The callback is only available when event_store is configured.
-        """
-        if self._request_context and self._request_context.close_sse_stream:  # pragma: no cover
-            await self._request_context.close_sse_stream()
-
-    async def close_standalone_sse_stream(self) -> None:
-        """Close the standalone GET SSE stream to trigger client reconnection.
-
-        This method closes the HTTP connection for the standalone GET stream used
-        for unsolicited server-to-client notifications. The client SHOULD reconnect
-        with Last-Event-ID to resume receiving notifications.
-
-        Note:
-            This is a no-op if not using StreamableHTTP transport with event_store.
-            Currently, client reconnection for standalone GET streams is NOT
-            implemented - this is a known gap.
-        """
-        if self._request_context and self._request_context.close_standalone_sse_stream:  # pragma: no cover
-            await self._request_context.close_standalone_sse_stream()
-
-    # Convenience methods for common log levels
-    async def debug(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
-        """Send a debug log message."""
-        await self.log("debug", message, logger_name=logger_name, extra=extra)
-
-    async def info(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
-        """Send an info log message."""
-        await self.log("info", message, logger_name=logger_name, extra=extra)
-
-    async def warning(
-        self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None
-    ) -> None:
-        """Send a warning log message."""
-        await self.log("warning", message, logger_name=logger_name, extra=extra)
-
-    async def error(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
-        """Send an error log message."""
-        await self.log("error", message, logger_name=logger_name, extra=extra)

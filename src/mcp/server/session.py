@@ -6,30 +6,22 @@ used in MCP servers to interact with the client.
 
 Common usage pattern:
 ```
-    server = Server(name)
-
-    @server.call_tool()
-    async def handle_tool_call(ctx: RequestContext, arguments: dict[str, Any]) -> Any:
+    async def handle_call_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
         # Check client capabilities before proceeding
         if ctx.session.check_client_capability(
             types.ClientCapabilities(experimental={"advanced_tools": dict()})
         ):
-            # Perform advanced tool operations
-            result = await perform_advanced_tool_operation(arguments)
+            result = await perform_advanced_tool_operation(params.arguments)
         else:
-            # Fall back to basic tool operations
-            result = await perform_basic_tool_operation(arguments)
-
+            result = await perform_basic_tool_operation(params.arguments)
         return result
 
-    @server.list_prompts()
-    async def handle_list_prompts(ctx: RequestContext) -> list[types.Prompt]:
-        # Access session for any necessary checks or operations
+    async def handle_list_prompts(ctx: RequestContext, params) -> ListPromptsResult:
         if ctx.session.client_params:
-            # Customize prompts based on client initialization parameters
-            return generate_custom_prompts(ctx.session.client_params)
-        else:
-            return default_prompts
+            return ListPromptsResult(prompts=generate_custom_prompts(ctx.session.client_params))
+        return ListPromptsResult(prompts=default_prompts)
+
+    server = Server(name, on_call_tool=handle_call_tool, on_list_prompts=handle_list_prompts)
 ```
 
 The ServerSession class is typically used internally by the Server class and should not
@@ -371,12 +363,12 @@ class ServerSession(
         """Send a form mode elicitation/create request.
 
         Args:
-            message: The message to present to the user
-            requested_schema: Schema defining the expected response structure
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: The message to present to the user.
+            requested_schema: Schema defining the expected response structure.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response
+            The client's response.
 
         Note:
             This method is deprecated in favor of elicit_form(). It remains for
@@ -393,12 +385,12 @@ class ServerSession(
         """Send a form mode elicitation/create request.
 
         Args:
-            message: The message to present to the user
-            requested_schema: Schema defining the expected response structure
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: The message to present to the user.
+            requested_schema: Schema defining the expected response structure.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response with form data
+            The client's response with form data.
 
         Raises:
             StatelessModeNotSupported: If called in stateless HTTP mode.
@@ -429,13 +421,13 @@ class ServerSession(
         like OAuth flows, credential collection, or payment processing.
 
         Args:
-            message: Human-readable explanation of why the interaction is needed
-            url: The URL the user should navigate to
-            elicitation_id: Unique identifier for tracking this elicitation
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: Human-readable explanation of why the interaction is needed.
+            url: The URL the user should navigate to.
+            elicitation_id: Unique identifier for tracking this elicitation.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response indicating acceptance, decline, or cancellation
+            The client's response indicating acceptance, decline, or cancellation.
 
         Raises:
             StatelessModeNotSupported: If called in stateless HTTP mode.
@@ -507,7 +499,7 @@ class ServerSession(
 
         Args:
             elicitation_id: The unique identifier of the completed elicitation
-            related_request_id: Optional ID of the request that triggered this
+            related_request_id: Optional ID of the request that triggered this notification
         """
         await self.send_notification(
             types.ElicitCompleteNotification(

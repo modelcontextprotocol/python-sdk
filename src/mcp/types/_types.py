@@ -22,7 +22,7 @@ We need this to satisfy the MCP specification, which requires the server to assu
 provided by the client.
 
 See the "Protocol Version Header" at
-https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header).
+https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header.
 """
 
 ProgressToken = str | int
@@ -108,8 +108,7 @@ class Request(MCPModel, Generic[RequestParamsT, MethodT]):
 
 
 class PaginatedRequest(Request[PaginatedRequestParams | None, MethodT], Generic[MethodT]):
-    """Base class for paginated requests,
-    matching the schema's PaginatedRequest interface."""
+    """Base class for paginated requests, matching the schema's PaginatedRequest interface."""
 
     params: PaginatedRequestParams | None = None
 
@@ -174,10 +173,10 @@ class Icon(MCPModel):
 
     theme: IconTheme | None = None
     """Optional theme specifier.
-    
-    `"light"` indicates the icon is designed for a light background, `"dark"` indicates the icon 
+
+    `"light"` indicates the icon is designed for a light background, `"dark"` indicates the icon
     is designed for a dark background.
-    
+
     See https://modelcontextprotocol.io/specification/2025-11-25/schema#icon for more details.
     """
 
@@ -536,7 +535,7 @@ class TaskStatusNotificationParams(NotificationParams, Task):
 
 class TaskStatusNotification(Notification[TaskStatusNotificationParams, Literal["notifications/tasks/status"]]):
     """An optional notification from the receiver to the requestor, informing them that a task's status has changed.
-    Receivers are not required to send these notifications
+    Receivers are not required to send these notifications.
     """
 
     method: Literal["notifications/tasks/status"] = "notifications/tasks/status"
@@ -608,7 +607,7 @@ class ProgressNotificationParams(NotificationParams):
     message: str | None = None
     """Message related to progress.
 
-    This should provide relevant human readable progress information.
+    This should provide relevant human-readable progress information.
     """
 
 
@@ -999,7 +998,9 @@ SamplingMessageContentBlock: TypeAlias = TextContent | ImageContent | AudioConte
 
 SamplingContent: TypeAlias = TextContent | ImageContent | AudioContent
 """Basic content types for sampling responses (without tool use).
-Used for backwards-compatible CreateMessageResult when tools are not used."""
+
+Used for backwards-compatible CreateMessageResult when tools are not used.
+"""
 
 
 class SamplingMessage(MCPModel):
@@ -1117,7 +1118,7 @@ class ToolAnnotations(MCPModel):
     idempotent_hint: bool | None = None
     """
     If true, calling the tool repeatedly with the same arguments
-    will have no additional effect on the its environment.
+    will have no additional effect on its environment.
     (This property is meaningful only when `read_only_hint == false`)
     Default: false
     """
@@ -1265,7 +1266,7 @@ class ModelPreferences(MCPModel):
     sampling.
 
     Because LLMs can vary along multiple dimensions, choosing the "best" model is
-    rarely straightforward.  Different models excel in different areas—some are
+    rarely straightforward. Different models excel in different areas—some are
     faster but less capable, others are more capable but more expensive, and so
     on. This interface allows servers to express their priorities across multiple
     dimensions to help clients make an appropriate selection for their use case.
@@ -1369,7 +1370,7 @@ StopReason = Literal["endTurn", "stopSequence", "maxTokens", "toolUse"] | str
 
 
 class CreateMessageResult(Result):
-    """The client's response to a sampling/create_message request from the server.
+    """The client's response to a sampling/createMessage request from the server.
 
     This is the backwards-compatible version that returns single content (no arrays).
     Used when the request does not include tools.
@@ -1386,7 +1387,7 @@ class CreateMessageResult(Result):
 
 
 class CreateMessageResultWithTools(Result):
-    """The client's response to a sampling/create_message request when tools were provided.
+    """The client's response to a sampling/createMessage request when tools were provided.
 
     This version supports array content for tool use flows.
     """
@@ -1426,14 +1427,14 @@ class PromptReference(MCPModel):
 
     type: Literal["ref/prompt"] = "ref/prompt"
     name: str
-    """The name of the prompt or prompt template"""
+    """The name of the prompt or prompt template."""
 
 
 class CompletionArgument(MCPModel):
     """The argument's information for completion requests."""
 
     name: str
-    """The name of the argument"""
+    """The name of the argument."""
     value: str
     """The value of the argument to use for completion matching."""
 
@@ -1451,7 +1452,7 @@ class CompleteRequestParams(RequestParams):
     ref: ResourceTemplateReference | PromptReference
     argument: CompletionArgument
     context: CompletionContext | None = None
-    """Additional, optional context for completions"""
+    """Additional, optional context for completions."""
 
 
 class CompleteRequest(Request[CompleteRequestParams, Literal["completion/complete"]]):
@@ -1479,7 +1480,7 @@ class Completion(MCPModel):
 
 
 class CompleteResult(Result):
-    """The server's response to a completion/complete request"""
+    """The server's response to a completion/complete request."""
 
     completion: Completion
 
@@ -1522,6 +1523,7 @@ class Root(MCPModel):
 
 class ListRootsResult(Result):
     """The client's response to a roots/list request from the server.
+
     This result contains an array of Root objects, each representing a root directory
     or file that the server can operate on.
     """
@@ -1643,7 +1645,7 @@ class ElicitRequestFormParams(RequestParams):
 
     requested_schema: ElicitRequestedSchema
     """
-    A restricted subset of JSON Schema defining the structure of expected response.
+    A restricted subset of JSON Schema defining the structure of the expected response.
     Only top-level properties are allowed, without nesting.
     """
 
@@ -1697,8 +1699,8 @@ class ElicitResult(Result):
     content: dict[str, str | int | float | bool | list[str] | None] | None = None
     """
     The submitted form data, only present when action is "accept" in form mode.
-    Contains values matching the requested schema. Values can be strings, integers,
-    booleans, or arrays of strings.
+    Contains values matching the requested schema. Values can be strings, integers, floats,
+    booleans, arrays of strings, or null.
     For URL mode, this field is omitted.
     """
 

@@ -12,8 +12,8 @@ from mcp.shared.message import SessionMessage
 
 @asynccontextmanager  # pragma: no cover
 async def websocket_server(scope: Scope, receive: Receive, send: Send):
-    """WebSocket server transport for MCP. This is an ASGI application, suitable to be
-    used with a framework like Starlette and a server like Hypercorn.
+    """WebSocket server transport for MCP. This is an ASGI application, suitable for use
+    with a framework like Starlette and a server like Hypercorn.
     """
 
     websocket = WebSocket(scope, receive, send)
@@ -47,7 +47,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
-                    obj = session_message.message.model_dump_json(by_alias=True, exclude_none=True)
+                    obj = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await websocket.send_text(obj)
         except anyio.ClosedResourceError:
             await websocket.close()

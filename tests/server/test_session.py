@@ -5,7 +5,7 @@ import pytest
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.lowlevel import NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
@@ -14,17 +14,10 @@ from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     ClientNotification,
-    Completion,
-    CompletionArgument,
-    CompletionContext,
     CompletionsCapability,
     InitializedNotification,
-    Prompt,
-    PromptReference,
     PromptsCapability,
-    Resource,
     ResourcesCapability,
-    ResourceTemplateReference,
     ServerCapabilities,
 )
 
@@ -85,47 +78,50 @@ async def test_server_session_initialize():
 
 @pytest.mark.anyio
 async def test_server_capabilities():
-    server = Server("test")
     notification_options = NotificationOptions()
     experimental_capabilities: dict[str, Any] = {}
 
-    # Initially no capabilities
+    async def noop_list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        raise NotImplementedError
+
+    async def noop_list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        raise NotImplementedError
+
+    async def noop_completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> types.CompleteResult:
+        raise NotImplementedError
+
+    # No capabilities
+    server = Server("test")
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts is None
     assert caps.resources is None
     assert caps.completions is None
 
-    # Add a prompts handler
-    @server.list_prompts()
-    async def list_prompts() -> list[Prompt]:  # pragma: no cover
-        return []
-
+    # With prompts handler
+    server = Server("test", on_list_prompts=noop_list_prompts)
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(list_changed=False)
     assert caps.resources is None
     assert caps.completions is None
 
-    # Add a resources handler
-    @server.list_resources()
-    async def list_resources() -> list[Resource]:  # pragma: no cover
-        return []
-
+    # With prompts + resources handlers
+    server = Server("test", on_list_prompts=noop_list_prompts, on_list_resources=noop_list_resources)
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(list_changed=False)
     assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)
     assert caps.completions is None
 
-    # Add a complete handler
-    @server.completion()
-    async def complete(  # pragma: no cover
-        ref: PromptReference | ResourceTemplateReference,
-        argument: CompletionArgument,
-        context: CompletionContext | None,
-    ) -> Completion | None:
-        return Completion(
-            values=["completion1", "completion2"],
-        )
-
+    # With prompts + resources + completion handlers
+    server = Server(
+        "test",
+        on_list_prompts=noop_list_prompts,
+        on_list_resources=noop_list_resources,
+        on_completion=noop_completion,
+    )
     caps = server.get_capabilities(notification_options, experimental_capabilities)
     assert caps.prompts == PromptsCapability(list_changed=False)
     assert caps.resources == ResourcesCapability(subscribe=False, list_changed=False)

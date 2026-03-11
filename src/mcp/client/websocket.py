@@ -25,8 +25,8 @@ async def websocket_client(
         (read_stream, write_stream)
 
     - read_stream: As you read from this stream, you'll receive either valid
-      JSONRPCMessage objects or Exception objects (when validation fails).
-    - write_stream: Write JSONRPCMessage objects to this stream to send them
+      SessionMessage objects or Exception objects (when validation fails).
+    - write_stream: Write SessionMessage objects to this stream to send them
       over the WebSocket to the server.
     """
 
@@ -65,7 +65,7 @@ async def websocket_client(
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
                     # Convert to a dict, then to JSON
-                    msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_none=True)
+                    msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True)
                     await ws.send(json.dumps(msg_dict))
 
         async with anyio.create_task_group() as tg:
