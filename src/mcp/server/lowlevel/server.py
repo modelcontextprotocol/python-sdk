@@ -52,7 +52,7 @@ from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
 from mcp import types
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware, get_tenant_id
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
@@ -461,6 +461,7 @@ class Server(Generic[LifespanResultT]):
                     meta=message.request_meta,
                     session=session,
                     lifespan_context=lifespan_context,
+                    tenant_id=get_tenant_id(),
                     experimental=Experimental(
                         task_metadata=task_metadata,
                         _client_capabilities=client_capabilities,
@@ -503,6 +504,7 @@ class Server(Generic[LifespanResultT]):
                 ctx = ServerRequestContext(
                     session=session,
                     lifespan_context=lifespan_context,
+                    tenant_id=get_tenant_id(),
                     experimental=Experimental(
                         task_metadata=None,
                         _client_capabilities=client_capabilities,

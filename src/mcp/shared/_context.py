@@ -22,3 +22,4 @@ class RequestContext(Generic[SessionT]):
     session: SessionT
     request_id: RequestId | None = None
     meta: RequestParamsMeta | None = None
+    tenant_id: str | None = None

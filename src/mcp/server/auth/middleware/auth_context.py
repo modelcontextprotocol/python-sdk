@@ -20,6 +20,16 @@ def get_access_token() -> AccessToken | None:
     return auth_user.access_token if auth_user else None
 
 
+def get_tenant_id() -> str | None:
+    """Get the tenant_id from the current authentication context.
+
+    Returns:
+        The tenant_id if an authenticated user with a tenant is available, None otherwise.
+    """
+    access_token = get_access_token()
+    return access_token.tenant_id if access_token else None
+
+
 class AuthContextMiddleware:
     """Middleware that extracts the authenticated user from the request
     and sets it in a contextvar for easy access throughout the request lifecycle.
