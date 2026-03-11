@@ -15,6 +15,7 @@ from mcp.client.stdio import (
     _terminate_process_tree,
     stdio_client,
 )
+from mcp.os.win32.utilities import FallbackProcess
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.types import CONNECTION_CLOSED, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
@@ -311,6 +312,32 @@ async def _assert_stream_closed(stream: anyio.abc.SocketStream) -> None:
     )
 
 
+async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None:
+    """Terminate the process tree, then reap and close pipe transports.
+
+    ``_terminate_process_tree`` kills the OS process group / Job Object but does
+    not call ``process.wait()`` or close stdin/stdout pipe wrappers. On Windows,
+    the resulting ``_WindowsSubprocessTransport`` / ``PipeHandle`` objects are
+    then GC'd after the test's ``filterwarnings`` scope has exited, triggering
+    ``PytestUnraisableExceptionWarning`` in whatever test happens to run next.
+
+    The SDK's production path (``stdio.py``) avoids this via ``async with process:``
+    which wraps termination in a context manager whose ``__aexit__`` handles
+    reaping + stream closure. These tests call ``_terminate_process_tree``
+    directly, so they must do the same cleanup explicitly.
+
+    Safe to call on an already-terminated process (termination no-ops, wait
+    returns immediately). Bounded by ``move_on_after`` to prevent hangs.
+    """
+    with anyio.move_on_after(5.0):
+        await _terminate_process_tree(proc)
+        await proc.wait()
+        if proc.stdin is not None:  # pragma: no branch
+            await proc.stdin.aclose()
+        if proc.stdout is not None:  # pragma: no branch
+            await proc.stdout.aclose()
+
+
 class TestChildProcessCleanup:
     """Integration tests for ``_terminate_process_tree`` covering basic,
     nested, and early-parent-exit process tree scenarios. See module-level
@@ -335,15 +362,13 @@ class TestChildProcessCleanup:
 
             # Terminate the process tree (the behavior under test).
             await _terminate_process_tree(proc)
-            proc = None
 
             # Deterministic: kernel closed child's socket when it died.
             await _assert_stream_closed(stream)
 
         finally:
-            if proc is not None:  # pragma: no cover
-                with anyio.move_on_after(5.0):
-                    await _terminate_process_tree(proc)
+            if proc is not None:  # pragma: no branch
+                await _terminate_and_reap(proc)
             if stream is not None:  # pragma: no branch
                 await stream.aclose()
             await sock.aclose()
@@ -378,16 +403,14 @@ class TestChildProcessCleanup:
 
             # Terminate the entire tree.
             await _terminate_process_tree(proc)
-            proc = None
 
             # Every level of the tree must be dead: three kernel-level EOFs.
             for stream in streams:
                 await _assert_stream_closed(stream)
 
         finally:
-            if proc is not None:  # pragma: no cover
-                with anyio.move_on_after(5.0):
-                    await _terminate_process_tree(proc)
+            if proc is not None:  # pragma: no branch
+                await _terminate_and_reap(proc)
             for stream in streams:
                 await stream.aclose()
             await sock.aclose()
@@ -420,15 +443,13 @@ class TestChildProcessCleanup:
             # Parent will sys.exit(0) on SIGTERM, but the process-group kill
             # (POSIX killpg / Windows Job Object) must still terminate the child.
             await _terminate_process_tree(proc)
-            proc = None
 
             # Child must be dead despite parent's early exit.
             await _assert_stream_closed(stream)
 
         finally:
-            if proc is not None:  # pragma: no cover
-                with anyio.move_on_after(5.0):
-                    await _terminate_process_tree(proc)
+            if proc is not None:  # pragma: no branch
+                await _terminate_and_reap(proc)
             if stream is not None:  # pragma: no branch
                 await stream.aclose()
             await sock.aclose()
