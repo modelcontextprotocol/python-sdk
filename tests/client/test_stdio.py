@@ -340,7 +340,6 @@ class TestChildProcessCleanup:
     """
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_basic_child_process_cleanup(self):
         """Parent spawns one child; terminating the tree kills both."""
         async with AsyncExitStack() as stack:
@@ -364,7 +363,6 @@ class TestChildProcessCleanup:
             await _assert_stream_closed(stream)
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_nested_process_tree(self):
         """Parent → child → grandchild; terminating the tree kills all three."""
         async with AsyncExitStack() as stack:
@@ -401,7 +399,6 @@ class TestChildProcessCleanup:
                 await _assert_stream_closed(stream)
 
     @pytest.mark.anyio
-    @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_early_parent_exit(self):
         """Parent exits immediately on SIGTERM; process-group termination still
         catches the child (exercises the race where the parent dies mid-cleanup).
