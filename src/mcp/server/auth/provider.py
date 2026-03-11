@@ -25,6 +25,7 @@ class AuthorizationCode(BaseModel):
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None  # RFC 8707 resource indicator
+    tenant_id: str | None = None  # Tenant this code belongs to
 
 
 class RefreshToken(BaseModel):
@@ -32,6 +33,7 @@ class RefreshToken(BaseModel):
     client_id: str
     scopes: list[str]
     expires_at: int | None = None
+    tenant_id: str | None = None  # Tenant this token belongs to
 
 
 class AccessToken(BaseModel):
@@ -40,6 +42,7 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
+    tenant_id: str | None = None  # Tenant this token belongs to
 
 
 RegistrationErrorCode = Literal[
