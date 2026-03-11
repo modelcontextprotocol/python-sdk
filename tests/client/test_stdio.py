@@ -3,6 +3,7 @@ import shutil
 import sys
 import textwrap
 import time
+from contextlib import AsyncExitStack
 
 import anyio
 import anyio.abc
@@ -302,14 +303,8 @@ async def _assert_stream_closed(stream: anyio.abc.SocketStream) -> None:
     Either is a deterministic, kernel-level signal that the process is dead —
     no sleeps or polling required.
     """
-    with anyio.fail_after(5.0):
-        try:
-            data = await stream.receive(1)
-        except (anyio.EndOfStream, anyio.BrokenResourceError):
-            return
-    pytest.fail(  # pragma: no cover
-        f"subprocess still alive after _terminate_process_tree (received {data!r})"
-    )
+    with anyio.fail_after(5.0), pytest.raises((anyio.EndOfStream, anyio.BrokenResourceError)):
+        await stream.receive(1)
 
 
 async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None:
@@ -332,10 +327,10 @@ async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None
     with anyio.move_on_after(5.0):
         await _terminate_process_tree(proc)
         await proc.wait()
-        if proc.stdin is not None:  # pragma: no branch
-            await proc.stdin.aclose()
-        if proc.stdout is not None:  # pragma: no branch
-            await proc.stdout.aclose()
+        assert proc.stdin is not None
+        assert proc.stdout is not None
+        await proc.stdin.aclose()
+        await proc.stdout.aclose()
 
 
 class TestChildProcessCleanup:
@@ -348,17 +343,19 @@ class TestChildProcessCleanup:
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_basic_child_process_cleanup(self):
         """Parent spawns one child; terminating the tree kills both."""
-        sock, port = await _open_liveness_listener()
-        stream: anyio.abc.SocketStream | None = None
-        proc = None
-        try:
+        async with AsyncExitStack() as stack:
+            sock, port = await _open_liveness_listener()
+            stack.push_async_callback(sock.aclose)
+
             # Parent spawns a child; the child connects back to us.
             parent_script = _spawn_then_block(_connect_back_script(port))
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            stack.push_async_callback(_terminate_and_reap, proc)
 
             # Deterministic: accept() blocks until the child connects. No sleep.
             with anyio.fail_after(10.0):
                 stream = await _accept_alive(sock)
+            stack.push_async_callback(stream.aclose)
 
             # Terminate the process tree (the behavior under test).
             await _terminate_process_tree(proc)
@@ -366,21 +363,14 @@ class TestChildProcessCleanup:
             # Deterministic: kernel closed child's socket when it died.
             await _assert_stream_closed(stream)
 
-        finally:
-            if proc is not None:  # pragma: no branch
-                await _terminate_and_reap(proc)
-            if stream is not None:  # pragma: no branch
-                await stream.aclose()
-            await sock.aclose()
-
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_nested_process_tree(self):
         """Parent → child → grandchild; terminating the tree kills all three."""
-        sock, port = await _open_liveness_listener()
-        streams: list[anyio.abc.SocketStream] = []
-        proc = None
-        try:
+        async with AsyncExitStack() as stack:
+            sock, port = await _open_liveness_listener()
+            stack.push_async_callback(sock.aclose)
+
             # Build a three-level chain: parent spawns child, child spawns
             # grandchild. Every level connects back to our socket.
             grandchild = _connect_back_script(port)
@@ -393,13 +383,15 @@ class TestChildProcessCleanup:
                 f"subprocess.Popen([sys.executable, '-c', {child!r}])\n" + _connect_back_script(port)
             )
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            stack.push_async_callback(_terminate_and_reap, proc)
 
             # Deterministic: three blocking accepts, one per tree level.
+            streams: list[anyio.abc.SocketStream] = []
             with anyio.fail_after(10.0):
                 for _ in range(3):
-                    # Append-in-loop intentional: preserves partially-accepted
-                    # streams for cleanup in `finally` if a later accept fails.
-                    streams.append(await _accept_alive(sock))  # noqa: PERF401
+                    stream = await _accept_alive(sock)
+                    stack.push_async_callback(stream.aclose)
+                    streams.append(stream)
 
             # Terminate the entire tree.
             await _terminate_process_tree(proc)
@@ -408,23 +400,16 @@ class TestChildProcessCleanup:
             for stream in streams:
                 await _assert_stream_closed(stream)
 
-        finally:
-            if proc is not None:  # pragma: no branch
-                await _terminate_and_reap(proc)
-            for stream in streams:
-                await stream.aclose()
-            await sock.aclose()
-
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
     async def test_early_parent_exit(self):
         """Parent exits immediately on SIGTERM; process-group termination still
         catches the child (exercises the race where the parent dies mid-cleanup).
         """
-        sock, port = await _open_liveness_listener()
-        stream: anyio.abc.SocketStream | None = None
-        proc = None
-        try:
+        async with AsyncExitStack() as stack:
+            sock, port = await _open_liveness_listener()
+            stack.push_async_callback(sock.aclose)
+
             # Parent installs a SIGTERM handler that exits immediately, spawns a
             # child that connects back to us, then blocks.
             child = _connect_back_script(port)
@@ -435,10 +420,12 @@ class TestChildProcessCleanup:
                 f"time.sleep(3600)\n"
             )
             proc = await _create_platform_compatible_process(sys.executable, ["-c", parent_script])
+            stack.push_async_callback(_terminate_and_reap, proc)
 
             # Deterministic: child connected means both parent and child are up.
             with anyio.fail_after(10.0):
                 stream = await _accept_alive(sock)
+            stack.push_async_callback(stream.aclose)
 
             # Parent will sys.exit(0) on SIGTERM, but the process-group kill
             # (POSIX killpg / Windows Job Object) must still terminate the child.
@@ -446,13 +433,6 @@ class TestChildProcessCleanup:
 
             # Child must be dead despite parent's early exit.
             await _assert_stream_closed(stream)
-
-        finally:
-            if proc is not None:  # pragma: no branch
-                await _terminate_and_reap(proc)
-            if stream is not None:  # pragma: no branch
-                await stream.aclose()
-            await sock.aclose()
 
 
 @pytest.mark.anyio
