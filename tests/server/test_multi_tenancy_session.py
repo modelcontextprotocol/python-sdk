@@ -155,3 +155,119 @@ def test_get_tenant_id_from_auth_context():
         assert get_tenant_id() == "tenant-xyz"
     finally:
         auth_context_var.reset(token)
+
+
+@pytest.mark.anyio
+async def test_tenant_context_isolation_between_concurrent_requests():
+    """Verify tenant_id doesn't leak between concurrent async contexts.
+
+    This test validates a critical security property: when multiple requests
+    from different tenants are processed concurrently, each request must only
+    see its own tenant_id, never another tenant's.
+
+    How it works:
+    1. We simulate two concurrent requests, each with a different tenant_id
+       ("tenant-A" and "tenant-B").
+
+    2. Each simulated request:
+       - Creates an AccessToken with its tenant_id
+       - Sets it in the auth_context_var (the contextvar used for auth state)
+       - Yields control via anyio.sleep() to allow the other task to run
+       - Reads back the tenant_id via get_tenant_id()
+       - Stores the result for verification
+
+    3. The anyio.sleep(0.01) is intentional - it forces a context switch,
+       creating an opportunity for tenant context to "leak" if the isolation
+       is broken. Without proper contextvar isolation, task2 might see
+       task1's tenant_id (or vice versa) after the context switch.
+
+    4. We use anyio.create_task_group() to run both tasks truly concurrently,
+       not sequentially. This is essential for testing isolation.
+
+    5. Finally, we verify each request saw only its own tenant_id.
+
+    If this test fails, it indicates a serious security issue where tenant
+    data could leak between concurrent requests.
+    """
+    # Store results from each simulated request
+    results: dict[str, str | None] = {}
+
+    async def simulate_request(tenant_id: str, request_key: str) -> None:
+        """Simulate a request with a specific tenant context.
+
+        Args:
+            tenant_id: The tenant_id to set in the auth context
+            request_key: A key to identify this request's result
+        """
+        # Create an access token with the tenant_id, simulating what
+        # the auth middleware does when a request comes in
+        access_token = AccessToken(
+            token=f"token-{request_key}",
+            client_id="test-client",
+            scopes=["read"],
+            expires_at=int(time.time()) + 3600,
+            tenant_id=tenant_id,
+        )
+        user = AuthenticatedUser(access_token)
+
+        # Set the auth context - this is what AuthContextMiddleware does
+        context_token = auth_context_var.set(user)
+        try:
+            # Yield control to allow other tasks to run. This is the critical
+            # point where context leakage could occur if isolation is broken.
+            await anyio.sleep(0.01)
+
+            # Read back the tenant_id - should still be our tenant, not the other
+            results[request_key] = get_tenant_id()
+        finally:
+            # Always reset the context (mirrors middleware behavior)
+            auth_context_var.reset(context_token)
+
+    # Run both requests concurrently using a task group
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(simulate_request, "tenant-A", "request1")
+        tg.start_soon(simulate_request, "tenant-B", "request2")
+
+    # Verify isolation: each request should see only its own tenant_id
+    assert results["request1"] == "tenant-A", "Request 1 saw wrong tenant_id"
+    assert results["request2"] == "tenant-B", "Request 2 saw wrong tenant_id"
+
+
+@pytest.mark.anyio
+async def test_server_session_isolation_between_instances(init_options: InitializationOptions):
+    """Verify tenant_id is isolated between separate ServerSession instances.
+
+    This test ensures that setting tenant_id on one ServerSession does not
+    affect another ServerSession instance. Each session should maintain its
+    own independent tenant context.
+
+    This is important for scenarios where a server handles multiple sessions
+    concurrently - each session belongs to a specific tenant and must not
+    see or affect other tenants' sessions.
+    """
+    # Create streams for two independent sessions
+    send1, recv1 = anyio.create_memory_object_stream[SessionMessage](1)
+    send2, recv2 = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    send3, recv3 = anyio.create_memory_object_stream[SessionMessage](1)
+    send4, recv4 = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    async with send1, recv1, send2, recv2, send3, recv3, send4, recv4:
+        # Create two separate server sessions
+        async with (
+            ServerSession(recv2, send1, init_options) as session1,
+            ServerSession(recv4, send3, init_options) as session2,
+        ):
+            # Set different tenant_ids on each session
+            session1.tenant_id = "tenant-alpha"
+            session2.tenant_id = "tenant-beta"
+
+            # Verify each session maintains its own tenant_id
+            assert session1.tenant_id == "tenant-alpha"
+            assert session2.tenant_id == "tenant-beta"
+
+            # Modify one session's tenant_id
+            session1.tenant_id = "tenant-gamma"
+
+            # Verify the other session is unaffected
+            assert session1.tenant_id == "tenant-gamma"
+            assert session2.tenant_id == "tenant-beta"  # Still beta, not gamma
