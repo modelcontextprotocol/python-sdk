@@ -1452,6 +1452,38 @@ def test_streamable_http_no_redirect() -> None:
     assert streamable_routes[0].path == "/mcp", "Streamable route path should be /mcp"
 
 
+def test_streamable_http_routes_use_exact_path() -> None:
+    """Test that exact StreamableHTTP routes can be registered on a parent router."""
+    mcp = MCPServer()
+
+    routes = mcp.streamable_http_routes(path="/mcp")
+
+    streamable_routes = [route for route in routes if isinstance(route, Route) and route.path == "/mcp"]
+
+    assert len(streamable_routes) == 1, "Should have one exact streamable route"
+    assert streamable_routes[0].path == "/mcp"
+
+
+def test_streamable_http_routes_create_session_manager() -> None:
+    """Test that streamable_http_routes initializes the session manager lazily."""
+    mcp = MCPServer()
+
+    mcp.streamable_http_routes(path="/mcp")
+
+    assert mcp.session_manager is mcp._lowlevel_server.session_manager
+
+
+def test_streamable_http_app_empty_path_has_actionable_error() -> None:
+    """Test that empty sub-app paths raise an SDK error with a clear workaround."""
+    mcp = MCPServer()
+
+    with pytest.raises(
+        ValueError,
+        match=r'streamable_http_app\(streamable_http_path=""\).*streamable_http_routes\(path="/mcp"\)',
+    ):
+        mcp.streamable_http_app(streamable_http_path="")
+
+
 async def test_report_progress_passes_related_request_id():
     """Test that report_progress passes the request_id as related_request_id.
 

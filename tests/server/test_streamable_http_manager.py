@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import anyio
 import httpx
 import pytest
+from starlette.applications import Starlette
 from starlette.types import Message
 
 from mcp import Client
@@ -336,6 +337,41 @@ async def test_e2e_streamable_http_server_cleanup():
         Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
     ):
         await client.list_tools()
+
+
+@pytest.mark.anyio
+async def test_streamable_http_routes_support_exact_path_without_redirect():
+    host = "testserver"
+
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[])
+
+    server = Server("test-server", on_list_tools=handle_list_tools)
+    app = Starlette(
+        routes=server.streamable_http_routes(path="/mcp", host=host),
+        lifespan=lambda _: server.session_manager.run(),
+    )
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx.ASGITransport(app) as transport,
+        httpx.AsyncClient(transport=transport, base_url=f"http://{host}") as http_client,
+    ):
+        response = await http_client.post(
+            "/mcp",
+            content=b"not-json",
+            follow_redirects=False,
+            headers={
+                "accept": "application/json, text/event-stream",
+                "content-type": "application/json",
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.headers.get("location") is None
+
+        async with Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client:
+            await client.list_tools()
 
 
 @pytest.mark.anyio

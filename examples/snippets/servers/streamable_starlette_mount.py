@@ -48,6 +48,8 @@ app = Starlette(
 )
 
 # Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
-# To mount at the root of each path (e.g., /echo instead of /echo/mcp):
-# echo_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
-# math_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
+# For exact endpoints like /echo and /math, register routes directly instead:
+# routes = [
+#     *echo_mcp.streamable_http_routes(path="/echo", stateless_http=True, json_response=True),
+#     *math_mcp.streamable_http_routes(path="/math", stateless_http=True, json_response=True),
+# ]

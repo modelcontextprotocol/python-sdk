@@ -1,11 +1,12 @@
-"""Example showing path configuration when mounting MCPServer.
+"""Example showing exact-path StreamableHTTP registration in Starlette.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
-from starlette.routing import Mount
 
 from mcp.server.mcpserver import MCPServer
 
@@ -19,13 +20,14 @@ def process_data(data: str) -> str:
     return f"Processed: {data}"
 
 
-# Mount at /process with streamable_http_path="/" so the endpoint is /process (not /process/mcp)
-# Transport-specific options like json_response are passed to streamable_http_app()
-app = Starlette(
-    routes=[
-        Mount(
-            "/process",
-            app=mcp_at_root.streamable_http_app(json_response=True, streamable_http_path="/"),
-        ),
-    ]
-)
+routes = mcp_at_root.streamable_http_routes(path="/process", json_response=True)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with mcp_at_root.session_manager.run():
+        yield
+
+
+# Register the MCP endpoint directly at /process with no redirect to /process/
+app = Starlette(routes=routes, lifespan=lifespan)

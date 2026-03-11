@@ -230,10 +230,11 @@ class MCPServer(Generic[LifespanResultT]):
         """Get the StreamableHTTP session manager.
 
         This is exposed to enable advanced use cases like mounting multiple
-        MCPServer instances in a single FastAPI application.
+        MCPServer instances in a single FastAPI application or registering
+        exact StreamableHTTP routes on an existing Starlette/FastAPI router.
 
         Raises:
-            RuntimeError: If called before streamable_http_app() has been called.
+            RuntimeError: If called before streamable_http_app() or streamable_http_routes() has been called.
         """
         return self._lowlevel_server.session_manager  # pragma: no cover
 
@@ -1058,6 +1059,32 @@ class MCPServer(Generic[LifespanResultT]):
             auth_server_provider=self._auth_server_provider,
             custom_starlette_routes=self._custom_starlette_routes,
             debug=self.settings.debug,
+        )
+
+    def streamable_http_routes(
+        self,
+        *,
+        path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+    ) -> list[Route]:
+        """Return StreamableHTTP routes for an existing Starlette/FastAPI application."""
+        return self._lowlevel_server.streamable_http_routes(
+            path=path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            transport_security=transport_security,
+            host=host,
+            auth=self.settings.auth,
+            token_verifier=self._token_verifier,
+            auth_server_provider=self._auth_server_provider,
+            custom_starlette_routes=self._custom_starlette_routes,
         )
 
     async def list_prompts(self) -> list[MCPPrompt]:

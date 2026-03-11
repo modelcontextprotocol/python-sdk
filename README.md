@@ -1335,9 +1335,9 @@ app = Starlette(
 )
 
 # Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
-# To mount at the root of each path (e.g., /echo instead of /echo/mcp):
-# echo_mcp.settings.streamable_http_path = "/"
-# math_mcp.settings.streamable_http_path = "/"
+# For exact endpoints like /echo and /math in current MCPServer/Server APIs,
+# register routes directly with streamable_http_routes(path="/echo") and
+# streamable_http_routes(path="/math") instead of relying on Mount(...).
 ```
 
 _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
@@ -1520,8 +1520,10 @@ def send_message(message: str) -> str:
     return f"Message sent: {message}"
 
 
-# Configure servers to mount at the root of each path
-# This means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
+# Configure servers to mount at the root of each path.
+# With Starlette Mount(...), these endpoints will be exposed at /api/ and /chat/.
+# For exact /api and /chat routes, use streamable_http_routes(path="/api") and
+# streamable_http_routes(path="/chat") on the current MCPServer/Server APIs.
 api_mcp.settings.streamable_http_path = "/"
 chat_mcp.settings.streamable_http_path = "/"
 
@@ -1579,7 +1581,9 @@ def process_data(data: str) -> str:
     return f"Processed: {data}"
 
 
-# Mount at /process - endpoints will be at /process instead of /process/mcp
+# Mount at /process - with Starlette Mount(...), this resolves to /process/
+# rather than /process/mcp. For an exact /process endpoint on current
+# MCPServer/Server APIs, register routes directly with streamable_http_routes().
 app = Starlette(
     routes=[
         Mount("/process", app=mcp_at_root.streamable_http_app()),

@@ -835,6 +835,8 @@ params = CallToolRequestParams(
 
 The `streamable_http_app()` method is now available directly on the lowlevel `Server` class, not just `MCPServer`. This allows using the streamable HTTP transport without the MCPServer wrapper.
 
+For exact Starlette/FastAPI routes such as `"/mcp"` without relying on `Mount(...)`, use `streamable_http_routes(path="/mcp")` and run the returned server's `session_manager` from the parent application's lifespan.
+
 ```python
 from mcp.server import Server, ServerRequestContext
 from mcp.types import ListToolsResult, PaginatedRequestParams
@@ -853,7 +855,7 @@ app = server.streamable_http_app(
 )
 ```
 
-The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
+The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()` or `streamable_http_routes()`.
 
 ## Need Help?
 

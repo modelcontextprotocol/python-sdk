@@ -1325,9 +1325,11 @@ app = Starlette(
 )
 
 # Note: Clients connect to http://localhost:8000/echo/mcp and http://localhost:8000/math/mcp
-# To mount at the root of each path (e.g., /echo instead of /echo/mcp):
-# echo_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
-# math_mcp.streamable_http_app(streamable_http_path="/", stateless_http=True, json_response=True)
+# For exact endpoints like /echo and /math, register routes directly instead:
+# routes = [
+#     *echo_mcp.streamable_http_routes(path="/echo", stateless_http=True, json_response=True),
+#     *math_mcp.streamable_http_routes(path="/math", stateless_http=True, json_response=True),
+# ]
 ```
 
 _Full example: [examples/snippets/servers/streamable_starlette_mount.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_starlette_mount.py)_
@@ -1475,11 +1477,11 @@ app = Starlette(
 _Full example: [examples/snippets/servers/streamable_http_host_mounting.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_host_mounting.py)_
 <!-- /snippet-source -->
 
-##### Multiple servers with path configuration
+##### Multiple servers with exact paths
 
 <!-- snippet-source examples/snippets/servers/streamable_http_multiple_servers.py -->
 ```python
-"""Example showing how to mount multiple StreamableHTTP servers with path configuration.
+"""Example showing how to register multiple exact StreamableHTTP routes.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
@@ -1488,7 +1490,6 @@ Run from the repository root:
 import contextlib
 
 from starlette.applications import Starlette
-from starlette.routing import Mount
 
 from mcp.server.mcpserver import MCPServer
 
@@ -1518,12 +1519,11 @@ async def lifespan(app: Starlette):
         yield
 
 
-# Mount the servers with transport-specific options passed to streamable_http_app()
-# streamable_http_path="/" means endpoints will be at /api and /chat instead of /api/mcp and /chat/mcp
+# Register exact MCP endpoints at /api and /chat on the parent router.
 app = Starlette(
     routes=[
-        Mount("/api", app=api_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
-        Mount("/chat", app=chat_mcp.streamable_http_app(json_response=True, streamable_http_path="/")),
+        *api_mcp.streamable_http_routes(path="/api", json_response=True),
+        *chat_mcp.streamable_http_routes(path="/chat", json_response=True),
     ],
     lifespan=lifespan,
 )
@@ -1532,18 +1532,19 @@ app = Starlette(
 _Full example: [examples/snippets/servers/streamable_http_multiple_servers.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_multiple_servers.py)_
 <!-- /snippet-source -->
 
-##### Path configuration at initialization
+##### Exact path registration
 
 <!-- snippet-source examples/snippets/servers/streamable_http_path_config.py -->
 ```python
-"""Example showing path configuration when mounting MCPServer.
+"""Example showing exact-path StreamableHTTP registration in Starlette.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_path_config:app --reload
 """
 
+import contextlib
+
 from starlette.applications import Starlette
-from starlette.routing import Mount
 
 from mcp.server.mcpserver import MCPServer
 
@@ -1557,16 +1558,17 @@ def process_data(data: str) -> str:
     return f"Processed: {data}"
 
 
-# Mount at /process with streamable_http_path="/" so the endpoint is /process (not /process/mcp)
-# Transport-specific options like json_response are passed to streamable_http_app()
-app = Starlette(
-    routes=[
-        Mount(
-            "/process",
-            app=mcp_at_root.streamable_http_app(json_response=True, streamable_http_path="/"),
-        ),
-    ]
-)
+routes = mcp_at_root.streamable_http_routes(path="/process", json_response=True)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: Starlette):
+    async with mcp_at_root.session_manager.run():
+        yield
+
+
+# Register the MCP endpoint directly at /process with no redirect to /process/
+app = Starlette(routes=routes, lifespan=lifespan)
 ```
 
 _Full example: [examples/snippets/servers/streamable_http_path_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_http_path_config.py)_

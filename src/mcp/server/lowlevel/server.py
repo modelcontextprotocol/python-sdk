@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
 from typing import Any, Generic
@@ -48,7 +48,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.routing import Mount, Route
+from starlette.routing import Route
 from typing_extensions import TypeVar
 
 from mcp import types
@@ -344,11 +344,12 @@ class Server(Generic[LifespanResultT]):
         """Get the StreamableHTTP session manager.
 
         Raises:
-            RuntimeError: If called before streamable_http_app() has been called.
+            RuntimeError: If called before streamable_http_app() or streamable_http_routes() has been called.
         """
         if self._session_manager is None:  # pragma: no cover
             raise RuntimeError(
-                "Session manager can only be accessed after calling streamable_http_app(). "
+                "Session manager can only be accessed after calling streamable_http_app() "
+                "or streamable_http_routes(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
         return self._session_manager  # pragma: no cover
@@ -509,23 +510,67 @@ class Server(Generic[LifespanResultT]):
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 
-    def streamable_http_app(
+    @staticmethod
+    def _validate_streamable_http_app_path(streamable_http_path: str) -> None:
+        if streamable_http_path == "":
+            raise ValueError(
+                'streamable_http_app(streamable_http_path="") is not supported. '
+                'Starlette sub-app routes must start with "/". '
+                'If you need an exact endpoint like "/mcp" without a trailing slash, '
+                'use streamable_http_routes(path="/mcp") instead.'
+            )
+
+    @staticmethod
+    def _validate_streamable_http_route_path(path: str) -> None:
+        if not path.startswith("/"):
+            raise ValueError('streamable_http_routes(path=...) requires an absolute path starting with "/".')
+
+    @staticmethod
+    def _join_route_paths(prefix: str, path: str) -> str:
+        return f"{prefix.rstrip('/')}{path}" if prefix else path
+
+    @staticmethod
+    def _prefix_route(route: Route, prefix: str) -> Route:
+        return Route(
+            Server._join_route_paths(prefix, route.path) if prefix else route.path,
+            endpoint=route.endpoint,
+            methods=route.methods,
+            name=route.name,
+            include_in_schema=route.include_in_schema,
+        )
+
+    @staticmethod
+    def _apply_route_middleware(routes: list[Route], middleware: Sequence[Middleware]) -> list[Route]:
+        wrapped_routes = [Server._prefix_route(route, "") for route in routes]
+        if not middleware:
+            return wrapped_routes
+
+        for route in wrapped_routes:
+            for cls, args, kwargs in reversed(middleware):
+                route.app = cls(route.app, *args, **kwargs)
+
+        return wrapped_routes
+
+    @staticmethod
+    def _exact_route_prefix(path: str) -> str:
+        normalized_path = path.rstrip("/")
+        return normalized_path
+
+    def _create_streamable_http_routes(
         self,
         *,
-        streamable_http_path: str = "/mcp",
-        json_response: bool = False,
-        stateless_http: bool = False,
-        event_store: EventStore | None = None,
-        retry_interval: int | None = None,
-        transport_security: TransportSecuritySettings | None = None,
-        host: str = "127.0.0.1",
-        auth: AuthSettings | None = None,
-        token_verifier: TokenVerifier | None = None,
-        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
-        custom_starlette_routes: list[Route] | None = None,
-        debug: bool = False,
-    ) -> Starlette:
-        """Return an instance of the StreamableHTTP server app."""
+        streamable_http_path: str,
+        json_response: bool,
+        stateless_http: bool,
+        event_store: EventStore | None,
+        retry_interval: int | None,
+        transport_security: TransportSecuritySettings | None,
+        host: str,
+        auth: AuthSettings | None,
+        token_verifier: TokenVerifier | None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None,
+        custom_starlette_routes: list[Route] | None,
+    ) -> tuple[StreamableHTTPSessionManager, list[Route], list[Middleware]]:
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(
@@ -548,7 +593,7 @@ class Server(Generic[LifespanResultT]):
         streamable_http_app = StreamableHTTPASGIApp(session_manager)
 
         # Create routes
-        routes: list[Route | Mount] = []
+        sibling_routes: list[Route] = []
         middleware: list[Middleware] = []
         required_scopes: list[str] = []
 
@@ -568,7 +613,7 @@ class Server(Generic[LifespanResultT]):
 
             # Add auth endpoints if auth server provider is configured
             if auth_server_provider:
-                routes.extend(
+                sibling_routes.extend(
                     create_auth_routes(
                         provider=auth_server_provider,
                         issuer_url=auth.issuer_url,
@@ -586,24 +631,20 @@ class Server(Generic[LifespanResultT]):
                 # Build compliant metadata URL for WWW-Authenticate header
                 resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
 
-            routes.append(
-                Route(
-                    streamable_http_path,
-                    endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
-                )
+            main_route = Route(
+                streamable_http_path,
+                endpoint=RequireAuthMiddleware(streamable_http_app, required_scopes, resource_metadata_url),
             )
         else:
             # Auth is disabled, no wrapper needed
-            routes.append(
-                Route(
-                    streamable_http_path,
-                    endpoint=streamable_http_app,
-                )
+            main_route = Route(
+                streamable_http_path,
+                endpoint=streamable_http_app,
             )
 
         # Add protected resource metadata endpoint if configured as RS
         if auth and auth.resource_server_url:  # pragma: no cover
-            routes.extend(
+            sibling_routes.extend(
                 create_protected_resource_routes(
                     resource_url=auth.resource_server_url,
                     authorization_servers=[auth.issuer_url],
@@ -612,11 +653,78 @@ class Server(Generic[LifespanResultT]):
             )
 
         if custom_starlette_routes:  # pragma: no cover
-            routes.extend(custom_starlette_routes)
+            sibling_routes.extend(custom_starlette_routes)
+
+        return session_manager, [main_route, *sibling_routes], middleware
+
+    def streamable_http_app(
+        self,
+        *,
+        streamable_http_path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+        auth: AuthSettings | None = None,
+        token_verifier: TokenVerifier | None = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        custom_starlette_routes: list[Route] | None = None,
+        debug: bool = False,
+    ) -> Starlette:
+        """Return an instance of the StreamableHTTP server app."""
+        self._validate_streamable_http_app_path(streamable_http_path)
+        session_manager, routes, middleware = self._create_streamable_http_routes(
+            streamable_http_path=streamable_http_path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            transport_security=transport_security,
+            host=host,
+            auth=auth,
+            token_verifier=token_verifier,
+            auth_server_provider=auth_server_provider,
+            custom_starlette_routes=custom_starlette_routes,
+        )
 
         return Starlette(
             debug=debug,
-            routes=routes,
-            middleware=middleware,
+            routes=self._apply_route_middleware(routes, middleware),
             lifespan=lambda app: session_manager.run(),
         )
+
+    def streamable_http_routes(
+        self,
+        *,
+        path: str = "/mcp",
+        json_response: bool = False,
+        stateless_http: bool = False,
+        event_store: EventStore | None = None,
+        retry_interval: int | None = None,
+        transport_security: TransportSecuritySettings | None = None,
+        host: str = "127.0.0.1",
+        auth: AuthSettings | None = None,
+        token_verifier: TokenVerifier | None = None,
+        auth_server_provider: OAuthAuthorizationServerProvider[Any, Any, Any] | None = None,
+        custom_starlette_routes: list[Route] | None = None,
+    ) -> list[Route]:
+        """Return StreamableHTTP routes for an existing Starlette/FastAPI application."""
+        self._validate_streamable_http_route_path(path)
+        _, routes, middleware = self._create_streamable_http_routes(
+            streamable_http_path=path,
+            json_response=json_response,
+            stateless_http=stateless_http,
+            event_store=event_store,
+            retry_interval=retry_interval,
+            transport_security=transport_security,
+            host=host,
+            auth=auth,
+            token_verifier=token_verifier,
+            auth_server_provider=auth_server_provider,
+            custom_starlette_routes=custom_starlette_routes,
+        )
+        prefix = self._exact_route_prefix(path)
+        exact_routes = [routes[0], *[self._prefix_route(route, prefix) for route in routes[1:]]]
+        return self._apply_route_middleware(exact_routes, middleware)
