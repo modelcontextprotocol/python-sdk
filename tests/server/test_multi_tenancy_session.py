@@ -97,35 +97,29 @@ def test_server_request_context_inherits_tenant_id_from_base():
 @pytest.mark.anyio
 async def test_server_session_tenant_id_property(init_options: InitializationOptions):
     """Test ServerSession tenant_id property and setter."""
-    write_send_stream, write_recv_stream = anyio.create_memory_object_stream[SessionMessage](1)
-    read_send_stream, read_recv_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    server_to_client_send, server_to_client_recv = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
-    session = ServerSession(
-        read_stream=read_recv_stream,
-        write_stream=write_send_stream,
-        init_options=init_options,
-    )
+    async with server_to_client_send, server_to_client_recv, client_to_server_send, client_to_server_recv:
+        async with ServerSession(
+            client_to_server_recv,
+            server_to_client_send,
+            init_options,
+        ) as session:
+            # Default tenant_id is None
+            assert session.tenant_id is None
 
-    # Default tenant_id is None
-    assert session.tenant_id is None
+            # Can set tenant_id
+            session.tenant_id = "tenant-123"
+            assert session.tenant_id == "tenant-123"
 
-    # Can set tenant_id
-    session.tenant_id = "tenant-123"
-    assert session.tenant_id == "tenant-123"
+            # Can change tenant_id
+            session.tenant_id = "tenant-456"
+            assert session.tenant_id == "tenant-456"
 
-    # Can change tenant_id
-    session.tenant_id = "tenant-456"
-    assert session.tenant_id == "tenant-456"
-
-    # Can reset to None
-    session.tenant_id = None
-    assert session.tenant_id is None
-
-    # Clean up all streams
-    await write_send_stream.aclose()
-    await write_recv_stream.aclose()
-    await read_send_stream.aclose()
-    await read_recv_stream.aclose()
+            # Can reset to None
+            session.tenant_id = None
+            assert session.tenant_id is None
 
 
 def test_get_tenant_id_from_auth_context():
