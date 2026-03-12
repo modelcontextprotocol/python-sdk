@@ -107,7 +107,7 @@ async def test_stdin_eof_monitor_detects_hangup():
                     # detects POLLHUP. Wait with a timeout to avoid hanging.
                     with anyio.fail_after(5):
                         await anyio.sleep(10)  # will be cancelled by monitor
-            cancelled = scope.cancel_called or tg.cancel_scope.cancel_called
+            cancelled = scope.cancel_called
         assert cancelled
     finally:
         os.close(read_fd)
