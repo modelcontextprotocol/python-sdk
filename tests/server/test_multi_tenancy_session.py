@@ -5,6 +5,8 @@ import time
 import anyio
 import pytest
 
+from mcp import Client
+from mcp.server import Server
 from mcp.server.auth.middleware.auth_context import auth_context_var, get_tenant_id
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
@@ -15,7 +17,7 @@ from mcp.server.session import ServerSession
 from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession
-from mcp.types import ServerCapabilities
+from mcp.types import ListToolsResult, NotificationParams, PaginatedRequestParams, ServerCapabilities
 
 
 def _simulate_tenant_binding(session: ServerSession, tenant_id_value: str) -> None:
@@ -321,3 +323,85 @@ async def test_server_session_isolation_between_instances(init_options: Initiali
             # Verify the other session is unaffected
             assert session1.tenant_id == "tenant-gamma"
             assert session2.tenant_id == "tenant-beta"  # Still beta, not gamma
+
+
+@pytest.mark.anyio
+async def test_handle_request_populates_session_tenant_id():
+    """E2E: session.tenant_id is set from auth context during request handling.
+
+    This exercises the set-once tenant binding in lowlevel/server.py
+    _handle_request, covering the branch where get_tenant_id() returns
+    a non-None value.
+    """
+    captured_ctx_tenant: str | None = None
+    captured_session_tenant: str | None = None
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        nonlocal captured_ctx_tenant, captured_session_tenant
+        captured_ctx_tenant = ctx.tenant_id
+        captured_session_tenant = ctx.session.tenant_id
+        return ListToolsResult(tools=[])
+
+    server = Server("test", on_list_tools=handle_list_tools)
+
+    # Set auth context with tenant before entering the Client —
+    # contextvars are inherited by child tasks, so the server will see it
+    access_token = AccessToken(
+        token="test-token",
+        client_id="test-client",
+        scopes=["read"],
+        expires_at=int(time.time()) + 3600,
+        tenant_id="tenant-e2e",
+    )
+    user = AuthenticatedUser(access_token)
+    token = auth_context_var.set(user)
+    try:
+        async with Client(server) as client:
+            await client.list_tools()
+    finally:
+        auth_context_var.reset(token)
+
+    assert captured_ctx_tenant == "tenant-e2e"
+    assert captured_session_tenant == "tenant-e2e"
+
+
+@pytest.mark.anyio
+async def test_handle_notification_populates_session_tenant_id():
+    """E2E: session.tenant_id is set from auth context during notification handling.
+
+    This exercises the set-once tenant binding in lowlevel/server.py
+    _handle_notification, covering the branch where get_tenant_id() returns
+    a non-None value.
+    """
+    notification_tenant: str | None = None
+    notification_received = anyio.Event()
+
+    async def handle_roots_list_changed(
+        ctx: ServerRequestContext, params: NotificationParams | None
+    ) -> None:
+        nonlocal notification_tenant
+        notification_tenant = ctx.tenant_id
+        notification_received.set()
+
+    server = Server("test", on_roots_list_changed=handle_roots_list_changed)
+
+    access_token = AccessToken(
+        token="test-token",
+        client_id="test-client",
+        scopes=["read"],
+        expires_at=int(time.time()) + 3600,
+        tenant_id="tenant-notify",
+    )
+    user = AuthenticatedUser(access_token)
+    token = auth_context_var.set(user)
+    try:
+        async with Client(server) as client:
+            await client.session.send_roots_list_changed()
+            with anyio.fail_after(5):
+                await notification_received.wait()
+    finally:
+        auth_context_var.reset(token)
+
+    assert notification_tenant == "tenant-notify"
