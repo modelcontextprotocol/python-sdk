@@ -2316,3 +2316,48 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+def test_client_disconnect_does_not_return_500(basic_server: None, basic_server_url: str):
+    """Test that ClientDisconnect is handled gracefully without HTTP 500.
+
+    When a client disconnects before the server finishes reading the request body,
+    the server should log a warning and remain healthy for subsequent requests.
+    """
+    import urllib.parse
+
+    parsed = urllib.parse.urlparse(basic_server_url)
+    host = parsed.hostname
+    port = parsed.port
+
+    # Send a POST request with a large Content-Length, then close the socket
+    # immediately. This causes Starlette to raise ClientDisconnect when it
+    # tries to read the body.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((host, port))
+    raw_request = (
+        f"POST /mcp HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        f"Content-Type: application/json\r\n"
+        f"Accept: application/json, text/event-stream\r\n"
+        f"Content-Length: 100000\r\n"
+        f"\r\n"
+    )
+    sock.sendall(raw_request.encode())
+    # Close immediately without sending the body
+    sock.close()
+
+    # Give the server a moment to process the disconnect
+    time.sleep(0.5)
+
+    # Verify the server is still healthy — a normal request should succeed
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        },
+        json=INIT_REQUEST,
+    )
+    # Server should be alive and respond normally (200 for SSE init)
+    assert response.status_code == 200
