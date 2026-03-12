@@ -3,7 +3,7 @@ import shutil
 import sys
 import textwrap
 import time
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 
 import anyio
 import anyio.abc
@@ -308,26 +308,31 @@ async def _assert_stream_closed(stream: anyio.abc.SocketStream) -> None:
 
 
 async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None:
-    """Terminate the process tree, then reap and close pipe transports.
+    """Terminate the process tree, reap, and tear down pipe transports.
 
     ``_terminate_process_tree`` kills the OS process group / Job Object but does
-    not call ``process.wait()`` or close stdin/stdout pipe wrappers. On Windows,
-    the resulting ``_WindowsSubprocessTransport`` / ``PipeHandle`` objects are
-    then GC'd after the test's ``filterwarnings`` scope has exited, triggering
-    ``PytestUnraisableExceptionWarning`` in whatever test happens to run next.
+    not call ``process.wait()`` or clean up the asyncio pipe transports. On
+    Windows those transports leak and emit ``ResourceWarning`` when GC'd in a
+    later test, causing ``PytestUnraisableExceptionWarning`` knock-on failures.
 
-    The SDK's production path (``stdio.py``) avoids this via ``async with process:``
-    which wraps termination in a context manager whose ``__aexit__`` handles
-    reaping + stream closure. These tests call ``_terminate_process_tree``
-    directly, so they must do the same cleanup explicitly.
+    Production ``stdio.py`` avoids this via its ``stdout_reader`` task which
+    reads stdout to EOF (triggering ``_ProactorReadPipeTransport._eof_received``
+    → ``close()``) plus ``async with process:`` which waits and closes stdin.
+    These tests call ``_terminate_process_tree`` directly, so they replicate
+    both parts here: ``wait()`` + close stdin + drain stdout to EOF.
 
-    Idempotent: the ``returncode`` guard skips termination if the process has
-    already been reaped (calling ``_terminate_process_tree`` on a reaped POSIX
-    process hits the fallback path in ``terminate_posix_process_tree`` and emits
-    spurious WARNING/ERROR logs, visible because ``log_cli = true``); ``wait()``
-    and stream ``aclose()`` are no-ops on subsequent calls. The tests call this
-    explicitly as the action under test, and ``AsyncExitStack`` calls it again
-    on exit as a safety net for early failures. Bounded by ``move_on_after``.
+    The stdout drain is the non-obvious part: anyio's ``StreamReaderWrapper.aclose()``
+    only marks the Python-level reader closed — it never touches the underlying
+    ``_ProactorReadPipeTransport``. That transport starts paused and only detects
+    pipe EOF when someone reads, so without a drain it lives until ``__del__``.
+
+    Idempotent: the ``returncode`` guard skips termination if already reaped
+    (avoids spurious WARNING/ERROR logs from ``terminate_posix_process_tree``'s
+    fallback path, visible because ``log_cli = true``); ``wait()`` and stream
+    ``aclose()`` no-op on subsequent calls; the drain raises ``ClosedResourceError``
+    on the second call, caught by the suppress. The tests call this explicitly
+    as the action under test and ``AsyncExitStack`` calls it again on exit as a
+    safety net. Bounded by ``move_on_after`` to prevent hangs.
     """
     with anyio.move_on_after(5.0):
         if getattr(proc, "returncode", None) is None:
@@ -336,6 +341,8 @@ async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None
         assert proc.stdin is not None
         assert proc.stdout is not None
         await proc.stdin.aclose()
+        with suppress(anyio.EndOfStream, anyio.BrokenResourceError, anyio.ClosedResourceError):
+            await proc.stdout.receive(65536)
         await proc.stdout.aclose()
 
 
