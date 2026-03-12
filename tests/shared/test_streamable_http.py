@@ -56,6 +56,7 @@ from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
+    JSONRPCError,
     JSONRPCRequest,
     ListToolsResult,
     PaginatedRequestParams,
@@ -2353,7 +2354,10 @@ async def test_connection_error_forwarded_to_read_stream():
             )
             await write_stream.send(init_message)
 
-            # The connection error should be forwarded to the read stream
+            # The connection error should be forwarded as a JSONRPCError
+            # so that send_request can route it to the correct response stream
             with anyio.fail_after(5):
                 result = await read_stream.receive()
-            assert isinstance(result, Exception)
+            assert isinstance(result, SessionMessage)
+            assert isinstance(result.message, JSONRPCError)
+            assert result.message.id == "init-err"

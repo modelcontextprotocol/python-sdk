@@ -476,7 +476,17 @@ class StreamableHTTPTransport:
                             raise
                         except Exception as exc:
                             with contextlib.suppress(Exception):
-                                await read_stream_writer.send(exc)
+                                if isinstance(message, JSONRPCRequest):
+                                    error_data = ErrorData(
+                                        code=INTERNAL_ERROR,
+                                        message=str(exc) or "Connection error",
+                                    )
+                                    error_msg = SessionMessage(
+                                        JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
+                                    )
+                                    await read_stream_writer.send(error_msg)
+                                else:
+                                    await read_stream_writer.send(exc)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
