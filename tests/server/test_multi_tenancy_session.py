@@ -18,6 +18,25 @@ from mcp.shared.session import BaseSession
 from mcp.types import ServerCapabilities
 
 
+def _simulate_tenant_binding(session: ServerSession, tenant_id_value: str) -> None:
+    """Simulate the set-once tenant binding logic from lowlevel/server.py."""
+    access_token = AccessToken(
+        token=f"token-{tenant_id_value}",
+        client_id="client",
+        scopes=["read"],
+        expires_at=int(time.time()) + 3600,
+        tenant_id=tenant_id_value,
+    )
+    user = AuthenticatedUser(access_token)
+    context_token = auth_context_var.set(user)
+    try:
+        tenant_id = get_tenant_id()
+        if tenant_id is not None and session.tenant_id is None:
+            session.tenant_id = tenant_id
+    finally:
+        auth_context_var.reset(context_token)
+
+
 @pytest.fixture
 def init_options() -> InitializationOptions:
     """Create initialization options for testing."""
@@ -177,41 +196,12 @@ async def test_session_tenant_id_set_from_auth_context_on_first_request(init_opt
 
             # Simulate what lowlevel/server.py does: set session.tenant_id
             # from auth context on first request
-            access_token = AccessToken(
-                token="token-first",
-                client_id="client",
-                scopes=["read"],
-                expires_at=int(time.time()) + 3600,
-                tenant_id="tenant-first",
-            )
-            user = AuthenticatedUser(access_token)
-            context_token = auth_context_var.set(user)
-            try:
-                tenant_id = get_tenant_id()
-                if tenant_id is not None and session.tenant_id is None:
-                    session.tenant_id = tenant_id
-            finally:
-                auth_context_var.reset(context_token)
-
+            _simulate_tenant_binding(session, "tenant-first")
             assert session.tenant_id == "tenant-first"
 
             # Simulate a second request with a different tenant —
             # session.tenant_id should NOT change (set-once on first request)
-            access_token2 = AccessToken(
-                token="token-second",
-                client_id="client",
-                scopes=["read"],
-                expires_at=int(time.time()) + 3600,
-                tenant_id="tenant-second",
-            )
-            user2 = AuthenticatedUser(access_token2)
-            context_token2 = auth_context_var.set(user2)
-            try:
-                tenant_id = get_tenant_id()
-                if tenant_id is not None and session.tenant_id is None:
-                    session.tenant_id = tenant_id
-            finally:
-                auth_context_var.reset(context_token2)
+            _simulate_tenant_binding(session, "tenant-second")
 
             # Still the first tenant — not overwritten
             assert session.tenant_id == "tenant-first"
