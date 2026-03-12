@@ -116,7 +116,18 @@ class ServerSession(
 
     @tenant_id.setter
     def tenant_id(self, value: str | None) -> None:
-        """Set the tenant_id for this session."""
+        """Set the tenant_id for this session (set-once).
+
+        Once a session is bound to a tenant, the tenant_id cannot be changed.
+        This prevents accidental tenant reassignment which could be a security issue.
+
+        Raises:
+            ValueError: If tenant_id is already set to a different value.
+        """
+        if self._tenant_id is not None and value != self._tenant_id:
+            raise ValueError(
+                f"Cannot change tenant_id from '{self._tenant_id}' to '{value}': session is already bound to a tenant"
+            )
         self._tenant_id = value
 
     @property

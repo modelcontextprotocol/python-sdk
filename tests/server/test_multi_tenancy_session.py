@@ -117,7 +117,7 @@ def test_server_request_context_inherits_tenant_id_from_base():
 
 @pytest.mark.anyio
 async def test_server_session_tenant_id_property(init_options: InitializationOptions):
-    """Test ServerSession tenant_id property and setter."""
+    """Test ServerSession tenant_id property with set-once semantics."""
     server_to_client_send, server_to_client_recv = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
@@ -134,13 +134,20 @@ async def test_server_session_tenant_id_property(init_options: InitializationOpt
             session.tenant_id = "tenant-123"
             assert session.tenant_id == "tenant-123"
 
-            # Can change tenant_id
-            session.tenant_id = "tenant-456"
-            assert session.tenant_id == "tenant-456"
+            # Setting to the same value is allowed
+            session.tenant_id = "tenant-123"
+            assert session.tenant_id == "tenant-123"
 
-            # Can reset to None
-            session.tenant_id = None
-            assert session.tenant_id is None
+            # Cannot change to a different value
+            with pytest.raises(ValueError, match="Cannot change tenant_id"):
+                session.tenant_id = "tenant-456"
+
+            # Cannot reset to None once set
+            with pytest.raises(ValueError, match="Cannot change tenant_id"):
+                session.tenant_id = None
+
+            # Original value is preserved
+            assert session.tenant_id == "tenant-123"
 
 
 def test_get_tenant_id_from_auth_context():
@@ -317,12 +324,13 @@ async def test_server_session_isolation_between_instances(init_options: Initiali
             assert session1.tenant_id == "tenant-alpha"
             assert session2.tenant_id == "tenant-beta"
 
-            # Modify one session's tenant_id
-            session1.tenant_id = "tenant-gamma"
+            # Attempting to change one session's tenant_id raises
+            with pytest.raises(ValueError, match="Cannot change tenant_id"):
+                session1.tenant_id = "tenant-gamma"
 
-            # Verify the other session is unaffected
-            assert session1.tenant_id == "tenant-gamma"
-            assert session2.tenant_id == "tenant-beta"  # Still beta, not gamma
+            # Both sessions retain their original values
+            assert session1.tenant_id == "tenant-alpha"
+            assert session2.tenant_id == "tenant-beta"
 
 
 @pytest.mark.anyio
