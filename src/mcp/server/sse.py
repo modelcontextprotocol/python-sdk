@@ -37,6 +37,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -61,8 +62,15 @@ logger = logging.getLogger(__name__)
 
 
 class SseServerTransport:
-    """SSE server transport for MCP. This class provides two ASGI applications,
-    suitable for use with a framework like Starlette and a server like Hypercorn:
+    """SSE server transport for MCP.
+
+    .. deprecated::
+        The SSE transport is deprecated. Use
+        :class:`~mcp.server.streamable_http.StreamableHTTPServerTransport` instead.
+        SSE will be removed in a future major release.
+
+    This class provides two ASGI applications, suitable for use with a framework
+    like Starlette and a server like Hypercorn:
 
         1. connect_sse() is an ASGI application which receives incoming GET requests,
            and sets up a new SSE stream to send server messages to the client.
@@ -96,6 +104,13 @@ class SseServerTransport:
         Raises:
             ValueError: If the endpoint is a full URL instead of a relative path
         """
+
+        warnings.warn(
+            "SseServerTransport is deprecated. Use StreamableHTTPServerTransport instead. "
+            "SSE transport will be removed in a future major release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         super().__init__()
 

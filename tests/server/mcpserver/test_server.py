@@ -1,4 +1,5 @@
 import base64
+import warnings
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -81,6 +82,16 @@ class TestServer:
         assert len(mount_routes) == 1, "Should have one mount route"
         assert sse_routes[0].path == "/sse"
         assert mount_routes[0].path == "/messages"
+
+    async def test_sse_app_emits_deprecation_warning(self):
+        """Test that sse_app emits a DeprecationWarning."""
+        mcp = MCPServer("test")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            mcp.sse_app(host="0.0.0.0")
+
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert any("sse_app is deprecated" in str(w.message) for w in deprecations)
 
     async def test_non_ascii_description(self):
         """Test that MCPServer handles non-ASCII characters in descriptions correctly"""

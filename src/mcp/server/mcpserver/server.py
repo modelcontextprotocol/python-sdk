@@ -6,6 +6,7 @@ import base64
 import inspect
 import json
 import re
+import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
@@ -286,6 +287,12 @@ class MCPServer(Generic[LifespanResultT]):
             case "stdio":
                 anyio.run(self.run_stdio_async)
             case "sse":  # pragma: no cover
+                warnings.warn(
+                    'run(transport="sse") is deprecated. Use run(transport="streamable-http") instead. '
+                    "SSE transport will be removed in a future major release.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 anyio.run(lambda: self.run_sse_async(**kwargs))
             case "streamable-http":  # pragma: no cover
                 anyio.run(lambda: self.run_streamable_http_async(**kwargs))
@@ -854,7 +861,18 @@ class MCPServer(Generic[LifespanResultT]):
         message_path: str = "/messages/",
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
-        """Run the server using SSE transport."""
+        """Run the server using SSE transport.
+
+        .. deprecated::
+            Use :meth:`run_streamable_http_async` instead. SSE transport will be
+            removed in a future major release.
+        """
+        warnings.warn(
+            "run_sse_async is deprecated. Use run_streamable_http_async instead. "
+            "SSE transport will be removed in a future major release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         import uvicorn
 
         starlette_app = self.sse_app(
@@ -915,7 +933,18 @@ class MCPServer(Generic[LifespanResultT]):
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
-        """Return an instance of the SSE server app."""
+        """Return an instance of the SSE server app.
+
+        .. deprecated::
+            Use :meth:`streamable_http_app` instead. SSE transport will be
+            removed in a future major release.
+        """
+        warnings.warn(
+            "sse_app is deprecated. Use streamable_http_app instead. "
+            "SSE transport will be removed in a future major release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(

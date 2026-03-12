@@ -1,6 +1,7 @@
 import json
 import multiprocessing
 import socket
+import warnings
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -495,6 +496,34 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
         assert ctx["request_id"] == f"request-{i}"
         assert ctx["headers"].get("x-request-id") == f"request-{i}"
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
+
+
+# --- Deprecation warning tests ---
+
+
+def test_sse_server_transport_emits_deprecation_warning():
+    """SseServerTransport.__init__ should emit a DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        SseServerTransport("/messages/")
+
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert len(deprecations) == 1
+    assert "SseServerTransport is deprecated" in str(deprecations[0].message)
+    assert "StreamableHTTPServerTransport" in str(deprecations[0].message)
+
+
+@pytest.mark.anyio
+async def test_sse_client_emits_deprecation_warning(server: None, server_url: str):
+    """sse_client should emit a DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        async with sse_client(server_url + "/sse") as streams:
+            async with ClientSession(*streams) as session:  # pragma: no branch
+                await session.initialize()
+
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert any("sse_client is deprecated" in str(w.message) for w in deprecations)
 
 
 def test_sse_message_id_coercion():
