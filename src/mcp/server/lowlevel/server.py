@@ -414,11 +414,6 @@ class Server(Generic[LifespanResultT]):
                         )
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
-                    await session.send_log_message(
-                        level="error",
-                        data="Internal Server Error",
-                        logger="mcp.server.exception_handler",
-                    )
                     if raise_exceptions:
                         raise message
                 case _:
