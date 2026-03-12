@@ -43,39 +43,43 @@ async def websocket_client(
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-        async with read_stream_writer, read_stream, write_stream, write_stream_reader:
+        async def ws_reader():
+            """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
+            and sends them into read_stream_writer.
+            """
+            async with read_stream_writer:
+                async for raw_text in ws:
+                    try:
+                        message = types.jsonrpc_message_adapter.validate_json(raw_text, by_name=False)
+                        session_message = SessionMessage(message)
+                        await read_stream_writer.send(session_message)
+                    except ValidationError as exc:  # pragma: no cover
+                        # If JSON parse or model validation fails, send the exception
+                        await read_stream_writer.send(exc)
 
-            async def ws_reader():
-                """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
-                and sends them into read_stream_writer.
-                """
-                async with read_stream_writer:
-                    async for raw_text in ws:
-                        try:
-                            message = types.jsonrpc_message_adapter.validate_json(raw_text, by_name=False)
-                            session_message = SessionMessage(message)
-                            await read_stream_writer.send(session_message)
-                        except ValidationError as exc:  # pragma: no cover
-                            # If JSON parse or model validation fails, send the exception
-                            await read_stream_writer.send(exc)
+        async def ws_writer():
+            """Reads JSON-RPC messages from write_stream_reader and
+            sends them to the server.
+            """
+            async with write_stream_reader:
+                async for session_message in write_stream_reader:
+                    # Convert to a dict, then to JSON
+                    msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True)
+                    await ws.send(json.dumps(msg_dict))
 
-            async def ws_writer():
-                """Reads JSON-RPC messages from write_stream_reader and
-                sends them to the server.
-                """
-                async with write_stream_reader:
-                    async for session_message in write_stream_reader:
-                        # Convert to a dict, then to JSON
-                        msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True)
-                        await ws.send(json.dumps(msg_dict))
+        async with (
+            read_stream_writer,
+            read_stream,
+            write_stream,
+            write_stream_reader,
+            anyio.create_task_group() as tg,
+        ):
+            # Start reader and writer tasks
+            tg.start_soon(ws_reader)
+            tg.start_soon(ws_writer)
 
-            async with anyio.create_task_group() as tg:
-                # Start reader and writer tasks
-                tg.start_soon(ws_reader)
-                tg.start_soon(ws_writer)
+            # Yield the receive/send streams
+            yield (read_stream, write_stream)
 
-                # Yield the receive/send streams
-                yield (read_stream, write_stream)
-
-                # Once the caller's 'async with' block exits, we shut down
-                tg.cancel_scope.cancel()
+            # Once the caller's 'async with' block exits, we shut down
+            tg.cancel_scope.cancel()
