@@ -194,9 +194,6 @@ class MCPServer(Generic[LifespanResultT]):
             self._token_verifier = ProviderTokenVerifier(auth_server_provider)
         self._custom_starlette_routes: list[Route] = []
 
-        # Configure logging
-        configure_logging(self.settings.log_level)
-
     @property
     def name(self) -> str:
         return self._lowlevel_server.name
@@ -278,6 +275,8 @@ class MCPServer(Generic[LifespanResultT]):
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
             **kwargs: Transport-specific options (see overloads for details)
         """
+        configure_logging(self.settings.log_level)
+
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
         if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
