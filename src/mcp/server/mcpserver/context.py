@@ -219,6 +219,18 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
 
     @property
+    def subject(self) -> str | None:
+        """Get the authenticated user's subject (JWT sub claim) if available.
+
+        This returns the subject claim from the OAuth access token, identifying
+        the end-user on whose behalf the request is made.
+        """
+        from mcp.server.auth.middleware.auth_context import get_access_token
+
+        token = get_access_token()
+        return token.subject if token else None
+
+    @property
     def request_id(self) -> str:
         """Get the unique ID for this request."""
         return str(self.request_context.request_id)

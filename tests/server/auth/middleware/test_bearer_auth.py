@@ -77,6 +77,7 @@ def valid_access_token() -> AccessToken:
         client_id="test_client",
         scopes=["read", "write"],
         expires_at=int(time.time()) + 3600,  # 1 hour from now
+        subject="user_123",
     )
 
 

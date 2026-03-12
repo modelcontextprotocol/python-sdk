@@ -41,6 +41,7 @@ def valid_access_token() -> AccessToken:
         client_id="test_client",
         scopes=["read", "write"],
         expires_at=int(time.time()) + 3600,  # 1 hour from now
+        subject="user_123",
     )
 
 
@@ -81,6 +82,27 @@ async def test_auth_context_middleware_with_authenticated_user(valid_access_toke
     # Verify context is reset after middleware
     assert auth_context_var.get() is None
     assert get_access_token() is None
+
+
+@pytest.mark.anyio
+async def test_auth_context_middleware_subject_preserved(valid_access_token: AccessToken):
+    """Test that subject field on AccessToken is available via get_access_token()."""
+    app = MockApp()
+    middleware = AuthContextMiddleware(app)
+
+    user = AuthenticatedUser(valid_access_token)
+    scope: Scope = {"type": "http", "user": user}
+
+    async def receive() -> Message:  # pragma: no cover
+        return {"type": "http.request"}
+
+    async def send(message: Message) -> None:  # pragma: no cover
+        pass
+
+    await middleware(scope, receive, send)
+
+    assert app.access_token_during_call is not None
+    assert app.access_token_during_call.subject == "user_123"
 
 
 @pytest.mark.anyio
