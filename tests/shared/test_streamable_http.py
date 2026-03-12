@@ -2316,3 +2316,44 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_connection_error_forwarded_to_read_stream():
+    """Test that connection errors in post_writer are forwarded to the read
+    stream instead of crashing the task group.
+
+    When the server is unreachable, _handle_post_request raises a connection
+    error. The post_writer should catch it and send it through the read stream
+    so the client session can handle it gracefully.
+    """
+    # Use a port that is not listening to trigger a connection error
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        _, port = s.getsockname()
+    # Port is now closed — nothing is listening
+
+    async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+        read_stream,
+        write_stream,
+    ):
+        async with read_stream, write_stream:
+            # Send an initialize request — this will fail to connect
+            init_message = SessionMessage(
+                JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id="init-err",
+                    method="initialize",
+                    params={
+                        "protocolVersion": types.LATEST_PROTOCOL_VERSION,
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "1.0"},
+                    },
+                )
+            )
+            await write_stream.send(init_message)
+
+            # The connection error should be forwarded to the read stream
+            with anyio.fail_after(5):
+                result = await read_stream.receive()
+            assert isinstance(result, Exception)

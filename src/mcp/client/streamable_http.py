@@ -466,11 +466,17 @@ class StreamableHTTPTransport:
                         read_stream_writer=read_stream_writer,
                     )
 
-                    async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                    async def handle_request_async() -> None:
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except anyio.get_cancelled_exc_class():
+                            raise
+                        except Exception as exc:
+                            with contextlib.suppress(Exception):
+                                await read_stream_writer.send(exc)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
