@@ -61,7 +61,7 @@ async def sse_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
     async with anyio.create_task_group() as tg:
-        try:
+        async with read_stream_writer, read_stream, write_stream, write_stream_reader:
             logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
             async with httpx_client_factory(
                 headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
@@ -157,8 +157,3 @@ async def sse_client(
                         yield read_stream, write_stream
                     finally:
                         tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
-            await read_stream.aclose()
-            await write_stream_reader.aclose()

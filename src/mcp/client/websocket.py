@@ -38,12 +38,12 @@ async def websocket_client(
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    # Connect using websockets, requesting the "mcp" subprotocol
+    async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
+        read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
+        write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    try:
-        # Connect using websockets, requesting the "mcp" subprotocol
-        async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
+        async with read_stream_writer, read_stream, write_stream, write_stream_reader:
 
             async def ws_reader():
                 """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
@@ -79,8 +79,3 @@ async def websocket_client(
 
                 # Once the caller's 'async with' block exits, we shut down
                 tg.cancel_scope.cancel()
-    finally:
-        await read_stream_writer.aclose()
-        await write_stream.aclose()
-        await read_stream.aclose()
-        await write_stream_reader.aclose()

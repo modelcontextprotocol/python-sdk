@@ -547,7 +547,7 @@ async def streamable_http_client(
     transport = StreamableHTTPTransport(url)
 
     async with anyio.create_task_group() as tg:
-        try:
+        async with read_stream_writer, read_stream, write_stream, write_stream_reader:
             logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
             async with contextlib.AsyncExitStack() as stack:
@@ -574,8 +574,3 @@ async def streamable_http_client(
                     if transport.session_id and terminate_on_close:
                         await transport.terminate_session(client)
                     tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
-            await read_stream.aclose()
-            await write_stream_reader.aclose()
