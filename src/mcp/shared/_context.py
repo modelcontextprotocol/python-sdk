@@ -17,6 +17,10 @@ class RequestContext(Generic[SessionT]):
 
     For request handlers, request_id is always populated.
     For notification handlers, request_id is None.
+
+    The tenant_id field is used in multi-tenant server deployments to identify
+    which tenant the request belongs to. It is populated from session context
+    and enables tenant-specific request handling and isolation.
     """
 
     session: SessionT
