@@ -99,7 +99,8 @@ def app() -> MCPServer:
 async def test_client_is_initialized(app: MCPServer):
     """Test that the client is initialized after entering context."""
     async with Client(app) as client:
-        assert client.server_capabilities == snapshot(
+        assert client.server_params is not None
+        assert client.server_params.capabilities == snapshot(
             ServerCapabilities(
                 experimental={},
                 prompts=PromptsCapability(list_changed=False),

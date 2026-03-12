@@ -169,6 +169,30 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
+### `ClientSession.get_server_capabilities()` replaced by `server_params` property
+
+`ClientSession` now stores the full `InitializeResult` via a `server_params` property, mirroring `ServerSession.client_params`. This is the new way to access server metadata after initialization — `server_info`, `capabilities`, `instructions`, and the negotiated `protocol_version` are all available through this single property. The `get_server_capabilities()` method has been removed.
+
+**Before (v1):**
+
+```python
+capabilities = session.get_server_capabilities()
+# server_info, instructions, protocol_version were not stored — had to capture initialize() return value
+```
+
+**After (v2):**
+
+```python
+params = session.server_params
+if params is not None:
+    capabilities = params.capabilities
+    server_info = params.server_info
+    instructions = params.instructions
+    version = params.protocol_version
+```
+
+The high-level `Client.server_capabilities` property has similarly been replaced by `Client.server_params`.
+
 ### `McpError` renamed to `MCPError`
 
 The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.
