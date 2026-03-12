@@ -336,9 +336,7 @@ async def test_handle_request_populates_session_tenant_id():
     captured_ctx_tenant: str | None = None
     captured_session_tenant: str | None = None
 
-    async def handle_list_tools(
-        ctx: ServerRequestContext, params: PaginatedRequestParams | None
-    ) -> ListToolsResult:
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
         nonlocal captured_ctx_tenant, captured_session_tenant
         captured_ctx_tenant = ctx.tenant_id
         captured_session_tenant = ctx.session.tenant_id
@@ -378,9 +376,7 @@ async def test_handle_notification_populates_session_tenant_id():
     notification_tenant: str | None = None
     notification_received = anyio.Event()
 
-    async def handle_roots_list_changed(
-        ctx: ServerRequestContext, params: NotificationParams | None
-    ) -> None:
+    async def handle_roots_list_changed(ctx: ServerRequestContext, params: NotificationParams | None) -> None:
         nonlocal notification_tenant
         notification_tenant = ctx.tenant_id
         notification_received.set()
