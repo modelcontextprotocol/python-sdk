@@ -475,8 +475,8 @@ class StreamableHTTPTransport:
                         except anyio.get_cancelled_exc_class():
                             raise
                         except Exception as exc:
-                            with contextlib.suppress(Exception):
-                                if isinstance(message, JSONRPCRequest):
+                            if isinstance(message, JSONRPCRequest):
+                                with contextlib.suppress(Exception):
                                     error_data = ErrorData(
                                         code=INTERNAL_ERROR,
                                         message=str(exc) or "Connection error",
@@ -485,8 +485,8 @@ class StreamableHTTPTransport:
                                         JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
                                     )
                                     await read_stream_writer.send(error_msg)
-                                else:
-                                    await read_stream_writer.send(exc)
+                            else:
+                                logger.warning(f"Failed to send notification: {exc}")
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
