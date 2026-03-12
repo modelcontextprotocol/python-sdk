@@ -321,11 +321,17 @@ async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None
     reaping + stream closure. These tests call ``_terminate_process_tree``
     directly, so they must do the same cleanup explicitly.
 
-    Safe to call on an already-terminated process (termination no-ops, wait
-    returns immediately). Bounded by ``move_on_after`` to prevent hangs.
+    Idempotent: the ``returncode`` guard skips termination if the process has
+    already been reaped (calling ``_terminate_process_tree`` on a reaped POSIX
+    process hits the fallback path in ``terminate_posix_process_tree`` and emits
+    spurious WARNING/ERROR logs, visible because ``log_cli = true``); ``wait()``
+    and stream ``aclose()`` are no-ops on subsequent calls. The tests call this
+    explicitly as the action under test, and ``AsyncExitStack`` calls it again
+    on exit as a safety net for early failures. Bounded by ``move_on_after``.
     """
     with anyio.move_on_after(5.0):
-        await _terminate_process_tree(proc)
+        if getattr(proc, "returncode", None) is None:
+            await _terminate_process_tree(proc)
         await proc.wait()
         assert proc.stdin is not None
         assert proc.stdout is not None
@@ -356,8 +362,9 @@ class TestChildProcessCleanup:
                 stream = await _accept_alive(sock)
             stack.push_async_callback(stream.aclose)
 
-            # Terminate the process tree (the behavior under test).
-            await _terminate_process_tree(proc)
+            # Terminate, reap and close transports (wraps _terminate_process_tree,
+            # the behavior under test).
+            await _terminate_and_reap(proc)
 
             # Deterministic: kernel closed child's socket when it died.
             await _assert_stream_closed(stream)
@@ -391,8 +398,8 @@ class TestChildProcessCleanup:
                     stack.push_async_callback(stream.aclose)
                     streams.append(stream)
 
-            # Terminate the entire tree.
-            await _terminate_process_tree(proc)
+            # Terminate the entire tree (wraps _terminate_process_tree).
+            await _terminate_and_reap(proc)
 
             # Every level of the tree must be dead: three kernel-level EOFs.
             for stream in streams:
@@ -426,7 +433,7 @@ class TestChildProcessCleanup:
 
             # Parent will sys.exit(0) on SIGTERM, but the process-group kill
             # (POSIX killpg / Windows Job Object) must still terminate the child.
-            await _terminate_process_tree(proc)
+            await _terminate_and_reap(proc)
 
             # Child must be dead despite parent's early exit.
             await _assert_stream_closed(stream)
