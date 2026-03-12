@@ -335,7 +335,7 @@ async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None
     safety net. Bounded by ``move_on_after`` to prevent hangs.
     """
     with anyio.move_on_after(5.0):
-        if getattr(proc, "returncode", None) is None:
+        if proc.returncode is None:
             await _terminate_process_tree(proc)
         await proc.wait()
         assert proc.stdin is not None
