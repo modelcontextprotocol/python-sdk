@@ -17,7 +17,6 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
-from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
@@ -1003,7 +1002,7 @@ class TestContextInjection:
         """Test that context parameters are properly detected."""
         mcp = MCPServer()
 
-        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:  # pragma: no cover
+        def tool_with_context(x: int, ctx: Context) -> str:  # pragma: no cover
             return f"Request {ctx.request_id}: {x}"
 
         tool = mcp._tool_manager.add_tool(tool_with_context)
@@ -1013,7 +1012,7 @@ class TestContextInjection:
         """Test that context is properly injected into tool calls."""
         mcp = MCPServer()
 
-        def tool_with_context(x: int, ctx: Context[ServerSession, None]) -> str:
+        def tool_with_context(x: int, ctx: Context) -> str:
             assert ctx.request_id is not None
             return f"Request {ctx.request_id}: {x}"
 
@@ -1030,7 +1029,7 @@ class TestContextInjection:
         """Test that context works in async functions."""
         mcp = MCPServer()
 
-        async def async_tool(x: int, ctx: Context[ServerSession, None]) -> str:
+        async def async_tool(x: int, ctx: Context) -> str:
             assert ctx.request_id is not None
             return f"Async request {ctx.request_id}: {x}"
 
@@ -1047,7 +1046,7 @@ class TestContextInjection:
         """Test that context logging methods work."""
         mcp = MCPServer()
 
-        async def logging_tool(msg: str, ctx: Context[ServerSession, None]) -> str:
+        async def logging_tool(msg: str, ctx: Context) -> str:
             await ctx.debug("Debug message")
             await ctx.info("Info message")
             await ctx.warning("Warning message")
@@ -1094,7 +1093,7 @@ class TestContextInjection:
             return "resource data"
 
         @mcp.tool()
-        async def tool_with_resource(ctx: Context[ServerSession, None]) -> str:
+        async def tool_with_resource(ctx: Context) -> str:
             r_iter = await ctx.read_resource("test://data")
             r_list = list(r_iter)
             assert len(r_list) == 1
@@ -1113,7 +1112,7 @@ class TestContextInjection:
         mcp = MCPServer()
 
         @mcp.resource("resource://context/{name}")
-        def resource_with_context(name: str, ctx: Context[ServerSession, None]) -> str:
+        def resource_with_context(name: str, ctx: Context) -> str:
             """Resource that receives context."""
             assert ctx is not None
             return f"Resource {name} - context injected"
@@ -1166,7 +1165,7 @@ class TestContextInjection:
         mcp = MCPServer()
 
         @mcp.resource("resource://custom/{id}")
-        def resource_custom_ctx(id: str, my_ctx: Context[ServerSession, None]) -> str:
+        def resource_custom_ctx(id: str, my_ctx: Context) -> str:
             """Resource with custom context parameter name."""
             assert my_ctx is not None
             return f"Resource {id} with context"
@@ -1194,7 +1193,7 @@ class TestContextInjection:
         mcp = MCPServer()
 
         @mcp.prompt("prompt_with_ctx")
-        def prompt_with_context(text: str, ctx: Context[ServerSession, None]) -> str:
+        def prompt_with_context(text: str, ctx: Context) -> str:
             """Prompt that expects context."""
             assert ctx is not None
             return f"Prompt '{text}' - context injected"

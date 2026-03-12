@@ -334,7 +334,7 @@ class BaseSession(
         async with self._read_stream, self._write_stream:
             try:
                 async for message in self._read_stream:
-                    if isinstance(message, Exception):  # pragma: no cover
+                    if isinstance(message, Exception):
                         await self._handle_incoming(message)
                     elif isinstance(message.message, JSONRPCRequest):
                         try:
