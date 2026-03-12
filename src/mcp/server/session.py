@@ -474,15 +474,15 @@ class ServerSession(
             related_request_id,
         )
 
-    async def send_resource_list_changed(self) -> None:  # pragma: no cover
+    async def send_resource_list_changed(self) -> None:
         """Send a resource list changed notification."""
         await self.send_notification(types.ResourceListChangedNotification())
 
-    async def send_tool_list_changed(self) -> None:  # pragma: no cover
+    async def send_tool_list_changed(self) -> None:
         """Send a tool list changed notification."""
         await self.send_notification(types.ToolListChangedNotification())
 
-    async def send_prompt_list_changed(self) -> None:  # pragma: no cover
+    async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
         await self.send_notification(types.PromptListChangedNotification())
 
