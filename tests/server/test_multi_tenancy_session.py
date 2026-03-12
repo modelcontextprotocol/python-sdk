@@ -158,6 +158,66 @@ def test_get_tenant_id_from_auth_context():
 
 
 @pytest.mark.anyio
+async def test_session_tenant_id_set_from_auth_context_on_first_request(init_options: InitializationOptions):
+    """Verify session.tenant_id is populated from auth context on the first request.
+
+    The lowlevel server sets session.tenant_id from get_tenant_id() on the
+    first request that has a tenant. This test simulates that behavior directly.
+    """
+    server_to_client_send, server_to_client_recv = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    async with server_to_client_send, server_to_client_recv, client_to_server_send, client_to_server_recv:
+        async with ServerSession(
+            client_to_server_recv,
+            server_to_client_send,
+            init_options,
+        ) as session:
+            assert session.tenant_id is None
+
+            # Simulate what lowlevel/server.py does: set session.tenant_id
+            # from auth context on first request
+            access_token = AccessToken(
+                token="token-first",
+                client_id="client",
+                scopes=["read"],
+                expires_at=int(time.time()) + 3600,
+                tenant_id="tenant-first",
+            )
+            user = AuthenticatedUser(access_token)
+            context_token = auth_context_var.set(user)
+            try:
+                tenant_id = get_tenant_id()
+                if tenant_id is not None and session.tenant_id is None:
+                    session.tenant_id = tenant_id
+            finally:
+                auth_context_var.reset(context_token)
+
+            assert session.tenant_id == "tenant-first"
+
+            # Simulate a second request with a different tenant —
+            # session.tenant_id should NOT change (set-once on first request)
+            access_token2 = AccessToken(
+                token="token-second",
+                client_id="client",
+                scopes=["read"],
+                expires_at=int(time.time()) + 3600,
+                tenant_id="tenant-second",
+            )
+            user2 = AuthenticatedUser(access_token2)
+            context_token2 = auth_context_var.set(user2)
+            try:
+                tenant_id = get_tenant_id()
+                if tenant_id is not None and session.tenant_id is None:
+                    session.tenant_id = tenant_id
+            finally:
+                auth_context_var.reset(context_token2)
+
+            # Still the first tenant — not overwritten
+            assert session.tenant_id == "tenant-first"
+
+
+@pytest.mark.anyio
 async def test_tenant_context_isolation_between_concurrent_requests():
     """Verify tenant_id doesn't leak between concurrent async contexts.
 
