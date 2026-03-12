@@ -17,6 +17,7 @@ Example:
     ```
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
@@ -38,10 +39,17 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # standard process handles. Encoding of stdin/stdout as text streams on
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
+    # Use dup to create copies of stdin/stdout file descriptors so that closing
+    # our wrappers doesn't close the original process streams. This prevents
+    # "ValueError: I/O operation on closed file" after the server exits.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8"))
+        stdin_fd = os.dup(sys.stdin.fileno())
+        stdin_bin = os.fdopen(stdin_fd, "rb", closefd=True)
+        stdin = anyio.wrap_file(TextIOWrapper(stdin_bin, encoding="utf-8"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout_fd = os.dup(sys.stdout.fileno())
+        stdout_bin = os.fdopen(stdout_fd, "wb", closefd=True)
+        stdout = anyio.wrap_file(TextIOWrapper(stdout_bin, encoding="utf-8"))
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
