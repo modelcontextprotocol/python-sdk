@@ -17,10 +17,18 @@ logger = logging.getLogger("client.stdio.win32")
 
 # Windows-specific imports for Job Objects
 if sys.platform == "win32":
-    import pywintypes
-    import win32api
-    import win32con
-    import win32job
+    try:
+        import pywintypes
+        import win32api
+        import win32con
+        import win32job
+    except ImportError:
+        # pywin32 is not installed — degrade gracefully.
+        # All downstream code null-checks these modules before use.
+        pywintypes = None
+        win32api = None
+        win32con = None
+        win32job = None
 else:
     # Type stubs for non-Windows platforms
     win32api = None
