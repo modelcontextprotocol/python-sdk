@@ -12,7 +12,6 @@ nondeterministically in an unrelated later test.
 """
 
 import gc
-import socket
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,13 +23,6 @@ import pytest
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.websocket import websocket_client
-
-
-def _unused_tcp_port() -> int:
-    """Return a port with no listener. Binding then closing leaves the port unbound."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @contextmanager
@@ -63,19 +55,17 @@ def _assert_no_memory_stream_leak() -> Iterator[None]:
 
 
 @pytest.mark.anyio
-async def test_sse_client_closes_all_streams_on_connection_error() -> None:
+async def test_sse_client_closes_all_streams_on_connection_error(free_tcp_port: int) -> None:
     """sse_client must close all 4 stream ends when the connection fails.
 
     Before the fix, only read_stream_writer and write_stream were closed in
     the finally block. read_stream and write_stream_reader were leaked.
     """
-    port = _unused_tcp_port()
-
     with _assert_no_memory_stream_leak():
         # sse_client enters a task group BEFORE connecting, so anyio wraps the
         # ConnectError from aconnect_sse in an ExceptionGroup.
         with pytest.raises(Exception) as exc_info:  # noqa: B017
-            async with sse_client(f"http://127.0.0.1:{port}/sse"):
+            async with sse_client(f"http://127.0.0.1:{free_tcp_port}/sse"):
                 pytest.fail("should not reach here")  # pragma: no cover
 
         assert exc_info.group_contains(httpx.ConnectError)
@@ -98,15 +88,13 @@ async def test_streamable_http_client_closes_all_streams_on_exit() -> None:
 
 
 @pytest.mark.anyio
-async def test_websocket_client_closes_all_streams_on_connection_error() -> None:
+async def test_websocket_client_closes_all_streams_on_connection_error(free_tcp_port: int) -> None:
     """websocket_client must close all 4 stream ends when ws_connect fails.
 
     Before the fix, there was no try/finally at all — if ws_connect raised,
     all 4 streams were leaked.
     """
-    port = _unused_tcp_port()
-
     with _assert_no_memory_stream_leak():
         with pytest.raises(OSError):
-            async with websocket_client(f"ws://127.0.0.1:{port}/ws"):
+            async with websocket_client(f"ws://127.0.0.1:{free_tcp_port}/ws"):
                 pytest.fail("should not reach here")  # pragma: no cover
