@@ -20,7 +20,7 @@ import pydantic_core
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
-from starlette.requests import Request
+from starlette.requests import ClientDisconnect, Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
@@ -634,6 +634,26 @@ class StreamableHTTPServerTransport:
                     await sse_stream_reader.aclose()
 
         except Exception as err:  # pragma: no cover
+            await self._handle_post_error(err, scope, receive, send, writer)
+            return
+
+    async def _handle_post_error(  # pragma: no cover
+        self,
+        err: Exception,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+        writer: MemoryObjectSendStream[SessionMessage | Exception] | None,
+    ) -> None:
+        """Handle errors from POST request processing.
+
+        ClientDisconnect is logged as a warning since it is a client-side event
+        (timeout, cancel, network drop), not a server error.
+        All other exceptions are logged as errors and return HTTP 500.
+        """
+        if isinstance(err, ClientDisconnect):
+            logger.warning("Client disconnected during POST request")
+        else:  # pragma: no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -641,9 +661,8 @@ class StreamableHTTPServerTransport:
                 INTERNAL_ERROR,
             )
             await response(scope, receive, send)
-            if writer:
-                await writer.send(Exception(err))
-            return
+        if writer:
+            await writer.send(Exception(err))
 
     async def _handle_get_request(self, request: Request, send: Send) -> None:
         """Handle GET request to establish SSE.
