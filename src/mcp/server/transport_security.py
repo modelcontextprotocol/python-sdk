@@ -22,6 +22,13 @@ class TransportSecuritySettings(BaseModel):
     allowed_hosts: list[str] = Field(default_factory=list)
     """List of allowed Host header values.
 
+    Supports:
+    - Exact match: ``example.com``, ``127.0.0.1:8080``
+    - Wildcard port: ``example.com:*`` matches ``example.com`` with any port
+    - Subdomain wildcard: ``*.mysite.com`` matches ``mysite.com`` and any subdomain
+      (e.g. ``app.mysite.com``, ``api.mysite.com``). Optionally use ``*.mysite.com:*``
+      to also allow any port.
+
     Only applies when `enable_dns_rebinding_protection` is `True`.
     """
 
@@ -40,6 +47,15 @@ class TransportSecurityMiddleware:
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
+    def _hostname_from_host(self, host: str) -> str:
+        """Extract hostname from Host header (strip optional port)."""
+        if host.startswith("["):
+            idx = host.find("]:")
+            if idx != -1:
+                return host[: idx + 1]
+            return host
+        return host.split(":", 1)[0]
+
     def _validate_host(self, host: str | None) -> bool:  # pragma: no cover
         """Validate the Host header against allowed values."""
         if not host:
@@ -50,13 +66,25 @@ class TransportSecurityMiddleware:
         if host in self.settings.allowed_hosts:
             return True
 
-        # Check wildcard port patterns
+        # Check wildcard port patterns (e.g. example.com:*)
         for allowed in self.settings.allowed_hosts:
             if allowed.endswith(":*"):
-                # Extract base host from pattern
                 base_host = allowed[:-2]
-                # Check if the actual host starts with base host and has a port
+                # Subdomain pattern *.domain.com:* is handled below; skip here
+                if base_host.startswith("*."):
+                    continue
                 if host.startswith(base_host + ":"):
+                    return True
+
+        # Check subdomain wildcard patterns (e.g. *.mysite.com or *.mysite.com:*)
+        hostname = self._hostname_from_host(host)
+        for allowed in self.settings.allowed_hosts:
+            if allowed.startswith("*."):
+                pattern = allowed[:-2] if allowed.endswith(":*") else allowed
+                base_domain = pattern[2:]
+                if not base_domain:
+                    continue
+                if hostname == base_domain or hostname.endswith("." + base_domain):
                     return True
 
         logger.warning(f"Invalid Host header: {host}")

@@ -254,6 +254,47 @@ async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
 
 
 @pytest.mark.anyio
+async def test_streamable_http_security_subdomain_wildcard_host(server_port: int):
+    """Test StreamableHTTP with *.domain subdomain wildcard in allowed_hosts (issue #2141)."""
+    settings = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["*.mysite.com", "127.0.0.1:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://app.mysite.com:*"],
+    )
+    process = start_server_process(server_port, settings)
+
+    try:
+        headers = {
+            "Host": "app.mysite.com",
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"http://127.0.0.1:{server_port}/",
+                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                headers=headers,
+            )
+            assert response.status_code == 200
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://127.0.0.1:{server_port}/",
+                json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                headers={
+                    "Host": "other.com",
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                },
+            )
+            assert response.status_code == 421
+            assert response.text == "Invalid Host header"
+    finally:
+        process.terminate()
+        process.join()
+
+
+@pytest.mark.anyio
 async def test_streamable_http_security_get_request(server_port: int):
     """Test StreamableHTTP GET request with security."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1"])
