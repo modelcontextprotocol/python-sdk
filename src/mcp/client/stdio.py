@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,6 +21,7 @@ from mcp.os.win32.utilities import (
     get_windows_executable_command,
     terminate_windows_process_tree,
 )
+from mcp.shared.jupyter import is_jupyter
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -118,12 +120,13 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     try:
         command = _get_executable_command(server.command)
 
-        # Open process with stderr piped for capture
+        # Pipe stderr so we can route it through a reader task.
+        # This enables Jupyter-compatible stderr output (#156).
         process = await _create_platform_compatible_process(
             command=command,
             args=server.args,
             env=({**get_default_environment(), **server.env} if server.env is not None else get_default_environment()),
-            errlog=errlog,
+            errlog=subprocess.PIPE,
             cwd=server.cwd,
         )
     except OSError:
@@ -177,9 +180,28 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
+    async def stderr_reader():
+        """Read stderr from the subprocess and route to errlog or Jupyter output."""
+        if process.stderr is None:  # pragma: no cover
+            return
+        try:
+            async for chunk in TextReceiveStream(
+                process.stderr,
+                encoding=server.encoding,
+                errors=server.encoding_error_handler,
+            ):
+                if is_jupyter():
+                    # In Jupyter, stderr isn't visible — use print() with ANSI red
+                    print(f"\033[91m{chunk}\033[0m", end="", flush=True)
+                else:
+                    print(chunk, file=errlog, end="", flush=True)
+        except anyio.ClosedResourceError:
+            await anyio.lowlevel.checkpoint()
+
     async with anyio.create_task_group() as tg, process:
         tg.start_soon(stdout_reader)
         tg.start_soon(stdin_writer)
+        tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream
         finally:
@@ -230,7 +252,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | int = sys.stderr,
     cwd: Path | str | None = None,
 ):
     """Creates a subprocess in a platform-compatible way.
