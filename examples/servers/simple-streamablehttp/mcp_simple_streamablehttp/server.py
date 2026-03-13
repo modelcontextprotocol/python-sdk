@@ -7,6 +7,7 @@ import click
 from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
@@ -132,6 +133,10 @@ def main(
         app=app,
         event_store=event_store,  # Enable resumability
         json_response=json_response,
+        security_settings=TransportSecuritySettings(
+            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+            allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+        ),
     )
 
     # ASGI handler for streamable HTTP connections

@@ -78,11 +78,18 @@ def main(port: int, transport: str) -> int:
 
     if transport == "sse":
         from mcp.server.sse import SseServerTransport
+        from mcp.server.transport_security import TransportSecuritySettings
         from starlette.applications import Starlette
         from starlette.responses import Response
         from starlette.routing import Mount, Route
 
-        sse = SseServerTransport("/messages/")
+        sse = SseServerTransport(
+            "/messages/",
+            security_settings=TransportSecuritySettings(
+                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+            ),
+        )
 
         async def handle_sse(request: Request):
             async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]

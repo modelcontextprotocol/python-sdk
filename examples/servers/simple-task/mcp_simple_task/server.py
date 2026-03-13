@@ -10,6 +10,7 @@ from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
@@ -69,7 +70,13 @@ server.experimental.enable_tasks()
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on")
 def main(port: int) -> int:
-    session_manager = StreamableHTTPSessionManager(app=server)
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        security_settings=TransportSecuritySettings(
+            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+            allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+        ),
+    )
 
     @asynccontextmanager
     async def app_lifespan(app: Starlette) -> AsyncIterator[None]:

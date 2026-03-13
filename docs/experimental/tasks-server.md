@@ -418,6 +418,7 @@ from starlette.routing import Mount
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import (
     CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution, TASK_REQUIRED,
 )
@@ -463,7 +464,13 @@ async def handle_tool(name: str, arguments: dict) -> CallToolResult | CreateTask
 
 
 def create_app():
-    session_manager = StreamableHTTPSessionManager(app=server)
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        security_settings=TransportSecuritySettings(
+            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+            allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
+        ),
+    )
 
     @asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
