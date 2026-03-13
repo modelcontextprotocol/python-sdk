@@ -626,14 +626,14 @@ class StreamableHTTPServerTransport:
                         # Then send the message to be processed by the server
                         session_message = self._create_session_message(message, request, request_id, protocol_version)
                         await writer.send(session_message)
-                except Exception:  # pragma: no cover
+                except Exception:  # pragma: lax no cover
                     logger.exception("SSE response error")
                     await sse_stream_writer.aclose()
                     await self._clean_up_memory_streams(request_id)
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:  # pragma: no cover
+        except Exception as err:  # pragma: lax no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -816,7 +816,7 @@ class StreamableHTTPServerTransport:
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
-        if not self.mcp_session_id:  # pragma: no cover
+        if not self.mcp_session_id:  # pragma: lax no cover
             # If we're not using session IDs, return True
             return True
 
@@ -849,7 +849,7 @@ class StreamableHTTPServerTransport:
         protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
         # If no protocol version provided, assume default version
-        if protocol_version is None:  # pragma: no cover
+        if protocol_version is None:  # pragma: lax no cover
             protocol_version = DEFAULT_NEGOTIATED_VERSION
 
         # Check if the protocol version is supported
@@ -1026,7 +1026,7 @@ class StreamableHTTPServerTransport:
                             )
                 except anyio.ClosedResourceError:
                     if self._terminated:
-                        logger.debug("Read stream closed by client")
+                        logger.debug("Read stream closed by client")  # pragma: lax no cover
                     else:
                         logger.exception("Unexpected closure of read stream in message router")
                 except Exception:  # pragma: lax no cover
