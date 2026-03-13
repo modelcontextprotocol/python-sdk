@@ -17,16 +17,64 @@ Example:
     ```
 """
 
+import select
 import sys
+from collections.abc import Callable, Coroutine
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 
 import anyio
 import anyio.lowlevel
+from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp import types
 from mcp.shared.message import SessionMessage
+
+# How often to check for stdin EOF (seconds)
+STDIN_EOF_CHECK_INTERVAL = 0.1
+
+
+def _create_stdin_eof_monitor(
+    tg: TaskGroup,
+) -> Callable[[], Coroutine[object, object, None]] | None:
+    """Create a platform-appropriate stdin EOF monitor.
+
+    Returns an async callable that monitors stdin for EOF and cancels the task
+    group when detected, or None if monitoring is not supported on this platform.
+
+    When the parent process dies, stdin reaches EOF. The anyio.wrap_file async
+    iterator may not detect this promptly because it runs readline() in a worker
+    thread. This monitor polls the underlying file descriptor directly using
+    OS-level I/O, and cancels the task group when EOF is detected, ensuring the
+    server shuts down cleanly.
+    """
+    if sys.platform == "win32":
+        return None
+
+    if not hasattr(select, "poll"):
+        return None  # pragma: no cover
+
+    try:
+        fd = sys.stdin.buffer.fileno()
+    except Exception:
+        return None
+
+    async def monitor() -> None:
+        poll_obj = select.poll()
+        poll_obj.register(fd, select.POLLIN | select.POLLHUP)
+        try:
+            while True:
+                await anyio.sleep(STDIN_EOF_CHECK_INTERVAL)
+                events = poll_obj.poll(0)
+                for _, event_mask in events:
+                    if event_mask & (select.POLLHUP | select.POLLERR | select.POLLNVAL):
+                        tg.cancel_scope.cancel()
+                        return
+        finally:
+            poll_obj.unregister(fd)
+
+    return monitor
 
 
 @asynccontextmanager
@@ -80,4 +128,9 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     async with anyio.create_task_group() as tg:
         tg.start_soon(stdin_reader)
         tg.start_soon(stdout_writer)
+
+        eof_monitor = _create_stdin_eof_monitor(tg)
+        if eof_monitor is not None:
+            tg.start_soon(eof_monitor)
+
         yield read_stream, write_stream
