@@ -466,11 +466,27 @@ class StreamableHTTPTransport:
                         read_stream_writer=read_stream_writer,
                     )
 
-                    async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                    async def handle_request_async() -> None:
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except anyio.get_cancelled_exc_class():
+                            raise
+                        except Exception as exc:
+                            if isinstance(message, JSONRPCRequest):
+                                with contextlib.suppress(Exception):
+                                    error_data = ErrorData(
+                                        code=INTERNAL_ERROR,
+                                        message=str(exc) or "Connection error",
+                                    )
+                                    error_msg = SessionMessage(
+                                        JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data)
+                                    )
+                                    await read_stream_writer.send(error_msg)
+                            else:
+                                logger.warning(f"Failed to send notification: {exc}")
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
