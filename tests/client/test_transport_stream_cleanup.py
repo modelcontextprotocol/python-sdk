@@ -15,7 +15,6 @@ import gc
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
 
 import httpx
 import pytest
@@ -34,22 +33,25 @@ def _assert_no_memory_stream_leak() -> Iterator[None]:
     same xdist worker). gc.collect() is forced after the block to make leaks
     deterministic.
     """
-    leaked: list[Any] = []
+    leaked: list[str] = []
     old_hook = sys.unraisablehook
 
-    def hook(args: Any) -> None:  # pragma: no cover
+    def hook(args: "sys.UnraisableHookArgs") -> None:  # pragma: no cover
         # Only executes if a leak occurs (i.e. the bug is present).
+        # args.object is the __del__ function (not the stream instance) when
+        # unraisablehook fires from a finalizer, so check exc_value — the
+        # actual ResourceWarning("Unclosed <MemoryObjectSendStream at ...>").
         # Non-MemoryObject unraisables (e.g. PipeHandle leaked by an earlier
         # flaky test on the same xdist worker) are deliberately ignored —
         # this test should not fail for another test's resource leak.
-        if "MemoryObject" in repr(args.object):
-            leaked.append(args)
+        if "MemoryObject" in str(args.exc_value):
+            leaked.append(str(args.exc_value))
 
     sys.unraisablehook = hook
     try:
         yield
         gc.collect()
-        assert not leaked, f"Memory streams leaked: {[repr(x.object) for x in leaked]}"
+        assert not leaked, f"Memory streams leaked: {leaked}"
     finally:
         sys.unraisablehook = old_hook
 
