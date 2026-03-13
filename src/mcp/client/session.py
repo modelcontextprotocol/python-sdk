@@ -43,6 +43,10 @@ class ListRootsFnT(Protocol):
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
+class ListChangedFnT(Protocol):
+    async def __call__(self) -> None: ...  # pragma: no branch
+
+
 class LoggingFnT(Protocol):
     async def __call__(self, params: types.LoggingMessageNotificationParams) -> None: ...  # pragma: no branch
 
@@ -95,6 +99,10 @@ async def _default_logging_callback(
     pass
 
 
+async def _default_list_changed_callback() -> None:
+    pass
+
+
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
 
@@ -118,6 +126,9 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        tools_list_changed_callback: ListChangedFnT | None = None,
+        resources_list_changed_callback: ListChangedFnT | None = None,
+        prompts_list_changed_callback: ListChangedFnT | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
@@ -130,6 +141,9 @@ class ClientSession(
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
+        self._tools_list_changed_callback = tools_list_changed_callback or _default_list_changed_callback
+        self._resources_list_changed_callback = resources_list_changed_callback or _default_list_changed_callback
+        self._prompts_list_changed_callback = prompts_list_changed_callback or _default_list_changed_callback
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
@@ -470,6 +484,12 @@ class ClientSession(
         match notification:
             case types.LoggingMessageNotification(params=params):
                 await self._logging_callback(params)
+            case types.ToolListChangedNotification():
+                await self._tools_list_changed_callback()
+            case types.ResourceListChangedNotification():
+                await self._resources_list_changed_callback()
+            case types.PromptListChangedNotification():
+                await self._prompts_list_changed_callback()
             case types.ElicitCompleteNotification(params=params):
                 # Handle elicitation completion notification
                 # Clients MAY use this to retry requests or update UI
