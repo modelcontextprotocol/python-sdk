@@ -105,8 +105,6 @@ async def test_stdin_eof_monitor_detects_hangup():
                 with anyio.fail_after(5):
                     while not tg.cancel_scope.cancel_called:
                         await anyio.sleep(0.05)
-
-                assert tg.cancel_scope.cancel_called
     finally:
         os.close(read_fd)
         if write_fd != -1:  # pragma: no cover
@@ -145,8 +143,6 @@ async def test_stdin_eof_monitor_ignores_pollin_events():
                 with anyio.fail_after(5):
                     while not tg.cancel_scope.cancel_called:
                         await anyio.sleep(0.05)
-
-                assert tg.cancel_scope.cancel_called
     finally:
         os.close(read_fd)
         if write_fd != -1:  # pragma: no cover
