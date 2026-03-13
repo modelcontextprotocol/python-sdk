@@ -184,6 +184,8 @@ filterwarnings = [
     "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
+    # SSE transport deprecation (callers should migrate to Streamable HTTP)
+    "ignore:.*is deprecated.*Use.*instead.*SSE transport:DeprecationWarning",
 ]
 
 [tool.markdown.lint]

@@ -1,4 +1,5 @@
 import logging
+import warnings
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -39,6 +40,10 @@ async def sse_client(
 ):
     """Client transport for SSE.
 
+    .. deprecated::
+        The SSE transport is deprecated. Use :func:`~mcp.client.streamable_http.streamable_http_client`
+        (Streamable HTTP) instead. SSE will be removed in a future major release.
+
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
 
@@ -51,6 +56,12 @@ async def sse_client(
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
+    warnings.warn(
+        "sse_client is deprecated. Use streamable_http_client instead. "
+        "SSE transport will be removed in a future major release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
