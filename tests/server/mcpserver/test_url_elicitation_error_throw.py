@@ -92,7 +92,11 @@ async def test_url_elicitation_error_from_error():
 
 @pytest.mark.anyio
 async def test_normal_exceptions_still_return_error_result():
-    """Test that normal exceptions still return CallToolResult with is_error=True."""
+    """Test that normal exceptions still return CallToolResult with is_error=True.
+
+    Unexpected exceptions are sanitized: the client sees a generic message
+    containing the tool name, not the raw exception details.
+    """
     mcp = MCPServer(name="NormalErrorServer")
 
     @mcp.tool(description="A tool that raises a normal exception")
@@ -105,4 +109,5 @@ async def test_normal_exceptions_still_return_error_result():
         assert result.is_error is True
         assert len(result.content) == 1
         assert isinstance(result.content[0], types.TextContent)
-        assert "Something went wrong" in result.content[0].text
+        # Unexpected exceptions are sanitized — internal details not leaked
+        assert "failing_tool" in result.content[0].text

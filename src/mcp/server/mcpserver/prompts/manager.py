@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp.server.mcpserver.exceptions import PromptError
 from mcp.server.mcpserver.prompts.base import Message, Prompt
 from mcp.server.mcpserver.utilities.logging import get_logger
 
@@ -54,6 +55,6 @@ class PromptManager:
         """Render a prompt by name with arguments."""
         prompt = self.get_prompt(name)
         if not prompt:
-            raise ValueError(f"Unknown prompt: {name}")
+            raise PromptError(f"Unknown prompt: {name}")
 
         return await prompt.render(arguments, context)
