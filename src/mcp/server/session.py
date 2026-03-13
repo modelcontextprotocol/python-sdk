@@ -83,9 +83,12 @@ class ServerSession(
         write_stream: MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        *,
+        session_id: str | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream)
         self._stateless = stateless
+        self.session_id = session_id
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
         )
@@ -107,6 +110,11 @@ class ServerSession(
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params
+
+    @property
+    def stateless(self) -> bool:
+        """Whether this session is in stateless mode (no persistent server-side state)."""
+        return self._stateless
 
     @property
     def experimental(self) -> ExperimentalServerSessionFeatures:
