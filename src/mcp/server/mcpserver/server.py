@@ -439,15 +439,15 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             resource = await self._resource_manager.get_resource(uri, context)
         except ValueError:
-            raise ResourceError(f"Unknown resource: {uri}")
+            raise ResourceError(f"Unknown resource: {str(uri)[:256]}")
 
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as exc:
-            logger.exception(f"Error getting resource {uri}")
+            logger.exception(f"Error getting resource {str(uri)[:256]}")
             # If an exception happens when reading the resource, we should not leak the exception to the client.
-            raise ResourceError(f"Error reading resource {uri}") from exc
+            raise ResourceError(f"Error reading resource {str(uri)[:256]}") from exc
 
     def add_tool(
         self,
@@ -1090,7 +1090,7 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
-                raise ValueError(f"Unknown prompt: {name}")
+                raise ValueError(f"Unknown prompt: {name[:128]}")
 
             messages = await prompt.render(arguments, context)
 
@@ -1099,5 +1099,5 @@ class MCPServer(Generic[LifespanResultT]):
                 messages=pydantic_core.to_jsonable_python(messages),
             )
         except Exception as e:
-            logger.exception(f"Error getting prompt {name}")
+            logger.exception(f"Error getting prompt {name[:128]}")
             raise ValueError(str(e))

@@ -183,7 +183,7 @@ class ClientSession(
         )
 
         if result.protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
-            raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
+            raise RuntimeError(f"Unsupported protocol version from the server: {str(result.protocol_version)[:32]}")
 
         self._server_capabilities = result.capabilities
 
