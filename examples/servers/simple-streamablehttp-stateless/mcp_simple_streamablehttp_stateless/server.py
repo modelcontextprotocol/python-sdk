@@ -1,18 +1,11 @@
-import contextlib
 import logging
-from collections.abc import AsyncIterator
 
 import anyio
 import click
 import uvicorn
 from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.server.transport_security import TransportSecuritySettings
-from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
-from starlette.routing import Mount
-from starlette.types import Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
@@ -105,36 +98,10 @@ def main(
         on_call_tool=handle_call_tool,
     )
 
-    # Create the session manager with true stateless mode
-    session_manager = StreamableHTTPSessionManager(
-        app=app,
-        event_store=None,
+    starlette_app = app.streamable_http_app(
+        stateless_http=True,
         json_response=json_response,
-        stateless=True,
-        security_settings=TransportSecuritySettings(
-            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
-            allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
-        ),
-    )
-
-    async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
-        await session_manager.handle_request(scope, receive, send)
-
-    @contextlib.asynccontextmanager
-    async def lifespan(app: Starlette) -> AsyncIterator[None]:
-        """Context manager for session manager."""
-        async with session_manager.run():
-            logger.info("Application started with StreamableHTTP session manager!")
-            try:
-                yield
-            finally:
-                logger.info("Application shutting down...")
-
-    # Create an ASGI application using the transport
-    starlette_app = Starlette(
         debug=True,
-        routes=[Mount("/mcp", app=handle_streamable_http)],
-        lifespan=lifespan,
     )
 
     # Wrap ASGI application with CORS middleware to expose Mcp-Session-Id header

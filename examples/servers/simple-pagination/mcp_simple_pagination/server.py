@@ -10,7 +10,6 @@ import anyio
 import click
 from mcp import types
 from mcp.server import Server, ServerRequestContext
-from starlette.requests import Request
 
 T = TypeVar("T")
 
@@ -143,10 +142,10 @@ async def handle_get_prompt(ctx: ServerRequestContext, params: types.GetPromptRe
 
 
 @click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
+@click.option("--port", default=8000, help="Port to listen on for HTTP")
 @click.option(
     "--transport",
-    type=click.Choice(["stdio", "sse"]),
+    type=click.Choice(["stdio", "streamable-http"]),
     default="stdio",
     help="Transport type",
 )
@@ -161,37 +160,10 @@ def main(port: int, transport: str) -> int:
         on_get_prompt=handle_get_prompt,
     )
 
-    if transport == "sse":
-        from mcp.server.sse import SseServerTransport
-        from mcp.server.transport_security import TransportSecuritySettings
-        from starlette.applications import Starlette
-        from starlette.responses import Response
-        from starlette.routing import Mount, Route
-
-        sse = SseServerTransport(
-            "/messages/",
-            security_settings=TransportSecuritySettings(
-                allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
-                allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"],
-            ),
-        )
-
-        async def handle_sse(request: Request):
-            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]
-                await app.run(streams[0], streams[1], app.create_initialization_options())
-            return Response()
-
-        starlette_app = Starlette(
-            debug=True,
-            routes=[
-                Route("/sse", endpoint=handle_sse, methods=["GET"]),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
-
+    if transport == "streamable-http":
         import uvicorn
 
-        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
+        uvicorn.run(app.streamable_http_app(), host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 
