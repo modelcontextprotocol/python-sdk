@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, get_args
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -17,6 +17,7 @@ from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
     REQUEST_TIMEOUT,
     CancelledNotification,
     ClientNotification,
@@ -43,6 +44,16 @@ ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
 RequestId = str | int
+
+
+def request_methods_for_union(request_union: Any) -> frozenset[str]:
+    methods: set[str] = set()
+    for request_type in get_args(request_union):
+        field = getattr(request_type, "model_fields", {}).get("method")
+        default = getattr(field, "default", None)
+        if isinstance(default, str):
+            methods.add(default)
+    return frozenset(methods)
 
 
 class ProgressFnT(Protocol):
@@ -327,6 +338,10 @@ class BaseSession(
         raise NotImplementedError
 
     @property
+    def _known_request_methods(self) -> frozenset[str]:
+        return frozenset()
+
+    @property
     def _receive_notification_adapter(self) -> TypeAdapter[ReceiveNotificationT]:
         raise NotImplementedError
 
@@ -360,10 +375,18 @@ class BaseSession(
                             # response instead of crashing the server
                             logging.warning("Failed to validate request", exc_info=True)
                             logging.debug(f"Message that failed validation: {message.message}")
+                            if message.message.method not in self._known_request_methods:
+                                error = ErrorData(code=METHOD_NOT_FOUND, message="Method not found")
+                            else:
+                                error = ErrorData(
+                                    code=INVALID_PARAMS,
+                                    message="Invalid request parameters",
+                                    data="",
+                                )
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
                                 id=message.message.id,
-                                error=ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
+                                error=error,
                             )
                             session_message = SessionMessage(message=error_response)
                             await self._write_stream.send(session_message)

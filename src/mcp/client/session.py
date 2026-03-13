@@ -12,11 +12,17 @@ from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.session import (
+    BaseSession,
+    ProgressFnT,
+    RequestResponder,
+    request_methods_for_union,
+)
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types._types import RequestParamsMeta
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
+KNOWN_SERVER_REQUEST_METHODS = request_methods_for_union(types.ServerRequest)
 
 logger = logging.getLogger("client")
 
@@ -140,6 +146,10 @@ class ClientSession(
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
         return types.server_request_adapter
+
+    @property
+    def _known_request_methods(self) -> frozenset[str]:
+        return KNOWN_SERVER_REQUEST_METHODS
 
     @property
     def _receive_notification_adapter(self) -> TypeAdapter[types.ServerNotification]:
