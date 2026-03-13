@@ -83,7 +83,12 @@ def run_server_in_thread(app: ASGIApp, lifespan: Literal["auto", "on", "off"] = 
         yield f"http://127.0.0.1:{port}"
     finally:
         server.should_exit = True
-        thread.join(timeout=5)
+        server.force_exit = True
+        # Don't block on thread.join() — uvicorn polls should_exit every 0.1s and
+        # its shutdown() adds another 0.1s, totaling ~200ms teardown latency per
+        # fixture. The thread is a daemon so it will be reaped by the interpreter;
+        # we just signal exit and move on. The socket is closed by uvicorn's
+        # shutdown regardless, so the port is released for the next test.
         # When uvicorn shuts down with in-flight SSE connections, the server
         # cancels request handlers mid-operation. SseServerTransport's internal
         # memory streams may not get their `finally` cleanup run before GC,
