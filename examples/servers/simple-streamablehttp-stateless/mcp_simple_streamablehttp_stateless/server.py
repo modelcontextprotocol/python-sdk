@@ -108,7 +108,7 @@ def main(
     # for browser-based clients (ensures 500 errors get proper CORS headers)
     starlette_app = CORSMiddleware(
         starlette_app,
-        allow_origins=["*"],  # Allow all origins - adjust as needed for production
+        allow_origins=["*"],  # Note: streamable_http_app() enforces localhost-only Origin by default
         allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
         expose_headers=["Mcp-Session-Id"],
     )
