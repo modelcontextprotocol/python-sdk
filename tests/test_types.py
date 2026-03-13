@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
@@ -11,6 +12,7 @@ from mcp.types import (
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
+    JSONRPCNotification,
     JSONRPCRequest,
     ListToolsResult,
     SamplingCapability,
@@ -360,3 +362,42 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
     assert tool.input_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert "$defs" in tool.input_schema
     assert tool.input_schema["additionalProperties"] is False
+
+
+def test_jsonrpc_message_rejects_null_id():
+    """Requests with 'id': null must not silently become notifications.
+
+    Per JSON-RPC 2.0, request IDs must be strings or integers. A null id
+    should be rejected, not reclassified as a notification (issue #2057).
+    """
+    msg = {"jsonrpc": "2.0", "method": "initialize", "id": None}
+    with pytest.raises(ValidationError):
+        jsonrpc_message_adapter.validate_python(msg)
+
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [None, 1.5, True, False, [], {}],
+    ids=["null", "float", "true", "false", "list", "dict"],
+)
+def test_jsonrpc_message_rejects_invalid_id_types(invalid_id: Any):
+    """Requests with non-string/non-integer id values must be rejected."""
+    msg = {"jsonrpc": "2.0", "method": "test", "id": invalid_id}
+    with pytest.raises(ValidationError):
+        jsonrpc_message_adapter.validate_python(msg)
+
+
+def test_jsonrpc_notification_without_id_still_works():
+    """Normal notifications (no id field) must still be accepted."""
+    msg = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    parsed = jsonrpc_message_adapter.validate_python(msg)
+    assert isinstance(parsed, JSONRPCNotification)
+
+
+def test_jsonrpc_request_with_valid_id_still_works():
+    """Requests with valid string or integer ids must still be accepted."""
+    for valid_id in [1, 0, 42, "abc", "request-1"]:
+        msg = {"jsonrpc": "2.0", "method": "test", "id": valid_id}
+        parsed = jsonrpc_message_adapter.validate_python(msg)
+        assert isinstance(parsed, JSONRPCRequest)
+        assert parsed.id == valid_id
