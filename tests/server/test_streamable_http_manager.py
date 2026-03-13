@@ -413,3 +413,59 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+@pytest.mark.anyio
+async def test_stateless_get_returns_405():
+    """GET /mcp must return 405 in stateless mode (no SSE stream to open)."""
+    app = Server("test-stateless-get")
+    manager = StreamableHTTPSessionManager(app=app, stateless=True)
+
+    async with manager.run():
+        sent_messages: list[Message] = []
+
+        async def mock_send(message: Message):
+            sent_messages.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/mcp",
+            "headers": [(b"accept", b"text/event-stream")],
+        }
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        assert sent_messages[0]["type"] == "http.response.start"
+        assert sent_messages[0]["status"] == 405
+
+
+@pytest.mark.anyio
+async def test_stateless_delete_returns_405():
+    """DELETE /mcp must return 405 in stateless mode (no session to terminate)."""
+    app = Server("test-stateless-delete")
+    manager = StreamableHTTPSessionManager(app=app, stateless=True)
+
+    async with manager.run():
+        sent_messages: list[Message] = []
+
+        async def mock_send(message: Message):
+            sent_messages.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "DELETE",
+            "path": "/mcp",
+            "headers": [],
+        }
+
+        async def mock_receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await manager.handle_request(scope, mock_receive, mock_send)
+
+        assert sent_messages[0]["type"] == "http.response.start"
+        assert sent_messages[0]["status"] == 405
