@@ -533,9 +533,6 @@ async def streamable_http_client(
     Example:
         See examples/snippets/clients/ for usage patterns.
     """
-    read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
-
     # Determine if we need to create and manage the client
     client_provided = http_client is not None
     client = http_client
@@ -546,36 +543,40 @@ async def streamable_http_client(
 
     transport = StreamableHTTPTransport(url)
 
-    async with anyio.create_task_group() as tg:
-        try:
-            logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
+    logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
-            async with contextlib.AsyncExitStack() as stack:
-                # Only manage client lifecycle if we created it
-                if not client_provided:
-                    await stack.enter_async_context(client)
+    async with contextlib.AsyncExitStack() as stack:
+        # Only manage client lifecycle if we created it
+        if not client_provided:
+            await stack.enter_async_context(client)
 
-                def start_get_stream() -> None:
-                    tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
+        read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
+        write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
-                tg.start_soon(
-                    transport.post_writer,
-                    client,
-                    write_stream_reader,
-                    read_stream_writer,
-                    write_stream,
-                    start_get_stream,
-                    tg,
-                )
+        async with (
+            read_stream_writer,
+            read_stream,
+            write_stream,
+            write_stream_reader,
+            anyio.create_task_group() as tg,
+        ):
 
-                try:
-                    yield read_stream, write_stream
-                finally:
-                    if transport.session_id and terminate_on_close:
-                        await transport.terminate_session(client)
-                    tg.cancel_scope.cancel()
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
-            await read_stream.aclose()
-            await write_stream_reader.aclose()
+            def start_get_stream() -> None:
+                tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
+
+            tg.start_soon(
+                transport.post_writer,
+                client,
+                write_stream_reader,
+                read_stream_writer,
+                write_stream,
+                start_get_stream,
+                tg,
+            )
+
+            try:
+                yield read_stream, write_stream
+            finally:
+                if transport.session_id and terminate_on_close:
+                    await transport.terminate_session(client)
+                tg.cancel_scope.cancel()
