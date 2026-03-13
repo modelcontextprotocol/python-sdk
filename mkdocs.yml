@@ -18,6 +18,7 @@ nav:
       - Concepts: concepts.md
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
+      - LLM Provider Adapters: llm-adapters.md
       - Testing: testing.md
   - Experimental:
       - Overview: experimental/index.md
