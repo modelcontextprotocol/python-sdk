@@ -1,6 +1,9 @@
 """Tests for OAuth 2.0 shared code."""
 
-from mcp.shared.auth import OAuthMetadata
+import pytest
+from pydantic import AnyUrl
+
+from mcp.shared.auth import InvalidScopeError, OAuthClientMetadata, OAuthMetadata
 
 
 def test_oauth():
@@ -58,3 +61,22 @@ def test_oauth_with_jarm():
             "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
         }
     )
+
+
+def test_validate_scope_allows_requested_scopes_when_client_scope_is_none():
+    metadata = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("https://client.example.com/callback")],
+        scope=None,
+    )
+
+    assert metadata.validate_scope("read write") == ["read", "write"]
+
+
+def test_validate_scope_rejects_scope_not_registered_with_client():
+    metadata = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("https://client.example.com/callback")],
+        scope="read write",
+    )
+
+    with pytest.raises(InvalidScopeError, match="profile"):
+        metadata.validate_scope("read profile")
