@@ -14,14 +14,18 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.shared._context import RequestContext
+from mcp.shared._context import RequestContext, tenant_id_var
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession
 from mcp.types import ListToolsResult, NotificationParams, PaginatedRequestParams, ServerCapabilities
 
 
 def _simulate_tenant_binding(session: ServerSession, tenant_id_value: str) -> None:
-    """Simulate the set-once tenant binding logic from lowlevel/server.py."""
+    """Simulate the set-once tenant binding logic from lowlevel/server.py.
+
+    Sets both auth_context_var (as AuthContextMiddleware does) and tenant_id_var
+    (the transport-agnostic contextvar that the server reads).
+    """
     access_token = AccessToken(
         token=f"token-{tenant_id_value}",
         client_id="client",
@@ -30,13 +34,15 @@ def _simulate_tenant_binding(session: ServerSession, tenant_id_value: str) -> No
         tenant_id=tenant_id_value,
     )
     user = AuthenticatedUser(access_token)
-    context_token = auth_context_var.set(user)
+    auth_token = auth_context_var.set(user)
+    tenant_token = tenant_id_var.set(tenant_id_value)
     try:
-        tenant_id = get_tenant_id()
+        tenant_id = tenant_id_var.get()
         if tenant_id is not None and session.tenant_id is None:
             session.tenant_id = tenant_id
     finally:
-        auth_context_var.reset(context_token)
+        tenant_id_var.reset(tenant_token)
+        auth_context_var.reset(auth_token)
 
 
 @pytest.fixture
@@ -269,18 +275,20 @@ async def test_tenant_context_isolation_between_concurrent_requests():
         )
         user = AuthenticatedUser(access_token)
 
-        # Set the auth context - this is what AuthContextMiddleware does
-        context_token = auth_context_var.set(user)
+        # Set both contextvars - this is what AuthContextMiddleware does
+        auth_token = auth_context_var.set(user)
+        tenant_token = tenant_id_var.set(tenant_id)
         try:
             # Yield control to allow other tasks to run. This is the critical
             # point where context leakage could occur if isolation is broken.
             await anyio.sleep(0.01)
 
             # Read back the tenant_id - should still be our tenant, not the other
-            results[request_key] = get_tenant_id()
+            results[request_key] = tenant_id_var.get()
         finally:
             # Always reset the context (mirrors middleware behavior)
-            auth_context_var.reset(context_token)
+            tenant_id_var.reset(tenant_token)
+            auth_context_var.reset(auth_token)
 
     # Run both requests concurrently using a task group
     async with anyio.create_task_group() as tg:
@@ -362,12 +370,14 @@ async def test_handle_request_populates_session_tenant_id():
         tenant_id="tenant-e2e",
     )
     user = AuthenticatedUser(access_token)
-    token = auth_context_var.set(user)
+    auth_token = auth_context_var.set(user)
+    tenant_token = tenant_id_var.set("tenant-e2e")
     try:
         async with Client(server) as client:
             await client.list_tools()
     finally:
-        auth_context_var.reset(token)
+        tenant_id_var.reset(tenant_token)
+        auth_context_var.reset(auth_token)
 
     assert captured_ctx_tenant == "tenant-e2e"
     assert captured_session_tenant == "tenant-e2e"
@@ -399,13 +409,15 @@ async def test_handle_notification_populates_session_tenant_id():
         tenant_id="tenant-notify",
     )
     user = AuthenticatedUser(access_token)
-    token = auth_context_var.set(user)
+    auth_token = auth_context_var.set(user)
+    tenant_token = tenant_id_var.set("tenant-notify")
     try:
         async with Client(server) as client:
             await client.session.send_roots_list_changed()
             with anyio.fail_after(5):
                 await notification_received.wait()
     finally:
-        auth_context_var.reset(token)
+        tenant_id_var.reset(tenant_token)
+        auth_context_var.reset(auth_token)
 
     assert notification_tenant == "tenant-notify"

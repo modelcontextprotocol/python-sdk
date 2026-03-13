@@ -13,6 +13,7 @@ from mcp.server.auth.middleware.auth_context import (
 )
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
+from mcp.shared._context import tenant_id_var
 
 
 class MockApp:
@@ -167,6 +168,60 @@ async def test_get_tenant_id_with_tenant(access_token_with_tenant: AccessToken):
     assert tenant_id_during_call == "tenant-abc"
     # Verify context is reset after middleware
     assert get_tenant_id() is None
+
+
+@pytest.mark.anyio
+async def test_middleware_sets_tenant_id_var(access_token_with_tenant: AccessToken):
+    """Test AuthContextMiddleware populates the transport-agnostic tenant_id_var."""
+    user = AuthenticatedUser(access_token_with_tenant)
+    scope: Scope = {"type": "http", "user": user}
+
+    observed_tenant_id: str | None = None
+
+    class CheckApp:
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal observed_tenant_id
+            observed_tenant_id = tenant_id_var.get()
+
+    middleware = AuthContextMiddleware(CheckApp())
+
+    async def receive() -> Message:  # pragma: no cover
+        return {"type": "http.request"}
+
+    async def send(message: Message) -> None:  # pragma: no cover
+        pass
+
+    await middleware(scope, receive, send)
+
+    assert observed_tenant_id == "tenant-abc"
+    # Verify contextvar is reset after middleware
+    assert tenant_id_var.get() is None
+
+
+@pytest.mark.anyio
+async def test_middleware_sets_tenant_id_var_none_without_tenant(valid_access_token: AccessToken):
+    """Test AuthContextMiddleware sets tenant_id_var to None when token has no tenant."""
+    user = AuthenticatedUser(valid_access_token)
+    scope: Scope = {"type": "http", "user": user}
+
+    observed_tenant_id: str | None = "sentinel"
+
+    class CheckApp:
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            nonlocal observed_tenant_id
+            observed_tenant_id = tenant_id_var.get()
+
+    middleware = AuthContextMiddleware(CheckApp())
+
+    async def receive() -> Message:  # pragma: no cover
+        return {"type": "http.request"}
+
+    async def send(message: Message) -> None:  # pragma: no cover
+        pass
+
+    await middleware(scope, receive, send)
+
+    assert observed_tenant_id is None
 
 
 @pytest.mark.anyio

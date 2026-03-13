@@ -1,5 +1,6 @@
 """Request context for MCP handlers."""
 
+import contextvars
 from dataclasses import dataclass
 from typing import Any, Generic
 
@@ -7,6 +8,11 @@ from typing_extensions import TypeVar
 
 from mcp.shared.session import BaseSession
 from mcp.types import RequestId, RequestParamsMeta
+
+# Transport-agnostic contextvar for tenant identification.
+# Set by the transport layer (e.g., AuthContextMiddleware for HTTP+OAuth).
+# Read by the core server to populate RequestContext.tenant_id.
+tenant_id_var = contextvars.ContextVar[str | None]("tenant_id", default=None)
 
 SessionT = TypeVar("SessionT", bound=BaseSession[Any, Any, Any, Any, Any])
 

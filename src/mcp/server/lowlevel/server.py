@@ -52,7 +52,7 @@ from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
 from mcp import types
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware, get_tenant_id
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
@@ -65,6 +65,7 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._context import tenant_id_var
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -451,7 +452,7 @@ class Server(Generic[LifespanResultT]):
                 task_metadata = None
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
-                tenant_id = get_tenant_id()
+                tenant_id = tenant_id_var.get()
                 if tenant_id is not None and session.tenant_id is None:
                     session.tenant_id = tenant_id
                 ctx = ServerRequestContext(
@@ -499,7 +500,7 @@ class Server(Generic[LifespanResultT]):
             try:
                 client_capabilities = session.client_params.capabilities if session.client_params else None
                 task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                tenant_id = get_tenant_id()
+                tenant_id = tenant_id_var.get()
                 if tenant_id is not None and session.tenant_id is None:
                     session.tenant_id = tenant_id
                 ctx = ServerRequestContext(
