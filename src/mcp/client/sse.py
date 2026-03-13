@@ -13,6 +13,7 @@ from httpx_sse._exceptions import SSEError
 
 from mcp import types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared.exceptions import HttpError
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -142,10 +143,28 @@ async def sse_client(
                                             exclude_unset=True,
                                         ),
                                     )
+                                    if response.status_code in (401, 403):
+                                        status_label = "Unauthorized" if response.status_code == 401 else "Forbidden"
+                                        exc = HttpError(
+                                            response.status_code,
+                                            f"HTTP {response.status_code} {status_label}",
+                                        )
+                                        await read_stream_writer.send(exc)
+                                        raise exc
                                     response.raise_for_status()
                                     logger.debug(f"Client message sent successfully: {response.status_code}")
-                        except Exception:  # pragma: lax no cover
+                        except HttpError:  # pragma: lax no cover
+                            raise
+                        except httpx.HTTPStatusError as exc:  # pragma: lax no cover
                             logger.exception("Error in post_writer")
+                            http_exc = HttpError(
+                                exc.response.status_code,
+                                f"HTTP {exc.response.status_code}",
+                            )
+                            await read_stream_writer.send(http_exc)
+                        except Exception as exc:  # pragma: lax no cover
+                            logger.exception("Error in post_writer")
+                            await read_stream_writer.send(exc)
                         finally:
                             await write_stream.aclose()
 

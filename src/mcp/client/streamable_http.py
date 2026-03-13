@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
 from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared.exceptions import HttpError
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     INTERNAL_ERROR,
@@ -269,17 +270,41 @@ class StreamableHTTPTransport:
 
             if response.status_code == 404:  # pragma: no branch
                 if isinstance(message, JSONRPCRequest):  # pragma: no branch
-                    error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                    error_data = ErrorData(
+                        code=INVALID_REQUEST,
+                        message="Session terminated (HTTP 404)",
+                        data={"http_status": 404},
+                    )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
+                else:
+                    raise HttpError(404, "Session terminated (HTTP 404)")
                 return
 
-            if response.status_code >= 400:
+            if response.status_code in (401, 403):
+                status_label = "Unauthorized" if response.status_code == 401 else "Forbidden"
+                error_message = f"HTTP {response.status_code} {status_label}"
                 if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                    error_data = ErrorData(
+                        code=INTERNAL_ERROR,
+                        message=error_message,
+                        data={"http_status": response.status_code},
+                    )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
-                return
+                raise HttpError(response.status_code, error_message)
+
+            if response.status_code >= 400:
+                error_message = f"HTTP {response.status_code}"
+                if isinstance(message, JSONRPCRequest):
+                    error_data = ErrorData(
+                        code=INTERNAL_ERROR,
+                        message=error_message,
+                        data={"http_status": response.status_code},
+                    )
+                    session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
+                    await ctx.read_stream_writer.send(session_message)
+                raise HttpError(response.status_code, error_message)
 
             if is_initialization:
                 self._maybe_extract_session_id_from_response(response)
@@ -467,10 +492,14 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except Exception as exc:
+                            logger.exception("Error handling request")
+                            await read_stream_writer.send(exc)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):
@@ -478,8 +507,9 @@ class StreamableHTTPTransport:
                     else:
                         await handle_request_async()
 
-        except Exception:  # pragma: lax no cover
+        except Exception as exc:  # pragma: lax no cover
             logger.exception("Error in post_writer")
+            await read_stream_writer.send(exc)
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
