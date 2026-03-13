@@ -633,7 +633,7 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:  # pragma: no cover
+        except Exception as err:  # pragma: lax no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
