@@ -16,7 +16,7 @@ from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT, create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     INTERNAL_ERROR,
@@ -513,16 +513,26 @@ class StreamableHTTPTransport:
 async def streamable_http_client(
     url: str,
     *,
+    headers: dict[str, str] | None = None,
+    timeout: float = MCP_DEFAULT_TIMEOUT,
+    sse_read_timeout: float = MCP_DEFAULT_SSE_READ_TIMEOUT,
+    auth: httpx.Auth | None = None,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
+    `sse_read_timeout` determines how long (in seconds) the client will wait for a new
+    event before disconnecting. All other HTTP operations are controlled by `timeout`.
+
     Args:
         url: The MCP server endpoint URL.
-        http_client: Optional pre-configured httpx.AsyncClient. If None, a default
-            client with recommended MCP timeouts will be created. To configure headers,
-            authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+        headers: Optional headers to include in requests.
+        timeout: HTTP timeout for regular operations (in seconds).
+        sse_read_timeout: Timeout for SSE read operations (in seconds).
+        auth: Optional HTTPX authentication handler.
+        http_client: Optional pre-configured httpx.AsyncClient. If provided, `headers`,
+            `timeout`, `sse_read_timeout`, and `auth` are ignored.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:
@@ -542,7 +552,11 @@ async def streamable_http_client(
 
     if client is None:
         # Create default client with recommended MCP timeouts
-        client = create_mcp_http_client()
+        client = create_mcp_http_client(
+            headers=headers,
+            timeout=httpx.Timeout(timeout, read=sse_read_timeout),
+            auth=auth,
+        )
 
     transport = StreamableHTTPTransport(url)
 

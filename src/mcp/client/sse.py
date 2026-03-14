@@ -12,7 +12,12 @@ from httpx_sse import aconnect_sse
 from httpx_sse._exceptions import SSEError
 
 from mcp import types
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import (
+    MCP_DEFAULT_SSE_READ_TIMEOUT,
+    MCP_DEFAULT_TIMEOUT,
+    McpHttpClientFactory,
+    create_mcp_http_client,
+)
 from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -31,8 +36,8 @@ def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
 async def sse_client(
     url: str,
     headers: dict[str, Any] | None = None,
-    timeout: float = 5.0,
-    sse_read_timeout: float = 300.0,
+    timeout: float = MCP_DEFAULT_TIMEOUT,
+    sse_read_timeout: float = MCP_DEFAULT_SSE_READ_TIMEOUT,
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
