@@ -591,3 +591,5 @@ async def streamable_http_client(
         finally:
             await read_stream_writer.aclose()
             await write_stream.aclose()
+            await read_stream.aclose()
+            await write_stream_reader.aclose()
