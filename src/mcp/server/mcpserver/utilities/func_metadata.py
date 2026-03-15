@@ -1,18 +1,15 @@
 import functools
 import inspect
 import json
-import logging
 import re
-from collections.abc import Awaitable, Callable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
 import pydantic_core
-from griffe import Docstring, DocstringSectionKind
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -171,96 +168,35 @@ class FuncMetadata(BaseModel):
     )
 
 
-_DocstringStyle = Literal["google", "numpy", "sphinx"]
-
-# Patterns to infer docstring style, adapted from pydantic-ai.
-# Each entry is (pattern_template, replacement_keywords, style).
-_DOCSTRING_STYLE_PATTERNS: list[tuple[str, list[str], _DocstringStyle]] = [
-    (
-        r"\n[ \t]*:{0}([ \t]+\w+)*:([ \t]+.+)?\n",
-        [
-            "param",
-            "parameter",
-            "arg",
-            "argument",
-            "key",
-            "keyword",
-            "type",
-            "var",
-            "ivar",
-            "cvar",
-            "vartype",
-            "returns",
-            "return",
-            "rtype",
-            "raises",
-            "raise",
-            "except",
-            "exception",
-        ],
-        "sphinx",
-    ),
-    (
-        r"\n[ \t]*{0}:([ \t]+.+)?\n[ \t]+.+",
-        [
-            "args",
-            "arguments",
-            "params",
-            "parameters",
-            "keyword args",
-            "keyword arguments",
-            "raises",
-            "exceptions",
-            "returns",
-            "yields",
-            "receives",
-            "examples",
-            "attributes",
-        ],
-        "google",
-    ),
-    (
-        r"\n[ \t]*{0}\n[ \t]*---+\n",
-        [
-            "deprecated",
-            "parameters",
-            "other parameters",
-            "returns",
-            "yields",
-            "receives",
-            "raises",
-            "warns",
-            "attributes",
-        ],
-        "numpy",
-    ),
-]
-
-
-def _infer_docstring_style(doc: str) -> _DocstringStyle:
-    """Infer the docstring style from its content."""
-    for pattern, replacements, style in _DOCSTRING_STYLE_PATTERNS:
-        matches = (
-            re.search(pattern.format(replacement), doc, re.IGNORECASE | re.MULTILINE) for replacement in replacements
-        )
-        if any(matches):
-            return style
-    return "google"
-
-
-@contextmanager
-def _suppress_griffe_logging() -> Iterator[None]:
-    """Temporarily suppress griffe's verbose logging."""
-    old_level = logging.root.getEffectiveLevel()
-    logging.root.setLevel(logging.ERROR)
-    yield
-    logging.root.setLevel(old_level)
+# Regex patterns for extracting parameter descriptions from docstrings.
+# Supports Google, NumPy, and Sphinx styles without any external dependencies.
+_GOOGLE_ARGS_RE = re.compile(
+    r"(?:Args|Arguments|Parameters)\s*:\s*\n((?:[ \t]+.+\n?)+)",
+    re.IGNORECASE,
+)
+_GOOGLE_PARAM_RE = re.compile(
+    r"^[ \t]+(\w+)\s*(?:\(.+?\))?\s*:\s*(.+(?:\n(?:[ \t]+(?![ \t]*\w+\s*(?:\(.+?\))?\s*:).+))*)",
+    re.MULTILINE,
+)
+_SPHINX_PARAM_RE = re.compile(
+    r":param\s+(\w+)\s*:\s*(.+(?:\n(?:[ \t]+(?!:).+))*)",
+    re.MULTILINE,
+)
+_NUMPY_PARAMS_RE = re.compile(
+    r"(?:Parameters)\s*\n\s*-{3,}\s*\n((?:.*\n?)+?)(?:\n\s*\w+\s*\n\s*-{3,}|\Z)",
+    re.IGNORECASE,
+)
+_NUMPY_PARAM_RE = re.compile(
+    r"^(\w+)\s*(?::.*)?$\n((?:[ \t]+.+\n?)+)",
+    re.MULTILINE,
+)
 
 
 def _parse_docstring_params(func: Callable[..., Any]) -> dict[str, str]:
     """Parse a function's docstring to extract parameter descriptions.
 
-    Supports Google, NumPy, and Sphinx-style docstrings with automatic format detection.
+    Supports Google, NumPy, and Sphinx-style docstrings using simple regex patterns.
+    No external dependencies required.
 
     Returns:
         A dict mapping parameter names to their descriptions.
@@ -269,15 +205,24 @@ def _parse_docstring_params(func: Callable[..., Any]) -> dict[str, str]:
     if not doc:
         return {}
 
-    docstring_style = _infer_docstring_style(doc)
-    docstring = Docstring(doc, lineno=1, parser=docstring_style)
+    # Try Sphinx style first (:param name: description)
+    sphinx_matches = _SPHINX_PARAM_RE.findall(doc)
+    if sphinx_matches:
+        return {name: " ".join(desc.split()) for name, desc in sphinx_matches}
 
-    with _suppress_griffe_logging():
-        sections = docstring.parse()
+    # Try Google style (Args: / Arguments: / Parameters:)
+    google_section = _GOOGLE_ARGS_RE.search(doc)
+    if google_section:
+        params = _GOOGLE_PARAM_RE.findall(google_section.group(1))
+        if params:
+            return {name: " ".join(desc.split()) for name, desc in params}
 
-    for section in sections:
-        if section.kind == DocstringSectionKind.parameters:
-            return {p.name: p.description for p in section.value}
+    # Try NumPy style (Parameters\n----------)
+    numpy_section = _NUMPY_PARAMS_RE.search(doc)
+    if numpy_section:
+        params = _NUMPY_PARAM_RE.findall(numpy_section.group(1))
+        if params:
+            return {name: " ".join(desc.split()) for name, desc in params}
 
     return {}
 
