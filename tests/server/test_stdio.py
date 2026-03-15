@@ -141,7 +141,7 @@ async def test_stdin_eof_monitor_ignores_pollin_events():
 
                 # Wait for the monitor to detect POLLHUP and cancel.
                 with anyio.fail_after(5):
-                    while not tg.cancel_scope.cancel_called:
+                    while not tg.cancel_scope.cancel_called:  # pragma: no branch
                         await anyio.sleep(0.05)
     finally:
         os.close(read_fd)
