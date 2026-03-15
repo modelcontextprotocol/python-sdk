@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type
 import anyio
 import anyio.to_thread
 import pydantic_core
-from griffe import Docstring, DocstringSectionKind, GoogleOptions
+from griffe import Docstring, DocstringSectionKind
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -270,10 +270,7 @@ def _parse_docstring_params(func: Callable[..., Any]) -> dict[str, str]:
         return {}
 
     docstring_style = _infer_docstring_style(doc)
-    parser_options = (
-        GoogleOptions(returns_named_value=False, returns_multiple_items=False) if docstring_style == "google" else None
-    )
-    docstring = Docstring(doc, lineno=1, parser=docstring_style, parser_options=parser_options)
+    docstring = Docstring(doc, lineno=1, parser=docstring_style)
 
     with _suppress_griffe_logging():
         sections = docstring.parse()
