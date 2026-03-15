@@ -55,12 +55,14 @@ def _create_stdin_eof_monitor(
     if not hasattr(select, "poll"):
         return None  # pragma: no cover
 
-    try:
+    # The remaining code uses select.poll() which is not available on Windows.
+    # Coverage is exercised on non-Windows platforms only.
+    try:  # pragma: lax no cover
         fd = sys.stdin.buffer.fileno()
-    except Exception:
+    except Exception:  # pragma: lax no cover
         return None
 
-    async def monitor() -> None:
+    async def monitor() -> None:  # pragma: lax no cover
         poll_obj = select.poll()
         poll_obj.register(fd, select.POLLIN | select.POLLHUP)
         try:
@@ -74,7 +76,7 @@ def _create_stdin_eof_monitor(
         finally:
             poll_obj.unregister(fd)
 
-    return monitor
+    return monitor  # pragma: lax no cover
 
 
 @asynccontextmanager
@@ -131,6 +133,6 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
 
         eof_monitor = _create_stdin_eof_monitor(tg)
         if eof_monitor is not None:
-            tg.start_soon(eof_monitor)
+            tg.start_soon(eof_monitor)  # pragma: lax no cover
 
         yield read_stream, write_stream

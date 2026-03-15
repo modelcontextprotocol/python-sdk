@@ -84,7 +84,7 @@ def test_create_stdin_eof_monitor_returns_none_when_fileno_fails():
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="select.poll not available on Windows")
-async def test_stdin_eof_monitor_detects_hangup():
+async def test_stdin_eof_monitor_detects_hangup():  # pragma: lax no cover
     """The EOF monitor cancels the task group when stdin pipe closes."""
     read_fd, write_fd = os.pipe()
     try:
@@ -106,14 +106,14 @@ async def test_stdin_eof_monitor_detects_hangup():
                     while not tg.cancel_scope.cancel_called:
                         await anyio.sleep(0.05)
     finally:
-        os.close(read_fd)  # pragma: no cover
-        if write_fd != -1:  # pragma: no cover
+        os.close(read_fd)
+        if write_fd != -1:
             os.close(write_fd)
 
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="select.poll not available on Windows")
-async def test_stdin_eof_monitor_ignores_pollin_events():
+async def test_stdin_eof_monitor_ignores_pollin_events():  # pragma: lax no cover
     """The monitor ignores POLLIN events (data available) and only reacts to hangup/error."""
     read_fd, write_fd = os.pipe()
     try:
@@ -144,6 +144,6 @@ async def test_stdin_eof_monitor_ignores_pollin_events():
                     while not tg.cancel_scope.cancel_called:  # pragma: no branch
                         await anyio.sleep(0.05)
     finally:
-        os.close(read_fd)  # pragma: no cover
-        if write_fd != -1:  # pragma: no cover
+        os.close(read_fd)
+        if write_fd != -1:
             os.close(write_fd)
