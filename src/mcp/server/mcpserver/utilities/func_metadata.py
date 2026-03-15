@@ -1,14 +1,18 @@
 import functools
 import inspect
 import json
-from collections.abc import Awaitable, Callable, Sequence
+import logging
+import re
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import contextmanager
 from itertools import chain
 from types import GenericAlias
-from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
+from typing import Annotated, Any, Literal, cast, get_args, get_origin, get_type_hints
 
 import anyio
 import anyio.to_thread
 import pydantic_core
+from griffe import Docstring, DocstringSectionKind, GoogleOptions
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, create_model
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaWarningKind
@@ -167,6 +171,129 @@ class FuncMetadata(BaseModel):
     )
 
 
+_DocstringStyle = Literal["google", "numpy", "sphinx"]
+
+# Patterns to infer docstring style, adapted from pydantic-ai.
+# Each entry is (pattern_template, replacement_keywords, style).
+_DOCSTRING_STYLE_PATTERNS: list[tuple[str, list[str], _DocstringStyle]] = [
+    (
+        r"\n[ \t]*:{0}([ \t]+\w+)*:([ \t]+.+)?\n",
+        [
+            "param",
+            "parameter",
+            "arg",
+            "argument",
+            "key",
+            "keyword",
+            "type",
+            "var",
+            "ivar",
+            "cvar",
+            "vartype",
+            "returns",
+            "return",
+            "rtype",
+            "raises",
+            "raise",
+            "except",
+            "exception",
+        ],
+        "sphinx",
+    ),
+    (
+        r"\n[ \t]*{0}:([ \t]+.+)?\n[ \t]+.+",
+        [
+            "args",
+            "arguments",
+            "params",
+            "parameters",
+            "keyword args",
+            "keyword arguments",
+            "raises",
+            "exceptions",
+            "returns",
+            "yields",
+            "receives",
+            "examples",
+            "attributes",
+        ],
+        "google",
+    ),
+    (
+        r"\n[ \t]*{0}\n[ \t]*---+\n",
+        [
+            "deprecated",
+            "parameters",
+            "other parameters",
+            "returns",
+            "yields",
+            "receives",
+            "raises",
+            "warns",
+            "attributes",
+        ],
+        "numpy",
+    ),
+]
+
+
+def _infer_docstring_style(doc: str) -> _DocstringStyle:
+    """Infer the docstring style from its content."""
+    for pattern, replacements, style in _DOCSTRING_STYLE_PATTERNS:
+        matches = (
+            re.search(pattern.format(replacement), doc, re.IGNORECASE | re.MULTILINE) for replacement in replacements
+        )
+        if any(matches):
+            return style
+    return "google"
+
+
+@contextmanager
+def _suppress_griffe_logging() -> Iterator[None]:
+    """Temporarily suppress griffe's verbose logging."""
+    old_level = logging.root.getEffectiveLevel()
+    logging.root.setLevel(logging.ERROR)
+    yield
+    logging.root.setLevel(old_level)
+
+
+def _parse_docstring_params(func: Callable[..., Any]) -> dict[str, str]:
+    """Parse a function's docstring to extract parameter descriptions.
+
+    Supports Google, NumPy, and Sphinx-style docstrings with automatic format detection.
+
+    Returns:
+        A dict mapping parameter names to their descriptions.
+    """
+    doc = func.__doc__
+    if not doc:
+        return {}
+
+    docstring_style = _infer_docstring_style(doc)
+    parser_options = (
+        GoogleOptions(returns_named_value=False, returns_multiple_items=False) if docstring_style == "google" else None
+    )
+    docstring = Docstring(doc, lineno=1, parser=docstring_style, parser_options=parser_options)
+
+    with _suppress_griffe_logging():
+        sections = docstring.parse()
+
+    for section in sections:
+        if section.kind == DocstringSectionKind.parameters:
+            return {p.name: p.description for p in section.value}
+
+    return {}
+
+
+def _annotation_has_description(annotation: Any) -> bool:
+    """Check if an Annotated type already includes a Field with a description."""
+    if get_origin(annotation) is Annotated:
+        for arg in get_args(annotation)[1:]:
+            if isinstance(arg, FieldInfo) and arg.description is not None:
+                return True
+    return False
+
+
 def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
@@ -215,6 +342,7 @@ def func_metadata(
         # model_rebuild right before using it 🤷
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
+    docstring_descriptions = _parse_docstring_params(func)
     dynamic_pydantic_model_params: dict[str, Any] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
@@ -229,6 +357,15 @@ def func_metadata(
 
         if param.annotation is inspect.Parameter.empty:
             field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+
+        # Add description from docstring if no explicit Field description exists
+        if param.name in docstring_descriptions:
+            has_explicit_desc = _annotation_has_description(annotation) or (
+                isinstance(param.default, FieldInfo) and param.default.description is not None
+            )
+            if not has_explicit_desc:
+                field_kwargs["description"] = docstring_descriptions[param.name]
+
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
