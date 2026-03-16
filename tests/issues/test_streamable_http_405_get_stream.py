@@ -102,3 +102,18 @@ async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
 
     reconnect_messages = [msg for msg in log_messages if "reconnecting" in msg.lower()]
     assert len(reconnect_messages) == 0, f"Should not retry on 405, but found: {reconnect_messages}"
+
+
+@pytest.mark.anyio
+async def test_mock_github_endpoint_other_method_returns_405() -> None:
+    """Ensure fallback 405 branch is covered for non-GET/POST methods."""
+    app = Starlette(routes=[Route("/mcp", mock_github_endpoint, methods=["GET", "POST", "DELETE"])])
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        timeout=5.0,
+    ) as http_client:
+        response = await http_client.delete("/mcp")
+
+    assert response.status_code == 405
