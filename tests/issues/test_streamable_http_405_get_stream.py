@@ -117,3 +117,21 @@ async def test_mock_github_endpoint_other_method_returns_405() -> None:
         response = await http_client.delete("/mcp")
 
     assert response.status_code == 405
+
+
+@pytest.mark.anyio
+async def test_mock_github_endpoint_post_unknown_method_returns_405() -> None:
+    """Ensure POST with unknown method hits fallback 405 branch."""
+    app = Starlette(routes=[Route("/mcp", mock_github_endpoint, methods=["POST"])])
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        timeout=5.0,
+    ) as http_client:
+        response = await http_client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "unknown/method"},
+        )
+
+    assert response.status_code == 405
