@@ -66,7 +66,7 @@ class RegistrationHandler:
                     content=RegistrationErrorResponse(
                         error="invalid_client_metadata",
                         error_description="Requested scopes are not valid: "
-                        f"{', '.join(requested_scopes - valid_scopes)}",
+                        f"{', '.join(requested_scopes - valid_scopes)[:256]}",
                     ),
                     status_code=400,
                 )

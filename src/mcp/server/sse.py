@@ -214,7 +214,7 @@ class SseServerTransport:
             session_id = UUID(hex=session_id_param)
             logger.debug(f"Parsed session ID: {session_id}")
         except ValueError:
-            logger.warning(f"Received invalid session ID: {session_id_param}")
+            logger.warning(f"Received invalid session ID: {session_id_param[:64]}")
             response = Response("Invalid session ID", status_code=400)
             return await response(scope, receive, send)
 
@@ -225,11 +225,9 @@ class SseServerTransport:
             return await response(scope, receive, send)
 
         body = await request.body()
-        logger.debug(f"Received JSON: {body}")
 
         try:
             message = types.jsonrpc_message_adapter.validate_json(body, by_name=False)
-            logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.exception("Failed to parse message")
             response = Response("Could not parse message", status_code=400)
@@ -240,7 +238,6 @@ class SseServerTransport:
         # Pass the ASGI scope for framework-agnostic access to request data
         metadata = ServerMessageMetadata(request_context=request)
         session_message = SessionMessage(message, metadata=metadata)
-        logger.debug(f"Sending session message to writer: {session_message}")
         response = Response("Accepted", status_code=202)
         await response(scope, receive, send)
         await writer.send(session_message)

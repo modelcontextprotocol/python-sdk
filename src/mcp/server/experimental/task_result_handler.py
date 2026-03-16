@@ -103,7 +103,7 @@ class TaskResultHandler:
         while True:
             task = await self._store.get_task(task_id)
             if task is None:
-                raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
+                raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id[:64]}")
 
             await self._deliver_queued_messages(task_id, session, request_id)
 

@@ -119,7 +119,7 @@ async def sse_client(
                                         session_message = SessionMessage(message)
                                         await read_stream_writer.send(session_message)
                                     case _:  # pragma: no cover
-                                        logger.warning(f"Unknown SSE event: {sse.event}")  # pragma: no cover
+                                        logger.warning(f"Unknown SSE event: {sse.event[:64]}")  # pragma: no cover
                         except SSEError as sse_exc:  # pragma: lax no cover
                             logger.exception("Encountered SSE exception")
                             raise sse_exc

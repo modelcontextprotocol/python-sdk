@@ -206,7 +206,9 @@ class TokenHandler:
                         return self.response(
                             TokenErrorResponse(
                                 error="invalid_scope",
-                                error_description=(f"cannot request scope `{scope}` not provided by refresh token"),
+                                error_description=(
+                                    f"cannot request scope `{scope[:128]}` not provided by refresh token"
+                                ),
                             )
                         )
 

@@ -400,7 +400,7 @@ class BaseSession(
                         except Exception:
                             # For other validation errors, log and continue
                             logging.warning(  # pragma: no cover
-                                f"Failed to validate notification:. Message was: {message.message}",
+                                "Failed to validate notification",
                                 exc_info=True,
                             )
                     else:  # Response or error
@@ -445,7 +445,7 @@ class BaseSession(
             try:
                 return int(response_id)
             except ValueError:
-                logging.warning(f"Response ID {response_id!r} cannot be normalized to match pending requests")
+                logging.warning(f"Response ID {response_id[:64]!r} cannot be normalized to match pending requests")
         return response_id
 
     async def _handle_response(self, message: SessionMessage) -> None:
@@ -464,7 +464,7 @@ class BaseSession(
         if message.message.id is None:
             # Narrows to JSONRPCError since JSONRPCResponse.id is always RequestId
             error = message.message.error
-            logging.warning(f"Received error with null ID: {error.message}")
+            logging.warning(f"Received error with null ID: {error.message[:256]}")
             await self._handle_incoming(MCPError(error.code, error.message, error.data))
             return
         # Normalize response ID to handle type mismatches (e.g., "0" vs 0)
@@ -488,7 +488,9 @@ class BaseSession(
         if stream:
             await stream.send(message.message)
         else:
-            await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
+            await self._handle_incoming(
+                RuntimeError(f"Received response with an unknown request ID: {str(response_id)[:64]}")
+            )
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
         """Can be overridden by subclasses to handle a request without needing to
