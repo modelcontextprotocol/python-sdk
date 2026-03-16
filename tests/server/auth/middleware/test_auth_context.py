@@ -142,9 +142,6 @@ def test_get_tenant_id_without_auth_context():
 @pytest.mark.anyio
 async def test_get_tenant_id_with_tenant(access_token_with_tenant: AccessToken):
     """Test get_tenant_id returns tenant_id when auth context has a tenant."""
-    app = MockApp()
-    middleware = AuthContextMiddleware(app)
-
     user = AuthenticatedUser(access_token_with_tenant)
     scope: Scope = {"type": "http", "user": user}
 
