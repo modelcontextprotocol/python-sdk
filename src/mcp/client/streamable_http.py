@@ -222,8 +222,8 @@ class StreamableHTTPTransport:
                 # For other HTTP errors, log and retry
                 logger.debug(f"GET stream HTTP error: {exc.response.status_code} - {exc}")
                 attempt += 1
-            except Exception:  # pragma: lax no cover
-                logger.debug("GET stream error", exc_info=True)
+            except Exception as exc:  # pragma: lax no cover
+                logger.debug("GET stream error: %s", exc, exc_info=True)
                 attempt += 1
 
             if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
