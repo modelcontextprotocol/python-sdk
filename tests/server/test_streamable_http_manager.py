@@ -1,6 +1,7 @@
 """Tests for StreamableHTTPSessionManager."""
 
 import json
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -269,7 +270,7 @@ async def test_stateless_requests_memory_cleanup():
 
 
 @pytest.mark.anyio
-async def test_unknown_session_id_returns_404():
+async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
     """Test that requests with unknown session IDs return HTTP 404 per MCP spec."""
     app = Server("test-unknown-session")
     manager = StreamableHTTPSessionManager(app=app)
@@ -299,7 +300,8 @@ async def test_unknown_session_id_returns_404():
         async def mock_receive():
             return {"type": "http.request", "body": b"{}", "more_body": False}  # pragma: no cover
 
-        await manager.handle_request(scope, mock_receive, mock_send)
+        with caplog.at_level(logging.INFO):
+            await manager.handle_request(scope, mock_receive, mock_send)
 
         # Find the response start message
         response_start = next(
@@ -315,6 +317,7 @@ async def test_unknown_session_id_returns_404():
         assert error_data["id"] is None
         assert error_data["error"]["code"] == INVALID_REQUEST
         assert error_data["error"]["message"] == "Session not found"
+        assert "Rejected request with unknown or expired session ID: non-existent-session-id" in caplog.text
 
 
 @pytest.mark.anyio

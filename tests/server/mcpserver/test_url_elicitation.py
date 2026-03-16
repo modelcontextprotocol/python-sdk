@@ -8,7 +8,6 @@ from mcp import Client, types
 from mcp.client.session import ClientSession
 from mcp.server.elicitation import CancelledElicitation, DeclinedElicitation, elicit_url
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 from mcp.shared._context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
@@ -19,7 +18,7 @@ async def test_url_elicitation_accept():
     mcp = MCPServer(name="URLElicitationServer")
 
     @mcp.tool(description="A tool that uses URL elicitation")
-    async def request_api_key(ctx: Context[ServerSession, None]) -> str:
+    async def request_api_key(ctx: Context) -> str:
         result = await ctx.session.elicit_url(
             message="Please provide your API key to continue.",
             url="https://example.com/api_key_setup",
@@ -49,7 +48,7 @@ async def test_url_elicitation_decline():
     mcp = MCPServer(name="URLElicitationDeclineServer")
 
     @mcp.tool(description="A tool that uses URL elicitation")
-    async def oauth_flow(ctx: Context[ServerSession, None]) -> str:
+    async def oauth_flow(ctx: Context) -> str:
         result = await ctx.session.elicit_url(
             message="Authorize access to your files.",
             url="https://example.com/oauth/authorize",
@@ -75,7 +74,7 @@ async def test_url_elicitation_cancel():
     mcp = MCPServer(name="URLElicitationCancelServer")
 
     @mcp.tool(description="A tool that uses URL elicitation")
-    async def payment_flow(ctx: Context[ServerSession, None]) -> str:
+    async def payment_flow(ctx: Context) -> str:
         result = await ctx.session.elicit_url(
             message="Complete payment to proceed.",
             url="https://example.com/payment",
@@ -101,7 +100,7 @@ async def test_url_elicitation_helper_function():
     mcp = MCPServer(name="URLElicitationHelperServer")
 
     @mcp.tool(description="Tool using elicit_url helper")
-    async def setup_credentials(ctx: Context[ServerSession, None]) -> str:
+    async def setup_credentials(ctx: Context) -> str:
         result = await elicit_url(
             session=ctx.session,
             message="Set up your credentials",
@@ -127,7 +126,7 @@ async def test_url_no_content_in_response():
     mcp = MCPServer(name="URLContentCheckServer")
 
     @mcp.tool(description="Check URL response format")
-    async def check_url_response(ctx: Context[ServerSession, None]) -> str:
+    async def check_url_response(ctx: Context) -> str:
         result = await ctx.session.elicit_url(
             message="Test message",
             url="https://example.com/test",
@@ -164,7 +163,7 @@ async def test_form_mode_still_works():
         name: str = Field(description="Your name")
 
     @mcp.tool(description="Test form mode")
-    async def ask_name(ctx: Context[ServerSession, None]) -> str:
+    async def ask_name(ctx: Context) -> str:
         result = await ctx.elicit(message="What is your name?", schema=NameSchema)
         # Test only checks accept path with data
         assert result.action == "accept"
@@ -195,7 +194,7 @@ async def test_elicit_complete_notification():
     notification_sent = False
 
     @mcp.tool(description="Tool that sends completion notification")
-    async def trigger_elicitation(ctx: Context[ServerSession, None]) -> str:
+    async def trigger_elicitation(ctx: Context) -> str:
         nonlocal notification_sent
 
         # Simulate an async operation (e.g., user completing auth in browser)
@@ -238,7 +237,7 @@ async def test_elicit_url_typed_results():
     mcp = MCPServer(name="TypedResultsServer")
 
     @mcp.tool(description="Test declined result")
-    async def test_decline(ctx: Context[ServerSession, None]) -> str:
+    async def test_decline(ctx: Context) -> str:
         result = await elicit_url(
             session=ctx.session,
             message="Test decline",
@@ -251,7 +250,7 @@ async def test_elicit_url_typed_results():
         return "Not declined"  # pragma: no cover
 
     @mcp.tool(description="Test cancelled result")
-    async def test_cancel(ctx: Context[ServerSession, None]) -> str:
+    async def test_cancel(ctx: Context) -> str:
         result = await elicit_url(
             session=ctx.session,
             message="Test cancel",
@@ -293,7 +292,7 @@ async def test_deprecated_elicit_method():
         email: str = Field(description="Email address")
 
     @mcp.tool(description="Test deprecated elicit method")
-    async def use_deprecated_elicit(ctx: Context[ServerSession, None]) -> str:
+    async def use_deprecated_elicit(ctx: Context) -> str:
         # Use the deprecated elicit() method which should call elicit_form()
         result = await ctx.session.elicit(
             message="Enter your email",
@@ -323,7 +322,7 @@ async def test_ctx_elicit_url_convenience_method():
     mcp = MCPServer(name="CtxElicitUrlServer")
 
     @mcp.tool(description="A tool that uses ctx.elicit_url() directly")
-    async def direct_elicit_url(ctx: Context[ServerSession, None]) -> str:
+    async def direct_elicit_url(ctx: Context) -> str:
         # Use ctx.elicit_url() directly instead of ctx.session.elicit_url()
         result = await ctx.elicit_url(
             message="Test the convenience method",

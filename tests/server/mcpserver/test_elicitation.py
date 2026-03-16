@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 from mcp import Client, types
 from mcp.client.session import ClientSession, ElicitationFnT
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.session import ServerSession
 from mcp.shared._context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, TextContent
 
@@ -22,7 +21,7 @@ def create_ask_user_tool(mcp: MCPServer):
     """Create a standard ask_user tool that handles all elicitation responses."""
 
     @mcp.tool(description="A tool that uses elicitation")
-    async def ask_user(prompt: str, ctx: Context[ServerSession, None]) -> str:
+    async def ask_user(prompt: str, ctx: Context) -> str:
         result = await ctx.elicit(message=f"Tool wants to ask: {prompt}", schema=AnswerSchema)
 
         if result.action == "accept" and result.data:
@@ -97,7 +96,7 @@ async def test_elicitation_schema_validation():
 
     def create_validation_tool(name: str, schema_class: type[BaseModel]):
         @mcp.tool(name=name, description=f"Tool testing {name}")
-        async def tool(ctx: Context[ServerSession, None]) -> str:
+        async def tool(ctx: Context) -> str:
             try:
                 await ctx.elicit(message="This should fail validation", schema=schema_class)
                 return "Should not reach here"  # pragma: no cover
@@ -147,7 +146,7 @@ async def test_elicitation_with_optional_fields():
         subscribe: bool | None = Field(default=False, description="Subscribe to newsletter?")
 
     @mcp.tool(description="Tool with optional fields")
-    async def optional_tool(ctx: Context[ServerSession, None]) -> str:
+    async def optional_tool(ctx: Context) -> str:
         result = await ctx.elicit(message="Please provide your information", schema=OptionalSchema)
 
         if result.action == "accept" and result.data:
@@ -188,7 +187,7 @@ async def test_elicitation_with_optional_fields():
         optional_list: list[int] | None = Field(default=None, description="Invalid optional list")
 
     @mcp.tool(description="Tool with invalid optional field")
-    async def invalid_optional_tool(ctx: Context[ServerSession, None]) -> str:
+    async def invalid_optional_tool(ctx: Context) -> str:
         try:
             await ctx.elicit(message="This should fail", schema=InvalidOptionalSchema)
             return "Should not reach here"  # pragma: no cover
@@ -214,7 +213,7 @@ async def test_elicitation_with_optional_fields():
         tags: list[str] = Field(description="Tags")
 
     @mcp.tool(description="Tool with valid list[str] field")
-    async def valid_multiselect_tool(ctx: Context[ServerSession, None]) -> str:
+    async def valid_multiselect_tool(ctx: Context) -> str:
         result = await ctx.elicit(message="Please provide tags", schema=ValidMultiSelectSchema)
         if result.action == "accept" and result.data:
             return f"Name: {result.data.name}, Tags: {', '.join(result.data.tags)}"
@@ -233,7 +232,7 @@ async def test_elicitation_with_optional_fields():
         tags: list[str] | None = Field(default=None, description="Optional tags")
 
     @mcp.tool(description="Tool with optional list[str] field")
-    async def optional_multiselect_tool(ctx: Context[ServerSession, None]) -> str:
+    async def optional_multiselect_tool(ctx: Context) -> str:
         result = await ctx.elicit(message="Please provide optional tags", schema=OptionalMultiSelectSchema)
         if result.action == "accept" and result.data:
             tags_str = ", ".join(result.data.tags) if result.data.tags else "none"
@@ -262,7 +261,7 @@ async def test_elicitation_with_default_values():
         email: str = Field(description="Email address (required)")
 
     @mcp.tool(description="Tool with default values")
-    async def defaults_tool(ctx: Context[ServerSession, None]) -> str:
+    async def defaults_tool(ctx: Context) -> str:
         result = await ctx.elicit(message="Please provide your information", schema=DefaultsSchema)
 
         if result.action == "accept" and result.data:
@@ -327,7 +326,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Single color selection")
-    async def select_favorite_color(ctx: Context[ServerSession, None]) -> str:
+    async def select_favorite_color(ctx: Context) -> str:
         result = await ctx.elicit(message="Select your favorite color", schema=FavoriteColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Favorite: {result.data.favorite_color}"
@@ -351,7 +350,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Multiple color selection")
-    async def select_favorite_colors(ctx: Context[ServerSession, None]) -> str:
+    async def select_favorite_colors(ctx: Context) -> str:
         result = await ctx.elicit(message="Select your favorite colors", schema=FavoriteColorsSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Colors: {', '.join(result.data.favorite_colors)}"
@@ -366,7 +365,7 @@ async def test_elicitation_with_enum_titles():
         )
 
     @mcp.tool(description="Legacy enum format")
-    async def select_color_legacy(ctx: Context[ServerSession, None]) -> str:
+    async def select_color_legacy(ctx: Context) -> str:
         result = await ctx.elicit(message="Select a color (legacy format)", schema=LegacyColorSchema)
         if result.action == "accept" and result.data:
             return f"User: {result.data.user_name}, Color: {result.data.color}"

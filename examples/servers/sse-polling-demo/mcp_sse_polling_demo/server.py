@@ -12,18 +12,13 @@ Run with:
     uv run mcp-sse-polling-demo --port 3000
 """
 
-import contextlib
 import logging
-from collections.abc import AsyncIterator
 
 import anyio
 import click
+import uvicorn
 from mcp import types
 from mcp.server import Server, ServerRequestContext
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from starlette.applications import Starlette
-from starlette.routing import Mount
-from starlette.types import Receive, Scope, Send
 
 from .event_store import InMemoryEventStore
 
@@ -149,37 +144,14 @@ def main(port: int, log_level: str, retry_interval: int) -> int:
         on_call_tool=handle_call_tool,
     )
 
-    # Create event store for resumability
-    event_store = InMemoryEventStore()
-
-    # Create session manager with event store and retry interval
-    session_manager = StreamableHTTPSessionManager(
-        app=app,
-        event_store=event_store,
+    starlette_app = app.streamable_http_app(
+        event_store=InMemoryEventStore(),
         retry_interval=retry_interval,
-    )
-
-    async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
-        await session_manager.handle_request(scope, receive, send)
-
-    @contextlib.asynccontextmanager
-    async def lifespan(starlette_app: Starlette) -> AsyncIterator[None]:
-        async with session_manager.run():
-            logger.info(f"SSE Polling Demo server started on port {port}")
-            logger.info("Try: POST /mcp with tools/call for 'process_batch'")
-            yield
-            logger.info("Server shutting down...")
-
-    starlette_app = Starlette(
         debug=True,
-        routes=[
-            Mount("/mcp", app=handle_streamable_http),
-        ],
-        lifespan=lifespan,
     )
 
-    import uvicorn
-
+    logger.info(f"SSE Polling Demo server starting on port {port}")
+    logger.info("Try: POST /mcp with tools/call for 'process_batch'")
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
     return 0
 
