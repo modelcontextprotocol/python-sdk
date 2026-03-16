@@ -12,7 +12,7 @@ from anyio.streams.memory import MemoryObjectSendStream
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-from mcp.client._transport import ReadStream, WriteStream
+from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -417,8 +417,8 @@ class BaseSession(
 
                     sender_ctx: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
                     if sender_ctx is not None:
-                        async with anyio.create_task_group() as tg:
-                            sender_ctx.run(tg.start_soon, _handle_session_message, message)
+                        coro = sender_ctx.run(_handle_session_message, message)
+                        await coro
                     else:
                         await _handle_session_message(message)
 

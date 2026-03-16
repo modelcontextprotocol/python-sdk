@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared.message import SessionMessage
 
-MessageStream = tuple[ContextReceiveStream[SessionMessage | Exception], ContextSendStream[SessionMessage | Exception]]
+MessageStream = tuple[ContextReceiveStream[SessionMessage | Exception], ContextSendStream[SessionMessage]]
 
 
 @asynccontextmanager

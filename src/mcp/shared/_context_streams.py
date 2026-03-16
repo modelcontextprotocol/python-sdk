@@ -20,7 +20,6 @@ import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 T = TypeVar("T")
-T_Item = TypeVar("T_Item")
 
 # Internal payload carried through the underlying raw stream.
 _Envelope = tuple[contextvars.Context, T]
