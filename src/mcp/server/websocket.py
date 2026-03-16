@@ -1,12 +1,12 @@
 from contextlib import asynccontextmanager
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic_core import ValidationError
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
 from mcp import types
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 
@@ -19,14 +19,8 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
     websocket = WebSocket(scope, receive, send)
     await websocket.accept(subprotocol="mcp")
 
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
-
-    write_stream: MemoryObjectSendStream[SessionMessage]
-    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
-
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
     async def ws_reader():
         try:

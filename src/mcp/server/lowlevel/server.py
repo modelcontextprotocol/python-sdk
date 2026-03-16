@@ -36,6 +36,7 @@ handler callables by method string.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -44,7 +45,6 @@ from importlib.metadata import version as importlib_version
 from typing import Any, Generic
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -52,6 +52,7 @@ from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
 from mcp import types
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
 from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
@@ -355,8 +356,8 @@ class Server(Generic[LifespanResultT]):
 
     async def run(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         initialization_options: InitializationOptions,
         # When False, exceptions are returned as messages to the client.
         # When True, exceptions are raised, which will cause the server to shut down
@@ -390,7 +391,13 @@ class Server(Generic[LifespanResultT]):
                 async for message in session.incoming_messages:
                     logger.debug("Received message: %s", message)
 
-                    tg.start_soon(
+                    if isinstance(message, RequestResponder) and message.context is not None:
+                        context = message.context
+                    else:
+                        context = contextvars.copy_context()
+
+                    context.run(
+                        tg.start_soon,
                         self._handle_message,
                         message,
                         session,

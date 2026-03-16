@@ -24,7 +24,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.server.transport_security import TransportSecurityMiddleware, TransportSecuritySettings
+from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
@@ -119,10 +121,10 @@ class StreamableHTTPServerTransport:
     """
 
     # Server notification streams for POST requests as well as standalone SSE stream
-    _read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception] | None = None
-    _read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None
-    _write_stream: MemoryObjectSendStream[SessionMessage] | None = None
-    _write_stream_reader: MemoryObjectReceiveStream[SessionMessage] | None = None
+    _read_stream_writer: ContextSendStream[SessionMessage | Exception] | None = None
+    _read_stream: ContextReceiveStream[SessionMessage | Exception] | None = None
+    _write_stream: ContextSendStream[SessionMessage] | None = None
+    _write_stream_reader: ContextReceiveStream[SessionMessage] | None = None
     _security: TransportSecurityMiddleware
 
     def __init__(
@@ -954,8 +956,8 @@ class StreamableHTTPServerTransport:
         self,
     ) -> AsyncGenerator[
         tuple[
-            MemoryObjectReceiveStream[SessionMessage | Exception],
-            MemoryObjectSendStream[SessionMessage],
+            ReadStream[SessionMessage | Exception],
+            WriteStream[SessionMessage],
         ],
         None,
     ]:
@@ -967,8 +969,8 @@ class StreamableHTTPServerTransport:
 
         # Create the memory streams for this connection
 
-        read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-        write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
         # Store the streams
         self._read_stream_writer = read_stream_writer

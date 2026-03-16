@@ -23,9 +23,9 @@ from io import TextIOWrapper
 
 import anyio
 import anyio.lowlevel
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 from mcp import types
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 
@@ -43,14 +43,8 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     if not stdout:
         stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
-
-    write_stream: MemoryObjectSendStream[SessionMessage]
-    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
-
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
     async def stdin_reader():
         try:

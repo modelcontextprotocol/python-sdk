@@ -3,13 +3,59 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
-from typing import Protocol
+from types import TracebackType
+from typing import Protocol, TypeVar, runtime_checkable
 
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from typing_extensions import Self
 
 from mcp.shared.message import SessionMessage
 
-TransportStreams = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
+T_co = TypeVar("T_co", covariant=True)
+T_contra = TypeVar("T_contra", contravariant=True)
+
+
+@runtime_checkable
+class ReadStream(Protocol[T_co]):
+    """Protocol for reading items from a stream.
+
+    Both ``MemoryObjectReceiveStream`` and ``ContextReceiveStream`` satisfy
+    this protocol.  Consumers that need the sender's context should use
+    ``getattr(stream, 'last_context', None)``.
+    """
+
+    async def receive(self) -> T_co: ...
+    async def aclose(self) -> None: ...
+    def __aiter__(self) -> ReadStream[T_co]: ...
+    async def __anext__(self) -> T_co: ...
+    async def __aenter__(self) -> Self: ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None: ...
+
+
+@runtime_checkable
+class WriteStream(Protocol[T_contra]):
+    """Protocol for writing items to a stream.
+
+    Both ``MemoryObjectSendStream`` and ``ContextSendStream`` satisfy
+    this protocol.
+    """
+
+    async def send(self, item: T_contra, /) -> None: ...
+    async def aclose(self) -> None: ...
+    async def __aenter__(self) -> Self: ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None: ...
+
+
+TransportStreams = tuple[ReadStream[SessionMessage | Exception], WriteStream[SessionMessage]]
 
 
 class Transport(AbstractAsyncContextManager[TransportStreams], Protocol):

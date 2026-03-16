@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
@@ -7,10 +8,11 @@ from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from anyio.streams.memory import MemoryObjectSendStream
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -79,11 +81,13 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
+        context: contextvars.Context | None = None,
     ) -> None:
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
         self.message_metadata = message_metadata
+        self.context = context
         self._session = session
         self._completed = False
         self._cancel_scope = anyio.CancelScope()
@@ -181,8 +185,8 @@ class BaseSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
     ) -> None:
@@ -333,10 +337,9 @@ class BaseSession(
     async def _receive_loop(self) -> None:
         async with self._read_stream, self._write_stream:
             try:
-                async for message in self._read_stream:
-                    if isinstance(message, Exception):
-                        await self._handle_incoming(message)
-                    elif isinstance(message.message, JSONRPCRequest):
+
+                async def _handle_session_message(message: SessionMessage) -> None:
+                    if isinstance(message.message, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_adapter.validate_python(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
@@ -349,6 +352,7 @@ class BaseSession(
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,
+                                context=contextvars.copy_context(),
                             )
                             self._in_flight[responder.request_id] = responder
                             await self._received_request(responder)
@@ -405,6 +409,18 @@ class BaseSession(
                             )
                     else:  # Response or error
                         await self._handle_response(message)
+
+                async for message in self._read_stream:
+                    if isinstance(message, Exception):
+                        await self._handle_incoming(message)
+                        continue
+
+                    sender_ctx: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
+                    if sender_ctx is not None:
+                        async with anyio.create_task_group() as tg:
+                            sender_ctx.run(tg.start_soon, _handle_session_message, message)
+                    else:
+                        await _handle_session_message(message)
 
             except anyio.ClosedResourceError:
                 # This is expected when the client disconnects abruptly.
