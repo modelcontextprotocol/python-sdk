@@ -237,13 +237,13 @@ async def test_tenant_context_isolation_between_concurrent_requests():
     2. Each simulated request:
        - Creates an AccessToken with its tenant_id
        - Sets it in the auth_context_var (the contextvar used for auth state)
-       - Yields control via anyio.sleep() to allow the other task to run
+       - Yields control via checkpoint() to allow the other task to run
        - Reads back the tenant_id via get_tenant_id()
        - Stores the result for verification
 
-    3. The anyio.sleep(0.01) is intentional - it forces a context switch,
-       creating an opportunity for tenant context to "leak" if the isolation
-       is broken. Without proper contextvar isolation, task2 might see
+    3. The anyio.lowlevel.checkpoint() forces a context switch, creating
+       an opportunity for tenant context to "leak" if the isolation is
+       broken. Without proper contextvar isolation, task2 might see
        task1's tenant_id (or vice versa) after the context switch.
 
     4. We use anyio.create_task_group() to run both tasks truly concurrently,
@@ -281,7 +281,7 @@ async def test_tenant_context_isolation_between_concurrent_requests():
         try:
             # Yield control to allow other tasks to run. This is the critical
             # point where context leakage could occur if isolation is broken.
-            await anyio.sleep(0.01)
+            await anyio.lowlevel.checkpoint()
 
             # Read back the tenant_id - should still be our tenant, not the other
             results[request_key] = tenant_id_var.get()
