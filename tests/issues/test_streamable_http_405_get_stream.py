@@ -75,18 +75,22 @@ async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
             async with streamable_http_client("http://testserver/mcp", http_client=http_client) as (
                 read_stream,
                 write_stream,
-                _,
             ):
                 async with ClientSession(read_stream, write_stream) as session:
                     # Initialize sends the initialized notification internally
-                    init_result = await session.initialize()
+                    with anyio.fail_after(5.0):
+                        init_result = await session.initialize()
                     assert isinstance(init_result, InitializeResult)
 
-                    # Give the GET stream task time to fail with 405
-                    await anyio.sleep(0.2)
+                    # Wait until the GET stream task fails with 405 and logs the expected message
+                    expected_log = "Server does not support GET for SSE events (405 Method Not Allowed)"
+                    with anyio.fail_after(5.0):
+                        while not any(expected_log in record.getMessage() for record in caplog.records):
+                            await anyio.sleep(0.05)
 
                     # This should not hang and will now complete successfully
-                    tools_result = await session.list_tools()
+                    with anyio.fail_after(5.0):
+                        tools_result = await session.list_tools()
                     assert len(tools_result.tools) == 1
                     assert tools_result.tools[0].name == "test_tool"
 
