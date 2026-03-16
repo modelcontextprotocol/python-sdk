@@ -71,6 +71,29 @@ async def test_sse_client_closes_all_streams_on_connection_error(free_tcp_port: 
 
 
 @pytest.mark.anyio
+async def test_sse_client_closes_all_streams_on_http_error() -> None:
+    """sse_client creates streams only after raise_for_status() passes, so an
+    HTTPStatusError from a 4xx/5xx response propagates bare (not wrapped in an
+    ExceptionGroup) with nothing to leak — the task group is never entered.
+    """
+
+    def return_403(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403)
+
+    def mock_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(return_403))
+
+    with _assert_no_memory_stream_leak():
+        with pytest.raises(httpx.HTTPStatusError):
+            async with sse_client("http://test/sse", httpx_client_factory=mock_factory):
+                pytest.fail("should not reach here")  # pragma: no cover
+
+
+@pytest.mark.anyio
 async def test_streamable_http_client_closes_all_streams_on_exit() -> None:
     """streamable_http_client must close all 4 stream ends on exit.
 
