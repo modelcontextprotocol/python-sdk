@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
 
 import anyio
 import httpx
@@ -25,6 +25,65 @@ def remove_request_params(url: str) -> str:
 def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
     query_params = parse_qs(urlparse(endpoint_url).query)
     return query_params.get("sessionId", [None])[0] or query_params.get("session_id", [None])[0]
+
+
+def _resolve_endpoint_url(base_url: str, endpoint: str) -> str:
+    """Resolve an endpoint URL, preserving any reverse proxy/API gateway path prefix.
+
+    When an MCP server sits behind a reverse proxy or API gateway that adds a
+    path prefix (e.g., ``/gateway``), the server's endpoint events contain paths
+    without that prefix.  Standard ``urljoin`` drops the base URL's path prefix
+    for absolute paths (starting with ``/``).  This function detects and
+    preserves such prefixes.
+
+    Example::
+
+        >>> _resolve_endpoint_url(
+        ...     "https://host/gateway/v1/sse",
+        ...     "/v1/messages/?session_id=abc",
+        ... )
+        'https://host/gateway/v1/messages/?session_id=abc'
+    """
+    parsed_ep = urlparse(endpoint)
+
+    # Full URL — use as-is
+    if parsed_ep.scheme:
+        return endpoint
+
+    # Relative path (no leading /) — urljoin handles correctly
+    if not endpoint.startswith("/"):
+        return urljoin(base_url, endpoint)
+
+    # For absolute paths, detect and preserve any gateway prefix.
+    # Strategy: find the first path segment of the endpoint inside the base URL
+    # path.  If it appears at a position > 0, everything before it is the
+    # gateway prefix that must be preserved.
+    parsed_base = urlparse(base_url)
+    base_path = parsed_base.path
+    ep_path = parsed_ep.path
+
+    ep_segments = [s for s in ep_path.split("/") if s]
+    if ep_segments:
+        first_seg = "/" + ep_segments[0]
+        idx = base_path.find(first_seg + "/")
+        if idx < 0 and base_path.endswith(first_seg):
+            idx = len(base_path) - len(first_seg)
+
+        if idx > 0:
+            prefix = base_path[:idx]
+            return urlunparse(
+                (
+                    parsed_base.scheme,
+                    parsed_base.netloc,
+                    prefix + ep_path,
+                    "",
+                    parsed_ep.query,
+                    "",
+                )
+            )
+
+    # No prefix detected — fall back to standard resolution
+    return urljoin(base_url, endpoint)
 
 
 @asynccontextmanager
@@ -80,7 +139,7 @@ async def sse_client(
                                 logger.debug(f"Received SSE event: {sse.event}")
                                 match sse.event:
                                     case "endpoint":
-                                        endpoint_url = urljoin(url, sse.data)
+                                        endpoint_url = _resolve_endpoint_url(url, sse.data)
                                         logger.debug(f"Received endpoint URL: {endpoint_url}")
 
                                         url_parsed = urlparse(url)
