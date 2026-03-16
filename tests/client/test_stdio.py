@@ -346,6 +346,8 @@ async def _terminate_and_reap(proc: anyio.abc.Process | FallbackProcess) -> None
         await proc.stdout.aclose()
 
 
+# Windows 3.10 proactor pipe transport fires ResourceWarning during GC cleanup
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 class TestChildProcessCleanup:
     """Integration tests for ``_terminate_process_tree`` covering basic,
     nested, and early-parent-exit process tree scenarios. See module-level
