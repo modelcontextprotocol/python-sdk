@@ -440,7 +440,7 @@ class StreamableHTTPTransport:
     ) -> None:
         """Handle writing requests to the server."""
         try:
-            async with write_stream_reader:
+            async with write_stream_reader, read_stream_writer, write_stream:
                 async for session_message in write_stream_reader:
                     message = session_message.message
                     metadata = (
@@ -480,9 +480,6 @@ class StreamableHTTPTransport:
 
         except Exception:  # pragma: lax no cover
             logger.exception("Error in post_writer")
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
 
     async def terminate_session(self, client: httpx.AsyncClient) -> None:
         """Terminate the session by sending a DELETE request."""

@@ -123,7 +123,7 @@ async def sse_client(
 
             async def post_writer(endpoint_url: str):
                 try:
-                    async with write_stream_reader:
+                    async with write_stream_reader, write_stream:
                         async for session_message in write_stream_reader:
                             logger.debug(f"Sending client message: {session_message}")
                             response = await client.post(
@@ -138,8 +138,6 @@ async def sse_client(
                             logger.debug(f"Client message sent successfully: {response.status_code}")
                 except Exception:  # pragma: lax no cover
                     logger.exception("Error in post_writer")
-                finally:
-                    await write_stream.aclose()
 
             # On Python 3.14, coverage.py reports a phantom branch arc on this
             # line (->yield) when nested two async-with levels deep. The branch
