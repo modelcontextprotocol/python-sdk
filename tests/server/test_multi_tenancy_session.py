@@ -4,6 +4,7 @@ import time
 
 import anyio
 import pytest
+from anyio.lowlevel import checkpoint
 
 from mcp import Client
 from mcp.server import Server
@@ -281,7 +282,7 @@ async def test_tenant_context_isolation_between_concurrent_requests():
         try:
             # Yield control to allow other tasks to run. This is the critical
             # point where context leakage could occur if isolation is broken.
-            await anyio.lowlevel.checkpoint()
+            await checkpoint()
 
             # Read back the tenant_id - should still be our tenant, not the other
             results[request_key] = tenant_id_var.get()
