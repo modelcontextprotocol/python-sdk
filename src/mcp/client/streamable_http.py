@@ -482,7 +482,8 @@ class StreamableHTTPTransport:
                 async for session_message in write_stream_reader:
                     sender_ctx = write_stream_reader.last_context
                     if sender_ctx is not None:
-                        await sender_ctx.run(_handle_message, session_message)
+                        async with anyio.create_task_group() as tg_local:
+                            sender_ctx.run(tg_local.start_soon, _handle_message, session_message)
                     else:
                         await _handle_message(session_message)  # pragma: no cover
 

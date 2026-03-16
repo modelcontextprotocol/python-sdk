@@ -338,7 +338,10 @@ class BaseSession(
         async with self._read_stream, self._write_stream:
             try:
 
-                async def _handle_session_message(message: SessionMessage) -> None:
+                async def _handle_session_message(
+                    message: SessionMessage,
+                    sender_context: contextvars.Context | None = None,
+                ) -> None:
                     if isinstance(message.message, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_adapter.validate_python(
@@ -352,7 +355,7 @@ class BaseSession(
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,
-                                context=contextvars.copy_context(),
+                                context=sender_context,
                             )
                             self._in_flight[responder.request_id] = responder
                             await self._received_request(responder)
@@ -416,11 +419,7 @@ class BaseSession(
                         continue
 
                     sender_ctx: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
-                    if sender_ctx is not None:
-                        coro = sender_ctx.run(_handle_session_message, message)
-                        await coro
-                    else:
-                        await _handle_session_message(message)
+                    await _handle_session_message(message, sender_context=sender_ctx)
 
             except anyio.ClosedResourceError:
                 # This is expected when the client disconnects abruptly.
