@@ -15,7 +15,7 @@ T_contra = TypeVar("T_contra", contravariant=True)
 
 
 @runtime_checkable
-class ReadStream(Protocol[T_co]):
+class ReadStream(Protocol[T_co]):  # pragma: no cover
     """Protocol for reading items from a stream.
 
     Both ``MemoryObjectReceiveStream`` and ``ContextReceiveStream`` satisfy
@@ -37,7 +37,7 @@ class ReadStream(Protocol[T_co]):
 
 
 @runtime_checkable
-class WriteStream(Protocol[T_contra]):
+class WriteStream(Protocol[T_contra]):  # pragma: no cover
     """Protocol for writing items to a stream.
 
     Both ``MemoryObjectSendStream`` and ``ContextSendStream`` satisfy

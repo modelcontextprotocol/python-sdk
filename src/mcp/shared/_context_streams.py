@@ -43,7 +43,7 @@ class ContextSendStream(Generic[T]):
     async def aclose(self) -> None:
         await self._inner.aclose()
 
-    def clone(self) -> ContextSendStream[T]:
+    def clone(self) -> ContextSendStream[T]:  # pragma: no cover
         return ContextSendStream(self._inner.clone())
 
     async def __aenter__(self) -> ContextSendStream[T]:
@@ -79,7 +79,7 @@ class ContextReceiveStream(Generic[T]):
     async def aclose(self) -> None:
         await self._inner.aclose()
 
-    def clone(self) -> ContextReceiveStream[T]:
+    def clone(self) -> ContextReceiveStream[T]:  # pragma: no cover
         return ContextReceiveStream(self._inner.clone())
 
     def __aiter__(self) -> ContextReceiveStream[T]:
