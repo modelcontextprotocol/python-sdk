@@ -76,6 +76,7 @@ class ServerSession(
     _initialized: InitializationState = InitializationState.NotInitialized
     _client_params: types.InitializeRequestParams | None = None
     _experimental_features: ExperimentalServerSessionFeatures | None = None
+    _tenant_id: str | None = None
 
     def __init__(
         self,
@@ -107,6 +108,27 @@ class ServerSession(
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params
+
+    @property
+    def tenant_id(self) -> str | None:
+        """Get the tenant_id for this session."""
+        return self._tenant_id
+
+    @tenant_id.setter
+    def tenant_id(self, value: str | None) -> None:
+        """Set the tenant_id for this session (set-once).
+
+        Once a session is bound to a tenant, the tenant_id cannot be changed.
+        This prevents accidental tenant reassignment which could be a security issue.
+
+        Raises:
+            ValueError: If tenant_id is already set to a different value.
+        """
+        if self._tenant_id is not None and value != self._tenant_id:
+            raise ValueError(
+                f"Cannot change tenant_id from '{self._tenant_id}' to '{value}': session is already bound to a tenant"
+            )
+        self._tenant_id = value
 
     @property
     def experimental(self) -> ExperimentalServerSessionFeatures:

@@ -407,7 +407,7 @@ class ClientSession(
 
         return result
 
-    async def send_roots_list_changed(self) -> None:  # pragma: no cover
+    async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
         await self.send_notification(types.RootsListChangedNotification())
 

@@ -4,6 +4,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import AccessToken
+from mcp.shared._context import tenant_id_var
 
 # Create a contextvar to store the authenticated user
 # The default is None, indicating no authenticated user is present
@@ -18,6 +19,16 @@ def get_access_token() -> AccessToken | None:
     """
     auth_user = auth_context_var.get()
     return auth_user.access_token if auth_user else None
+
+
+def get_tenant_id() -> str | None:
+    """Get the tenant_id from the current authentication context.
+
+    Returns:
+        The tenant_id if an authenticated user with a tenant is available, None otherwise.
+    """
+    access_token = get_access_token()
+    return access_token.tenant_id if access_token else None
 
 
 class AuthContextMiddleware:
@@ -36,11 +47,15 @@ class AuthContextMiddleware:
         user = scope.get("user")
         if isinstance(user, AuthenticatedUser):
             # Set the authenticated user in the contextvar
-            token = auth_context_var.set(user)
+            auth_token = auth_context_var.set(user)
+            # Propagate tenant_id to the transport-agnostic contextvar
+            tenant_id = user.access_token.tenant_id if user.access_token else None
+            tenant_token = tenant_id_var.set(tenant_id)
             try:
                 await self.app(scope, receive, send)
             finally:
-                auth_context_var.reset(token)
+                tenant_id_var.reset(tenant_token)
+                auth_context_var.reset(auth_token)
         else:
             # No authenticated user, just process the request
             await self.app(scope, receive, send)

@@ -65,6 +65,7 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._context import tenant_id_var
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -451,11 +452,15 @@ class Server(Generic[LifespanResultT]):
                 task_metadata = None
                 if hasattr(req, "params") and req.params is not None:
                     task_metadata = getattr(req.params, "task", None)
+                tenant_id = tenant_id_var.get()
+                if tenant_id is not None and session.tenant_id is None:
+                    session.tenant_id = tenant_id
                 ctx = ServerRequestContext(
                     request_id=message.request_id,
                     meta=message.request_meta,
                     session=session,
                     lifespan_context=lifespan_context,
+                    tenant_id=tenant_id,
                     experimental=Experimental(
                         task_metadata=task_metadata,
                         _client_capabilities=client_capabilities,
@@ -495,9 +500,13 @@ class Server(Generic[LifespanResultT]):
             try:
                 client_capabilities = session.client_params.capabilities if session.client_params else None
                 task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                tenant_id = tenant_id_var.get()
+                if tenant_id is not None and session.tenant_id is None:
+                    session.tenant_id = tenant_id
                 ctx = ServerRequestContext(
                     session=session,
                     lifespan_context=lifespan_context,
+                    tenant_id=tenant_id,
                     experimental=Experimental(
                         task_metadata=None,
                         _client_capabilities=client_capabilities,
