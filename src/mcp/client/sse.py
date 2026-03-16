@@ -61,11 +61,7 @@ async def sse_client(
     async with httpx_client_factory(
         headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
     ) as client:
-        async with aconnect_sse(
-            client,
-            "GET",
-            url,
-        ) as event_source:
+        async with aconnect_sse(client, "GET", url) as event_source:
             event_source.response.raise_for_status()
             logger.debug("SSE connection established")
 
