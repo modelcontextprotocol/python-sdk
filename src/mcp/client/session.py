@@ -50,13 +50,16 @@ class LoggingFnT(Protocol):
 class MessageHandlerFnT(Protocol):
     async def __call__(
         self,
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
     ) -> None: ...  # pragma: no branch
 
 
 async def _default_message_handler(
-    message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
 ) -> None:
+    if isinstance(message, Exception):
+        logger.exception("Transport error received", exc_info=message)
+        raise message
     await anyio.lowlevel.checkpoint()
 
 
@@ -152,7 +155,10 @@ class ClientSession(
             else None
         )
         elicitation = (
-            types.ElicitationCapability(form=types.FormElicitationCapability(), url=types.UrlElicitationCapability())
+            types.ElicitationCapability(
+                form=types.FormElicitationCapability(),
+                url=types.UrlElicitationCapability(),
+            )
             if self._elicitation_callback is not _default_elicitation_callback
             else None
         )
@@ -459,7 +465,7 @@ class ClientSession(
 
     async def _handle_incoming(
         self,
-        req: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+        req: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
     ) -> None:
         """Handle incoming messages by forwarding to the message handler."""
         await self._message_handler(req)

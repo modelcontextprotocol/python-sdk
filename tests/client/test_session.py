@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import unittest.mock
+
 import anyio
 import pytest
 
 from mcp import types
-from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
+from mcp.client.session import (
+    DEFAULT_CLIENT_INFO,
+    ClientSession,
+    _default_message_handler,
+)
 from mcp.shared._context import RequestContext
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -78,7 +85,7 @@ async def test_client_session_initialize():
 
     # Create a message handler to catch exceptions
     async def message_handler(  # pragma: no cover
-        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
     ) -> None:
         if isinstance(message, Exception):
             raise message
@@ -658,7 +665,10 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
             assert "_meta" in jsonrpc_request.params
             assert jsonrpc_request.params["_meta"] == meta
 
-        result = CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
+        result = CallToolResult(
+            content=[TextContent(type="text", text="Called successfully")],
+            is_error=False,
+        )
 
         # Send the tools/call result
         await server_to_client_send.send(
@@ -706,3 +716,155 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_default_message_handler_raises_on_exception():
+    """The default message handler must re-raise exceptions so they propagate."""
+    error = RuntimeError("transport error")
+    with pytest.raises(RuntimeError, match="transport error"):
+        await _default_message_handler(error)
+
+
+@pytest.mark.anyio
+async def test_default_message_handler_checkpoints_on_non_exception():
+    """The default message handler yields control for non-exception messages."""
+    checkpointed = False
+    original_checkpoint = anyio.lowlevel.checkpoint
+
+    async def mock_checkpoint():
+        nonlocal checkpointed
+        checkpointed = True
+        await original_checkpoint()
+
+    notification = types.ProgressNotification(
+        params=types.ProgressNotificationParams(
+            progress_token="tok",
+            progress=0.5,
+        )
+    )
+    with unittest.mock.patch("anyio.lowlevel.checkpoint", mock_checkpoint):
+        await _default_message_handler(notification)
+
+    assert checkpointed
+
+
+@pytest.mark.anyio
+async def test_transport_error_propagates_to_waiting_send_request():
+    """A transport-level exception sent on the read stream must unblock pending
+    send_request callers with a CONNECTION_CLOSED error rather than hanging."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def mock_server():
+        # Consume the initialize request
+        await client_to_server_receive.receive()
+
+        init_result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=0,
+                    result=init_result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                )
+            )
+        )
+        # Consume initialized notification
+        await client_to_server_receive.receive()
+
+        # Consume the tools/call request — but don't reply; inject a transport
+        # error instead so the waiting send_request is unblocked.
+        await client_to_server_receive.receive()
+        await server_to_client_send.send(ConnectionError("SSE read timeout"))
+
+    async with (
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+        with pytest.raises(MCPError):
+            with anyio.fail_after(5):
+                await session.call_tool("any_tool")
+
+
+@pytest.mark.anyio
+async def test_custom_message_handler_not_affected_by_default_behavior():
+    """A user-supplied message_handler that silently ignores exceptions must not
+    be overridden by the new default behavior."""
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    exceptions_received: list[Exception] = []
+
+    async def silent_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        """Custom handler that records exceptions but does NOT raise them."""
+        if isinstance(message, Exception):
+            exceptions_received.append(message)
+
+    handler_saw_error = anyio.Event()
+
+    async def recording_handler(
+        message: (RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception),
+    ) -> None:
+        if isinstance(message, Exception):
+            exceptions_received.append(message)
+            handler_saw_error.set()
+
+    async def mock_server():
+        # Consume initialize request
+        await client_to_server_receive.receive()
+
+        init_result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=0,
+                    result=init_result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                )
+            )
+        )
+        # Consume initialized notification
+        await client_to_server_receive.receive()
+
+        # Inject a transport error without replying to any pending request
+        await server_to_client_send.send(ValueError("custom handler test"))
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=recording_handler,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+        with anyio.fail_after(5):
+            await handler_saw_error.wait()
+
+    assert len(exceptions_received) == 1
+    assert isinstance(exceptions_received[0], ValueError)
+    assert str(exceptions_received[0]) == "custom handler test"
