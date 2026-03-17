@@ -58,7 +58,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
                 async for line in stdin:
                     try:
                         message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
-                    except Exception as exc:  # pragma: no cover
+                    except Exception as exc:
                         await read_stream_writer.send(exc)
                         continue
 
