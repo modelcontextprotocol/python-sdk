@@ -15,34 +15,43 @@ logger = get_logger(__name__)
 
 
 class PromptManager:
-    """Manages MCPServer prompts."""
+    """Manages MCPServer prompts with optional tenant-scoped storage.
+
+    Prompts are stored in a dict keyed by ``(tenant_id, prompt_name)``.
+    This allows the same prompt name to exist independently under different
+    tenants. When ``tenant_id`` is ``None`` (the default), prompts live in
+    a global scope, preserving backward compatibility with single-tenant usage.
+    """
 
     def __init__(self, warn_on_duplicate_prompts: bool = True):
-        self._prompts: dict[str, Prompt] = {}
+        self._prompts: dict[tuple[str | None, str], Prompt] = {}
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
 
-    def get_prompt(self, name: str) -> Prompt | None:
-        """Get prompt by name."""
-        return self._prompts.get(name)
+    def get_prompt(self, name: str, *, tenant_id: str | None = None) -> Prompt | None:
+        """Get prompt by name, optionally scoped to a tenant."""
+        return self._prompts.get((tenant_id, name))
 
-    def list_prompts(self) -> list[Prompt]:
-        """List all registered prompts."""
-        return list(self._prompts.values())
+    def list_prompts(self, *, tenant_id: str | None = None) -> list[Prompt]:
+        """List all registered prompts for a given tenant scope."""
+        return [prompt for (tid, _), prompt in self._prompts.items() if tid == tenant_id]
 
     def add_prompt(
         self,
         prompt: Prompt,
+        *,
+        tenant_id: str | None = None,
     ) -> Prompt:
-        """Add a prompt to the manager."""
+        """Add a prompt to the manager, optionally scoped to a tenant."""
 
         # Check for duplicates
-        existing = self._prompts.get(prompt.name)
+        key = (tenant_id, prompt.name)
+        existing = self._prompts.get(key)
         if existing:
             if self.warn_on_duplicate_prompts:
                 logger.warning(f"Prompt already exists: {prompt.name}")
             return existing
 
-        self._prompts[prompt.name] = prompt
+        self._prompts[key] = prompt
         return prompt
 
     async def render_prompt(
@@ -50,9 +59,11 @@ class PromptManager:
         name: str,
         arguments: dict[str, Any] | None,
         context: Context[LifespanContextT, RequestT],
+        *,
+        tenant_id: str | None = None,
     ) -> list[Message]:
-        """Render a prompt by name with arguments."""
-        prompt = self.get_prompt(name)
+        """Render a prompt by name with arguments, optionally scoped to a tenant."""
+        prompt = self.get_prompt(name, tenant_id=tenant_id)
         if not prompt:
             raise ValueError(f"Unknown prompt: {name}")
 

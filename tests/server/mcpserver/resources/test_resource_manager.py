@@ -103,7 +103,7 @@ class TestResourceManager:
             uri_template="greet://{name}",
             name="greeter",
         )
-        manager._templates[template.uri_template] = template
+        manager._templates[(None, template.uri_template)] = template
 
         resource = await manager.get_resource(AnyUrl("greet://world"), Context())
         assert isinstance(resource, FunctionResource)
