@@ -97,9 +97,13 @@ async def test_call_tool_with_tenant_id():
     result_a = await server.call_tool("do_work", {}, tenant_id="tenant-a")
     result_b = await server.call_tool("do_work", {}, tenant_id="tenant-b")
 
-    # Results are non-empty (structured output returns a tuple)
-    assert result_a is not None
-    assert result_b is not None
+    # Structured output returns (unstructured_content, structured_content)
+    assert isinstance(result_a, tuple)
+    assert isinstance(result_b, tuple)
+    assert result_a[0][0].text == "result-a"  # type: ignore[union-attr]
+    assert result_a[1] == {"result": "result-a"}
+    assert result_b[0][0].text == "result-b"  # type: ignore[union-attr]
+    assert result_b[1] == {"result": "result-b"}
 
 
 async def test_call_tool_wrong_tenant_raises():
