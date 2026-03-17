@@ -83,14 +83,12 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
     with anyio.fail_after(5):
         async with stdio_server() as (read_stream, write_stream):
             await write_stream.aclose()
-            async with read_stream:
-                it = read_stream.__aiter__()
-
+            async with read_stream:  # pragma: no branch
                 # First line: \xff\xfe -> U+FFFD U+FFFD -> JSON parse fails -> exception in stream
-                first = await it.__anext__()
+                first = await read_stream.receive()
                 assert isinstance(first, Exception)
 
                 # Second line: valid message still comes through
-                second = await it.__anext__()
+                second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
