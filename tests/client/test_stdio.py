@@ -324,7 +324,7 @@ class TestChildProcessCleanup:
                         size_after_cleanup = os.path.getsize(marker_file)
                         await anyio.sleep(0.5)
                         final_size = os.path.getsize(marker_file)
-                        if final_size == size_after_cleanup:
+                        if final_size == size_after_cleanup:  # pragma: no branch
                             print(f"After cleanup: file stopped at {final_size} bytes")
                             break
 
@@ -429,7 +429,7 @@ class TestChildProcessCleanup:
                             size1 = os.path.getsize(file_path)
                             await anyio.sleep(0.5)
                             size2 = os.path.getsize(file_path)
-                            if size1 == size2:
+                            if size1 == size2:  # pragma: no branch
                                 break
 
             print("SUCCESS: All processes in tree terminated")
@@ -511,7 +511,7 @@ class TestChildProcessCleanup:
                         size3 = os.path.getsize(marker_file)
                         await anyio.sleep(0.5)
                         size4 = os.path.getsize(marker_file)
-                        if size3 == size4:
+                        if size3 == size4:  # pragma: no branch
                             break
 
             print("SUCCESS: Child terminated even with parent exit during cleanup")
