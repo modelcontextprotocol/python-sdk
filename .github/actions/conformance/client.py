@@ -17,7 +17,6 @@ Scenarios:
     auth/client-credentials-jwt             - Client credentials with private_key_jwt
     auth/client-credentials-basic           - Client credentials with client_secret_basic
     auth/cross-app-access-complete-flow     - Enterprise managed OAuth (SEP-990) - v0.1.14+
-    auth/enterprise-token-exchange          - Enterprise auth with OIDC ID token (legacy name)
     auth/*                                  - Authorization code flow (default for auth scenarios)
 
 Enterprise Auth (SEP-990):
