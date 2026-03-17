@@ -29,18 +29,37 @@ This document contains critical information about working with this codebase. Fo
    - IMPORTANT: The `tests/client/test_client.py` is the most well designed test file. Follow its patterns.
    - IMPORTANT: Be minimal, and focus on E2E tests: Use the `mcp.client.Client` whenever possible.
    - Coverage: CI requires 100% (`fail_under = 100`, `branch = true`).
-     - Full check: `./scripts/test` (~20s, matches CI exactly)
-     - Targeted check while iterating:
+     - Full check: `./scripts/test` (~23s). Runs coverage + `strict-no-cover` on the
+       default Python. Not identical to CI: CI also runs 3.10–3.14 × {ubuntu, windows},
+       and some branch-coverage quirks only surface on specific matrix entries.
+     - Targeted check while iterating (~4s, deterministic):
 
        ```bash
        uv run --frozen coverage erase
        uv run --frozen coverage run -m pytest tests/path/test_foo.py
        uv run --frozen coverage combine
        uv run --frozen coverage report --include='src/mcp/path/foo.py' --fail-under=0
+       UV_FROZEN=1 uv run --frozen strict-no-cover
        ```
 
        Partial runs can't hit 100% (coverage tracks `tests/` too), so `--fail-under=0`
-       and `--include` scope the report to what you actually changed.
+       and `--include` scope the report. `strict-no-cover` has no false positives on
+       partial runs — if your new test executes a line marked `# pragma: no cover`,
+       even a single-file run catches it.
+     - `strict-no-cover` can occasionally flag subprocess-runner functions in `tests/`
+       on high-core machines (`-n auto` → racy subprocess coverage). If the flagged
+       lines are inside a `tests/…/run_*server*()` body and unrelated to your change,
+       re-run or convert that pragma to `lax no cover`. Flags in `src/` are real.
+   - Coverage pragmas:
+     - `# pragma: no cover` — line is never executed. CI's `strict-no-cover` fails if
+       it IS executed. When your test starts covering such a line, remove the pragma.
+     - `# pragma: lax no cover` — excluded from coverage but not checked by
+       `strict-no-cover`. Use for lines covered on some platforms/versions but not
+       others, or nondeterministically (races, subprocess coverage).
+     - `# pragma: no branch` — excludes branch arcs only. coverage.py misreports the
+       `->exit` arc for nested `async with` on Python 3.11+ (worse on 3.14/Windows).
+       There is no local detector; when CI reports `X->exit` missing on a test line,
+       add this pragma to line X.
    - Avoid `anyio.sleep()` with a fixed duration to wait for async operations. Instead:
      - Use `anyio.Event` — set it in the callback/handler, `await event.wait()` in the test
      - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
