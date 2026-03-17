@@ -34,14 +34,15 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
-    # Purposely not using context managers for these, as we don't want to close
-    # standard process handles. Encoding of stdin/stdout as text streams on
-    # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    # Re-wrap the `fd` with `closefd=False` to force UTF-8 (Windows encoding is
+    # platform-dependent) without taking ownership of process stdio.
+    stdin_opened = stdout_opened = False
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8"))
+        stdin = anyio.wrap_file(TextIOWrapper(open(sys.stdin.fileno(), "rb", closefd=False), encoding="utf-8"))
+        stdin_opened = True
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout = anyio.wrap_file(TextIOWrapper(open(sys.stdout.fileno(), "wb", closefd=False), encoding="utf-8"))
+        stdout_opened = True
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -77,7 +78,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(stdin_reader)
-        tg.start_soon(stdout_writer)
-        yield read_stream, write_stream
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(stdin_reader)
+            tg.start_soon(stdout_writer)
+            yield read_stream, write_stream
+    finally:
+        if stdin_opened:
+            await stdin.aclose()
+        if stdout_opened:
+            await stdout.aclose()
