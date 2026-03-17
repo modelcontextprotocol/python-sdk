@@ -64,6 +64,8 @@ class PromptManager:
         if name not in scope:
             raise ValueError(f"Unknown prompt: {name}")
         del scope[name]
+        if not scope and tenant_id in self._prompts:
+            del self._prompts[tenant_id]
 
     async def render_prompt(
         self,

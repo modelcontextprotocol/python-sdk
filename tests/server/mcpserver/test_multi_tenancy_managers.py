@@ -84,6 +84,8 @@ def test_remove_tool_with_tenant():
 
     assert manager.get_tool("my_tool", tenant_id="tenant-a") is None
     assert manager.get_tool("my_tool", tenant_id="tenant-b") is not None
+    # Empty tenant scope is cleaned up
+    assert "tenant-a" not in manager._tools
 
 
 def test_remove_tool_wrong_tenant_raises():
@@ -240,6 +242,8 @@ def test_remove_resource_with_tenant():
 
     assert len(manager.list_resources(tenant_id="tenant-a")) == 0
     assert len(manager.list_resources(tenant_id="tenant-b")) == 1
+    # Empty tenant scope is cleaned up
+    assert "tenant-a" not in manager._resources
 
 
 def test_remove_resource_wrong_tenant_raises():
@@ -330,6 +334,8 @@ def test_remove_prompt_with_tenant():
 
     assert manager.get_prompt("greet", tenant_id="tenant-a") is None
     assert manager.get_prompt("greet", tenant_id="tenant-b") is not None
+    # Empty tenant scope is cleaned up
+    assert "tenant-a" not in manager._prompts
 
 
 def test_remove_prompt_wrong_tenant_raises():

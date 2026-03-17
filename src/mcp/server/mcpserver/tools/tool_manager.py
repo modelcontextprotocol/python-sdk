@@ -93,6 +93,8 @@ class ToolManager:
         if name not in scope:
             raise ToolError(f"Unknown tool: {name}")
         del scope[name]
+        if not scope and tenant_id in self._tools:
+            del self._tools[tenant_id]
 
     async def call_tool(
         self,

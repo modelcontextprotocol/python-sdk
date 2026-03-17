@@ -117,6 +117,8 @@ class ResourceManager:
         if uri_str not in scope:
             raise ValueError(f"Unknown resource: {uri}")
         del scope[uri_str]
+        if not scope and tenant_id in self._resources:
+            del self._resources[tenant_id]
 
     async def get_resource(
         self,
