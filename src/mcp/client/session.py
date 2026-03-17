@@ -131,7 +131,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        self._server_params: types.InitializeResult | None = None
+        self._initialize_result: types.InitializeResult | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
 
         # Experimental: Task handlers (use defaults if not provided)
@@ -185,20 +185,19 @@ class ClientSession(
         if result.protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
-        self._server_params = result
+        self._initialize_result = result
 
         await self.send_notification(types.InitializedNotification())
 
         return result
 
     @property
-    def server_params(self) -> types.InitializeResult | None:
-        """The server's initialization response. None if not yet initialized.
+    def initialize_result(self) -> types.InitializeResult | None:
+        """The server's InitializeResult. None until initialize() has been called.
 
-        Mirrors ServerSession.client_params. Contains server_info, capabilities,
-        instructions, and the negotiated protocol_version.
+        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
         """
-        return self._server_params
+        return self._initialize_result
 
     @property
     def experimental(self) -> ExperimentalClientFeatures:

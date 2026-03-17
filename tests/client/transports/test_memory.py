@@ -69,7 +69,7 @@ async def test_with_mcpserver(mcpserver_server: MCPServer):
 async def test_server_is_running(mcpserver_server: MCPServer):
     """Test that the server is running and responding to requests."""
     async with Client(mcpserver_server) as client:
-        assert client.server_params is not None
+        assert client.server_capabilities.tools is not None
 
 
 async def test_list_tools(mcpserver_server: MCPServer):

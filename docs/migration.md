@@ -169,9 +169,9 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
-### `ClientSession.get_server_capabilities()` replaced by `server_params` property
+### `ClientSession.get_server_capabilities()` replaced by `initialize_result` property
 
-`ClientSession` now stores the full `InitializeResult` via a `server_params` property, mirroring `ServerSession.client_params`. This is the new way to access server metadata after initialization — `server_info`, `capabilities`, `instructions`, and the negotiated `protocol_version` are all available through this single property. The `get_server_capabilities()` method has been removed.
+`ClientSession` now stores the full `InitializeResult` via an `initialize_result` property. This provides access to `server_info`, `capabilities`, `instructions`, and the negotiated `protocol_version` through a single property. The `get_server_capabilities()` method has been removed.
 
 **Before (v1):**
 
@@ -183,15 +183,15 @@ capabilities = session.get_server_capabilities()
 **After (v2):**
 
 ```python
-params = session.server_params
-if params is not None:
-    capabilities = params.capabilities
-    server_info = params.server_info
-    instructions = params.instructions
-    version = params.protocol_version
+result = session.initialize_result
+if result is not None:
+    capabilities = result.capabilities
+    server_info = result.server_info
+    instructions = result.instructions
+    version = result.protocol_version
 ```
 
-The high-level `Client.server_capabilities` property has similarly been replaced by `Client.server_params`.
+The high-level `Client` exposes these directly as non-nullable properties (initialization is guaranteed inside the context manager): `client.server_capabilities`, `client.server_info`, and `client.server_instructions`.
 
 ### `McpError` renamed to `MCPError`
 

@@ -540,8 +540,8 @@ async def test_client_capabilities_with_sampling_tools():
 
 
 @pytest.mark.anyio
-async def test_server_params():
-    """Test that server_params is None before init and contains the full result after."""
+async def test_initialize_result():
+    """Test that initialize_result is None before init and contains the full result after."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -593,17 +593,17 @@ async def test_server_params():
         server_to_client_send,
         server_to_client_receive,
     ):
-        assert session.server_params is None
+        assert session.initialize_result is None
 
         tg.start_soon(mock_server)
         await session.initialize()
 
-        params = session.server_params
-        assert params is not None
-        assert params.server_info == expected_server_info
-        assert params.capabilities == expected_capabilities
-        assert params.instructions == expected_instructions
-        assert params.protocol_version == LATEST_PROTOCOL_VERSION
+        result = session.initialize_result
+        assert result is not None
+        assert result.server_info == expected_server_info
+        assert result.capabilities == expected_capabilities
+        assert result.instructions == expected_instructions
+        assert result.protocol_version == LATEST_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio

@@ -30,6 +30,7 @@ from mcp.types import (
     ReadResourceResult,
     RequestParamsMeta,
     ResourceTemplateReference,
+    ServerCapabilities,
 )
 
 
@@ -96,6 +97,7 @@ class Client:
     """Callback for handling elicitation requests."""
 
     _session: ClientSession | None = field(init=False, default=None)
+    _initialize_result: InitializeResult | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
 
@@ -129,7 +131,7 @@ class Client:
                 )
             )
 
-            await self._session.initialize()
+            self._initialize_result = await self._session.initialize()
 
             # Transfer ownership to self for __aexit__ to handle
             self._exit_stack = exit_stack.pop_all()
@@ -140,6 +142,7 @@ class Client:
         if self._exit_stack:  # pragma: no branch
             await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
         self._session = None
+        self._initialize_result = None
 
     @property
     def session(self) -> ClientSession:
@@ -155,12 +158,25 @@ class Client:
         return self._session
 
     @property
-    def server_params(self) -> InitializeResult | None:
-        """The server's initialization response. None if not yet initialized.
+    def server_capabilities(self) -> ServerCapabilities:
+        """Capabilities the server advertised during initialization."""
+        if self._initialize_result is None:
+            raise RuntimeError("Client must be used within an async context manager")
+        return self._initialize_result.capabilities
 
-        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
-        """
-        return self.session.server_params
+    @property
+    def server_info(self) -> Implementation:
+        """The server's name, version, and other implementation details."""
+        if self._initialize_result is None:
+            raise RuntimeError("Client must be used within an async context manager")
+        return self._initialize_result.server_info
+
+    @property
+    def server_instructions(self) -> str | None:
+        """Instructions describing how to use the server and its features, if provided."""
+        if self._initialize_result is None:
+            raise RuntimeError("Client must be used within an async context manager")
+        return self._initialize_result.instructions
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""
