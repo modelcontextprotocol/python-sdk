@@ -246,6 +246,19 @@ def test_remove_resource_with_tenant():
     assert "tenant-a" not in manager._resources
 
 
+def test_remove_resource_partial_tenant_scope():
+    """Removing one resource leaves the tenant scope intact when others remain."""
+    manager = ResourceManager()
+
+    manager.add_resource(_make_resource("file:///a", "a"), tenant_id="tenant-a")
+    manager.add_resource(_make_resource("file:///b", "b"), tenant_id="tenant-a")
+
+    manager.remove_resource("file:///a", tenant_id="tenant-a")
+
+    assert len(manager.list_resources(tenant_id="tenant-a")) == 1
+    assert "tenant-a" in manager._resources
+
+
 def test_remove_resource_wrong_tenant_raises():
     """Removing a resource under the wrong tenant raises ValueError."""
     manager = ResourceManager()
@@ -336,6 +349,19 @@ def test_remove_prompt_with_tenant():
     assert manager.get_prompt("greet", tenant_id="tenant-b") is not None
     # Empty tenant scope is cleaned up
     assert "tenant-a" not in manager._prompts
+
+
+def test_remove_prompt_partial_tenant_scope():
+    """Removing one prompt leaves the tenant scope intact when others remain."""
+    manager = PromptManager()
+
+    manager.add_prompt(_make_prompt("greet", "A"), tenant_id="tenant-a")
+    manager.add_prompt(_make_prompt("farewell", "B"), tenant_id="tenant-a")
+
+    manager.remove_prompt("greet", tenant_id="tenant-a")
+
+    assert len(manager.list_prompts(tenant_id="tenant-a")) == 1
+    assert "tenant-a" in manager._prompts
 
 
 def test_remove_prompt_wrong_tenant_raises():
