@@ -293,14 +293,14 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_list_tools(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
     ) -> ListToolsResult:
-        return ListToolsResult(tools=await self.list_tools())
+        return ListToolsResult(tools=await self.list_tools(tenant_id=ctx.tenant_id))
 
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
     ) -> CallToolResult:
         context = Context(request_context=ctx, mcp_server=self)
         try:
-            result = await self.call_tool(params.name, params.arguments or {}, context)
+            result = await self.call_tool(params.name, params.arguments or {}, context, tenant_id=ctx.tenant_id)
         except MCPError:
             raise
         except Exception as e:
@@ -326,13 +326,13 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_list_resources(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
     ) -> ListResourcesResult:
-        return ListResourcesResult(resources=await self.list_resources())
+        return ListResourcesResult(resources=await self.list_resources(tenant_id=ctx.tenant_id))
 
     async def _handle_read_resource(
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
         context = Context(request_context=ctx, mcp_server=self)
-        results = await self.read_resource(params.uri, context)
+        results = await self.read_resource(params.uri, context, tenant_id=ctx.tenant_id)
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -358,22 +358,24 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_list_resource_templates(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
     ) -> ListResourceTemplatesResult:
-        return ListResourceTemplatesResult(resource_templates=await self.list_resource_templates())
+        return ListResourceTemplatesResult(
+            resource_templates=await self.list_resource_templates(tenant_id=ctx.tenant_id)
+        )
 
     async def _handle_list_prompts(
         self, ctx: ServerRequestContext[LifespanResultT], params: PaginatedRequestParams | None
     ) -> ListPromptsResult:
-        return ListPromptsResult(prompts=await self.list_prompts())
+        return ListPromptsResult(prompts=await self.list_prompts(tenant_id=ctx.tenant_id))
 
     async def _handle_get_prompt(
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult:
         context = Context(request_context=ctx, mcp_server=self)
-        return await self.get_prompt(params.name, params.arguments, context)
+        return await self.get_prompt(params.name, params.arguments, context, tenant_id=ctx.tenant_id)
 
-    async def list_tools(self) -> list[MCPTool]:
+    async def list_tools(self, *, tenant_id: str | None = None) -> list[MCPTool]:
         """List all available tools."""
-        tools = self._tool_manager.list_tools()
+        tools = self._tool_manager.list_tools(tenant_id=tenant_id)
         return [
             MCPTool(
                 name=info.name,
@@ -389,17 +391,22 @@ class MCPServer(Generic[LifespanResultT]):
         ]
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        context: Context[LifespanResultT, Any] | None = None,
+        *,
+        tenant_id: str | None = None,
     ) -> Sequence[ContentBlock] | dict[str, Any]:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)
-        return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
+        return await self._tool_manager.call_tool(name, arguments, context, convert_result=True, tenant_id=tenant_id)
 
-    async def list_resources(self) -> list[MCPResource]:
+    async def list_resources(self, *, tenant_id: str | None = None) -> list[MCPResource]:
         """List all available resources."""
 
-        resources = self._resource_manager.list_resources()
+        resources = self._resource_manager.list_resources(tenant_id=tenant_id)
         return [
             MCPResource(
                 uri=resource.uri,
@@ -414,8 +421,8 @@ class MCPServer(Generic[LifespanResultT]):
             for resource in resources
         ]
 
-    async def list_resource_templates(self) -> list[MCPResourceTemplate]:
-        templates = self._resource_manager.list_templates()
+    async def list_resource_templates(self, *, tenant_id: str | None = None) -> list[MCPResourceTemplate]:
+        templates = self._resource_manager.list_templates(tenant_id=tenant_id)
         return [
             MCPResourceTemplate(
                 uri_template=template.uri_template,
@@ -431,13 +438,17 @@ class MCPServer(Generic[LifespanResultT]):
         ]
 
     async def read_resource(
-        self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
+        self,
+        uri: AnyUrl | str,
+        context: Context[LifespanResultT, Any] | None = None,
+        *,
+        tenant_id: str | None = None,
     ) -> Iterable[ReadResourceContents]:
         """Read a resource by URI."""
         if context is None:
             context = Context(mcp_server=self)
         try:
-            resource = await self._resource_manager.get_resource(uri, context)
+            resource = await self._resource_manager.get_resource(uri, context, tenant_id=tenant_id)
         except ValueError:
             raise ResourceError(f"Unknown resource: {uri}")
 
@@ -459,6 +470,8 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        *,
+        tenant_id: str | None = None,
     ) -> None:
         """Add a tool to the server.
 
@@ -477,6 +490,7 @@ class MCPServer(Generic[LifespanResultT]):
                 - If None, auto-detects based on the function's return type annotation
                 - If True, creates a structured tool (return type annotation permitting)
                 - If False, unconditionally creates an unstructured tool
+            tenant_id: Optional tenant scope for the tool
         """
         self._tool_manager.add_tool(
             fn,
@@ -487,18 +501,20 @@ class MCPServer(Generic[LifespanResultT]):
             icons=icons,
             meta=meta,
             structured_output=structured_output,
+            tenant_id=tenant_id,
         )
 
-    def remove_tool(self, name: str) -> None:
+    def remove_tool(self, name: str, *, tenant_id: str | None = None) -> None:
         """Remove a tool from the server by name.
 
         Args:
             name: The name of the tool to remove
+            tenant_id: Optional tenant scope for the tool
 
         Raises:
             ToolError: If the tool does not exist
         """
-        self._tool_manager.remove_tool(name)
+        self._tool_manager.remove_tool(name, tenant_id=tenant_id)
 
     def tool(
         self,
@@ -607,13 +623,14 @@ class MCPServer(Generic[LifespanResultT]):
 
         return decorator
 
-    def add_resource(self, resource: Resource) -> None:
+    def add_resource(self, resource: Resource, *, tenant_id: str | None = None) -> None:
         """Add a resource to the server.
 
         Args:
             resource: A Resource instance to add
+            tenant_id: Optional tenant scope for the resource
         """
-        self._resource_manager.add_resource(resource)
+        self._resource_manager.add_resource(resource, tenant_id=tenant_id)
 
     def resource(
         self,
@@ -727,13 +744,14 @@ class MCPServer(Generic[LifespanResultT]):
 
         return decorator
 
-    def add_prompt(self, prompt: Prompt) -> None:
+    def add_prompt(self, prompt: Prompt, *, tenant_id: str | None = None) -> None:
         """Add a prompt to the server.
 
         Args:
             prompt: A Prompt instance to add
+            tenant_id: Optional tenant scope for the prompt
         """
-        self._prompt_manager.add_prompt(prompt)
+        self._prompt_manager.add_prompt(prompt, tenant_id=tenant_id)
 
     def prompt(
         self,
@@ -1060,9 +1078,9 @@ class MCPServer(Generic[LifespanResultT]):
             debug=self.settings.debug,
         )
 
-    async def list_prompts(self) -> list[MCPPrompt]:
+    async def list_prompts(self, *, tenant_id: str | None = None) -> list[MCPPrompt]:
         """List all available prompts."""
-        prompts = self._prompt_manager.list_prompts()
+        prompts = self._prompt_manager.list_prompts(tenant_id=tenant_id)
         return [
             MCPPrompt(
                 name=prompt.name,
@@ -1082,13 +1100,18 @@ class MCPServer(Generic[LifespanResultT]):
         ]
 
     async def get_prompt(
-        self, name: str, arguments: dict[str, Any] | None = None, context: Context[LifespanResultT, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        context: Context[LifespanResultT, Any] | None = None,
+        *,
+        tenant_id: str | None = None,
     ) -> GetPromptResult:
         """Get a prompt by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)
         try:
-            prompt = self._prompt_manager.get_prompt(name)
+            prompt = self._prompt_manager.get_prompt(name, tenant_id=tenant_id)
             if not prompt:
                 raise ValueError(f"Unknown prompt: {name}")
 
