@@ -5,6 +5,7 @@ to servers (like GitHub MCP) that don't support GET for SSE events.
 """
 
 import logging
+from typing import Protocol, cast
 
 import anyio
 import httpx
@@ -17,6 +18,10 @@ from starlette.routing import Route
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import InitializeResult
+
+
+class _ExceptionGroupWithExceptions(Protocol):
+    exceptions: tuple[BaseException, ...]
 
 
 async def mock_github_endpoint(request: Request) -> Response:
@@ -73,7 +78,7 @@ async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
             transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
         ) as http_client:
             transport_cm = streamable_http_client("http://testserver/mcp", http_client=http_client)
-            async with transport_cm as transport_streams:  # pragma: no cover
+            async with transport_cm as transport_streams:
                 read_stream, write_stream = transport_streams
                 async with ClientSession(read_stream, write_stream) as session:
                     # Initialize sends the initialized notification internally
@@ -106,6 +111,34 @@ async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
                     assert len(reconnect_messages) == 0, (  # pragma: no branch
                         f"Should not retry on 405, but found: {reconnect_messages}"
                     )
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_context_manager_exception_exit_is_covered() -> None:
+    """Cover the exceptional exit path of the streamable HTTP transport context manager.
+
+    Branch coverage can vary across Python versions for `async with` teardown paths.
+    This test ensures the exception-unwind path is exercised without relying on pragmas.
+    """
+    app = Starlette(routes=[Route("/mcp", mock_github_endpoint, methods=["GET", "POST"])])
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        timeout=5.0,
+    ) as http_client:
+        transport_cm = streamable_http_client("http://testserver/mcp", http_client=http_client)
+        with pytest.raises(BaseException) as excinfo:
+            async with transport_cm:
+                raise RuntimeError("boom")
+
+    exc = excinfo.value
+    if hasattr(exc, "exceptions"):
+        excs = cast(_ExceptionGroupWithExceptions, exc).exceptions
+    else:
+        excs = (exc,)
+
+    assert any(isinstance(inner, RuntimeError) and str(inner) == "boom" for inner in excs)
 
 
 @pytest.mark.anyio
