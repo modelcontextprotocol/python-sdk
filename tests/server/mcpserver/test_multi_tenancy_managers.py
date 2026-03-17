@@ -6,15 +6,14 @@ from typing import Any
 import pytest
 
 from mcp.server.mcpserver.context import Context
-
-MakeContext = Callable[..., Context[Any, Any]]
-
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Prompt
 from mcp.server.mcpserver.prompts.manager import PromptManager
 from mcp.server.mcpserver.resources.resource_manager import ResourceManager
 from mcp.server.mcpserver.resources.types import FunctionResource
 from mcp.server.mcpserver.tools import ToolManager
+
+MakeContext = Callable[..., Context[Any, Any]]
 
 # --- ToolManager ---
 
