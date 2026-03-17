@@ -16,7 +16,13 @@ logger = get_logger(__name__)
 
 
 class ToolManager:
-    """Manages MCPServer tools."""
+    """Manages MCPServer tools with optional tenant-scoped storage.
+
+    Tools are stored in a dict keyed by ``(tenant_id, tool_name)``.
+    This allows the same tool name to exist independently under different
+    tenants. When ``tenant_id`` is ``None`` (the default), tools live in
+    a global scope, preserving backward compatibility with single-tenant usage.
+    """
 
     def __init__(
         self,
@@ -24,22 +30,23 @@ class ToolManager:
         *,
         tools: list[Tool] | None = None,
     ):
-        self._tools: dict[str, Tool] = {}
+        self._tools: dict[tuple[str | None, str], Tool] = {}
         if tools is not None:
             for tool in tools:
-                if warn_on_duplicate_tools and tool.name in self._tools:
+                key = (None, tool.name)
+                if warn_on_duplicate_tools and key in self._tools:
                     logger.warning(f"Tool already exists: {tool.name}")
-                self._tools[tool.name] = tool
+                self._tools[key] = tool
 
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
 
-    def get_tool(self, name: str) -> Tool | None:
-        """Get tool by name."""
-        return self._tools.get(name)
+    def get_tool(self, name: str, *, tenant_id: str | None = None) -> Tool | None:
+        """Get tool by name, optionally scoped to a tenant."""
+        return self._tools.get((tenant_id, name))
 
-    def list_tools(self) -> list[Tool]:
-        """List all registered tools."""
-        return list(self._tools.values())
+    def list_tools(self, *, tenant_id: str | None = None) -> list[Tool]:
+        """List all registered tools for a given tenant scope."""
+        return [tool for (tid, _), tool in self._tools.items() if tid == tenant_id]
 
     def add_tool(
         self,
@@ -51,8 +58,10 @@ class ToolManager:
         icons: list[Icon] | None = None,
         meta: dict[str, Any] | None = None,
         structured_output: bool | None = None,
+        *,
+        tenant_id: str | None = None,
     ) -> Tool:
-        """Add a tool to the server."""
+        """Add a tool to the server, optionally scoped to a tenant."""
         tool = Tool.from_function(
             fn,
             name=name,
@@ -63,19 +72,21 @@ class ToolManager:
             meta=meta,
             structured_output=structured_output,
         )
-        existing = self._tools.get(tool.name)
+        key = (tenant_id, tool.name)
+        existing = self._tools.get(key)
         if existing:
             if self.warn_on_duplicate_tools:
                 logger.warning(f"Tool already exists: {tool.name}")
             return existing
-        self._tools[tool.name] = tool
+        self._tools[key] = tool
         return tool
 
-    def remove_tool(self, name: str) -> None:
-        """Remove a tool by name."""
-        if name not in self._tools:
+    def remove_tool(self, name: str, *, tenant_id: str | None = None) -> None:
+        """Remove a tool by name, optionally scoped to a tenant."""
+        key = (tenant_id, name)
+        if key not in self._tools:
             raise ToolError(f"Unknown tool: {name}")
-        del self._tools[name]
+        del self._tools[key]
 
     async def call_tool(
         self,
@@ -83,9 +94,11 @@ class ToolManager:
         arguments: dict[str, Any],
         context: Context[LifespanContextT, RequestT],
         convert_result: bool = False,
+        *,
+        tenant_id: str | None = None,
     ) -> Any:
-        """Call a tool by name with arguments."""
-        tool = self.get_tool(name)
+        """Call a tool by name with arguments, optionally scoped to a tenant."""
+        tool = self.get_tool(name, tenant_id=tenant_id)
         if not tool:
             raise ToolError(f"Unknown tool: {name}")
 

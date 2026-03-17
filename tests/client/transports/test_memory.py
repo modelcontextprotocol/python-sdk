@@ -1,5 +1,7 @@
 """Tests for InMemoryTransport."""
 
+import sys
+
 import pytest
 
 from mcp import Client, types
@@ -81,6 +83,8 @@ async def test_list_tools(mcpserver_server: MCPServer):
         assert "greet" in tool_names
 
 
+@pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning" if sys.platform == "win32" else "default")
 async def test_call_tool(mcpserver_server: MCPServer):
     """Test calling a tool through the transport."""
     async with Client(mcpserver_server) as client:
