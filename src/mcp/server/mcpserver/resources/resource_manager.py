@@ -22,17 +22,23 @@ logger = get_logger(__name__)
 class ResourceManager:
     """Manages MCPServer resources with optional tenant-scoped storage.
 
-    Resources and templates are stored in dicts keyed by
-    ``(tenant_id, uri_string)`` and ``(tenant_id, uri_template)``
-    respectively. This allows the same URI to exist independently under
-    different tenants. When ``tenant_id`` is ``None`` (the default),
+    Resources and templates are stored in nested dicts:
+    ``{tenant_id: {uri_string: Resource}}`` and
+    ``{tenant_id: {uri_template: ResourceTemplate}}`` respectively.
+    This allows the same URI to exist independently under different tenants
+    with O(1) lookups per tenant. When ``tenant_id`` is ``None`` (the default),
     entries live in a global scope, preserving backward compatibility
     with single-tenant usage.
+
+    Note: This class is not thread-safe. It is designed to run within a
+    single-threaded async event loop, where all synchronous mutations
+    execute atomically. Do not share instances across OS threads without
+    external synchronization.
     """
 
     def __init__(self, warn_on_duplicate_resources: bool = True):
-        self._resources: dict[tuple[str | None, str], Resource] = {}
-        self._templates: dict[tuple[str | None, str], ResourceTemplate] = {}
+        self._resources: dict[str | None, dict[str, Resource]] = {}
+        self._templates: dict[str | None, dict[str, ResourceTemplate]] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources
 
     def add_resource(self, resource: Resource, *, tenant_id: str | None = None) -> Resource:
@@ -54,13 +60,14 @@ class ResourceManager:
                 "resource_name": resource.name,
             },
         )
-        key = (tenant_id, str(resource.uri))
-        existing = self._resources.get(key)
+        scope = self._resources.setdefault(tenant_id, {})
+        uri_str = str(resource.uri)
+        existing = scope.get(uri_str)
         if existing:
             if self.warn_on_duplicate_resources:
                 logger.warning(f"Resource already exists: {resource.uri}")
             return existing
-        self._resources[key] = resource
+        scope[uri_str] = resource
         return resource
 
     def add_template(
@@ -77,7 +84,12 @@ class ResourceManager:
         *,
         tenant_id: str | None = None,
     ) -> ResourceTemplate:
-        """Add a template from a function, optionally scoped to a tenant."""
+        """Add a template from a function, optionally scoped to a tenant.
+
+        Returns:
+            The added template. If a template with the same URI template already
+            exists, returns the existing template.
+        """
         template = ResourceTemplate.from_function(
             fn,
             uri_template=uri_template,
@@ -89,8 +101,22 @@ class ResourceManager:
             annotations=annotations,
             meta=meta,
         )
-        self._templates[(tenant_id, template.uri_template)] = template
+        scope = self._templates.setdefault(tenant_id, {})
+        existing = scope.get(template.uri_template)
+        if existing:
+            if self.warn_on_duplicate_resources:
+                logger.warning(f"Resource template already exists: {template.uri_template}")
+            return existing
+        scope[template.uri_template] = template
         return template
+
+    def remove_resource(self, uri: AnyUrl | str, *, tenant_id: str | None = None) -> None:
+        """Remove a resource by URI, optionally scoped to a tenant."""
+        uri_str = str(uri)
+        scope = self._resources.get(tenant_id, {})
+        if uri_str not in scope:
+            raise ValueError(f"Unknown resource: {uri}")
+        del scope[uri_str]
 
     async def get_resource(
         self,
@@ -104,13 +130,12 @@ class ResourceManager:
         logger.debug("Getting resource", extra={"uri": uri_str})
 
         # First check concrete resources
-        if resource := self._resources.get((tenant_id, uri_str)):
+        resource = self._resources.get(tenant_id, {}).get(uri_str)
+        if resource:
             return resource
 
         # Then check templates for this tenant scope
-        for (tid, _), template in self._templates.items():
-            if tid != tenant_id:
-                continue
+        for template in self._templates.get(tenant_id, {}).values():
             if params := template.matches(uri_str):
                 try:
                     return await template.create_resource(uri_str, params, context=context)
@@ -121,12 +146,12 @@ class ResourceManager:
 
     def list_resources(self, *, tenant_id: str | None = None) -> list[Resource]:
         """List all registered resources for a given tenant scope."""
-        resources = [r for (tid, _), r in self._resources.items() if tid == tenant_id]
+        resources = list(self._resources.get(tenant_id, {}).values())
         logger.debug("Listing resources", extra={"count": len(resources)})
         return resources
 
     def list_templates(self, *, tenant_id: str | None = None) -> list[ResourceTemplate]:
         """List all registered templates for a given tenant scope."""
-        templates = [t for (tid, _), t in self._templates.items() if tid == tenant_id]
+        templates = list(self._templates.get(tenant_id, {}).values())
         logger.debug("Listing templates", extra={"count": len(templates)})
         return templates

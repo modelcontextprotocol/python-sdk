@@ -18,10 +18,16 @@ logger = get_logger(__name__)
 class ToolManager:
     """Manages MCPServer tools with optional tenant-scoped storage.
 
-    Tools are stored in a dict keyed by ``(tenant_id, tool_name)``.
+    Tools are stored in a nested dict: ``{tenant_id: {tool_name: Tool}}``.
     This allows the same tool name to exist independently under different
-    tenants. When ``tenant_id`` is ``None`` (the default), tools live in
-    a global scope, preserving backward compatibility with single-tenant usage.
+    tenants with O(1) lookups per tenant. When ``tenant_id`` is ``None``
+    (the default), tools live in a global scope, preserving backward
+    compatibility with single-tenant usage.
+
+    Note: This class is not thread-safe. It is designed to run within a
+    single-threaded async event loop, where all synchronous mutations
+    execute atomically. Do not share instances across OS threads without
+    external synchronization.
     """
 
     def __init__(
@@ -30,23 +36,23 @@ class ToolManager:
         *,
         tools: list[Tool] | None = None,
     ):
-        self._tools: dict[tuple[str | None, str], Tool] = {}
+        self._tools: dict[str | None, dict[str, Tool]] = {}
         if tools is not None:
+            scope = self._tools.setdefault(None, {})
             for tool in tools:
-                key = (None, tool.name)
-                if warn_on_duplicate_tools and key in self._tools:
+                if warn_on_duplicate_tools and tool.name in scope:
                     logger.warning(f"Tool already exists: {tool.name}")
-                self._tools[key] = tool
+                scope[tool.name] = tool
 
         self.warn_on_duplicate_tools = warn_on_duplicate_tools
 
     def get_tool(self, name: str, *, tenant_id: str | None = None) -> Tool | None:
         """Get tool by name, optionally scoped to a tenant."""
-        return self._tools.get((tenant_id, name))
+        return self._tools.get(tenant_id, {}).get(name)
 
     def list_tools(self, *, tenant_id: str | None = None) -> list[Tool]:
         """List all registered tools for a given tenant scope."""
-        return [tool for (tid, _), tool in self._tools.items() if tid == tenant_id]
+        return list(self._tools.get(tenant_id, {}).values())
 
     def add_tool(
         self,
@@ -72,21 +78,21 @@ class ToolManager:
             meta=meta,
             structured_output=structured_output,
         )
-        key = (tenant_id, tool.name)
-        existing = self._tools.get(key)
+        scope = self._tools.setdefault(tenant_id, {})
+        existing = scope.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:
                 logger.warning(f"Tool already exists: {tool.name}")
             return existing
-        self._tools[key] = tool
+        scope[tool.name] = tool
         return tool
 
     def remove_tool(self, name: str, *, tenant_id: str | None = None) -> None:
         """Remove a tool by name, optionally scoped to a tenant."""
-        key = (tenant_id, name)
-        if key not in self._tools:
+        scope = self._tools.get(tenant_id, {})
+        if name not in scope:
             raise ToolError(f"Unknown tool: {name}")
-        del self._tools[key]
+        del scope[name]
 
     async def call_tool(
         self,
