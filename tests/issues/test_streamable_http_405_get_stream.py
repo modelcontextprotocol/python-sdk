@@ -133,11 +133,9 @@ async def test_streamable_http_client_context_manager_exception_exit_is_covered(
                 raise RuntimeError("boom")
 
     exc = excinfo.value
-    if hasattr(exc, "exceptions"):
-        excs = cast(_ExceptionGroupWithExceptions, exc).exceptions
-    else:
-        excs = (exc,)
-
+    # anyio always wraps exceptions in an ExceptionGroup
+    assert hasattr(exc, "exceptions")
+    excs = cast(_ExceptionGroupWithExceptions, exc).exceptions
     assert any(isinstance(inner, RuntimeError) and str(inner) == "boom" for inner in excs)
 
 
