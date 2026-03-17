@@ -94,18 +94,19 @@ async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
                     assert len(tools_result.tools) == 1
                     assert tools_result.tools[0].name == "test_tool"
 
-                # Verify the 405 was logged and no retries occurred
-                log_messages = [record.getMessage() for record in caplog.records]
-                assert any(
-                    "Server does not support GET for SSE events (405 Method Not Allowed)" in msg for msg in log_messages
-                ), (  # pragma: no branch
-                    f"Expected 405 log message not found in: {log_messages}"
-                )
+                    # Verify the 405 was logged and no retries occurred
+                    log_messages = [record.getMessage() for record in caplog.records]
+                    assert any(
+                        "Server does not support GET for SSE events (405 Method Not Allowed)" in msg
+                        for msg in log_messages
+                    ), (  # pragma: no branch
+                        f"Expected 405 log message not found in: {log_messages}"
+                    )
 
-                reconnect_messages = [msg for msg in log_messages if "reconnecting" in msg.lower()]
-                assert len(reconnect_messages) == 0, (  # pragma: no branch
-                    f"Should not retry on 405, but found: {reconnect_messages}"
-                )
+                    reconnect_messages = [msg for msg in log_messages if "reconnecting" in msg.lower()]
+                    assert len(reconnect_messages) == 0, (  # pragma: no branch
+                        f"Should not retry on 405, but found: {reconnect_messages}"
+                    )
 
 
 @pytest.mark.anyio
