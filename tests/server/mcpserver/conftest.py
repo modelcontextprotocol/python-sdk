@@ -5,9 +5,11 @@ import pytest
 
 from mcp.server.mcpserver.context import Context
 
+MakeContext = Callable[..., Context[Any, Any]]
+
 
 @pytest.fixture
-def make_context() -> Callable[..., Context[Any, Any]]:
+def make_context() -> MakeContext:
     """Factory fixture for creating Context instances in tests.
 
     Centralizes Context construction so that tests don't break if the

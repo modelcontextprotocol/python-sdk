@@ -1,15 +1,11 @@
-from collections.abc import Callable
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
 
 import pytest
 from pydantic import AnyUrl
 
-from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceManager
-
-MakeContext = Callable[..., Context[Any, Any]]
+from tests.server.mcpserver.conftest import MakeContext
 
 
 @pytest.fixture
