@@ -976,7 +976,7 @@ async def initialized_client_session() -> AsyncGenerator[ClientSession, None]:
     async with asgi_client(create_app()) as http_client:
         # Use localhost so create_app's TransportSecuritySettings allowlist accepts it
         async with streamable_http_client("http://localhost/mcp", http_client=http_client) as (rs, ws):
-            async with ClientSession(rs, ws) as session:
+            async with ClientSession(rs, ws) as session:  # pragma: no branch
                 await session.initialize()
                 yield session
 
@@ -1460,7 +1460,7 @@ async def context_aware_session(
     """Initialized ClientSession against an in-process context-aware server (ASGI)."""
     async with asgi_client(create_context_aware_app(), **client_kwargs) as http_client:
         async with streamable_http_client("http://testserver/mcp", http_client=http_client) as (rs, ws):
-            async with ClientSession(rs, ws) as session:
+            async with ClientSession(rs, ws) as session:  # pragma: no branch
                 await session.initialize()
                 yield session
 
@@ -1520,7 +1520,7 @@ async def test_client_includes_protocol_version_header_after_init():
     """Test that client includes mcp-protocol-version header after initialization."""
     async with asgi_client(create_context_aware_app()) as http_client:
         async with streamable_http_client("http://testserver/mcp", http_client=http_client) as (rs, ws):
-            async with ClientSession(rs, ws) as session:
+            async with ClientSession(rs, ws) as session:  # pragma: no branch
                 init_result = await session.initialize()
                 negotiated_version = init_result.protocol_version
 
@@ -2127,7 +2127,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults() -> None:
     async with asgi_client(create_context_aware_app()) as client:
         assert client.headers.get("accept") == "*/*"
         async with streamable_http_client("http://testserver/mcp", http_client=client) as (rs, ws):
-            async with ClientSession(rs, ws) as session:
+            async with ClientSession(rs, ws) as session:  # pragma: no branch
                 await session.initialize()
                 headers_data = await _echo_headers(session)
                 assert "application/json" in headers_data["accept"]

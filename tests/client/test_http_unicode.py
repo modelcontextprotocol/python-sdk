@@ -121,7 +121,9 @@ async def unicode_session() -> AsyncGenerator[ClientSession, None]:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, follow_redirects=True) as http_client:
             async with streamable_http_client("http://testserver/mcp", http_client=http_client) as (rs, ws):
-                async with ClientSession(rs, ws) as session:
+                async with ClientSession(rs, ws) as session:  # pragma: no branch
+                    # ^ coverage.py misses the ->exit arc on 3.11+ when yield is
+                    # nested inside multiple async with blocks
                     await session.initialize()
                     yield session
 
