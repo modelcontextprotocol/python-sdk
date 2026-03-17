@@ -44,7 +44,7 @@ async def stdio_server(
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8"))
+        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:
         stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
