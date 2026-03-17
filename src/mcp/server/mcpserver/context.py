@@ -70,6 +70,13 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         self._mcp_server = mcp_server
 
     @property
+    def tenant_id(self) -> str | None:
+        """Get the tenant_id for this request, if available."""
+        if self._request_context is not None:
+            return self._request_context.tenant_id
+        return None
+
+    @property
     def mcp_server(self) -> MCPServer:
         """Access to the MCPServer instance."""
         if self._mcp_server is None:  # pragma: no cover
@@ -114,7 +121,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             The resource content as either text or bytes
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
-        return await self._mcp_server.read_resource(uri, self)
+        return await self._mcp_server.read_resource(uri, self, tenant_id=self.tenant_id)
 
     async def elicit(
         self,
