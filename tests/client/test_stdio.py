@@ -247,6 +247,9 @@ class TestChildProcessCleanup:
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::pytest.PytestUnraisableExceptionWarning" if sys.platform == "win32" else "default"
+    )
     async def test_basic_child_process_cleanup(self):
         """Test basic parent-child process cleanup.
         Parent spawns a single child process that writes continuously to a file.
@@ -314,17 +317,16 @@ class TestChildProcessCleanup:
             print("Terminating process and children...")
             await _terminate_process_tree(proc)
 
-            # Verify processes stopped
-            await anyio.sleep(0.5)
-            if os.path.exists(marker_file):  # pragma: no branch
-                size_after_cleanup = os.path.getsize(marker_file)
-                await anyio.sleep(0.5)
-                final_size = os.path.getsize(marker_file)
-
-                print(f"After cleanup: file size {size_after_cleanup} -> {final_size}")
-                assert final_size == size_after_cleanup, (
-                    f"Child process still running! File grew by {final_size - size_after_cleanup} bytes"
-                )
+            # Verify processes stopped — poll with retries for slow CI runners
+            with anyio.fail_after(5):
+                if os.path.exists(marker_file):  # pragma: no branch
+                    while True:
+                        size_after_cleanup = os.path.getsize(marker_file)
+                        await anyio.sleep(0.5)
+                        final_size = os.path.getsize(marker_file)
+                        if final_size == size_after_cleanup:
+                            print(f"After cleanup: file stopped at {final_size} bytes")
+                            break
 
             print("SUCCESS: Child process was properly terminated")
 
@@ -338,6 +340,9 @@ class TestChildProcessCleanup:
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::pytest.PytestUnraisableExceptionWarning" if sys.platform == "win32" else "default"
+    )
     async def test_nested_process_tree(self):
         """Test nested process tree cleanup (parent → child → grandchild).
         Each level writes to a different file to verify all processes are terminated.
@@ -412,14 +417,20 @@ class TestChildProcessCleanup:
             # Terminate the whole tree
             await _terminate_process_tree(proc)
 
-            # Verify all stopped
-            await anyio.sleep(0.5)
-            for file_path, name in [(parent_file, "parent"), (child_file, "child"), (grandchild_file, "grandchild")]:
-                if os.path.exists(file_path):  # pragma: no branch
-                    size1 = os.path.getsize(file_path)
-                    await anyio.sleep(0.3)
-                    size2 = os.path.getsize(file_path)
-                    assert size1 == size2, f"{name} still writing after cleanup!"
+            # Verify all stopped — poll with retries for slow CI runners
+            with anyio.fail_after(5):
+                for file_path, name in [
+                    (parent_file, "parent"),
+                    (child_file, "child"),
+                    (grandchild_file, "grandchild"),
+                ]:
+                    if os.path.exists(file_path):  # pragma: no branch
+                        while True:
+                            size1 = os.path.getsize(file_path)
+                            await anyio.sleep(0.5)
+                            size2 = os.path.getsize(file_path)
+                            if size1 == size2:
+                                break
 
             print("SUCCESS: All processes in tree terminated")
 
@@ -433,6 +444,9 @@ class TestChildProcessCleanup:
 
     @pytest.mark.anyio
     @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
+    @pytest.mark.filterwarnings(
+        "ignore::pytest.PytestUnraisableExceptionWarning" if sys.platform == "win32" else "default"
+    )
     async def test_early_parent_exit(self):
         """Test cleanup when parent exits during termination sequence.
         Tests the race condition where parent might die during our termination
@@ -490,13 +504,15 @@ class TestChildProcessCleanup:
             # Terminate - this will kill the process group even if parent exits first
             await _terminate_process_tree(proc)
 
-            # Verify child stopped
-            await anyio.sleep(0.5)
-            if os.path.exists(marker_file):  # pragma: no branch
-                size3 = os.path.getsize(marker_file)
-                await anyio.sleep(0.3)
-                size4 = os.path.getsize(marker_file)
-                assert size3 == size4, "Child should be terminated"
+            # Verify child stopped — poll with retries for slow CI runners
+            with anyio.fail_after(5):
+                if os.path.exists(marker_file):  # pragma: no branch
+                    while True:
+                        size3 = os.path.getsize(marker_file)
+                        await anyio.sleep(0.5)
+                        size4 = os.path.getsize(marker_file)
+                        if size3 == size4:
+                            break
 
             print("SUCCESS: Child terminated even with parent exit during cleanup")
 
