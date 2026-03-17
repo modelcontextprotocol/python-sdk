@@ -13,8 +13,8 @@ from mcp.client.auth import OAuthTokenError
 from mcp.client.auth.extensions.enterprise_managed_auth import (
     EnterpriseAuthOAuthClientProvider,
     IDJAGClaims,
+    IDJAGTokenExchangeResponse,
     TokenExchangeParameters,
-    TokenExchangeResponse,
     decode_id_jag,
     validate_token_exchange_params,
 )
@@ -151,7 +151,7 @@ def test_token_exchange_response_parsing():
         "expires_in": 300
     }"""
 
-    response = TokenExchangeResponse.model_validate_json(response_json)
+    response = IDJAGTokenExchangeResponse.model_validate_json(response_json)
 
     assert response.issued_token_type == "urn:ietf:params:oauth:token-type:id-jag"
     assert response.id_jag == "eyJhbGc..."
@@ -163,7 +163,7 @@ def test_token_exchange_response_parsing():
 
 def test_token_exchange_response_id_jag_property():
     """Test id_jag property returns access_token."""
-    response = TokenExchangeResponse(
+    response = IDJAGTokenExchangeResponse(
         issued_token_type="urn:ietf:params:oauth:token-type:id-jag",
         access_token="the-id-jag-token",
         token_type="N_A",
@@ -525,8 +525,6 @@ async def test_exchange_token_with_client_authentication(
     sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
 ):
     """Test token exchange with client authentication."""
-    from mcp.shared.auth import OAuthClientInformationFull
-
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -543,13 +541,8 @@ async def test_exchange_token_with_client_authentication(
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
         token_exchange_params=token_exchange_params,
-    )
-
-    # Set client info with secret
-    provider.context.client_info = OAuthClientInformationFull(
-        client_id="test-client-id",
-        client_secret="test-client-secret",
-        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        idp_client_id="test-idp-client-id",  # IdP client ID, not MCP client ID
+        idp_client_secret="test-idp-client-secret",  # IdP client secret
     )
 
     # Mock HTTP response
@@ -575,15 +568,13 @@ async def test_exchange_token_with_client_authentication(
 
     # Verify client credentials were included
     call_args = mock_client.post.call_args
-    assert call_args[1]["data"]["client_id"] == "test-client-id"
-    assert call_args[1]["data"]["client_secret"] == "test-client-secret"
+    assert call_args[1]["data"]["client_id"] == "test-idp-client-id"
+    assert call_args[1]["data"]["client_secret"] == "test-idp-client-secret"
 
 
 @pytest.mark.anyio
 async def test_exchange_token_with_client_id_only(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test token exchange with client_id but no client_secret (covers branch 232->235)."""
-    from mcp.shared.auth import OAuthClientInformationFull
-
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -600,13 +591,8 @@ async def test_exchange_token_with_client_id_only(sample_id_token: str, sample_i
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
         token_exchange_params=token_exchange_params,
-    )
-
-    # Set client info WITHOUT secret (client_secret=None)
-    provider.context.client_info = OAuthClientInformationFull(
-        client_id="test-client-id",
-        client_secret=None,  # No secret
-        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        idp_client_id="test-idp-client-id",  # IdP client ID, not MCP client ID
+        idp_client_secret=None,  # No secret
     )
 
     # Mock HTTP response
@@ -632,7 +618,7 @@ async def test_exchange_token_with_client_id_only(sample_id_token: str, sample_i
 
     # Verify client_id was included but NOT client_secret
     call_args = mock_client.post.call_args
-    assert call_args[1]["data"]["client_id"] == "test-client-id"
+    assert call_args[1]["data"]["client_id"] == "test-idp-client-id"
     assert "client_secret" not in call_args[1]["data"]
 
 
@@ -851,9 +837,7 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag: str, mock_toke
 async def test_exchange_token_with_client_info_but_no_client_id(
     sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
 ):
-    """Test token exchange when client_info exists but client_id is None (covers line 231)."""
-    from mcp.shared.auth import OAuthClientInformationFull
-
+    """Test token exchange when only client_secret is provided (no client_id)."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token=sample_id_token,
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -870,13 +854,8 @@ async def test_exchange_token_with_client_info_but_no_client_id(
         storage=mock_token_storage,
         idp_token_endpoint="https://idp.example.com/oauth2/token",
         token_exchange_params=token_exchange_params,
-    )
-
-    # Set client info with client_id=None
-    provider.context.client_info = OAuthClientInformationFull(
-        client_id=None,  # This should skip the client_id assignment
-        client_secret="test-secret",
-        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        idp_client_id=None,  # No client ID
+        idp_client_secret="test-idp-secret",  # But has secret
     )
 
     # Mock HTTP response
@@ -903,7 +882,7 @@ async def test_exchange_token_with_client_info_but_no_client_id(
     # Verify client_id was not included (None), but client_secret was included
     call_args = mock_client.post.call_args
     assert "client_id" not in call_args[1]["data"]
-    assert call_args[1]["data"]["client_secret"] == "test-secret"
+    assert call_args[1]["data"]["client_secret"] == "test-idp-secret"
 
 
 @pytest.mark.anyio

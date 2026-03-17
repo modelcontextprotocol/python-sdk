@@ -109,8 +109,8 @@ class TokenExchangeParameters(BaseModel):
         )
 
 
-class TokenExchangeResponse(BaseModel):
-    """Response from RFC 8693 Token Exchange."""
+class IDJAGTokenExchangeResponse(BaseModel):
+    """Response from RFC 8693 Token Exchange for ID-JAG."""
 
     issued_token_type: str = Field(
         ...,
@@ -185,6 +185,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         idp_token_endpoint: str,
         token_exchange_params: TokenExchangeParameters,
         timeout: float = 300.0,
+        idp_client_id: str | None = None,
+        idp_client_secret: str | None = None,
     ) -> None:
         """Initialize Enterprise Auth OAuth Client.
 
@@ -195,6 +197,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             idp_token_endpoint: Enterprise IdP token endpoint URL
             token_exchange_params: Token exchange parameters
             timeout: Request timeout in seconds
+            idp_client_id: Optional client ID registered with the IdP for token exchange
+            idp_client_secret: Optional client secret registered with the IdP for token exchange
         """
         super().__init__(
             server_url=server_url,
@@ -204,6 +208,8 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         )
         self.idp_token_endpoint = idp_token_endpoint
         self.token_exchange_params = token_exchange_params
+        self.idp_client_id = idp_client_id
+        self.idp_client_secret = idp_client_secret
         self._id_jag: str | None = None
 
     async def exchange_token_for_id_jag(
@@ -243,12 +249,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         if self.token_exchange_params.scope:
             token_data["scope"] = self.token_exchange_params.scope
 
-        # Add client authentication if needed
-        if self.context.client_info:
-            if self.context.client_info.client_id is not None:
-                token_data["client_id"] = self.context.client_info.client_id
-            if self.context.client_info.client_secret is not None:
-                token_data["client_secret"] = self.context.client_info.client_secret
+        # Add IdP client authentication if provided
+        if self.idp_client_id is not None:
+            token_data["client_id"] = self.idp_client_id
+        if self.idp_client_secret is not None:
+            token_data["client_secret"] = self.idp_client_secret
 
         try:
             response = await client.post(
@@ -266,7 +271,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
                 raise OAuthTokenError(f"Token exchange failed: {error} - {error_description}")
 
             # Parse response
-            token_response = TokenExchangeResponse.model_validate_json(response.content)
+            token_response = IDJAGTokenExchangeResponse.model_validate_json(response.content)
 
             # Validate response
             if token_response.issued_token_type != "urn:ietf:params:oauth:token-type:id-jag":
