@@ -69,48 +69,47 @@ async def mock_github_endpoint(request: Request) -> Response:
 
 
 @pytest.mark.anyio
-async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
+async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture) -> None:
     """Test that client handles 405 on GET gracefully and doesn't hang."""
     app = Starlette(routes=[Route("/mcp", mock_github_endpoint, methods=["GET", "POST"])])
 
+    expected_log = "Server does not support GET for SSE events (405 Method Not Allowed)"
+    got_405 = anyio.Event()
+
+    class _405LogHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if expected_log in record.getMessage():
+                got_405.set()
+
+    mcp_logger = logging.getLogger("mcp.client.streamable_http")
+    handler = _405LogHandler()
+    mcp_logger.addHandler(handler)
     with caplog.at_level(logging.INFO):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
         ) as http_client:
             transport_cm = streamable_http_client("http://testserver/mcp", http_client=http_client)
-            async with transport_cm as transport_streams:
+            async with transport_cm as transport_streams:  # pragma: no branch
                 read_stream, write_stream = transport_streams
-                async with ClientSession(read_stream, write_stream) as session:
-                    # Initialize sends the initialized notification internally
+                async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
                     with anyio.fail_after(5.0):
                         init_result = await session.initialize()
                     assert isinstance(init_result, InitializeResult)
 
-                    # Wait until the GET stream task fails with 405 and logs the expected message
-                    expected_log = "Server does not support GET for SSE events (405 Method Not Allowed)"
                     with anyio.fail_after(5.0):
-                        while not any(expected_log in record.getMessage() for record in caplog.records):
-                            await anyio.sleep(0.05)
+                        await got_405.wait()
 
-                    # This should not hang and will now complete successfully
                     with anyio.fail_after(5.0):
                         tools_result = await session.list_tools()
                     assert len(tools_result.tools) == 1
                     assert tools_result.tools[0].name == "test_tool"
 
-                    # Verify the 405 was logged and no retries occurred
                     log_messages = [record.getMessage() for record in caplog.records]
-                    assert any(
-                        "Server does not support GET for SSE events (405 Method Not Allowed)" in msg
-                        for msg in log_messages
-                    ), (  # pragma: no branch
-                        f"Expected 405 log message not found in: {log_messages}"
-                    )
+                    assert any(expected_log in msg for msg in log_messages)  # pragma: no branch
 
                     reconnect_messages = [msg for msg in log_messages if "reconnecting" in msg.lower()]
-                    assert len(reconnect_messages) == 0, (  # pragma: no branch
-                        f"Should not retry on 405, but found: {reconnect_messages}"
-                    )
+                    assert len(reconnect_messages) == 0  # pragma: no branch
+    mcp_logger.removeHandler(handler)
 
 
 @pytest.mark.anyio
