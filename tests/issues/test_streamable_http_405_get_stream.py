@@ -72,10 +72,9 @@ async def test_405_get_stream_does_not_hang(caplog: pytest.LogCaptureFixture):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
         ) as http_client:
-            async with streamable_http_client("http://testserver/mcp", http_client=http_client) as (
-                read_stream,
-                write_stream,
-            ):
+            transport_cm = streamable_http_client("http://testserver/mcp", http_client=http_client)
+            async with transport_cm as transport_streams:  # pragma: no cover
+                read_stream, write_stream = transport_streams
                 async with ClientSession(read_stream, write_stream) as session:
                     # Initialize sends the initialized notification internally
                     with anyio.fail_after(5.0):
