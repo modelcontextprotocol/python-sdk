@@ -2,13 +2,13 @@
 
 import pytest
 
-from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Prompt
 from mcp.server.mcpserver.prompts.manager import PromptManager
 from mcp.server.mcpserver.resources.resource_manager import ResourceManager
 from mcp.server.mcpserver.resources.types import FunctionResource
 from mcp.server.mcpserver.tools import ToolManager
+from tests.server.mcpserver.conftest import MakeContext
 
 # --- ToolManager ---
 
@@ -84,6 +84,8 @@ def test_remove_tool_with_tenant():
 
     assert manager.get_tool("my_tool", tenant_id="tenant-a") is None
     assert manager.get_tool("my_tool", tenant_id="tenant-b") is not None
+    # Empty tenant scope is cleaned up
+    assert "tenant-a" not in manager._tools
 
 
 def test_remove_tool_wrong_tenant_raises():
@@ -100,7 +102,7 @@ def test_remove_tool_wrong_tenant_raises():
 
 
 @pytest.mark.anyio
-async def test_call_tool_with_tenant():
+async def test_call_tool_with_tenant(make_context: MakeContext):
     """call_tool respects tenant scope."""
     manager = ToolManager()
 
@@ -113,15 +115,15 @@ async def test_call_tool_with_tenant():
     manager.add_tool(tool_a, name="do_work", tenant_id="tenant-a")
     manager.add_tool(tool_b, name="do_work", tenant_id="tenant-b")
 
-    result_a = await manager.call_tool("do_work", {}, Context(), tenant_id="tenant-a")
-    result_b = await manager.call_tool("do_work", {}, Context(), tenant_id="tenant-b")
+    result_a = await manager.call_tool("do_work", {}, make_context(), tenant_id="tenant-a")
+    result_b = await manager.call_tool("do_work", {}, make_context(), tenant_id="tenant-b")
 
     assert result_a == "result-a"
     assert result_b == "result-b"
 
 
 @pytest.mark.anyio
-async def test_call_tool_wrong_tenant_raises():
+async def test_call_tool_wrong_tenant_raises(make_context: MakeContext):
     """Calling a tool under the wrong tenant raises ToolError."""
     manager = ToolManager()
 
@@ -131,7 +133,7 @@ async def test_call_tool_wrong_tenant_raises():
     manager.add_tool(my_tool, tenant_id="tenant-a")
 
     with pytest.raises(ToolError):
-        await manager.call_tool("my_tool", {}, Context(), tenant_id="tenant-b")
+        await manager.call_tool("my_tool", {}, make_context(), tenant_id="tenant-b")
 
 
 # --- ResourceManager ---
@@ -188,7 +190,7 @@ def test_add_template_with_tenant():
 
 
 @pytest.mark.anyio
-async def test_get_resource_respects_tenant():
+async def test_get_resource_respects_tenant(make_context: MakeContext):
     """get_resource only finds resources in the correct tenant scope."""
     manager = ResourceManager()
 
@@ -196,20 +198,20 @@ async def test_get_resource_respects_tenant():
     manager.add_resource(resource, tenant_id="tenant-a")
 
     # Tenant A can access
-    found = await manager.get_resource("file:///secret", Context(), tenant_id="tenant-a")
+    found = await manager.get_resource("file:///secret", make_context(), tenant_id="tenant-a")
     assert found.name == "secret"
 
     # Tenant B cannot
     with pytest.raises(ValueError, match="Unknown resource"):
-        await manager.get_resource("file:///secret", Context(), tenant_id="tenant-b")
+        await manager.get_resource("file:///secret", make_context(), tenant_id="tenant-b")
 
     # Global scope cannot
     with pytest.raises(ValueError, match="Unknown resource"):
-        await manager.get_resource("file:///secret", Context())
+        await manager.get_resource("file:///secret", make_context())
 
 
 @pytest.mark.anyio
-async def test_get_resource_from_template_respects_tenant():
+async def test_get_resource_from_template_respects_tenant(make_context: MakeContext):
     """Template-based resource creation respects tenant scope."""
     manager = ResourceManager()
 
@@ -219,14 +221,51 @@ async def test_get_resource_from_template_respects_tenant():
     manager.add_template(greet, uri_template="greet://{name}", tenant_id="tenant-a")
 
     # Tenant A can resolve
-    resource = await manager.get_resource("greet://world", Context(), tenant_id="tenant-a")
+    resource = await manager.get_resource("greet://world", make_context(), tenant_id="tenant-a")
     assert isinstance(resource, FunctionResource)
     content = await resource.read()
     assert content == "Hello, world!"
 
     # Tenant B cannot
     with pytest.raises(ValueError, match="Unknown resource"):
-        await manager.get_resource("greet://world", Context(), tenant_id="tenant-b")
+        await manager.get_resource("greet://world", make_context(), tenant_id="tenant-b")
+
+
+def test_remove_resource_with_tenant():
+    """remove_resource respects tenant scope."""
+    manager = ResourceManager()
+
+    manager.add_resource(_make_resource("file:///data", "data"), tenant_id="tenant-a")
+    manager.add_resource(_make_resource("file:///data", "data"), tenant_id="tenant-b")
+
+    manager.remove_resource("file:///data", tenant_id="tenant-a")
+
+    assert len(manager.list_resources(tenant_id="tenant-a")) == 0
+    assert len(manager.list_resources(tenant_id="tenant-b")) == 1
+    # Empty tenant scope is cleaned up
+    assert "tenant-a" not in manager._resources
+
+
+def test_remove_resource_partial_tenant_scope():
+    """Removing one resource leaves the tenant scope intact when others remain."""
+    manager = ResourceManager()
+
+    manager.add_resource(_make_resource("file:///a", "a"), tenant_id="tenant-a")
+    manager.add_resource(_make_resource("file:///b", "b"), tenant_id="tenant-a")
+
+    manager.remove_resource("file:///a", tenant_id="tenant-a")
+
+    assert len(manager.list_resources(tenant_id="tenant-a")) == 1
+    assert "tenant-a" in manager._resources
+
+
+def test_remove_resource_wrong_tenant_raises():
+    """Removing a resource under the wrong tenant raises ValueError."""
+    manager = ResourceManager()
+    manager.add_resource(_make_resource("file:///data", "data"), tenant_id="tenant-a")
+
+    with pytest.raises(ValueError, match="Unknown resource"):
+        manager.remove_resource("file:///data", tenant_id="tenant-b")
 
 
 # --- PromptManager ---
@@ -279,7 +318,7 @@ def test_get_prompt_wrong_tenant_returns_none():
 
 
 @pytest.mark.anyio
-async def test_render_prompt_respects_tenant():
+async def test_render_prompt_respects_tenant(make_context: MakeContext):
     """render_prompt only finds prompts in the correct tenant scope."""
     manager = PromptManager()
 
@@ -289,9 +328,46 @@ async def test_render_prompt_respects_tenant():
     manager.add_prompt(Prompt.from_function(greet, name="greet"), tenant_id="tenant-a")
 
     # Tenant A can render
-    messages = await manager.render_prompt("greet", None, Context(), tenant_id="tenant-a")
+    messages = await manager.render_prompt("greet", None, make_context(), tenant_id="tenant-a")
     assert len(messages) > 0
 
     # Tenant B cannot
     with pytest.raises(ValueError, match="Unknown prompt"):
-        await manager.render_prompt("greet", None, Context(), tenant_id="tenant-b")
+        await manager.render_prompt("greet", None, make_context(), tenant_id="tenant-b")
+
+
+def test_remove_prompt_with_tenant():
+    """remove_prompt respects tenant scope."""
+    manager = PromptManager()
+
+    manager.add_prompt(_make_prompt("greet", "A"), tenant_id="tenant-a")
+    manager.add_prompt(_make_prompt("greet", "B"), tenant_id="tenant-b")
+
+    manager.remove_prompt("greet", tenant_id="tenant-a")
+
+    assert manager.get_prompt("greet", tenant_id="tenant-a") is None
+    assert manager.get_prompt("greet", tenant_id="tenant-b") is not None
+    # Empty tenant scope is cleaned up
+    assert "tenant-a" not in manager._prompts
+
+
+def test_remove_prompt_partial_tenant_scope():
+    """Removing one prompt leaves the tenant scope intact when others remain."""
+    manager = PromptManager()
+
+    manager.add_prompt(_make_prompt("greet", "A"), tenant_id="tenant-a")
+    manager.add_prompt(_make_prompt("farewell", "B"), tenant_id="tenant-a")
+
+    manager.remove_prompt("greet", tenant_id="tenant-a")
+
+    assert len(manager.list_prompts(tenant_id="tenant-a")) == 1
+    assert "tenant-a" in manager._prompts
+
+
+def test_remove_prompt_wrong_tenant_raises():
+    """Removing a prompt under the wrong tenant raises ValueError."""
+    manager = PromptManager()
+    manager.add_prompt(_make_prompt("greet", "A"), tenant_id="tenant-a")
+
+    with pytest.raises(ValueError, match="Unknown prompt"):
+        manager.remove_prompt("greet", tenant_id="tenant-b")
