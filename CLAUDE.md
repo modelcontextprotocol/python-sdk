@@ -46,20 +46,14 @@ This document contains critical information about working with this codebase. Fo
        and `--include` scope the report. `strict-no-cover` has no false positives on
        partial runs — if your new test executes a line marked `# pragma: no cover`,
        even a single-file run catches it.
-     - `strict-no-cover` can occasionally flag subprocess-runner functions in `tests/`
-       on high-core machines (`-n auto` → racy subprocess coverage). If the flagged
-       lines are inside a `tests/…/run_*server*()` body and unrelated to your change,
-       re-run or convert that pragma to `lax no cover`. Flags in `src/` are real.
    - Coverage pragmas:
      - `# pragma: no cover` — line is never executed. CI's `strict-no-cover` fails if
        it IS executed. When your test starts covering such a line, remove the pragma.
      - `# pragma: lax no cover` — excluded from coverage but not checked by
        `strict-no-cover`. Use for lines covered on some platforms/versions but not
-       others, or nondeterministically (races, subprocess coverage).
+       others.
      - `# pragma: no branch` — excludes branch arcs only. coverage.py misreports the
        `->exit` arc for nested `async with` on Python 3.11+ (worse on 3.14/Windows).
-       There is no local detector; when CI reports `X->exit` missing on a test line,
-       add this pragma to line X.
    - Avoid `anyio.sleep()` with a fixed duration to wait for async operations. Instead:
      - Use `anyio.Event` — set it in the callback/handler, `await event.wait()` in the test
      - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
