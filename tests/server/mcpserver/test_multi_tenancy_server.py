@@ -6,6 +6,7 @@ underlying managers, and that Context exposes tenant_id correctly.
 
 import pytest
 
+from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.prompts.base import Prompt
@@ -33,7 +34,7 @@ def test_context_tenant_id_with_request_context():
     rc = ServerRequestContext(
         session=None,  # type: ignore[arg-type]
         lifespan_context=None,
-        experimental={},
+        experimental=Experimental(),
         tenant_id="tenant-x",
     )
     ctx = Context(request_context=rc)
@@ -47,7 +48,7 @@ def test_context_tenant_id_none_in_request_context():
     rc = ServerRequestContext(
         session=None,  # type: ignore[arg-type]
         lifespan_context=None,
-        experimental={},
+        experimental=Experimental(),
     )
     ctx = Context(request_context=rc)
     assert ctx.tenant_id is None
