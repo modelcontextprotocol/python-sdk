@@ -105,7 +105,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     ) -> None:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
-            if self._completed:  # pragma: no branch
+            if self._completed:
                 self._on_complete(self)
         finally:
             self._entered = False

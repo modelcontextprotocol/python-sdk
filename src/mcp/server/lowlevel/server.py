@@ -387,16 +387,23 @@ class Server(Generic[LifespanResultT]):
                 await stack.enter_async_context(task_support.run())
 
             async with anyio.create_task_group() as tg:
-                async for message in session.incoming_messages:
-                    logger.debug("Received message: %s", message)
+                try:
+                    async for message in session.incoming_messages:
+                        logger.debug("Received message: %s", message)
 
-                    tg.start_soon(
-                        self._handle_message,
-                        message,
-                        session,
-                        lifespan_context,
-                        raise_exceptions,
-                    )
+                        tg.start_soon(
+                            self._handle_message,
+                            message,
+                            session,
+                            lifespan_context,
+                            raise_exceptions,
+                        )
+                finally:
+                    # Transport closed: cancel in-flight handlers. Without this the
+                    # TG join waits for them, and when they eventually try to
+                    # respond they hit a closed write stream (the session's
+                    # _receive_loop closed it when the read stream ended).
+                    tg.cancel_scope.cancel()
 
     async def _handle_message(
         self,
@@ -470,8 +477,14 @@ class Server(Generic[LifespanResultT]):
             except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
-                logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
-                return
+                if message.cancelled:
+                    # Client sent CancelledNotification; responder.cancel() already
+                    # sent an error response, so skip the duplicate.
+                    logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
+                    return
+                # Transport-close cancellation from the TG in run(); re-raise so the
+                # TG swallows its own cancellation.
+                raise
             except Exception as err:
                 if raise_exceptions:  # pragma: no cover
                     raise err
