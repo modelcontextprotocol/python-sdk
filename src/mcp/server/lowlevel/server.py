@@ -489,17 +489,18 @@ class Server(Generic[LifespanResultT]):
                 if raise_exceptions:  # pragma: no cover
                     raise err
                 response = types.ErrorData(code=0, message=str(err))
-
-            try:
-                await message.respond(response)
-            except anyio.ClosedResourceError:
-                # Transport closed between handler unblocking and respond. Happens
-                # when _receive_loop's finally wakes a handler blocked on
-                # send_request: the handler runs to respond() before run()'s TG
-                # cancel fires, but after _receive_loop closed _write_stream.
-                logger.debug("Response for %s dropped - transport closed", message.request_id)
         else:  # pragma: no cover
-            await message.respond(types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found"))
+            response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
+
+        try:
+            await message.respond(response)
+        except anyio.ClosedResourceError:
+            # Transport closed between handler unblocking and respond. Happens
+            # when _receive_loop's finally wakes a handler blocked on
+            # send_request: the handler runs to respond() before run()'s TG
+            # cancel fires, but after _receive_loop closed _write_stream.
+            logger.debug("Response for %s dropped - transport closed", message.request_id)
+            return
 
         logger.debug("Response sent")
 
