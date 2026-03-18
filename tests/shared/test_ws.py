@@ -1,9 +1,9 @@
 """Smoke test for the WebSocket transport.
 
-Runs the full WS stack end-to-end over a real TCP connection to provide
-coverage of ``src/mcp/client/websocket.py``. MCP semantics (error
-propagation, timeouts, etc.) are transport-agnostic and are covered in
-``tests/client/test_client.py`` and ``tests/issues/test_88_random_error.py``.
+Runs the full WS stack end-to-end over a real TCP connection, covering both
+``src/mcp/client/websocket.py`` and ``src/mcp/server/websocket.py``. MCP
+semantics (error propagation, timeouts, etc.) are transport-agnostic and are
+covered in ``tests/client/test_client.py`` and ``tests/issues/test_88_random_error.py``.
 """
 
 from collections.abc import Generator
