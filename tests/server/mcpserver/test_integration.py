@@ -109,8 +109,7 @@ async def elicitation_callback(context: RequestContext[ClientSession], params: E
 async def test_basic_tools() -> None:
     """Test basic tool functionality."""
     async with Client(basic_tool.mcp) as client:
-        assert client.server_capabilities is not None
-        assert client.server_capabilities.tools is not None
+        assert client.initialize_result.capabilities.tools is not None
 
         # Test sum tool
         tool_result = await client.call_tool("sum", {"a": 5, "b": 3})
@@ -128,8 +127,7 @@ async def test_basic_tools() -> None:
 async def test_basic_resources() -> None:
     """Test basic resource functionality."""
     async with Client(basic_resource.mcp) as client:
-        assert client.server_capabilities is not None
-        assert client.server_capabilities.resources is not None
+        assert client.initialize_result.capabilities.resources is not None
 
         # Test document resource
         doc_content = await client.read_resource("file://documents/readme")
@@ -151,8 +149,7 @@ async def test_basic_resources() -> None:
 async def test_basic_prompts() -> None:
     """Test basic prompt functionality."""
     async with Client(basic_prompt.mcp) as client:
-        assert client.server_capabilities is not None
-        assert client.server_capabilities.prompts is not None
+        assert client.initialize_result.capabilities.prompts is not None
 
         # Test review_code prompt
         prompts = await client.list_prompts()
@@ -223,8 +220,7 @@ async def test_tool_progress() -> None:
 async def test_sampling() -> None:
     """Test sampling (LLM interaction) functionality."""
     async with Client(sampling.mcp, sampling_callback=sampling_callback) as client:
-        assert client.server_capabilities is not None
-        assert client.server_capabilities.tools is not None
+        assert client.initialize_result.capabilities.tools is not None
 
         # Test sampling tool
         sampling_result = await client.call_tool("generate_poem", {"topic": "nature"})
@@ -294,9 +290,8 @@ async def test_notifications() -> None:
 async def test_completion() -> None:
     """Test completion (autocomplete) functionality."""
     async with Client(completion.mcp) as client:
-        assert client.server_capabilities is not None
-        assert client.server_capabilities.resources is not None
-        assert client.server_capabilities.prompts is not None
+        assert client.initialize_result.capabilities.resources is not None
+        assert client.initialize_result.capabilities.prompts is not None
 
         # Test resource completion
         completion_result = await client.complete(
