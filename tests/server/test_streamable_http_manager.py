@@ -508,9 +508,7 @@ async def _create_session_blocking(
     messages: list[Message] = []
     token = _set_tenant(tenant)
     try:
-        await manager.handle_request(
-            _make_scope(), _mock_receive, lambda msg, _msgs=messages: _mock_send(_msgs, msg)
-        )
+        await manager.handle_request(_make_scope(), _mock_receive, lambda msg, _msgs=messages: _mock_send(_msgs, msg))
     finally:
         _reset_tenant(token)
 
@@ -613,9 +611,7 @@ async def test_session_tenant_cleanup_on_exit(running_manager: tuple[StreamableH
     messages: list[Message] = []
     token = _set_tenant("tenant-a")
     try:
-        await manager.handle_request(
-            _make_scope(), _mock_receive, lambda msg, _msgs=messages: _mock_send(_msgs, msg)
-        )
+        await manager.handle_request(_make_scope(), _mock_receive, lambda msg, _msgs=messages: _mock_send(_msgs, msg))
     finally:
         _reset_tenant(token)
 
