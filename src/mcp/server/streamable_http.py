@@ -715,11 +715,7 @@ class StreamableHTTPServerTransport:
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
             except Exception:
-                # Timing race: if task cancellation reaches this writer before it
-                # hits the closed stream, we get CancelledError (not caught here).
-                # If the closed-stream error fires first, this logs. Neither order is
-                # a bug — both are valid shutdown sequences.
-                logger.exception("Error in standalone SSE writer")  # pragma: lax no cover
+                logger.exception("Error in standalone SSE writer")
             finally:
                 logger.debug("Closing standalone SSE writer")
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
@@ -1019,13 +1015,7 @@ class StreamableHTTPServerTransport:
                             try:
                                 # Send both the message and the event ID
                                 await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
-                            except (  # pragma: lax no cover
-                                # Timing race: if cancellation reaches this coroutine
-                                # before send() hits the closed stream, CancelledError
-                                # propagates instead. Either shutdown sequence is valid.
-                                anyio.BrokenResourceError,
-                                anyio.ClosedResourceError,
-                            ):
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
                                 # Stream might be closed, remove from registry
                                 self._request_streams.pop(request_stream_id, None)
                         else:

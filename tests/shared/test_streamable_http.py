@@ -1706,6 +1706,46 @@ async def test_priming_event_not_sent_for_old_protocol_version():
 
 
 @pytest.mark.anyio
+async def test_message_router_handles_closed_request_stream():
+    """message_router must survive a stream closing between membership check and send.
+
+    Real scenario: sse_writer receives a JSONRPCResponse, breaks its async-for,
+    and runs cleanup — while message_router is concurrently routing a trailing
+    notification to the same request_id. The router's `if id in _request_streams`
+    check passes, but by the time send() tries to deliver, the receiver is gone.
+    The except (BrokenResourceError, ClosedResourceError) handler must catch
+    this and pop the stale entry so the router keeps routing other messages.
+
+    This test reproduces the race deterministically rather than relying on
+    scheduler timing (which only triggers under xdist contention).
+    """
+    transport = StreamableHTTPServerTransport(mcp_session_id="test-session")
+
+    async with transport.connect() as (_, write_stream):
+        # Register a request stream pair as if a POST request had opened one,
+        # then close the receiver to simulate the sse_writer breaking its loop
+        # before cleanup pops the dict entry.
+        request_id = "req-1"
+        send_side, recv_side = anyio.create_memory_object_stream[EventMessage](0)
+        transport._request_streams[request_id] = (send_side, recv_side)
+        await recv_side.aclose()  # receiver gone — paired sender will now raise
+
+        # Route a response targeting that request_id. message_router's membership
+        # check passes (still in dict), send() raises BrokenResourceError, the
+        # except handler pops the entry.
+        response = types.JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})
+        await write_stream.send(SessionMessage(response))
+
+        # Give the router a tick to process
+        with anyio.fail_after(1):
+            while request_id in transport._request_streams:
+                await anyio.sleep(0)
+
+        assert request_id not in transport._request_streams
+        await send_side.aclose()
+
+
+@pytest.mark.anyio
 async def test_priming_event_not_sent_without_event_store():
     """Test that _maybe_send_priming_event returns early when no event_store is configured."""
     # Create a transport WITHOUT an event store
