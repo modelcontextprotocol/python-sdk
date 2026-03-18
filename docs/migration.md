@@ -169,6 +169,30 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
+### `ClientSession.get_server_capabilities()` replaced by `initialize_result` property
+
+`ClientSession` now stores the full `InitializeResult` via an `initialize_result` property. This provides access to `server_info`, `capabilities`, `instructions`, and the negotiated `protocol_version` through a single property. The `get_server_capabilities()` method has been removed.
+
+**Before (v1):**
+
+```python
+capabilities = session.get_server_capabilities()
+# server_info, instructions, protocol_version were not stored — had to capture initialize() return value
+```
+
+**After (v2):**
+
+```python
+result = session.initialize_result
+if result is not None:
+    capabilities = result.capabilities
+    server_info = result.server_info
+    instructions = result.instructions
+    version = result.protocol_version
+```
+
+The high-level `Client.initialize_result` returns the same `InitializeResult` but is non-nullable — initialization is guaranteed inside the context manager, so no `None` check is needed. This replaces v1's `Client.server_capabilities`; use `client.initialize_result.capabilities` instead.
+
 ### `McpError` renamed to `MCPError`
 
 The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.
@@ -859,6 +883,6 @@ The lowlevel `Server` also now exposes a `session_manager` property to access th
 
 If you encounter issues during migration:
 
-1. Check the [API Reference](api.md) for updated method signatures
+1. Check the [API Reference](api/mcp/index.md) for updated method signatures
 2. Review the [examples](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples) for updated usage patterns
 3. Open an issue on [GitHub](https://github.com/modelcontextprotocol/python-sdk/issues) if you find a bug or need further assistance
