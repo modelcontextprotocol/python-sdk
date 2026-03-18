@@ -43,6 +43,10 @@ def run_uvicorn_in_thread(app: Any, **config_kwargs: Any) -> Generator[str, None
     port = sock.getsockname()[1]
 
     config_kwargs.setdefault("log_level", "error")
+    # Uvicorn's interface autodetection calls asyncio.iscoroutinefunction,
+    # which Python 3.14 deprecates. Under filterwarnings=error this crashes
+    # the server thread silently. Starlette is asgi3; skip the autodetect.
+    config_kwargs.setdefault("interface", "asgi3")
     server = uvicorn.Server(config=uvicorn.Config(app=app, **config_kwargs))
 
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
