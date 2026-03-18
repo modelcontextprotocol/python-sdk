@@ -8,7 +8,7 @@ import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import types
+from mcp import MCPError, types
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
@@ -173,6 +173,21 @@ async def test_read_resource(app: MCPServer):
                 contents=[TextResourceContents(uri="test://resource", mime_type="text/plain", text="Test content")]
             )
         )
+
+
+async def test_read_resource_error_propagates():
+    """MCPError raised by a server handler propagates to the client with its code intact."""
+
+    async def handle_read_resource(
+        ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+    ) -> ReadResourceResult:
+        raise MCPError(code=404, message="no resource with that URI was found")
+
+    server = Server("test", on_read_resource=handle_read_resource)
+    async with Client(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.read_resource("unknown://example")
+        assert exc_info.value.error.code == 404
 
 
 async def test_get_prompt(app: MCPServer):
