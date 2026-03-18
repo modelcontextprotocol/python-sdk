@@ -47,6 +47,12 @@ def run_uvicorn_in_thread(app: Any, **config_kwargs: Any) -> Generator[str, None
     # which Python 3.14 deprecates. Under filterwarnings=error this crashes
     # the server thread silently. Starlette is asgi3; skip the autodetect.
     config_kwargs.setdefault("interface", "asgi3")
+    # shutdown() waits indefinitely for open connections to drain. SSE tests
+    # may leave streams open at teardown, so without a bound the join below
+    # times out and abandons the thread mid-shutdown — on Windows the
+    # Proactor's Overlapped Recv ops get GC'd pending. This bounds the wait,
+    # then cancels remaining tasks via asyncio so transports unwind cleanly.
+    config_kwargs.setdefault("timeout_graceful_shutdown", 1)
     server = uvicorn.Server(config=uvicorn.Config(app=app, **config_kwargs))
 
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
