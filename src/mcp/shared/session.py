@@ -418,7 +418,9 @@ class BaseSession(
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
-                for id, stream in self._response_streams.items():
+                # Snapshot: stream.send() wakes the waiter, whose finally pops
+                # from _response_streams before the next __next__() call.
+                for id, stream in list(self._response_streams.items()):
                     error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
                     try:
                         await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))

@@ -170,3 +170,81 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
             await server_run_returned.wait()
 
     assert handler_cancelled.is_set()
+
+
+@pytest.mark.anyio
+async def test_server_handles_transport_close_with_pending_server_to_client_requests():
+    """When the transport closes while handlers are blocked on server→client
+    requests (sampling, roots, elicitation), server.run() must still exit cleanly.
+
+    Two bugs covered:
+      1. _receive_loop's finally iterates _response_streams with await checkpoints
+         inside; the woken handler's send_request finally pops from that dict
+         before the next __next__() — RuntimeError: dictionary changed size.
+      2. The woken handler's MCPError is caught in _handle_request, which falls
+         through to respond() against a write stream _receive_loop already closed.
+    """
+    handlers_started = 0
+    both_started = anyio.Event()
+    server_run_returned = anyio.Event()
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        nonlocal handlers_started
+        handlers_started += 1
+        if handlers_started == 2:
+            both_started.set()
+        # Blocks on send_request waiting for a client response that never comes.
+        # _receive_loop's finally will wake this with CONNECTION_CLOSED.
+        await ctx.session.list_roots()
+        raise AssertionError  # pragma: no cover
+
+    server = Server("test", on_call_tool=handle_call_tool)
+
+    to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def run_server():
+        await server.run(server_read, server_write, server.create_initialization_options())
+        server_run_returned.set()
+
+    init_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="initialize",
+        params=InitializeRequestParams(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test", version="1.0"),
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+    initialized = JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg, to_server, server_read, server_write, from_server:
+            tg.start_soon(run_server)
+
+            await to_server.send(SessionMessage(init_req))
+            await from_server.receive()  # init response
+            await to_server.send(SessionMessage(initialized))
+
+            # Two tool calls → two handlers → two _response_streams entries.
+            for rid in (2, 3):
+                call_req = JSONRPCRequest(
+                    jsonrpc="2.0",
+                    id=rid,
+                    method="tools/call",
+                    params=CallToolRequestParams(name="t", arguments={}).model_dump(by_alias=True, mode="json"),
+                )
+                await to_server.send(SessionMessage(call_req))
+
+            await both_started.wait()
+            # Drain the two roots/list requests so send_request's _write_stream.send()
+            # completes and both handlers are parked at response_stream_reader.receive().
+            await from_server.receive()
+            await from_server.receive()
+
+            await to_server.aclose()
+
+            # Without the fixes: RuntimeError (dict mutation) or ClosedResourceError
+            # (respond after write-stream close) escapes run_server and this hangs.
+            await server_run_returned.wait()
