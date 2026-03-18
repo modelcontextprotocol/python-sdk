@@ -191,7 +191,7 @@ if result is not None:
     version = result.protocol_version
 ```
 
-The high-level `Client` exposes these directly as non-nullable properties (initialization is guaranteed inside the context manager): `client.server_capabilities`, `client.server_info`, and `client.server_instructions`.
+The high-level `Client.initialize_result` returns the same `InitializeResult` but is non-nullable — initialization is guaranteed inside the context manager, so no `None` check is needed. This replaces v1's `Client.server_capabilities`; use `client.initialize_result.capabilities` instead.
 
 ### `McpError` renamed to `MCPError`
 

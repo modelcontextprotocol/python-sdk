@@ -99,7 +99,7 @@ def app() -> MCPServer:
 async def test_client_is_initialized(app: MCPServer):
     """Test that the client is initialized after entering context."""
     async with Client(app) as client:
-        assert client.server_capabilities == snapshot(
+        assert client.initialize_result.capabilities == snapshot(
             ServerCapabilities(
                 experimental={},
                 prompts=PromptsCapability(list_changed=False),
@@ -107,8 +107,7 @@ async def test_client_is_initialized(app: MCPServer):
                 tools=ToolsCapability(list_changed=False),
             )
         )
-        assert client.server_info.name == "test"
-        assert client.server_instructions is None
+        assert client.initialize_result.server_info.name == "test"
 
 
 async def test_client_with_simple_server(simple_server: Server):
@@ -209,17 +208,6 @@ def test_client_session_property_before_enter(app: MCPServer):
     client = Client(app)
     with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
         client.session
-
-
-def test_client_server_properties_before_enter(app: MCPServer):
-    """Test that server_* properties raise RuntimeError outside the context manager."""
-    client = Client(app)
-    with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
-        client.server_capabilities
-    with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
-        client.server_info
-    with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
-        client.server_instructions
 
 
 async def test_client_reentry_raises_runtime_error(app: MCPServer):
