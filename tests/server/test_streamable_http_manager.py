@@ -425,7 +425,7 @@ def _extract_session_id(messages: list[Message]) -> str | None:
             for header_name, header_value in msg.get("headers", []):
                 if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
                     return header_value.decode()
-    return None  # pragma: no cover
+    return None
 
 
 def _extract_status(messages: list[Message]) -> int | None:
@@ -433,7 +433,31 @@ def _extract_status(messages: list[Message]) -> int | None:
     for msg in messages:
         if msg["type"] == "http.response.start":
             return msg["status"]
-    return None  # pragma: no cover
+    return None
+
+
+def test_extract_session_id_skips_non_start_messages():
+    """_extract_session_id skips non-start messages and returns None when no ID found."""
+    body_msg: Message = {"type": "http.response.body", "body": b"data"}
+    start_no_header: Message = {"type": "http.response.start", "status": 200, "headers": []}
+
+    # Only body messages → None
+    assert _extract_session_id([body_msg]) is None
+    # Start message without session header → None
+    assert _extract_session_id([body_msg, start_no_header]) is None
+
+
+def test_extract_status_skips_non_start_messages():
+    """_extract_status skips non-start messages and returns None when empty."""
+    body_msg: Message = {"type": "http.response.body", "body": b"data"}
+    start_msg: Message = {"type": "http.response.start", "status": 200, "headers": []}
+
+    # Only body messages → None
+    assert _extract_status([body_msg]) is None
+    # Body then start → returns status from start
+    assert _extract_status([body_msg, start_msg]) == 200
+    # Empty list → None
+    assert _extract_status([]) is None
 
 
 def _make_scope(session_id: str | None = None) -> dict[str, Any]:
