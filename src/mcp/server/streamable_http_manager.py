@@ -201,9 +201,11 @@ class StreamableHTTPSessionManager:
             session_tenant = self._session_tenants.get(request_mcp_session_id)
             request_tenant = tenant_id_var.get()
             if session_tenant is not None and request_tenant != session_tenant:
-                logger.warning(
-                    f"Tenant mismatch for session {request_mcp_session_id[:64]}: "
-                    f"session bound to '{session_tenant}', request from '{request_tenant}'"
+                logger.warning("Tenant mismatch for session %s", request_mcp_session_id[:64])
+                logger.debug(
+                    "Tenant mismatch detail: session bound to '%s', request from '%s'",
+                    session_tenant,
+                    request_tenant,
                 )
                 error_response = JSONRPCError(
                     jsonrpc="2.0",

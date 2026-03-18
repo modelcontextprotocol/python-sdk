@@ -478,18 +478,17 @@ async def _mock_receive() -> dict[str, Any]:  # pragma: no cover
 
 
 def _set_tenant(tenant: str | None) -> Any:
-    """Set tenant_id_var if tenant is not None; return the token (or None)."""
+    """Set tenant_id_var and return the reset token."""
     from mcp.shared._context import tenant_id_var
 
-    return tenant_id_var.set(tenant) if tenant is not None else None
+    return tenant_id_var.set(tenant)
 
 
 def _reset_tenant(token: Any) -> None:
-    """Reset tenant_id_var if a token was set."""
+    """Reset tenant_id_var to its previous value."""
     from mcp.shared._context import tenant_id_var
 
-    if token is not None:
-        tenant_id_var.reset(token)
+    tenant_id_var.reset(token)
 
 
 async def _create_session_blocking(
@@ -540,10 +539,11 @@ async def test_tenant_mismatch_returns_404(running_manager: tuple[StreamableHTTP
     """A request from tenant-b cannot access a session created by tenant-a."""
     manager, app = running_manager
     stop = anyio.Event()
-    session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
-
-    assert await _access_session(manager, session_id, tenant="tenant-b") == 404
-    stop.set()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        assert await _access_session(manager, session_id, tenant="tenant-b") == 404
+    finally:
+        stop.set()
 
 
 @pytest.mark.anyio
@@ -553,16 +553,17 @@ async def test_two_tenants_cannot_access_each_others_sessions(
     """Two tenants each create a session; neither can access the other's."""
     manager, app = running_manager
     stop = anyio.Event()
+    try:
+        session_a = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        session_b = await _create_session_blocking(manager, app, stop, tenant="tenant-b")
+        assert session_a != session_b
 
-    session_a = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
-    session_b = await _create_session_blocking(manager, app, stop, tenant="tenant-b")
-    assert session_a != session_b
-
-    # Tenant-a tries to access tenant-b's session → 404
-    assert await _access_session(manager, session_b, tenant="tenant-a") == 404
-    # Tenant-b tries to access tenant-a's session → 404
-    assert await _access_session(manager, session_a, tenant="tenant-b") == 404
-    stop.set()
+        # Tenant-a tries to access tenant-b's session → 404
+        assert await _access_session(manager, session_b, tenant="tenant-a") == 404
+        # Tenant-b tries to access tenant-a's session → 404
+        assert await _access_session(manager, session_a, tenant="tenant-b") == 404
+    finally:
+        stop.set()
 
 
 @pytest.mark.anyio
@@ -570,11 +571,12 @@ async def test_same_tenant_can_reuse_session(running_manager: tuple[StreamableHT
     """A request from the same tenant can access its own session."""
     manager, app = running_manager
     stop = anyio.Event()
-    session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
-
-    status = await _access_session(manager, session_id, tenant="tenant-a")
-    assert status != 404, "Same tenant should be able to reuse its own session"
-    stop.set()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        status = await _access_session(manager, session_id, tenant="tenant-a")
+        assert status != 404, "Same tenant should be able to reuse its own session"
+    finally:
+        stop.set()
 
 
 @pytest.mark.anyio
@@ -582,11 +584,12 @@ async def test_no_tenant_session_allows_any_access(running_manager: tuple[Stream
     """Sessions created without a tenant (no auth) allow access from any request."""
     manager, app = running_manager
     stop = anyio.Event()
-    session_id = await _create_session_blocking(manager, app, stop, tenant=None)
-
-    status = await _access_session(manager, session_id, tenant="tenant-a")
-    assert status != 404, "Session without tenant binding should allow access from any tenant"
-    stop.set()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant=None)
+        status = await _access_session(manager, session_id, tenant="tenant-a")
+        assert status != 404, "Session without tenant binding should allow access from any tenant"
+    finally:
+        stop.set()
 
 
 @pytest.mark.anyio
@@ -596,10 +599,11 @@ async def test_unauthenticated_request_cannot_access_tenant_session(
     """A request with no tenant cannot access a session bound to a tenant."""
     manager, app = running_manager
     stop = anyio.Event()
-    session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
-
-    assert await _access_session(manager, session_id, tenant=None) == 404
-    stop.set()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        assert await _access_session(manager, session_id, tenant=None) == 404
+    finally:
+        stop.set()
 
 
 @pytest.mark.anyio
