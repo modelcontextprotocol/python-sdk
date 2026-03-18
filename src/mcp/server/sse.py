@@ -116,8 +116,8 @@ class SseServerTransport:
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
-    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):  # pragma: lax no cover
-        if scope["type"] != "http":
+    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http":  # pragma: no cover
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
 
@@ -195,7 +195,7 @@ class SseServerTransport:
             logger.debug("Yielding read and write streams")
             yield (read_stream, write_stream)
 
-    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:  # pragma: lax no cover
+    async def handle_post_message(self, scope: Scope, receive: Receive, send: Send) -> None:
         logger.debug("Handling POST message")
         request = Request(scope, receive)
 
@@ -205,7 +205,7 @@ class SseServerTransport:
             return await error_response(scope, receive, send)
 
         session_id_param = request.query_params.get("session_id")
-        if session_id_param is None:
+        if session_id_param is None:  # pragma: no cover
             logger.warning("Received request without session_id")
             response = Response("session_id is required", status_code=400)
             return await response(scope, receive, send)
@@ -213,7 +213,7 @@ class SseServerTransport:
         try:
             session_id = UUID(hex=session_id_param)
             logger.debug(f"Parsed session ID: {session_id}")
-        except ValueError:
+        except ValueError:  # pragma: no cover
             logger.warning(f"Received invalid session ID: {session_id_param}")
             response = Response("Invalid session ID", status_code=400)
             return await response(scope, receive, send)
@@ -230,7 +230,7 @@ class SseServerTransport:
         try:
             message = types.jsonrpc_message_adapter.validate_json(body, by_name=False)
             logger.debug(f"Validated client message: {message}")
-        except ValidationError as err:
+        except ValidationError as err:  # pragma: no cover
             logger.exception("Failed to parse message")
             response = Response("Could not parse message", status_code=400)
             await response(scope, receive, send)

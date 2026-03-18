@@ -40,9 +40,9 @@ class TransportSecurityMiddleware:
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-    def _validate_host(self, host: str | None) -> bool:  # pragma: lax no cover
+    def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
-        if not host:
+        if not host:  # pragma: no cover
             logger.warning("Missing Host header in request")
             return False
 
@@ -62,19 +62,19 @@ class TransportSecurityMiddleware:
         logger.warning(f"Invalid Host header: {host}")
         return False
 
-    def _validate_origin(self, origin: str | None) -> bool:  # pragma: lax no cover
+    def _validate_origin(self, origin: str | None) -> bool:
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
             return True
 
         # Check exact match first
-        if origin in self.settings.allowed_origins:
+        if origin in self.settings.allowed_origins:  # pragma: no cover
             return True
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_origins:
-            if allowed.endswith(":*"):
+            if allowed.endswith(":*"):  # pragma: no branch
                 # Extract base origin from pattern
                 base_origin = allowed[:-2]
                 # Check if the actual origin starts with base origin and has a port
@@ -104,13 +104,13 @@ class TransportSecurityMiddleware:
             return None
 
         # Validate Host header  # pragma: no cover
-        host = request.headers.get("host")  # pragma: lax no cover
-        if not self._validate_host(host):  # pragma: lax no cover
-            return Response("Invalid Host header", status_code=421)  # pragma: lax no cover
+        host = request.headers.get("host")
+        if not self._validate_host(host):
+            return Response("Invalid Host header", status_code=421)
 
         # Validate Origin header  # pragma: no cover
-        origin = request.headers.get("origin")  # pragma: lax no cover
-        if not self._validate_origin(origin):  # pragma: lax no cover
-            return Response("Invalid Origin header", status_code=403)  # pragma: lax no cover
+        origin = request.headers.get("origin")
+        if not self._validate_origin(origin):
+            return Response("Invalid Origin header", status_code=403)
 
-        return None  # pragma: lax no cover
+        return None
