@@ -120,10 +120,15 @@ async def unicode_session() -> AsyncGenerator[ClientSession, None]:
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, follow_redirects=True) as http_client:
-            async with streamable_http_client("http://testserver/mcp", http_client=http_client) as (rs, ws):
+            async with streamable_http_client(  # pragma: no branch
+                "http://testserver/mcp", http_client=http_client
+            ) as (rs, ws):
+                # ^ coverage.py on 3.11+ misses phantom ->exit arcs from nested
+                # async with CMs when the innermost body yields (async generator
+                # frame unwinds through __aexit__ chains). On 3.14 the
+                # WITH_EXCEPT_START suppression-check branch is misattributed
+                # through the exception table to the *outer* CM line too.
                 async with ClientSession(rs, ws) as session:  # pragma: no branch
-                    # ^ coverage.py misses the ->exit arc on 3.11+ when yield is
-                    # nested inside multiple async with blocks
                     await session.initialize()
                     yield session
 

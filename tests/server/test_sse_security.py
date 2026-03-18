@@ -140,7 +140,9 @@ async def test_sse_security_disabled():
     settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
     with run_uvicorn_in_thread(make_app(settings), lifespan="off") as url:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            async with client.stream("GET", f"{url}/sse", headers={"Host": "evil.com"}) as response:
+            async with client.stream(  # pragma: no branch
+                "GET", f"{url}/sse", headers={"Host": "evil.com"}
+            ) as response:
                 # Should connect successfully even with invalid host
                 assert response.status_code == 200
 

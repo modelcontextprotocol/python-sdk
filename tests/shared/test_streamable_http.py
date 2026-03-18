@@ -63,6 +63,15 @@ from mcp.types import (
 )
 from tests.test_helpers import run_uvicorn_in_thread
 
+# On Windows, the Proactor event loop's socket transports don't always close
+# cleanly before GC when MCP clients disconnect abruptly from the module-scoped
+# server (e.g. test_streamable_http_client_session_termination opens and drops
+# two clients). The transport __del__ emits ResourceWarning which pytest's
+# unraisable collector picks up during a LATER test. These are Windows asyncio
+# internals, not bugs in the client code under test. Previously hidden by
+# subprocess isolation — subprocess resource warnings die with the subprocess.
+pytestmark = pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
+
 # Test constants
 SERVER_NAME = "test_streamable_http_server"
 TEST_SESSION_ID = "test-session-id-12345"
