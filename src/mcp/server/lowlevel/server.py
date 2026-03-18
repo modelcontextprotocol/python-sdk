@@ -494,11 +494,13 @@ class Server(Generic[LifespanResultT]):
 
         try:
             await message.respond(response)
-        except anyio.ClosedResourceError:
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             # Transport closed between handler unblocking and respond. Happens
             # when _receive_loop's finally wakes a handler blocked on
             # send_request: the handler runs to respond() before run()'s TG
-            # cancel fires, but after _receive_loop closed _write_stream.
+            # cancel fires, but after the write stream closed. Closed if our
+            # end closed (_receive_loop's async-with exit); Broken if the peer
+            # end closed first (streamable_http terminate()).
             logger.debug("Response for %s dropped - transport closed", message.request_id)
             return
 
