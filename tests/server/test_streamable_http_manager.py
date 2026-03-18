@@ -413,3 +413,216 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+# --- Multi-tenancy: session-level tenant isolation ---
+
+
+def _extract_session_id(messages: list[Message]) -> str | None:
+    """Extract the MCP session ID from ASGI response messages."""
+    for msg in messages:
+        if msg["type"] == "http.response.start":
+            for header_name, header_value in msg.get("headers", []):
+                if header_name.decode().lower() == MCP_SESSION_ID_HEADER.lower():
+                    return header_value.decode()
+    return None
+
+
+def _extract_status(messages: list[Message]) -> int | None:
+    """Extract the HTTP status code from ASGI response messages."""
+    for msg in messages:
+        if msg["type"] == "http.response.start":
+            return msg["status"]
+    return None
+
+
+def test_extract_session_id_skips_non_start_messages():
+    """_extract_session_id skips non-start messages and returns None when no ID found."""
+    body_msg: Message = {"type": "http.response.body", "body": b"data"}
+    start_no_header: Message = {"type": "http.response.start", "status": 200, "headers": []}
+
+    # Only body messages → None
+    assert _extract_session_id([body_msg]) is None
+    # Start message without session header → None
+    assert _extract_session_id([body_msg, start_no_header]) is None
+
+
+def test_extract_status_skips_non_start_messages():
+    """_extract_status skips non-start messages and returns None when empty."""
+    body_msg: Message = {"type": "http.response.body", "body": b"data"}
+    start_msg: Message = {"type": "http.response.start", "status": 200, "headers": []}
+
+    # Only body messages → None
+    assert _extract_status([body_msg]) is None
+    # Body then start → returns status from start
+    assert _extract_status([body_msg, start_msg]) == 200
+    # Empty list → None
+    assert _extract_status([]) is None
+
+
+def _make_scope(session_id: str | None = None) -> dict[str, Any]:
+    """Build a minimal ASGI scope for testing, optionally with a session ID."""
+    headers: list[tuple[bytes, bytes]] = [(b"content-type", b"application/json")]
+    if session_id is not None:
+        headers.append((b"mcp-session-id", session_id.encode()))
+    return {"type": "http", "method": "POST", "path": "/mcp", "headers": headers}
+
+
+async def _mock_send(messages: list[Message], message: Message) -> None:
+    """Async send that collects messages."""
+    messages.append(message)
+
+
+async def _mock_receive() -> dict[str, Any]:  # pragma: no cover
+    return {"type": "http.request", "body": b"", "more_body": False}
+
+
+def _set_tenant(tenant: str | None) -> Any:
+    """Set tenant_id_var and return the reset token."""
+    from mcp.shared._context import tenant_id_var
+
+    return tenant_id_var.set(tenant)
+
+
+def _reset_tenant(token: Any) -> None:
+    """Reset tenant_id_var to its previous value."""
+    from mcp.shared._context import tenant_id_var
+
+    tenant_id_var.reset(token)
+
+
+async def _create_session_blocking(
+    manager: StreamableHTTPSessionManager,
+    app: Server[Any],
+    stop_event: anyio.Event,
+    tenant: str | None = None,
+) -> str:
+    """Create a session whose server stays alive until stop_event is set."""
+
+    async def blocking_run(*args: Any, **kwargs: Any) -> None:
+        await stop_event.wait()
+
+    app.run = AsyncMock(side_effect=blocking_run)
+
+    messages: list[Message] = []
+    token = _set_tenant(tenant)
+    try:
+        await manager.handle_request(_make_scope(), _mock_receive, lambda msg, _msgs=messages: _mock_send(_msgs, msg))
+    finally:
+        _reset_tenant(token)
+
+    session_id = _extract_session_id(messages)
+    assert session_id is not None
+    return session_id
+
+
+async def _access_session(
+    manager: StreamableHTTPSessionManager,
+    session_id: str,
+    tenant: str | None = None,
+) -> int | None:
+    """Access an existing session and return the HTTP status code."""
+    messages: list[Message] = []
+    token = _set_tenant(tenant)
+    try:
+        await manager.handle_request(
+            _make_scope(session_id), _mock_receive, lambda msg, _msgs=messages: _mock_send(_msgs, msg)
+        )
+    finally:
+        _reset_tenant(token)
+
+    return _extract_status(messages)
+
+
+@pytest.mark.anyio
+async def test_tenant_mismatch_returns_404(running_manager: tuple[StreamableHTTPSessionManager, Server]):
+    """A request from tenant-b cannot access a session created by tenant-a."""
+    manager, app = running_manager
+    stop = anyio.Event()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        assert await _access_session(manager, session_id, tenant="tenant-b") == 404
+    finally:
+        stop.set()
+
+
+@pytest.mark.anyio
+async def test_two_tenants_cannot_access_each_others_sessions(
+    running_manager: tuple[StreamableHTTPSessionManager, Server],
+):
+    """Two tenants each create a session; neither can access the other's."""
+    manager, app = running_manager
+    stop = anyio.Event()
+    try:
+        session_a = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        session_b = await _create_session_blocking(manager, app, stop, tenant="tenant-b")
+        assert session_a != session_b
+
+        # Tenant-a tries to access tenant-b's session → 404
+        assert await _access_session(manager, session_b, tenant="tenant-a") == 404
+        # Tenant-b tries to access tenant-a's session → 404
+        assert await _access_session(manager, session_a, tenant="tenant-b") == 404
+    finally:
+        stop.set()
+
+
+@pytest.mark.anyio
+async def test_same_tenant_can_reuse_session(running_manager: tuple[StreamableHTTPSessionManager, Server]):
+    """A request from the same tenant can access its own session."""
+    manager, app = running_manager
+    stop = anyio.Event()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        status = await _access_session(manager, session_id, tenant="tenant-a")
+        assert status != 404, "Same tenant should be able to reuse its own session"
+    finally:
+        stop.set()
+
+
+@pytest.mark.anyio
+async def test_no_tenant_session_allows_any_access(running_manager: tuple[StreamableHTTPSessionManager, Server]):
+    """Sessions created without a tenant (no auth) allow access from any request."""
+    manager, app = running_manager
+    stop = anyio.Event()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant=None)
+        status = await _access_session(manager, session_id, tenant="tenant-a")
+        assert status != 404, "Session without tenant binding should allow access from any tenant"
+    finally:
+        stop.set()
+
+
+@pytest.mark.anyio
+async def test_unauthenticated_request_cannot_access_tenant_session(
+    running_manager: tuple[StreamableHTTPSessionManager, Server],
+):
+    """A request with no tenant cannot access a session bound to a tenant."""
+    manager, app = running_manager
+    stop = anyio.Event()
+    try:
+        session_id = await _create_session_blocking(manager, app, stop, tenant="tenant-a")
+        assert await _access_session(manager, session_id, tenant=None) == 404
+    finally:
+        stop.set()
+
+
+@pytest.mark.anyio
+async def test_session_tenant_cleanup_on_exit(running_manager: tuple[StreamableHTTPSessionManager, Server]):
+    """Tenant mapping is cleaned up when a session exits."""
+    manager, app = running_manager
+    app.run = AsyncMock(return_value=None)
+
+    messages: list[Message] = []
+    token = _set_tenant("tenant-a")
+    try:
+        await manager.handle_request(_make_scope(), _mock_receive, lambda msg, _msgs=messages: _mock_send(_msgs, msg))
+    finally:
+        _reset_tenant(token)
+
+    session_id = _extract_session_id(messages)
+    assert session_id is not None
+
+    # Wait for the mock server to complete and cleanup to run
+    await anyio.sleep(0.01)
+
+    assert session_id not in manager._session_tenants, "Tenant mapping should be cleaned up after session exits"

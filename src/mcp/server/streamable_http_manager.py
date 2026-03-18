@@ -21,6 +21,7 @@ from mcp.server.streamable_http import (
     StreamableHTTPServerTransport,
 )
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._context import tenant_id_var
 from mcp.types import INVALID_REQUEST, ErrorData, JSONRPCError
 
 if TYPE_CHECKING:
@@ -89,6 +90,7 @@ class StreamableHTTPSessionManager:
         # Session tracking (only used if not stateless)
         self._session_creation_lock = anyio.Lock()
         self._server_instances: dict[str, StreamableHTTPServerTransport] = {}
+        self._session_tenants: dict[str, str | None] = {}
 
         # The task group will be set during lifespan
         self._task_group = None
@@ -135,6 +137,7 @@ class StreamableHTTPSessionManager:
                 self._task_group = None
                 # Clear any remaining server instances
                 self._server_instances.clear()
+                self._session_tenants.clear()
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.
@@ -194,6 +197,29 @@ class StreamableHTTPSessionManager:
 
         # Existing session case
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
+            # Validate that the requesting tenant matches the session's tenant
+            session_tenant = self._session_tenants.get(request_mcp_session_id)
+            request_tenant = tenant_id_var.get()
+            if session_tenant is not None and request_tenant != session_tenant:
+                logger.warning("Tenant mismatch for session %s", request_mcp_session_id[:64])
+                logger.debug(
+                    "Tenant mismatch detail: session bound to '%s', request from '%s'",
+                    session_tenant,
+                    request_tenant,
+                )
+                error_response = JSONRPCError(
+                    jsonrpc="2.0",
+                    id=None,
+                    error=ErrorData(code=INVALID_REQUEST, message="Session not found"),
+                )
+                response = Response(
+                    content=error_response.model_dump_json(by_alias=True, exclude_unset=True),
+                    status_code=HTTPStatus.NOT_FOUND,
+                    media_type="application/json",
+                )
+                await response(scope, receive, send)
+                return
+
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
             # Push back idle deadline on activity
@@ -217,6 +243,7 @@ class StreamableHTTPSessionManager:
 
                 assert http_transport.mcp_session_id is not None
                 self._server_instances[http_transport.mcp_session_id] = http_transport
+                self._session_tenants[http_transport.mcp_session_id] = tenant_id_var.get()
                 logger.info(f"Created new transport with session ID: {new_session_id}")
 
                 # Define the server runner
@@ -246,6 +273,7 @@ class StreamableHTTPSessionManager:
                                 assert http_transport.mcp_session_id is not None
                                 logger.info(f"Session {http_transport.mcp_session_id} idle timeout")
                                 self._server_instances.pop(http_transport.mcp_session_id, None)
+                                self._session_tenants.pop(http_transport.mcp_session_id, None)
                                 await http_transport.terminate()
                         except Exception:
                             logger.exception(f"Session {http_transport.mcp_session_id} crashed")
@@ -260,6 +288,7 @@ class StreamableHTTPSessionManager:
                                     f"{http_transport.mcp_session_id} from active instances."
                                 )
                                 del self._server_instances[http_transport.mcp_session_id]
+                                self._session_tenants.pop(http_transport.mcp_session_id, None)
 
                 # Assert task group is not None for type checking
                 assert self._task_group is not None
