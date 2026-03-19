@@ -121,6 +121,7 @@ class ClientSession(
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+        protocol_version: str | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
@@ -136,6 +137,9 @@ class ClientSession(
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
+        
+        # Protocol version (defaults to LATEST_PROTOCOL_VERSION)
+        self._protocol_version = protocol_version or types.LATEST_PROTOCOL_VERSION
 
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ServerRequest]:
@@ -168,7 +172,7 @@ class ClientSession(
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=types.LATEST_PROTOCOL_VERSION,
+                    protocol_version=self._protocol_version,
                     capabilities=types.ClientCapabilities(
                         sampling=sampling,
                         elicitation=elicitation,
