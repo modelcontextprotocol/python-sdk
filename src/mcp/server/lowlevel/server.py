@@ -562,7 +562,7 @@ class Server(Generic[LifespanResultT]):
         required_scopes: list[str] = []
 
         # Set up auth if configured
-        if auth:  # pragma: no cover
+        if auth:
             required_scopes = auth.required_scopes or []
 
             # Add auth middleware if token verifier is available
@@ -588,7 +588,7 @@ class Server(Generic[LifespanResultT]):
                 )
 
         # Set up routes with or without auth
-        if token_verifier:  # pragma: no cover
+        if token_verifier:
             # Determine resource metadata URL
             resource_metadata_url = None
             if auth and auth.resource_server_url:
@@ -611,7 +611,7 @@ class Server(Generic[LifespanResultT]):
             )
 
         # Add protected resource metadata endpoint if configured as RS
-        if auth and auth.resource_server_url:  # pragma: no cover
+        if auth and auth.resource_server_url:
             routes.extend(
                 create_protected_resource_routes(
                     resource_url=auth.resource_server_url,

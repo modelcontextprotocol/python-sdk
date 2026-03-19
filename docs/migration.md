@@ -879,6 +879,21 @@ app = server.streamable_http_app(
 
 The lowlevel `Server` also now exposes a `session_manager` property to access the `StreamableHTTPSessionManager` after calling `streamable_http_app()`.
 
+### Multi-tenancy support
+
+The SDK now supports multi-tenant deployments where a single server instance serves multiple isolated tenants. Tenant identity flows from authentication tokens through sessions, request context, and into all handler invocations.
+
+Key additions:
+
+- `AccessToken.tenant_id` — carries tenant identity in OAuth tokens
+- `Context.tenant_id` — available in tool, resource, and prompt handlers
+- `server.add_tool(fn, tenant_id="...")`, `server.add_resource(r, tenant_id="...")`, `server.add_prompt(p, tenant_id="...")` — register tenant-scoped tools, resources, and prompts
+- `StreamableHTTPSessionManager` — validates tenant identity on every request and prevents cross-tenant session access
+
+All APIs default to `tenant_id=None`, preserving backward compatibility for single-tenant servers.
+
+See the [Multi-Tenancy Guide](multi-tenancy.md) for details.
+
 ## Need Help?
 
 If you encounter issues during migration:
