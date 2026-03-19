@@ -1,4 +1,5 @@
 import logging
+import warnings
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -37,7 +38,11 @@ async def sse_client(
     auth: httpx.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
 ):
-    """Client transport for SSE.
+    """Client transport for SSE (Deprecated).
+
+    .. deprecated::
+        The HTTP+SSE transport is deprecated. Use `streamable_http_client` with
+        `StreamableHTTPTransport` instead for connecting to MCP servers.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
     event before disconnecting. All other HTTP operations are controlled by `timeout`.
@@ -154,4 +159,10 @@ async def sse_client(
                 tg.start_soon(post_writer, endpoint_url)
 
                 yield read_stream, write_stream
-                tg.cancel_scope.cancel()
+    tg.cancel_scope.cancel()
+
+    warnings.warn(
+        "sse_client is deprecated. Use streamable_http_client with StreamableHTTPTransport instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )

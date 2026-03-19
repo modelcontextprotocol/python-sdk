@@ -854,7 +854,18 @@ class MCPServer(Generic[LifespanResultT]):
         message_path: str = "/messages/",
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
-        """Run the server using SSE transport."""
+        """Run the server using SSE transport (Deprecated).
+
+        .. deprecated::
+            The HTTP+SSE transport is deprecated. Use `run_streamable_http_async` instead.
+        """
+        import warnings
+        warnings.warn(
+            "run_sse_async is deprecated. Use run_streamable_http_async instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         import uvicorn
 
         starlette_app = self.sse_app(
@@ -915,7 +926,17 @@ class MCPServer(Generic[LifespanResultT]):
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
-        """Return an instance of the SSE server app."""
+        """Return an instance of the SSE server app (Deprecated).
+
+        .. deprecated::
+            The HTTP+SSE transport is deprecated. Use `streamable_http_app` instead.
+        """
+        import warnings
+        warnings.warn(
+            "sse_app is deprecated. Use streamable_http_app instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         # Auto-enable DNS rebinding protection for localhost (IPv4 and IPv6)
         if transport_security is None and host in ("127.0.0.1", "localhost", "::1"):
             transport_security = TransportSecuritySettings(

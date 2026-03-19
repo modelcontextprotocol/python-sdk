@@ -1,4 +1,7 @@
-"""SSE Server Transport Module
+"""SSE Server Transport Module (Deprecated)
+
+.. deprecated::
+    The HTTP+SSE transport is deprecated. Use `StreamableHTTPTransport` instead.
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 
@@ -37,6 +40,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -61,7 +65,13 @@ logger = logging.getLogger(__name__)
 
 
 class SseServerTransport:
-    """SSE server transport for MCP. This class provides two ASGI applications,
+    """SSE server transport for MCP (Deprecated).
+
+    .. deprecated::
+        The HTTP+SSE transport is deprecated. Use `StreamableHTTPTransport` instead
+        for new MCP server implementations.
+
+    This class provides two ASGI applications,
     suitable for use with a framework like Starlette and a server like Hypercorn:
 
         1. connect_sse() is an ASGI application which receives incoming GET requests,
@@ -78,6 +88,9 @@ class SseServerTransport:
     def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
         """Creates a new SSE server transport, which will direct the client to POST
         messages to the relative path given.
+
+        .. deprecated::
+            The HTTP+SSE transport is deprecated. Use `StreamableHTTPTransport` instead.
 
         Args:
             endpoint: A relative path where messages should be posted
@@ -98,6 +111,12 @@ class SseServerTransport:
         """
 
         super().__init__()
+
+        warnings.warn(
+            "SseServerTransport is deprecated. Use StreamableHTTPTransport instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         # Validate that endpoint is a relative path and not a full URL
         if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
