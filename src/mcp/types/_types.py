@@ -1688,11 +1688,11 @@ class ElicitRequest(Request[ElicitRequestParams, Literal["elicitation/create"]])
 class ElicitResult(Result):
     """The client's response to an elicitation request."""
 
-    action: Literal["accept", "decline", "cancel"]
+    action: Literal["accept", "reject", "cancel"]
     """
     The user action in response to the elicitation.
     - "accept": User submitted the form/confirmed the action (or consented to URL navigation)
-    - "decline": User explicitly declined the action
+    - "reject": User explicitly rejected the action
     - "cancel": User dismissed without making an explicit choice
     """
 
