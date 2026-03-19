@@ -50,6 +50,7 @@ mcp = FastMCP(
 If you are using a reverse proxy (like Nginx or Caddy), ensure your proxy is passing the correct `Host` header to the MCP server.
 
 **Nginx example:**
+
 ```nginx
 location / {
     proxy_pass http://localhost:8000;
@@ -59,6 +60,7 @@ location / {
 ```
 
 **Caddy example:**
+
 ```caddy
 reverse_proxy localhost:8000 {
     header_up Host {upstream_hostport}
