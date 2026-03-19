@@ -115,3 +115,39 @@ def test_get_uv_path(monkeypatch: pytest.MonkeyPatch, which_result: str | None, 
 
     monkeypatch.setattr("shutil.which", fake_which)
     assert get_uv_path() == expected
+
+
+def test_windows_drive_letter_without_object(config_dir: Path, monkeypatch: pytest.MonkeyPatch):
+    """Windows paths like C:\\path\\server.py without :object should not split on drive letter."""
+    # Mock Path.resolve to return a fake Windows-style path
+    original_resolve = Path.resolve
+
+    def fake_resolve(self: Path) -> Path:
+        if str(self) == "C:\\Users\\foo\\server.py":
+            # Return the same path as if it were already resolved
+            return self
+        return original_resolve(self)
+
+    monkeypatch.setattr(Path, "resolve", fake_resolve)
+
+    assert update_claude_config(file_spec="C:\\Users\\foo\\server.py", server_name="s")
+
+    # Should use the full path without splitting on the drive letter colon
+    assert _read_server(config_dir, "s")["args"][-1] == "C:\\Users\\foo\\server.py"
+
+
+def test_windows_drive_letter_with_object(config_dir: Path, monkeypatch: pytest.MonkeyPatch):
+    """Windows paths like C:\\path\\server.py:app should only split on the :app suffix."""
+    original_resolve = Path.resolve
+
+    def fake_resolve(self: Path) -> Path:
+        if str(self) == "C:\\Users\\foo\\server.py":
+            return self
+        return original_resolve(self)
+
+    monkeypatch.setattr(Path, "resolve", fake_resolve)
+
+    assert update_claude_config(file_spec="C:\\Users\\foo\\server.py:app", server_name="s")
+
+    # Should split on :app but not on C:
+    assert _read_server(config_dir, "s")["args"][-1] == "C:\\Users\\foo\\server.py:app"

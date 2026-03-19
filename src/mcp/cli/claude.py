@@ -115,7 +115,11 @@ def update_claude_config(
 
         # Convert file path to absolute before adding to command
         # Split off any :object suffix first
-        if ":" in file_spec:
+        # First check if we have a Windows path (e.g., C:\...)
+        has_windows_drive = len(file_spec) > 1 and file_spec[1] == ":"
+
+        # Split on the last colon, but only if it's not part of the Windows drive letter
+        if ":" in (file_spec[2:] if has_windows_drive else file_spec):
             file_path, server_object = file_spec.rsplit(":", 1)
             file_spec = f"{Path(file_path).resolve()}:{server_object}"
         else:
