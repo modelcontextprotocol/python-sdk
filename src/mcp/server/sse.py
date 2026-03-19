@@ -1,4 +1,10 @@
-"""SSE Server Transport Module
+"""SSE Server Transport Module (Deprecated)
+
+.. deprecated::
+    The HTTP+SSE transport was replaced by Streamable HTTP in the
+    `2025-03-26 <https://modelcontextprotocol.io/specification/2025-03-26/changelog>`_
+    protocol revision. Use :class:`mcp.server.streamable_http.StreamableHTTPServerTransport`
+    instead. SSE is retained for backwards compatibility with older clients.
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 
@@ -37,6 +43,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -61,7 +68,15 @@ logger = logging.getLogger(__name__)
 
 
 class SseServerTransport:
-    """SSE server transport for MCP. This class provides two ASGI applications,
+    """SSE server transport for MCP.
+
+    .. deprecated::
+        ``SseServerTransport`` is deprecated. Prefer to use
+        :class:`~mcp.server.streamable_http.StreamableHTTPServerTransport`
+        where possible instead. Note that because some clients still use SSE,
+        servers may need to support both transports during the migration period.
+
+    This class provides two ASGI applications,
     suitable for use with a framework like Starlette and a server like Hypercorn:
 
         1. connect_sse() is an ASGI application which receives incoming GET requests,
@@ -98,6 +113,15 @@ class SseServerTransport:
         """
 
         super().__init__()
+
+        warnings.warn(
+            "SseServerTransport is deprecated. Prefer to use "
+            "StreamableHTTPServerTransport where possible instead. Note that because "
+            "some clients still use SSE, servers may need to support both transports "
+            "during the migration period.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         # Validate that endpoint is a relative path and not a full URL
         if "://" in endpoint or endpoint.startswith("//") or "?" in endpoint or "#" in endpoint:
