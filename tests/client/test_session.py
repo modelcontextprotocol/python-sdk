@@ -607,6 +607,125 @@ async def test_initialize_result():
 
 
 @pytest.mark.anyio
+async def test_client_session_custom_protocol_version():
+    """Test that custom protocol_version is sent during initialization.
+
+    This allows connecting to servers that require a specific protocol version,
+    such as Snowflake's managed MCP server which requires "2025-06-18".
+    See: https://github.com/modelcontextprotocol/python-sdk/issues/2307
+    """
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    custom_protocol_version = "2025-06-18"
+    received_protocol_version = None
+
+    async def mock_server():
+        nonlocal received_protocol_version
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request, InitializeRequest)
+        received_protocol_version = request.params.protocol_version
+
+        result = InitializeResult(
+            protocol_version=custom_protocol_version,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            protocol_version=custom_protocol_version,
+        ) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        result = await session.initialize()
+
+        # Assert that the custom protocol version was sent and received
+        assert received_protocol_version == custom_protocol_version
+        assert result.protocol_version == custom_protocol_version
+
+
+@pytest.mark.anyio
+async def test_client_session_default_protocol_version():
+    """Test that LATEST_PROTOCOL_VERSION is used when protocol_version is not specified."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    received_protocol_version = None
+
+    async def mock_server():
+        nonlocal received_protocol_version
+
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
+            jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
+        )
+        assert isinstance(request, InitializeRequest)
+        received_protocol_version = request.params.protocol_version
+
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
+
+        async with server_to_client_send:
+            await server_to_client_send.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            # Receive initialized notification
+            await client_to_server_receive.receive()
+
+    async with (
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+        await session.initialize()
+
+    # Assert that the default (latest) protocol version was sent
+    assert received_protocol_version == LATEST_PROTOCOL_VERSION
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
     """Test that client tool call requests can include metadata"""
