@@ -137,7 +137,7 @@ class ClientSession(
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
-        
+
         # Protocol version (defaults to LATEST_PROTOCOL_VERSION)
         self._protocol_version = protocol_version or types.LATEST_PROTOCOL_VERSION
 
