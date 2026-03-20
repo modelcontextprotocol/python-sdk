@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, overload
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -230,6 +230,7 @@ class BaseSession(
         self._task_group.cancel_scope.cancel()
         return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
 
+    @overload
     async def send_request(
         self,
         request: SendRequestT,
@@ -237,7 +238,26 @@ class BaseSession(
         request_read_timeout_seconds: float | None = None,
         metadata: MessageMetadata = None,
         progress_callback: ProgressFnT | None = None,
-    ) -> ReceiveResultT:
+    ) -> ReceiveResultT: ...
+
+    @overload
+    async def send_request(
+        self,
+        request: SendRequestT,
+        result_type: TypeAdapter[Any],
+        request_read_timeout_seconds: float | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> Any: ...
+
+    async def send_request(
+        self,
+        request: SendRequestT,
+        result_type: type[ReceiveResultT] | TypeAdapter[Any],
+        request_read_timeout_seconds: float | None = None,
+        metadata: MessageMetadata = None,
+        progress_callback: ProgressFnT | None = None,
+    ) -> ReceiveResultT | Any:
         """Sends a request and waits for a response.
 
         Raises an MCPError if the response contains an error. If a request read timeout is provided, it will take
@@ -280,6 +300,8 @@ class BaseSession(
 
             if isinstance(response_or_error, JSONRPCError):
                 raise MCPError.from_jsonrpc_error(response_or_error)
+            elif isinstance(result_type, TypeAdapter):
+                return result_type.validate_python(response_or_error.result)
             else:
                 return result_type.model_validate(response_or_error.result, by_name=False)
 

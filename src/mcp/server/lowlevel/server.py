@@ -118,7 +118,7 @@ class Server(Generic[LifespanResultT]):
         | None = None,
         on_call_tool: Callable[
             [ServerRequestContext[LifespanResultT], types.CallToolRequestParams],
-            Awaitable[types.CallToolResult | types.CreateTaskResult],
+            Awaitable[types.CallToolResult | types.IncompleteResult | types.CreateTaskResult],
         ]
         | None = None,
         on_list_resources: Callable[

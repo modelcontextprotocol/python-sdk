@@ -97,6 +97,10 @@ async def _default_logging_callback(
 
 ClientResponse: TypeAdapter[types.ClientResult | types.ErrorData] = TypeAdapter(types.ClientResult | types.ErrorData)
 
+_call_tool_result_adapter: TypeAdapter[types.IncompleteResult | types.CallToolResult] = TypeAdapter(
+    types.IncompleteResult | types.CallToolResult
+)
+
 
 class ClientSession(
     BaseSession[
@@ -305,18 +309,60 @@ class ClientSession(
         *,
         meta: RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback support.
 
-        result = await self.send_request(
+        Raises:
+            RuntimeError: If the server returns an IncompleteResult. Use
+                ``Client.call_tool`` or ``call_tool_mrtr`` to handle MRTR flows.
+        """
+        result = await self.call_tool_mrtr(
+            name,
+            arguments,
+            read_timeout_seconds,
+            progress_callback,
+            meta=meta,
+        )
+        if isinstance(result, types.IncompleteResult):
+            raise RuntimeError(
+                f"Server returned IncompleteResult for tool {name!r}. "
+                "Use Client.call_tool or ClientSession.call_tool_mrtr to handle MRTR flows."
+            )
+        return result
+
+    async def call_tool_mrtr(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: float | None = None,
+        progress_callback: ProgressFnT | None = None,
+        *,
+        meta: RequestParamsMeta | None = None,
+        input_responses: types.InputResponses | None = None,
+        request_state: str | None = None,
+    ) -> types.CallToolResult | types.IncompleteResult:
+        """Send a single tools/call request; returns IncompleteResult if server needs input.
+
+        This is the MRTR-aware variant (SEP-2322). One request → one response.
+        Higher-level ``mcp.client.Client.call_tool`` drives the retry loop; this
+        method just surfaces whatever the server sent.
+        """
+
+        result: types.CallToolResult | types.IncompleteResult = await self.send_request(
             types.CallToolRequest(
-                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=meta),
+                params=types.CallToolRequestParams(
+                    name=name,
+                    arguments=arguments,
+                    input_responses=input_responses,
+                    request_state=request_state,
+                    _meta=meta,
+                ),
             ),
-            types.CallToolResult,
+            _call_tool_result_adapter,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
         )
 
-        if not result.is_error:
+        if isinstance(result, types.CallToolResult) and not result.is_error:
             await self._validate_tool_result(name, result)
 
         return result
