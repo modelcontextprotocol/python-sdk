@@ -10,6 +10,26 @@ identical client-observed behaviour.
 
 [typescript-sdk#1701]: https://github.com/modelcontextprotocol/typescript-sdk/pull/1701
 
+## Start here
+
+If you just want to see what an MRTR lowlevel handler looks like without
+the comparison framing, read these first:
+
+- [`basic.py`](mrtr_options/basic.py) — the simple-tool equivalent. One
+  `IncompleteResult`, one retry, done. ~130 lines, half of which are
+  comments explaining the two moves every MRTR handler makes.
+- [`basic_multiround.py`](mrtr_options/basic_multiround.py) — the
+  ADO-rules SEP example. Two rounds, with `request_state` carrying
+  accumulated context across the retry so any server instance can
+  handle any round.
+
+Both are runnable end-to-end against the in-memory client:
+
+```sh
+uv run python -m mrtr_options.basic
+uv run python -m mrtr_options.basic_multiround
+```
+
 ## The quadrant
 
 | Server infra                    | Pre-MRTR client                   | MRTR client |
