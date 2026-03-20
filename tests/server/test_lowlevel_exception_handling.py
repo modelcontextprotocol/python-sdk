@@ -71,8 +71,8 @@ async def test_server_run_exits_cleanly_when_transport_yields_exception_then_clo
     1. Transport yields an Exception into the read stream
        (streamable_http.py does this in its broad POST-handler except).
     2. Transport closes the read stream (terminate() in stateless mode).
-    3. _receive_loop exits its `async with read_stream, write_stream:` block,
-       closing the write stream.
+    3. The dispatcher's receive loop exits its `async with read_stream, write_stream:`
+       block, closing the write stream.
     4. Meanwhile _handle_message(exc) was spawned via tg.start_soon and runs
        after the write stream is closed.
 
@@ -84,8 +84,8 @@ async def test_server_run_exits_cleanly_when_transport_yields_exception_then_clo
 
     read_send, read_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     # Zero-buffer on the write stream forces send() to block until received.
-    # With no receiver, a send() sits blocked until _receive_loop exits its
-    # `async with self._read_stream, self._write_stream:` block and closes the
+    # With no receiver, a send() sits blocked until the dispatcher's receive loop
+    # exits its `async with read_stream, write_stream:` block and closes the
     # stream, at which point the blocked send raises ClosedResourceError.
     # This deterministically reproduces the race without sleeps.
     write_send, write_recv = anyio.create_memory_object_stream[SessionMessage](0)
@@ -99,7 +99,7 @@ async def test_server_run_exits_cleanly_when_transport_yields_exception_then_clo
         # Before this fix, this raised ExceptionGroup(ClosedResourceError).
         await server.run(read_recv, write_send, server.create_initialization_options(), stateless=True)
 
-    # write_send was closed inside _receive_loop's `async with`; receive_nowait
+    # write_send was closed inside the dispatcher's `async with`; receive_nowait
     # raises EndOfStream iff the buffer is empty (i.e., server wrote nothing).
     with pytest.raises(anyio.EndOfStream):
         write_recv.receive_nowait()
