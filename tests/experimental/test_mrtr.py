@@ -15,12 +15,21 @@ from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
+from pydantic import BaseModel
 
 from mcp import types
 from mcp.client.client import Client
 from mcp.client.context import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
-from mcp.server.experimental.mrtr import MrtrCtx, ToolBuilder, dispatch_by_version, input_response
+from mcp.server.experimental.mrtr import (
+    ContinuationStore,
+    LinearCtx,
+    MrtrCtx,
+    ToolBuilder,
+    dispatch_by_version,
+    input_response,
+    linear_mrtr,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -305,3 +314,146 @@ async def test_dispatch_by_version_routes_to_sse_when_below():
     async with Client(make_server(handler)) as client:
         result = await client.call_tool("x", {})
         assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="sse")]))
+
+
+# ─── Option H: linear_mrtr — continuation-based, genuine suspension ──────────
+
+
+class Units(BaseModel):
+    units: str
+
+
+async def test_linear_mrtr_side_effects_run_exactly_once():
+    """The Option B footgun, fixed: ``await ctx.elicit()`` is a real suspension point.
+
+    Side-effects above and below the await fire exactly once — the coroutine
+    frame is held in the ContinuationStore across MRTR rounds, so there is
+    no re-entry.
+    """
+
+    async def weather(ctx: LinearCtx, args: dict[str, Any]) -> str:
+        location = args["location"]
+        audit_log(f"before:{location}")  # would fire twice under Option B
+        prefs = await ctx.elicit("Which units?", Units)
+        audit_log(f"after:{prefs.units}")
+        return lookup_weather(location, prefs.units)
+
+    store = ContinuationStore()
+    server = make_server(linear_mrtr(weather, store=store))
+
+    async with store:
+        async with Client(server, elicitation_callback=pick_metric) as client:
+            result = await client.call_tool("weather", {"location": "Tokyo"})
+            assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="Weather in Tokyo: 22°C")]))
+
+    assert _audit == snapshot(["before:Tokyo", "after:metric"])
+
+
+async def test_linear_mrtr_multiple_elicits():
+    """Two sequential ``await ctx.elicit()`` calls — three MRTR rounds."""
+
+    class Lang(BaseModel):
+        lang: str
+
+    async def handler(ctx: LinearCtx, args: dict[str, Any]) -> str:
+        audit_log("start")
+        u = await ctx.elicit("Which units?", Units)
+        audit_log(f"got units={u.units}")
+        lang = await ctx.elicit("Which language?", Lang)
+        audit_log(f"got lang={lang.lang}")
+        return f"{u.units}/{lang.lang}"
+
+    store = ContinuationStore()
+    server = make_server(linear_mrtr(handler, store=store))
+
+    answers = {"Which units?": {"units": "metric"}, "Which language?": {"lang": "en"}}
+
+    async def elicitation_cb(context: ClientRequestContext, params: types.ElicitRequestParams) -> types.ElicitResult:
+        assert isinstance(params, types.ElicitRequestFormParams)
+        return types.ElicitResult(action="accept", content=dict(answers[params.message]))
+
+    async with store:
+        async with Client(server, elicitation_callback=elicitation_cb) as client:
+            result = await client.call_tool("multi", {})
+            assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="metric/en")]))
+
+    assert _audit == snapshot(["start", "got units=metric", "got lang=en"])
+
+
+async def test_linear_mrtr_elicit_declined_propagates():
+    """User declines → handler sees ElicitDeclined, wrapper returns a cancelled result."""
+
+    async def handler(ctx: LinearCtx, args: dict[str, Any]) -> str:
+        await ctx.elicit("Confirm?", Units)
+        return "never reached"  # pragma: no cover
+
+    store = ContinuationStore()
+    server = make_server(linear_mrtr(handler, store=store))
+
+    async def decline_cb(context: ClientRequestContext, params: types.ElicitRequestParams) -> types.ElicitResult:
+        return types.ElicitResult(action="decline")
+
+    async with store:
+        async with Client(server, elicitation_callback=decline_cb) as client:
+            result = await client.call_tool("confirm", {})
+            assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="Cancelled (decline).")]))
+
+
+async def test_linear_mrtr_handler_exception_surfaces():
+    """Exception in handler → surfaced as is_error result."""
+
+    async def handler(ctx: LinearCtx, args: dict[str, Any]) -> str:
+        raise ValueError("boom")
+
+    store = ContinuationStore()
+    server = make_server(linear_mrtr(handler, store=store))
+
+    async with store:
+        async with Client(server) as client:
+            result = await client.call_tool("fail", {})
+            assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="boom")], is_error=True))
+
+
+async def test_linear_mrtr_unknown_token_errors():
+    """Retry with a request_state that isn't in the store → clear error."""
+
+    async def handler(ctx: LinearCtx, args: dict[str, Any]) -> str:  # pragma: no cover
+        return "x"
+
+    store = ContinuationStore()
+    wrapped = linear_mrtr(handler, store=store)
+
+    async with store:
+        params = types.CallToolRequestParams(name="x", request_state="bogus")
+        result = await wrapped(None, params)
+        assert isinstance(result, types.CallToolResult)
+        assert result.is_error
+        assert "expired or unknown" in result.content[0].text  # type: ignore[union-attr]
+
+
+async def test_linear_mrtr_handler_can_return_call_tool_result():
+    """Handler returning CallToolResult directly (not str shorthand)."""
+
+    async def handler(ctx: LinearCtx, args: dict[str, Any]) -> types.CallToolResult:
+        return types.CallToolResult(content=[types.TextContent(text="direct")])
+
+    store = ContinuationStore()
+    server = make_server(linear_mrtr(handler, store=store))
+
+    async with store:
+        async with Client(server) as client:
+            result = await client.call_tool("direct", {})
+            assert result == snapshot(types.CallToolResult(content=[types.TextContent(text="direct")]))
+
+
+async def test_linear_mrtr_store_not_entered_raises():
+    """Calling without entering the store → clear RuntimeError."""
+
+    async def handler(ctx: LinearCtx, args: dict[str, Any]) -> str:  # pragma: no cover
+        return "x"
+
+    store = ContinuationStore()
+    wrapped = linear_mrtr(handler, store=store)
+
+    with pytest.raises(RuntimeError, match="ContinuationStore not entered"):
+        await wrapped(None, types.CallToolRequestParams(name="x"))

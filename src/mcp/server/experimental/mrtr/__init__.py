@@ -30,6 +30,7 @@ from mcp.server.experimental.mrtr._state import decode_state, encode_state, inpu
 from mcp.server.experimental.mrtr.builder import EndStep, IncompleteStep, ToolBuilder
 from mcp.server.experimental.mrtr.compat import MrtrHandler, dispatch_by_version, sse_retry_shim
 from mcp.server.experimental.mrtr.context import MrtrCtx
+from mcp.server.experimental.mrtr.linear import ContinuationStore, ElicitDeclined, LinearCtx, linear_mrtr
 
 __all__ = [
     "MrtrCtx",
@@ -37,6 +38,10 @@ __all__ = [
     "IncompleteStep",
     "EndStep",
     "MrtrHandler",
+    "LinearCtx",
+    "ContinuationStore",
+    "ElicitDeclined",
+    "linear_mrtr",
     "input_response",
     "encode_state",
     "decode_state",

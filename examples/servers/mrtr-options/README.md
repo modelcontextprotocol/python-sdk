@@ -45,15 +45,16 @@ infra." The rows collapse for E, which is why it's the SDK default.
 
 ## Options
 
-|                                | Author writes                   | SDK does                         | Hidden re-entry | Old client gets                   |
-| ------------------------------ | ------------------------------- | -------------------------------- | --------------- | --------------------------------- |
-| [E](mrtr_options/option_e_degrade.py)        | MRTR-native only                | Nothing                          | No              | Result w/ default, or error       |
-| [A](mrtr_options/option_a_sse_shim.py)       | MRTR-native only                | Retry-loop over SSE              | Yes, safe       | Full elicitation                  |
-| [B](mrtr_options/option_b_await_shim.py)     | `await elicit()`                | Exception → `IncompleteResult`   | **Yes, unsafe** | Full elicitation                  |
-| [C](mrtr_options/option_c_version_branch.py) | One handler, `if version` branch | Version accessor                | No              | Full elicitation                  |
-| [D](mrtr_options/option_d_dual_handler.py)   | Two handlers                    | Picks by version                 | No              | Full elicitation                  |
-| [F](mrtr_options/option_f_ctx_once.py)       | MRTR-native + `ctx.once` wraps  | `once()` guard in request_state  | No              | (same as E)                       |
-| [G](mrtr_options/option_g_tool_builder.py)   | Step functions + `.build()`     | Step-tracking in request_state   | No              | (same as E)                       |
+|                                | Author writes                   | SDK does                         | Hidden re-entry | Server state         | Old client gets                   |
+| ------------------------------ | ------------------------------- | -------------------------------- | --------------- | -------------------- | --------------------------------- |
+| [E](mrtr_options/option_e_degrade.py)        | MRTR-native only                | Nothing                          | No              | None                 | Result w/ default, or error       |
+| [A](mrtr_options/option_a_sse_shim.py)       | MRTR-native only                | Retry-loop over SSE              | Yes, safe       | SSE connection       | Full elicitation                  |
+| [B](mrtr_options/option_b_await_shim.py)     | `await elicit()`                | Exception → `IncompleteResult`   | **Yes, unsafe** | None                 | Full elicitation                  |
+| [C](mrtr_options/option_c_version_branch.py) | One handler, `if version` branch | Version accessor                | No              | SSE (old-client arm) | Full elicitation                  |
+| [D](mrtr_options/option_d_dual_handler.py)   | Two handlers                    | Picks by version                 | No              | SSE (old-client arm) | Full elicitation                  |
+| [F](mrtr_options/option_f_ctx_once.py)       | MRTR-native + `ctx.once` wraps  | `once()` guard in request_state  | No              | None                 | (same as E)                       |
+| [G](mrtr_options/option_g_tool_builder.py)   | Step functions + `.build()`     | Step-tracking in request_state   | No              | None                 | (same as E)                       |
+| [H](mrtr_options/option_h_linear.py)         | `await ctx.elicit()` (linear)   | Holds coroutine frame in memory  | No              | Coroutine frame      | (same as E)                       |
 
 "Hidden re-entry" = the handler function is invoked more than once for a
 single logical tool call, and the author can't tell from the source text.
@@ -119,6 +120,17 @@ double-execution impossible for `end_step`, but costs two function defs
 per tool. Likely SDK answer: ship F as a primitive on the context, ship G
 as an opt-in builder, recommend G for multi-round tools and F for
 single-question tools.
+
+**H (linear continuation)** is the Option B footgun, *fixed*. Handler code
+reads exactly like the SSE era — `await ctx.elicit()` is a genuine
+suspension point, side-effects above it fire once — because the coroutine
+frame is held in memory across rounds. The trade: server is stateful
+*within* a single tool call (frame keyed by `request_state`), so
+horizontally-scaled deployments need sticky routing on the token. Same
+operational shape as A's SSE hold but without the long-lived connection.
+Use for migrating existing SSE-era tools without rewriting, or when the
+linear style is genuinely clearer than guard-first. Don't use if you need
+true statelessness — E/F/G encode everything in `request_state` itself.
 
 ## The invariant test
 
