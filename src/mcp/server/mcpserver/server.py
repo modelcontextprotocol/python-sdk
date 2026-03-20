@@ -860,6 +860,7 @@ class MCPServer(Generic[LifespanResultT]):
             The HTTP+SSE transport is deprecated. Use `run_streamable_http_async` instead.
         """
         import warnings
+
         warnings.warn(
             "run_sse_async is deprecated. Use run_streamable_http_async instead.",
             DeprecationWarning,
@@ -932,6 +933,7 @@ class MCPServer(Generic[LifespanResultT]):
             The HTTP+SSE transport is deprecated. Use `streamable_http_app` instead.
         """
         import warnings
+
         warnings.warn(
             "sse_app is deprecated. Use streamable_http_app instead.",
             DeprecationWarning,
