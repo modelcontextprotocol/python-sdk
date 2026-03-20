@@ -5,6 +5,7 @@ import anyio
 import pytest
 from pydantic import TypeAdapter
 
+from mcp.shared.dispatcher import JSONRPCDispatcher
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, RequestId, SendResultT
 from mcp.types import ClientNotification, ClientRequest, ClientResult, EmptyResult, ErrorData, PingRequest
@@ -46,17 +47,21 @@ async def test_send_request_stream_cleanup():
     async def mock_send(*args: Any, **kwargs: Any):
         raise RuntimeError("Simulated network error")
 
+    # JSON-RPC correlation state lives on the dispatcher now; reach through to it.
+    dispatcher = session._dispatcher
+    assert isinstance(dispatcher, JSONRPCDispatcher)
+
     # Record the response streams before the test
-    initial_stream_count = len(session._response_streams)
+    initial_stream_count = len(dispatcher._response_streams)
 
     # Run the test with the patched method
-    with patch.object(session._write_stream, "send", mock_send):
+    with patch.object(dispatcher._write_stream, "send", mock_send):
         with pytest.raises(RuntimeError):
             await session.send_request(request, EmptyResult)
 
     # Verify that no response streams were leaked
-    assert len(session._response_streams) == initial_stream_count, (
-        f"Expected {initial_stream_count} response streams after request, but found {len(session._response_streams)}"
+    assert len(dispatcher._response_streams) == initial_stream_count, (
+        f"Expected {initial_stream_count} response streams after request, but found {len(dispatcher._response_streams)}"
     )
 
     # Clean up

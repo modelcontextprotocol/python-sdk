@@ -11,6 +11,7 @@ from mcp import types
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
+from mcp.shared.dispatcher import Dispatcher
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -109,8 +110,8 @@ class ClientSession(
 ):
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None,
+        write_stream: MemoryObjectSendStream[SessionMessage] | None = None,
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
@@ -121,8 +122,9 @@ class ClientSession(
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
+        dispatcher: Dispatcher | None = None,
     ) -> None:
-        super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
+        super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds, dispatcher=dispatcher)
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities

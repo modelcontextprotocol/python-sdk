@@ -40,6 +40,7 @@ from mcp import types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
+from mcp.shared.dispatcher import JSONRPCDispatcher
 from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
@@ -157,9 +158,9 @@ class ServerSession(
 
         return True
 
-    async def _receive_loop(self) -> None:
+    async def _run(self) -> None:
         async with self._incoming_message_stream_writer:
-            await super()._receive_loop()
+            await super()._run()
 
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request:
@@ -676,12 +677,14 @@ class ServerSession(
 
         WARNING: This is a low-level experimental method that may change without
         notice. Prefer using higher-level methods like send_notification() or
-        send_request() for normal operations.
+        send_request() for normal operations. Only works with the default
+        JSON-RPC dispatcher.
 
         Args:
             message: The session message to send
         """
-        await self._write_stream.send(message)
+        assert isinstance(self._dispatcher, JSONRPCDispatcher), "send_message requires the default JSON-RPC dispatcher"
+        await self._dispatcher._write_stream.send(message)  # type: ignore[reportPrivateUsage]
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:
         await self._incoming_message_stream_writer.send(req)
