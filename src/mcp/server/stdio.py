@@ -17,6 +17,8 @@ Example:
     ```
 """
 
+import io
+import os
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
@@ -34,14 +36,27 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
-    # Purposely not using context managers for these, as we don't want to close
-    # standard process handles. Encoding of stdin/stdout as text streams on
-    # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    # We duplicate file descriptors when using the real stdin/stdout to avoid
+    # closing the process's standard handles when the TextIOWrapper is closed.
+    # This allows the process to continue using stdio normally after the server exits.
+    # For streams without a fileno() (e.g., in-memory streams in tests), we fall back
+    # to wrapping them directly.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        try:
+            stdin_fd = os.dup(sys.stdin.fileno())
+            stdin_bin = os.fdopen(stdin_fd, "rb", closefd=True)
+            stdin = anyio.wrap_file(TextIOWrapper(stdin_bin, encoding="utf-8", errors="replace"))
+        except (OSError, io.UnsupportedOperation):
+            # Fallback for streams that don't support fileno() (e.g., BytesIO in tests)
+            stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        try:
+            stdout_fd = os.dup(sys.stdout.fileno())
+            stdout_bin = os.fdopen(stdout_fd, "wb", closefd=True)
+            stdout = anyio.wrap_file(TextIOWrapper(stdout_bin, encoding="utf-8"))
+        except (OSError, io.UnsupportedOperation):
+            # Fallback for streams that don't support fileno() (e.g., BytesIO in tests)
+            stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
