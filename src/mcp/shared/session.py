@@ -270,6 +270,7 @@ class BaseSession(
             # request read timeout takes precedence over session read timeout
             timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
 
+            response_or_error: JSONRPCResponse | JSONRPCError | None = None
             try:
                 with anyio.fail_after(timeout):
                     response_or_error = await response_stream_reader.receive()
@@ -277,6 +278,15 @@ class BaseSession(
                 class_name = request.__class__.__name__
                 message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
                 raise MCPError(code=REQUEST_TIMEOUT, message=message)
+
+            if response_or_error is None:
+                raise MCPError(
+                    code=REQUEST_TIMEOUT,
+                    message=(
+                        f"Response not received for {request.__class__.__name__}. "
+                        "This may indicate a race condition in the cancel scope."
+                    ),
+                )
 
             if isinstance(response_or_error, JSONRPCError):
                 raise MCPError.from_jsonrpc_error(response_or_error)
