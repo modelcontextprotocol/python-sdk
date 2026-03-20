@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import anyio
 import pytest
 
+from mcp.client._memory import InMemoryTransport
 from mcp.client.session import ClientSession
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared._context import RequestContext
@@ -16,7 +16,6 @@ from mcp.shared.dispatcher import (
     OnNotificationFn,
     OnRequestFn,
 )
-from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import MessageMetadata
 from mcp.types import (
     CreateMessageRequestParams,
@@ -96,25 +95,18 @@ async def test_client_session_accepts_custom_dispatcher():
             stop_reason="endTurn",
         )
 
-    async with create_client_server_memory_streams() as (client_streams, server_streams):
-        client_read, client_write = client_streams
-        server_read, server_write = server_streams
-
-        # The spy wraps a real JSON-RPC dispatcher so the server side works unchanged.
-        # What matters is that ClientSession has no idea it isn't the default.
+    # InMemoryTransport runs the server for us and yields client-side streams —
+    # we intercept those streams and feed them through a custom dispatcher.
+    async with InMemoryTransport(app) as (client_read, client_write):
         inner = JSONRPCDispatcher(client_read, client_write, response_routers=[])
         spy = SpyDispatcher(inner)
 
-        async with anyio.create_task_group() as tg:
-            server = app._lowlevel_server  # type: ignore[reportPrivateUsage]
-            tg.start_soon(lambda: server.run(server_read, server_write, server.create_initialization_options()))
-
-            async with ClientSession(dispatcher=spy, sampling_callback=sampling_callback) as session:
-                await session.initialize()
-                result = await session.call_tool("ask", {"question": "meaning of life?"})
-                assert result.content[0].text == "42"  # type: ignore[union-attr]
-
-            tg.cancel_scope.cancel()
+        async with ClientSession(dispatcher=spy, sampling_callback=sampling_callback) as session:
+            await session.initialize()
+            result = await session.call_tool("ask", {"question": "meaning of life?"})
+            content = result.content[0]
+            assert isinstance(content, TextContent)
+            assert content.text == "42"
 
     # initialize, tools/call (triggers sampling on the server), tools/list (schema refresh)
     assert [r["method"] for r in spy.sent_requests] == ["initialize", "tools/call", "tools/list"]
