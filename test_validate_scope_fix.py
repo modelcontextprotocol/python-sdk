@@ -1,6 +1,7 @@
 """Test for validate_scope fix when self.scope is None"""
 
 import pytest
+
 from mcp.shared.auth import ClientRegistration, InvalidScopeError
 
 
