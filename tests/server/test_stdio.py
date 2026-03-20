@@ -11,7 +11,7 @@ from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, jsonrpc_m
 
 
 @pytest.mark.anyio
-async def test_stdio_server():
+async def test_stdio_server() -> None:
     stdin = io.StringIO()
     stdout = io.StringIO()
 
@@ -64,7 +64,7 @@ async def test_stdio_server():
 
 
 @pytest.mark.anyio
-async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
+async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
     """Non-UTF-8 bytes on stdin must not crash the server.
 
     Invalid bytes are replaced with U+FFFD, which then fails JSON parsing and

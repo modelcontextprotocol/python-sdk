@@ -13,7 +13,7 @@ from mcp.server.auth.provider import AccessToken, TokenVerifier
 class AuthenticatedUser(SimpleUser):
     """User with authentication info."""
 
-    def __init__(self, auth_info: AccessToken):
+    def __init__(self, auth_info: AccessToken) -> None:
         super().__init__(auth_info.client_id)
         self.access_token = auth_info
         self.scopes = auth_info.scopes
@@ -22,10 +22,10 @@ class AuthenticatedUser(SimpleUser):
 class BearerAuthBackend(AuthenticationBackend):
     """Authentication backend that validates Bearer tokens using a TokenVerifier."""
 
-    def __init__(self, token_verifier: TokenVerifier):
+    def __init__(self, token_verifier: TokenVerifier) -> None:
         self.token_verifier = token_verifier
 
-    async def authenticate(self, conn: HTTPConnection):
+    async def authenticate(self, conn: HTTPConnection) -> tuple[AuthCredentials, AuthenticatedUser] | None:
         auth_header = next(
             (conn.headers.get(key) for key in conn.headers if key.lower() == "authorization"),
             None,
@@ -59,7 +59,7 @@ class RequireAuthMiddleware:
         app: Any,
         required_scopes: list[str],
         resource_metadata_url: AnyHttpUrl | None = None,
-    ):
+    ) -> None:
         """Initialize the middleware.
 
         Args:

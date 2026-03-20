@@ -10,7 +10,7 @@ by the low-level server to package resource content before sending it over the M
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 
 
-def test_read_resource_contents_with_metadata():
+def test_read_resource_contents_with_metadata() -> None:
     """Test that ReadResourceContents accepts meta parameter.
 
     ReadResourceContents is an internal helper type used by the low-level MCP server.
@@ -33,7 +33,7 @@ def test_read_resource_contents_with_metadata():
     assert contents.meta["cached"] is True
 
 
-def test_read_resource_contents_without_metadata():
+def test_read_resource_contents_without_metadata() -> None:
     """Test that ReadResourceContents meta defaults to None."""
     # Ensures backward compatibility - meta defaults to None, _meta omitted from protocol (helper_types.py:11)
     contents = ReadResourceContents(
@@ -44,7 +44,7 @@ def test_read_resource_contents_without_metadata():
     assert contents.meta is None
 
 
-def test_read_resource_contents_with_bytes():
+def test_read_resource_contents_with_bytes() -> None:
     """Test that ReadResourceContents works with bytes content and meta."""
     # Verifies meta works with both str and bytes content (binary resources like images, PDFs)
     metadata = {"encoding": "utf-8"}

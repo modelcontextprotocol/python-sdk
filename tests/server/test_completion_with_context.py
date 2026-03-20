@@ -14,7 +14,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_completion_handler_receives_context():
+async def test_completion_handler_receives_context() -> None:
     """Test that the completion handler receives context correctly."""
     # Track what the handler receives
     received_params: CompleteRequestParams | None = None
@@ -42,7 +42,7 @@ async def test_completion_handler_receives_context():
 
 
 @pytest.mark.anyio
-async def test_completion_backward_compatibility():
+async def test_completion_backward_compatibility() -> None:
     """Test that completion works without context (backward compatibility)."""
     context_was_none = False
 
@@ -65,7 +65,7 @@ async def test_completion_backward_compatibility():
 
 
 @pytest.mark.anyio
-async def test_dependent_completion_scenario():
+async def test_dependent_completion_scenario() -> None:
     """Test a real-world scenario with dependent completions."""
 
     async def handle_completion(ctx: ServerRequestContext, params: CompleteRequestParams) -> CompleteResult:
@@ -120,7 +120,7 @@ async def test_dependent_completion_scenario():
 
 
 @pytest.mark.anyio
-async def test_completion_error_on_missing_context():
+async def test_completion_error_on_missing_context() -> None:
     """Test that server can raise error when required context is missing."""
 
     async def handle_completion(ctx: ServerRequestContext, params: CompleteRequestParams) -> CompleteResult:

@@ -12,7 +12,7 @@ from mcp.types import Annotations
 class TestResourceTemplate:
     """Test ResourceTemplate functionality."""
 
-    def test_template_creation(self):
+    def test_template_creation(self) -> None:
         """Test creating a template from a function."""
 
         def my_func(key: str, value: int) -> dict[str, Any]:
@@ -28,7 +28,7 @@ class TestResourceTemplate:
         assert template.mime_type == "text/plain"  # default
         assert template.fn(key="test", value=42) == my_func(key="test", value=42)
 
-    def test_template_matches(self):
+    def test_template_matches(self) -> None:
         """Test matching URIs against a template."""
 
         def my_func(key: str, value: int) -> dict[str, Any]:  # pragma: no cover
@@ -49,7 +49,7 @@ class TestResourceTemplate:
         assert template.matches("other://foo/123") is None
 
     @pytest.mark.anyio
-    async def test_create_resource(self):
+    async def test_create_resource(self) -> None:
         """Test creating a resource from a template."""
 
         def my_func(key: str, value: int) -> dict[str, Any]:
@@ -74,7 +74,7 @@ class TestResourceTemplate:
         assert data == {"key": "foo", "value": 123}
 
     @pytest.mark.anyio
-    async def test_template_error(self):
+    async def test_template_error(self) -> None:
         """Test error handling in template resource creation."""
 
         def failing_func(x: str) -> str:
@@ -90,7 +90,7 @@ class TestResourceTemplate:
             await template.create_resource("fail://test", {"x": "test"}, Context())
 
     @pytest.mark.anyio
-    async def test_async_text_resource(self):
+    async def test_async_text_resource(self) -> None:
         """Test creating a text resource from async function."""
 
         async def greet(name: str) -> str:
@@ -113,7 +113,7 @@ class TestResourceTemplate:
         assert content == "Hello, world!"
 
     @pytest.mark.anyio
-    async def test_async_binary_resource(self):
+    async def test_async_binary_resource(self) -> None:
         """Test creating a binary resource from async function."""
 
         async def get_bytes(value: str) -> bytes:
@@ -136,7 +136,7 @@ class TestResourceTemplate:
         assert content == b"test"
 
     @pytest.mark.anyio
-    async def test_basemodel_conversion(self):
+    async def test_basemodel_conversion(self) -> None:
         """Test handling of BaseModel types."""
 
         class MyModel(BaseModel):
@@ -165,11 +165,11 @@ class TestResourceTemplate:
         assert data == {"key": "foo", "value": 123}
 
     @pytest.mark.anyio
-    async def test_custom_type_conversion(self):
+    async def test_custom_type_conversion(self) -> None:
         """Test handling of custom types."""
 
         class CustomData:
-            def __init__(self, value: str):
+            def __init__(self, value: str) -> None:
                 self.value = value
 
             def __str__(self) -> str:
@@ -198,7 +198,7 @@ class TestResourceTemplate:
 class TestResourceTemplateAnnotations:
     """Test annotations on resource templates."""
 
-    def test_template_with_annotations(self):
+    def test_template_with_annotations(self) -> None:
         """Test creating a template with annotations."""
 
         def get_user_data(user_id: str) -> str:  # pragma: no cover
@@ -213,7 +213,7 @@ class TestResourceTemplateAnnotations:
         assert template.annotations is not None
         assert template.annotations.priority == 0.9
 
-    def test_template_without_annotations(self):
+    def test_template_without_annotations(self) -> None:
         """Test that annotations are optional for templates."""
 
         def get_user_data(user_id: str) -> str:  # pragma: no cover
@@ -224,7 +224,7 @@ class TestResourceTemplateAnnotations:
         assert template.annotations is None
 
     @pytest.mark.anyio
-    async def test_template_annotations_in_mcpserver(self):
+    async def test_template_annotations_in_mcpserver(self) -> None:
         """Test template annotations via an MCPServer decorator."""
 
         mcp = MCPServer()
@@ -241,7 +241,7 @@ class TestResourceTemplateAnnotations:
         assert templates[0].annotations.priority == 0.7
 
     @pytest.mark.anyio
-    async def test_template_created_resources_inherit_annotations(self):
+    async def test_template_created_resources_inherit_annotations(self) -> None:
         """Test that resources created from templates inherit annotations."""
 
         def get_item(item_id: str) -> str:
@@ -268,7 +268,7 @@ class TestResourceTemplateAnnotations:
 class TestResourceTemplateMetadata:
     """Test ResourceTemplate meta handling."""
 
-    def test_template_from_function_with_metadata(self):
+    def test_template_from_function_with_metadata(self) -> None:
         """Test that ResourceTemplate.from_function() accepts and stores meta parameter."""
 
         def get_user(user_id: str) -> str:  # pragma: no cover
@@ -288,7 +288,7 @@ class TestResourceTemplateMetadata:
         assert template.meta["rate_limit"] == 100
 
     @pytest.mark.anyio
-    async def test_template_created_resources_inherit_metadata(self):
+    async def test_template_created_resources_inherit_metadata(self) -> None:
         """Test that resources created from templates inherit meta from template."""
 
         def get_item(item_id: str) -> str:

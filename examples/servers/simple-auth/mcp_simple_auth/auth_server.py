@@ -47,7 +47,7 @@ class SimpleAuthProvider(SimpleOAuthProvider):
     2. Stores token state for introspection by Resource Servers
     """
 
-    def __init__(self, auth_settings: SimpleAuthSettings, auth_callback_path: str, server_url: str):
+    def __init__(self, auth_settings: SimpleAuthSettings, auth_callback_path: str, server_url: str) -> None:
         super().__init__(auth_settings, auth_callback_path, server_url)
 
 
@@ -134,7 +134,7 @@ def create_authorization_server(server_settings: AuthServerSettings, auth_settin
     return Starlette(routes=routes)
 
 
-async def run_server(server_settings: AuthServerSettings, auth_settings: SimpleAuthSettings):
+async def run_server(server_settings: AuthServerSettings, auth_settings: SimpleAuthSettings) -> None:
     """Run the Authorization Server."""
     auth_server = create_authorization_server(server_settings, auth_settings)
 

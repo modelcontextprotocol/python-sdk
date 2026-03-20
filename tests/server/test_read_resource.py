@@ -14,7 +14,7 @@ from mcp.types import (
 pytestmark = pytest.mark.anyio
 
 
-async def test_read_resource_text():
+async def test_read_resource_text() -> None:
     async def handle_read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
         return ReadResourceResult(
             contents=[TextResourceContents(uri=str(params.uri), text="Hello World", mime_type="text/plain")]
@@ -32,7 +32,7 @@ async def test_read_resource_text():
         assert content.mime_type == "text/plain"
 
 
-async def test_read_resource_binary():
+async def test_read_resource_binary() -> None:
     binary_data = b"Hello World"
 
     async def handle_read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:

@@ -497,7 +497,7 @@ async def test_request_context_isolation(context_server: None, server_url: str) 
         assert ctx["headers"].get("x-custom-value") == f"value-{i}"
 
 
-def test_sse_message_id_coercion():
+def test_sse_message_id_coercion() -> None:
     """Previously, the `RequestId` would coerce a string that looked like an integer into an integer.
 
     See <https://github.com/modelcontextprotocol/python-sdk/pull/851> for more details.
@@ -531,7 +531,7 @@ def test_sse_message_id_coercion():
         ("/messages/#fragment", ValueError),
     ],
 )
-def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result: str | type[Exception]):
+def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result: str | type[Exception]) -> None:
     """Test that SseServerTransport properly validates and normalizes endpoints."""
     if isinstance(expected_result, type):
         # Test invalid endpoints that should raise an exception

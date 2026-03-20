@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 class PromptManager:
     """Manages MCPServer prompts."""
 
-    def __init__(self, warn_on_duplicate_prompts: bool = True):
+    def __init__(self, warn_on_duplicate_prompts: bool = True) -> None:
         self._prompts: dict[str, Prompt] = {}
         self.warn_on_duplicate_prompts = warn_on_duplicate_prompts
 

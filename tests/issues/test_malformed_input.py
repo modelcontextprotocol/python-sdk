@@ -11,7 +11,7 @@ from mcp.types import INVALID_PARAMS, JSONRPCError, JSONRPCMessage, JSONRPCReque
 
 
 @pytest.mark.anyio
-async def test_malformed_initialize_request_does_not_crash_server():
+async def test_malformed_initialize_request_does_not_crash_server() -> None:
     """Test that malformed initialize requests return proper error responses
     instead of crashing the server (HackerOne #3156202).
     """
@@ -91,7 +91,7 @@ async def test_malformed_initialize_request_does_not_crash_server():
 
 
 @pytest.mark.anyio
-async def test_multiple_concurrent_malformed_requests():
+async def test_multiple_concurrent_malformed_requests() -> None:
     """Test that multiple concurrent malformed requests don't crash the server."""
     # Create in-memory streams for testing
     read_send_stream, read_receive_stream = anyio.create_memory_object_stream[SessionMessage | Exception](100)

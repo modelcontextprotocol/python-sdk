@@ -18,6 +18,7 @@ Example:
 """
 
 import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 
@@ -30,7 +31,11 @@ from mcp.shared.message import SessionMessage
 
 
 @asynccontextmanager
-async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None):
+async def stdio_server(
+    stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.AsyncFile[str] | None = None
+) -> AsyncGenerator[
+    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]], None
+]:
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
@@ -52,7 +57,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-    async def stdin_reader():
+    async def stdin_reader() -> None:
         try:
             async with read_stream_writer:
                 async for line in stdin:
@@ -67,7 +72,7 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async def stdout_writer():
+    async def stdout_writer() -> None:
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:

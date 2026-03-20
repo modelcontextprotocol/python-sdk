@@ -5,7 +5,7 @@ from mcp.server.mcpserver import MCPServer
 
 
 @pytest.mark.anyio
-async def test_resource_templates():
+async def test_resource_templates() -> None:
     mcp = MCPServer("Demo")
 
     @mcp.resource("greeting://{name}")

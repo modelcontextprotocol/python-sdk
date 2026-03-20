@@ -71,7 +71,7 @@ class FallbackProcess:
     so that MCP clients expecting async streams can work properly.
     """
 
-    def __init__(self, popen_obj: subprocess.Popen[bytes]):
+    def __init__(self, popen_obj: subprocess.Popen[bytes]) -> None:
         self.popen: subprocess.Popen[bytes] = popen_obj
         self.stdin_raw = popen_obj.stdin  # type: ignore[assignment]
         self.stdout_raw = popen_obj.stdout  # type: ignore[assignment]
@@ -80,7 +80,7 @@ class FallbackProcess:
         self.stdin = FileWriteStream(cast(BinaryIO, self.stdin_raw)) if self.stdin_raw else None
         self.stdout = FileReadStream(cast(BinaryIO, self.stdout_raw)) if self.stdout_raw else None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "FallbackProcess":
         """Support async context manager entry."""
         return self
 
@@ -106,11 +106,11 @@ class FallbackProcess:
         if self.stderr:
             self.stderr.close()
 
-    async def wait(self):
+    async def wait(self) -> int:
         """Async wait for process completion."""
         return await to_thread.run_sync(self.popen.wait)
 
-    def terminate(self):
+    def terminate(self) -> None:
         """Terminate the subprocess immediately."""
         return self.popen.terminate()
 
@@ -313,7 +313,7 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess, tim
     "terminate_windows_process is deprecated and will be removed in a future version. "
     "Process termination is now handled internally by the stdio_client context manager."
 )
-async def terminate_windows_process(process: Process | FallbackProcess):
+async def terminate_windows_process(process: Process | FallbackProcess) -> None:
     """Terminate a Windows process.
 
     Note: On Windows, terminating a process with process.terminate() doesn't

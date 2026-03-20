@@ -51,7 +51,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
     3. Maintaining token state for introspection
     """
 
-    def __init__(self, settings: SimpleAuthSettings, auth_callback_url: str, server_url: str):
+    def __init__(self, settings: SimpleAuthSettings, auth_callback_url: str, server_url: str) -> None:
         self.settings = settings
         self.auth_callback_url = auth_callback_url
         self.server_url = server_url
@@ -66,7 +66,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         """Get OAuth client information."""
         return self.clients.get(client_id)
 
-    async def register_client(self, client_info: OAuthClientInformationFull):
+    async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         """Register a new OAuth client."""
         if not client_info.client_id:
             raise ValueError("No client_id provided")

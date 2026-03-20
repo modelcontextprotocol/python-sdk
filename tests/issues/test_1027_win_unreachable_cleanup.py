@@ -21,7 +21,7 @@ from tests.shared.test_win32_utils import escape_path_for_python
 
 
 @pytest.mark.anyio
-async def test_lifespan_cleanup_executed():
+async def test_lifespan_cleanup_executed() -> None:
     """Regression test ensuring MCP server cleanup code runs during shutdown.
 
     This test verifies that the fix for issue #1027 works correctly by:
@@ -121,7 +121,7 @@ async def test_lifespan_cleanup_executed():
 
 @pytest.mark.anyio
 @pytest.mark.filterwarnings("ignore::ResourceWarning" if sys.platform == "win32" else "default")
-async def test_stdin_close_triggers_cleanup():
+async def test_stdin_close_triggers_cleanup() -> None:
     """Regression test verifying the stdin-based graceful shutdown mechanism.
 
     This test ensures the core fix for issue #1027 continues to work by:

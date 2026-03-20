@@ -232,7 +232,7 @@ class OAuthClientProvider(httpx.Auth):
         timeout: float = 300.0,
         client_metadata_url: str | None = None,
         validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
-    ):
+    ) -> None:
         """Initialize OAuth2 authentication.
 
         Args:

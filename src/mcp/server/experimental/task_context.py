@@ -80,7 +80,7 @@ class ServerTaskContext:
         session: ServerSession,
         queue: TaskMessageQueue,
         handler: TaskResultHandler | None = None,
-    ):
+    ) -> None:
         """Create a ServerTaskContext.
 
         Args:

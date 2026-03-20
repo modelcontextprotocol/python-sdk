@@ -23,12 +23,12 @@ class OAuthToken(BaseModel):
 
 
 class InvalidScopeError(Exception):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         self.message = message
 
 
 class InvalidRedirectUriError(Exception):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         self.message = message
 
 

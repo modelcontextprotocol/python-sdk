@@ -28,7 +28,7 @@ async def test_request_id_match() -> None:
     server_writer, server_reader = anyio.create_memory_object_stream[SessionMessage | Exception](1)
 
     # Server task to process the request
-    async def run_server():
+    async def run_server() -> None:
         async with client_reader, server_writer:
             await server.run(
                 client_reader,

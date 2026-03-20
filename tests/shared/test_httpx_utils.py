@@ -5,7 +5,7 @@ import httpx
 from mcp.shared._httpx_utils import create_mcp_http_client
 
 
-def test_default_settings():
+def test_default_settings() -> None:
     """Test that default settings are applied correctly."""
     client = create_mcp_http_client()
 
@@ -13,7 +13,7 @@ def test_default_settings():
     assert client.timeout.connect == 30.0
 
 
-def test_custom_parameters():
+def test_custom_parameters() -> None:
     """Test custom headers and timeout are set correctly."""
     headers = {"Authorization": "Bearer token"}
     timeout = httpx.Timeout(60.0)

@@ -50,11 +50,17 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return np.dot(a_array, b_array) / (np.linalg.norm(a_array) * np.linalg.norm(b_array))
 
 
+@dataclass
+class Deps:
+    openai: AsyncOpenAI
+    pool: asyncpg.Pool
+
+
 async def do_ai(
     user_prompt: str,
     system_prompt: str,
     result_type: type[T] | Annotated,
-    deps=None,
+    deps: Deps | None = None,
 ) -> T:
     agent = Agent(
         DEFAULT_LLM_MODEL,
@@ -65,14 +71,8 @@ async def do_ai(
     return result.data
 
 
-@dataclass
-class Deps:
-    openai: AsyncOpenAI
-    pool: asyncpg.Pool
-
-
 async def get_db_pool() -> asyncpg.Pool:
-    async def init(conn):
+    async def init(conn: asyncpg.Connection) -> None:
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
         await register_vector(conn)
 
@@ -90,11 +90,11 @@ class MemoryNode(BaseModel):
     embedding: list[float]
 
     @classmethod
-    async def from_content(cls, content: str, deps: Deps):
+    async def from_content(cls, content: str, deps: Deps) -> Self:
         embedding = await get_embedding(content, deps)
         return cls(content=content, embedding=embedding)
 
-    async def save(self, deps: Deps):
+    async def save(self, deps: Deps) -> None:
         async with deps.pool.acquire() as conn:
             if self.id is None:
                 result = await conn.fetchrow(
@@ -129,7 +129,7 @@ class MemoryNode(BaseModel):
                     self.id,
                 )
 
-    async def merge_with(self, other: Self, deps: Deps):
+    async def merge_with(self, other: Self, deps: Deps) -> None:
         self.content = await do_ai(
             f"{self.content}\n\n{other.content}",
             "Combine the following two texts into a single, coherent text.",
@@ -145,7 +145,7 @@ class MemoryNode(BaseModel):
         if other.id is not None:
             await delete_memory(other.id, deps)
 
-    def get_effective_importance(self):
+    def get_effective_importance(self) -> float:
         return self.importance * (1 + math.log(self.access_count + 1))
 
 
@@ -157,12 +157,12 @@ async def get_embedding(text: str, deps: Deps) -> list[float]:
     return embedding_response.data[0].embedding
 
 
-async def delete_memory(memory_id: int, deps: Deps):
+async def delete_memory(memory_id: int, deps: Deps) -> None:
     async with deps.pool.acquire() as conn:
         await conn.execute("DELETE FROM memories WHERE id = $1", memory_id)
 
 
-async def add_memory(content: str, deps: Deps):
+async def add_memory(content: str, deps: Deps) -> str:
     new_memory = await MemoryNode.from_content(content, deps)
     await new_memory.save(deps)
 
@@ -204,7 +204,7 @@ async def find_similar_memories(embedding: list[float], deps: Deps) -> list[Memo
     return memories
 
 
-async def update_importance(user_embedding: list[float], deps: Deps):
+async def update_importance(user_embedding: list[float], deps: Deps) -> None:
     async with deps.pool.acquire() as conn:
         rows = await conn.fetch("SELECT id, importance, access_count, embedding FROM memories")
         for row in rows:
@@ -228,7 +228,7 @@ async def update_importance(user_embedding: list[float], deps: Deps):
             )
 
 
-async def prune_memories(deps: Deps):
+async def prune_memories(deps: Deps) -> None:
     async with deps.pool.acquire() as conn:
         rows = await conn.fetch(
             """
@@ -265,7 +265,7 @@ async def display_memory_tree(deps: Deps) -> str:
 @mcp.tool()
 async def remember(
     contents: list[str] = Field(description="List of observations or memories to store"),
-):
+) -> str:
     deps = Deps(openai=AsyncOpenAI(), pool=await get_db_pool())
     try:
         return "\n".join(await asyncio.gather(*[add_memory(content, deps) for content in contents]))
@@ -281,7 +281,7 @@ async def read_profile() -> str:
     return profile
 
 
-async def initialize_database():
+async def initialize_database() -> None:
     pool = await asyncpg.create_pool("postgresql://postgres:postgres@localhost:54320/postgres")
     try:
         async with pool.acquire() as conn:

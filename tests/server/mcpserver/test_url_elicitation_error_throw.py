@@ -9,7 +9,7 @@ from mcp.shared.exceptions import MCPError, UrlElicitationRequiredError
 
 
 @pytest.mark.anyio
-async def test_url_elicitation_error_thrown_from_tool():
+async def test_url_elicitation_error_thrown_from_tool() -> None:
     """Test that UrlElicitationRequiredError raised from a tool is received as MCPError by client."""
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
@@ -50,7 +50,7 @@ async def test_url_elicitation_error_thrown_from_tool():
 
 
 @pytest.mark.anyio
-async def test_url_elicitation_error_from_error():
+async def test_url_elicitation_error_from_error() -> None:
     """Test that client can reconstruct UrlElicitationRequiredError from MCPError."""
     mcp = MCPServer(name="UrlElicitationErrorServer")
 
@@ -91,7 +91,7 @@ async def test_url_elicitation_error_from_error():
 
 
 @pytest.mark.anyio
-async def test_normal_exceptions_still_return_error_result():
+async def test_normal_exceptions_still_return_error_result() -> None:
     """Test that normal exceptions still return CallToolResult with is_error=True."""
     mcp = MCPServer(name="NormalErrorServer")
 

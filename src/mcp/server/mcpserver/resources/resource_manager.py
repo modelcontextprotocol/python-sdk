@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 class ResourceManager:
     """Manages MCPServer resources."""
 
-    def __init__(self, warn_on_duplicate_resources: bool = True):
+    def __init__(self, warn_on_duplicate_resources: bool = True) -> None:
         self._resources: dict[str, Resource] = {}
         self._templates: dict[str, ResourceTemplate] = {}
         self.warn_on_duplicate_resources = warn_on_duplicate_resources

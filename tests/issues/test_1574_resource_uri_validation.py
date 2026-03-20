@@ -25,7 +25,7 @@ from mcp.types import (
 pytestmark = pytest.mark.anyio
 
 
-async def test_relative_uri_roundtrip():
+async def test_relative_uri_roundtrip() -> None:
     """Relative URIs survive the full server-client JSON-RPC roundtrip.
 
     This is the critical regression test - if someone reintroduces AnyUrl,
@@ -67,7 +67,7 @@ async def test_relative_uri_roundtrip():
             assert result.contents[0].uri == uri_str
 
 
-async def test_custom_scheme_uri_roundtrip():
+async def test_custom_scheme_uri_roundtrip() -> None:
     """Custom scheme URIs work through the protocol.
 
     Some MCP servers use custom schemes like "custom://resource".
@@ -103,7 +103,7 @@ async def test_custom_scheme_uri_roundtrip():
         assert len(result.contents) == 1
 
 
-def test_uri_json_roundtrip_preserves_value():
+def test_uri_json_roundtrip_preserves_value() -> None:
     """URI is preserved exactly through JSON serialization.
 
     This catches any Pydantic validation or normalization that would
@@ -125,7 +125,7 @@ def test_uri_json_roundtrip_preserves_value():
         assert restored.uri == uri_str, f"URI mutated: {uri_str} -> {restored.uri}"
 
 
-def test_resource_contents_uri_json_roundtrip():
+def test_resource_contents_uri_json_roundtrip() -> None:
     """TextResourceContents URI is preserved through JSON serialization."""
     test_uris = ["users/me", "./relative", "custom://resource"]
 

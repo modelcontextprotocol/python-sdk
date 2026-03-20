@@ -5,6 +5,7 @@ Run from the repository root:
 """
 
 import contextlib
+from collections.abc import AsyncGenerator
 
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -30,7 +31,7 @@ def send_message(message: str) -> str:
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
-async def lifespan(app: Starlette):
+async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(api_mcp.session_manager.run())
         await stack.enter_async_context(chat_mcp.session_manager.run())

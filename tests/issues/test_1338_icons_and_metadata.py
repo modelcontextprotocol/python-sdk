@@ -8,7 +8,7 @@ from mcp.types import Icon
 pytestmark = pytest.mark.anyio
 
 
-async def test_icons_and_website_url():
+async def test_icons_and_website_url() -> None:
     """Test that icons and websiteUrl are properly returned in API calls."""
 
     # Create test icon
@@ -92,7 +92,7 @@ async def test_icons_and_website_url():
     assert template.icons[0].src == test_icon.src
 
 
-async def test_multiple_icons():
+async def test_multiple_icons() -> None:
     """Test that multiple icons can be added to tools, resources, and prompts."""
 
     # Create multiple test icons
@@ -119,7 +119,7 @@ async def test_multiple_icons():
     assert tool.icons[2].sizes == ["64x64"]
 
 
-async def test_no_icons_or_website():
+async def test_no_icons_or_website() -> None:
     """Test that server works without icons or websiteUrl."""
 
     mcp = MCPServer("BasicServer")

@@ -21,14 +21,14 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_without_tasks():
+async def test_client_capabilities_without_tasks() -> None:
     """Test that tasks capability is None when not provided."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     received_capabilities = None
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
@@ -78,7 +78,7 @@ async def test_client_capabilities_without_tasks():
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_with_tasks():
+async def test_client_capabilities_with_tasks() -> None:
     """Test that tasks capability is properly set when handlers are provided."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -98,7 +98,7 @@ async def test_client_capabilities_with_tasks():
     ) -> types.CancelTaskResult | types.ErrorData:
         raise NotImplementedError
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
@@ -158,7 +158,7 @@ async def test_client_capabilities_with_tasks():
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_auto_built_from_handlers():
+async def test_client_capabilities_auto_built_from_handlers() -> None:
     """Test that tasks capability is automatically built from provided handlers."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -178,7 +178,7 @@ async def test_client_capabilities_auto_built_from_handlers():
     ) -> types.CancelTaskResult | types.ErrorData:
         raise NotImplementedError
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
@@ -239,7 +239,7 @@ async def test_client_capabilities_auto_built_from_handlers():
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_with_task_augmented_handlers():
+async def test_client_capabilities_with_task_augmented_handlers() -> None:
     """Test that requests capability is built when augmented handlers are provided."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -254,7 +254,7 @@ async def test_client_capabilities_with_task_augmented_handlers():
     ) -> types.CreateTaskResult | types.ErrorData:
         raise NotImplementedError
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()

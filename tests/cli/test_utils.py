@@ -15,7 +15,7 @@ from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  #
         ("foo.py:srv_obj", "srv_obj"),
     ],
 )
-def test_parse_file_path_accepts_valid_specs(tmp_path: Path, spec: str, expected_obj: str | None):
+def test_parse_file_path_accepts_valid_specs(tmp_path: Path, spec: str, expected_obj: str | None) -> None:
     """Should accept valid file specs."""
     file = tmp_path / spec.split(":")[0]
     file.write_text("x = 1")
@@ -24,13 +24,13 @@ def test_parse_file_path_accepts_valid_specs(tmp_path: Path, spec: str, expected
     assert obj == expected_obj
 
 
-def test_parse_file_path_missing(tmp_path: Path):
+def test_parse_file_path_missing(tmp_path: Path) -> None:
     """Should system exit if a file is missing."""
     with pytest.raises(SystemExit):
         _parse_file_path(str(tmp_path / "missing.py"))
 
 
-def test_parse_file_exit_on_dir(tmp_path: Path):
+def test_parse_file_exit_on_dir(tmp_path: Path) -> None:
     """Should system exit if a directory is passed"""
     dir_path = tmp_path / "dir"
     dir_path.mkdir()
@@ -38,13 +38,13 @@ def test_parse_file_exit_on_dir(tmp_path: Path):
         _parse_file_path(str(dir_path))
 
 
-def test_build_uv_command_minimal():
+def test_build_uv_command_minimal() -> None:
     """Should emit core command when no extras specified."""
     cmd = _build_uv_command("foo.py")
     assert cmd == ["uv", "run", "--with", "mcp", "mcp", "run", "foo.py"]
 
 
-def test_build_uv_command_adds_editable_and_packages():
+def test_build_uv_command_adds_editable_and_packages() -> None:
     """Should include --with-editable and every --with pkg in correct order."""
     test_path = Path("/pkg")
     cmd = _build_uv_command(
@@ -69,13 +69,13 @@ def test_build_uv_command_adds_editable_and_packages():
     ]
 
 
-def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch):
+def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch) -> None:
     """Should return "npx" on unix-like systems."""
     monkeypatch.setattr(sys, "platform", "linux")
     assert _get_npx_command() == "npx"
 
 
-def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
+def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     """Should return one of the npx candidates on Windows."""
     candidates = ["npx.cmd", "npx.exe", "npx"]
 
@@ -90,7 +90,7 @@ def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
     assert _get_npx_command() in candidates
 
 
-def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
+def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Should give None if every candidate fails."""
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
 

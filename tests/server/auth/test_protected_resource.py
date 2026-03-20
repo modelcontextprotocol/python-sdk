@@ -1,5 +1,6 @@
 """Integration tests for MCP Oauth Protected Resource."""
 
+from collections.abc import AsyncGenerator
 from urllib.parse import urlparse
 
 import httpx
@@ -12,7 +13,7 @@ from mcp.server.auth.routes import build_resource_metadata_url, create_protected
 
 
 @pytest.fixture
-def test_app():
+def test_app() -> Starlette:
     """Fixture to create protected resource routes for testing."""
 
     # Create the protected resource routes
@@ -29,14 +30,14 @@ def test_app():
 
 
 @pytest.fixture
-async def test_client(test_app: Starlette):
+async def test_client(test_app: Starlette) -> AsyncGenerator[httpx.AsyncClient, None]:
     """Fixture to create an HTTP client for the protected resource app."""
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=test_app), base_url="https://mcptest.com") as client:
         yield client
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint_with_path(test_client: httpx.AsyncClient):
+async def test_metadata_endpoint_with_path(test_client: httpx.AsyncClient) -> None:
     """Test the OAuth 2.0 Protected Resource metadata endpoint for path-based resource."""
 
     # For resource with path "/resource", metadata should be accessible at the path-aware location
@@ -54,7 +55,7 @@ async def test_metadata_endpoint_with_path(test_client: httpx.AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint_root_path_returns_404(test_client: httpx.AsyncClient):
+async def test_metadata_endpoint_root_path_returns_404(test_client: httpx.AsyncClient) -> None:
     """Test that root path returns 404 for path-based resource."""
 
     # Root path should return 404 for path-based resources
@@ -63,7 +64,7 @@ async def test_metadata_endpoint_root_path_returns_404(test_client: httpx.AsyncC
 
 
 @pytest.fixture
-def root_resource_app():
+def root_resource_app() -> Starlette:
     """Fixture to create protected resource routes for root-level resource."""
 
     # Create routes for a resource without path component
@@ -79,7 +80,7 @@ def root_resource_app():
 
 
 @pytest.fixture
-async def root_resource_client(root_resource_app: Starlette):
+async def root_resource_client(root_resource_app: Starlette) -> AsyncGenerator[httpx.AsyncClient, None]:
     """Fixture to create an HTTP client for the root resource app."""
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=root_resource_app), base_url="https://mcptest.com"
@@ -88,7 +89,7 @@ async def root_resource_client(root_resource_app: Starlette):
 
 
 @pytest.mark.anyio
-async def test_metadata_endpoint_without_path(root_resource_client: httpx.AsyncClient):
+async def test_metadata_endpoint_without_path(root_resource_client: httpx.AsyncClient) -> None:
     """Test metadata endpoint for root-level resource."""
 
     # For root resource, metadata should be at standard location
@@ -108,21 +109,21 @@ async def test_metadata_endpoint_without_path(root_resource_client: httpx.AsyncC
 # Tests for URL construction utility function
 
 
-def test_metadata_url_construction_url_without_path():
+def test_metadata_url_construction_url_without_path() -> None:
     """Test URL construction for resource without path component."""
     resource_url = AnyHttpUrl("https://example.com")
     result = build_resource_metadata_url(resource_url)
     assert str(result) == "https://example.com/.well-known/oauth-protected-resource"
 
 
-def test_metadata_url_construction_url_with_path_component():
+def test_metadata_url_construction_url_with_path_component() -> None:
     """Test URL construction for resource with path component."""
     resource_url = AnyHttpUrl("https://example.com/mcp")
     result = build_resource_metadata_url(resource_url)
     assert str(result) == "https://example.com/.well-known/oauth-protected-resource/mcp"
 
 
-def test_metadata_url_construction_url_with_trailing_slash_only():
+def test_metadata_url_construction_url_with_trailing_slash_only() -> None:
     """Test URL construction for resource with trailing slash only."""
     resource_url = AnyHttpUrl("https://example.com/")
     result = build_resource_metadata_url(resource_url)
@@ -139,7 +140,7 @@ def test_metadata_url_construction_url_with_trailing_slash_only():
         ("http://localhost:8001/mcp", "http://localhost:8001/.well-known/oauth-protected-resource/mcp"),
     ],
 )
-def test_metadata_url_construction_various_resource_configurations(resource_url: str, expected_url: str):
+def test_metadata_url_construction_various_resource_configurations(resource_url: str, expected_url: str) -> None:
     """Test URL construction with various resource configurations."""
     result = build_resource_metadata_url(AnyHttpUrl(resource_url))
     assert str(result) == expected_url
@@ -148,7 +149,7 @@ def test_metadata_url_construction_various_resource_configurations(resource_url:
 # Tests for consistency between URL generation and route registration
 
 
-def test_route_consistency_route_path_matches_metadata_url():
+def test_route_consistency_route_path_matches_metadata_url() -> None:
     """Test that route path matches the generated metadata URL."""
     resource_url = AnyHttpUrl("https://example.com/mcp")
 
@@ -177,7 +178,7 @@ def test_route_consistency_route_path_matches_metadata_url():
         ("https://example.com/mcp", "/.well-known/oauth-protected-resource/mcp"),
     ],
 )
-def test_route_consistency_consistent_paths_for_various_resources(resource_url: str, expected_path: str):
+def test_route_consistency_consistent_paths_for_various_resources(resource_url: str, expected_path: str) -> None:
     """Test that URL generation and route creation are consistent."""
     resource_url_obj = AnyHttpUrl(resource_url)
 

@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal, TextIO
@@ -102,7 +103,11 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
+async def stdio_client(
+    server: StdioServerParameters, errlog: TextIO = sys.stderr
+) -> AsyncGenerator[
+    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]], None
+]:
     """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
     """
@@ -134,7 +139,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         await write_stream_reader.aclose()
         raise
 
-    async def stdout_reader():
+    async def stdout_reader() -> None:
         assert process.stdout, "Opened process is missing stdout"
 
         try:
@@ -161,7 +166,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:  # pragma: lax no cover
             await anyio.lowlevel.checkpoint()
 
-    async def stdin_writer():
+    async def stdin_writer() -> None:
         assert process.stdin, "Opened process is missing stdin"
 
         try:
@@ -232,7 +237,7 @@ async def _create_platform_compatible_process(
     env: dict[str, str] | None = None,
     errlog: TextIO = sys.stderr,
     cwd: Path | str | None = None,
-):
+) -> Process | FallbackProcess:
     """Creates a subprocess in a platform-compatible way.
 
     Unix: Creates process in a new session/process group for killpg support

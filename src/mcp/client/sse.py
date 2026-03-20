@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -36,7 +36,9 @@ async def sse_client(
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
-):
+) -> AsyncGenerator[
+    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]], None
+]:
     """Client transport for SSE.
 
     `sse_read_timeout` determines how long (in seconds) the client will wait for a new
@@ -68,7 +70,7 @@ async def sse_client(
             read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
             write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-            async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
+            async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED) -> None:
                 try:
                     async for sse in event_source.aiter_sse():  # pragma: no branch
                         logger.debug(f"Received SSE event: {sse.event}")
@@ -121,7 +123,7 @@ async def sse_client(
                 finally:
                     await read_stream_writer.aclose()
 
-            async def post_writer(endpoint_url: str):
+            async def post_writer(endpoint_url: str) -> None:
                 try:
                     async with write_stream_reader, write_stream:
                         async for session_message in write_stream_reader:

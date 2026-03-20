@@ -57,7 +57,7 @@ class UserProfile:
     age: int
     email: str | None = None
 
-    def __init__(self, name: str, age: int, email: str | None = None):
+    def __init__(self, name: str, age: int, email: str | None = None) -> None:
         self.name = name
         self.age = age
         self.email = email
@@ -71,7 +71,7 @@ def get_user(user_id: str) -> UserProfile:
 
 # Classes WITHOUT type hints cannot be used for structured output
 class UntypedConfig:
-    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]
+    def __init__(self, setting1, setting2) -> None:  # type: ignore[reportMissingParameterType]  # noqa: ANN001
         self.setting1 = setting1
         self.setting2 = setting2
 

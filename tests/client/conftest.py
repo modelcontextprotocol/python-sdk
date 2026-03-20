@@ -1,10 +1,10 @@
-from collections.abc import Callable, Generator
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import patch
 
 import pytest
-from anyio.streams.memory import MemoryObjectSendStream
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 import mcp.shared.memory
 from mcp.shared.message import SessionMessage
@@ -12,26 +12,26 @@ from mcp.types import JSONRPCNotification, JSONRPCRequest
 
 
 class SpyMemoryObjectSendStream:
-    def __init__(self, original_stream: MemoryObjectSendStream[SessionMessage]):
+    def __init__(self, original_stream: MemoryObjectSendStream[SessionMessage]) -> None:
         self.original_stream = original_stream
         self.sent_messages: list[SessionMessage] = []
 
-    async def send(self, message: SessionMessage):
+    async def send(self, message: SessionMessage) -> None:
         self.sent_messages.append(message)
         await self.original_stream.send(message)
 
-    async def aclose(self):
+    async def aclose(self) -> None:
         await self.original_stream.aclose()
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "SpyMemoryObjectSendStream":
         return self
 
-    async def __aexit__(self, *args: Any):
+    async def __aexit__(self, *args: Any) -> None:
         await self.aclose()
 
 
 class StreamSpyCollection:
-    def __init__(self, client_spy: SpyMemoryObjectSendStream, server_spy: SpyMemoryObjectSendStream):
+    def __init__(self, client_spy: SpyMemoryObjectSendStream, server_spy: SpyMemoryObjectSendStream) -> None:
         self.client = client_spy
         self.server = server_spy
 
@@ -99,7 +99,7 @@ def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
     server_spy = None
 
     # Store references to our spy objects
-    def capture_spies(c_spy: SpyMemoryObjectSendStream, s_spy: SpyMemoryObjectSendStream):
+    def capture_spies(c_spy: SpyMemoryObjectSendStream, s_spy: SpyMemoryObjectSendStream) -> None:
         nonlocal client_spy, server_spy
         client_spy = c_spy
         server_spy = s_spy
@@ -108,7 +108,13 @@ def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
     original_create_streams = mcp.shared.memory.create_client_server_memory_streams
 
     @asynccontextmanager
-    async def patched_create_streams():
+    async def patched_create_streams() -> AsyncGenerator[
+        tuple[
+            tuple[MemoryObjectReceiveStream[SessionMessage | Exception], SpyMemoryObjectSendStream],
+            tuple[MemoryObjectReceiveStream[SessionMessage | Exception], SpyMemoryObjectSendStream],
+        ],
+        None,
+    ]:
         async with original_create_streams() as (client_streams, server_streams):
             client_read, client_write = client_streams
             server_read, server_write = server_streams

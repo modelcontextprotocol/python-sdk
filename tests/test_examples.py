@@ -16,7 +16,7 @@ from mcp.types import CallToolResult, TextContent, TextResourceContents
 
 
 @pytest.mark.anyio
-async def test_simple_echo():
+async def test_simple_echo() -> None:
     """Test the simple echo server"""
     from examples.mcpserver.simple_echo import mcp
 
@@ -28,7 +28,7 @@ async def test_simple_echo():
 
 
 @pytest.mark.anyio
-async def test_complex_inputs():
+async def test_complex_inputs() -> None:
     """Test the complex inputs server"""
     from examples.mcpserver.complex_inputs import mcp
 
@@ -48,7 +48,7 @@ async def test_complex_inputs():
 
 
 @pytest.mark.anyio
-async def test_direct_call_tool_result_return():
+async def test_direct_call_tool_result_return() -> None:
     """Test the CallToolResult echo server"""
     from examples.mcpserver.direct_call_tool_result_return import mcp
 
@@ -64,7 +64,7 @@ async def test_direct_call_tool_result_return():
 
 
 @pytest.mark.anyio
-async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test the desktop server"""
     # Build a real Desktop directory under tmp_path rather than patching
     # Path.iterdir — a class-level patch breaks jsonschema_specifications'
@@ -95,8 +95,8 @@ async def test_desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 # TODO(v2): Change back to README.md when v2 is released
 @pytest.mark.parametrize("example", find_examples("README.v2.md"), ids=str)
-def test_docs_examples(example: CodeExample, eval_example: EvalExample):
-    ruff_ignore: list[str] = ["F841", "I001", "F821"]  # F821: undefined names (snippets lack imports)
+def test_docs_examples(example: CodeExample, eval_example: EvalExample) -> None:
+    ruff_ignore: list[str] = ["F841", "I001", "F821", "ANN"]  # F821: undefined names (snippets lack imports)
 
     # Use project's actual line length of 120
     eval_example.set_config(ruff_ignore=ruff_ignore, target_version="py310", line_length=120)

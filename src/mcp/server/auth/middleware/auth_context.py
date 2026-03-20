@@ -29,10 +29,10 @@ class AuthContextMiddleware:
     being stored in the context.
     """
 
-    def __init__(self, app: ASGIApp):
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         user = scope.get("user")
         if isinstance(user, AuthenticatedUser):
             # Set the authenticated user in the contextvar

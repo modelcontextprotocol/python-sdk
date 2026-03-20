@@ -34,14 +34,16 @@ def server_url(server_port: int) -> str:  # pragma: no cover
 
 
 class SecurityTestServer(Server):  # pragma: no cover
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(SERVER_NAME)
 
     async def on_list_tools(self) -> list[Tool]:
         return []
 
 
-def run_server_with_settings(port: int, security_settings: TransportSecuritySettings | None = None):  # pragma: no cover
+def run_server_with_settings(
+    port: int, security_settings: TransportSecuritySettings | None = None
+) -> None:  # pragma: no cover
     """Run the StreamableHTTP server with specified security settings."""
     app = SecurityTestServer()
 
@@ -71,7 +73,9 @@ def run_server_with_settings(port: int, security_settings: TransportSecuritySett
     uvicorn.run(starlette_app, host="127.0.0.1", port=port, log_level="error")
 
 
-def start_server_process(port: int, security_settings: TransportSecuritySettings | None = None):
+def start_server_process(
+    port: int, security_settings: TransportSecuritySettings | None = None
+) -> multiprocessing.Process:
     """Start server in a separate process."""
     process = multiprocessing.Process(target=run_server_with_settings, args=(port, security_settings))
     process.start()
@@ -81,7 +85,7 @@ def start_server_process(port: int, security_settings: TransportSecuritySettings
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_default_settings(server_port: int):
+async def test_streamable_http_security_default_settings(server_port: int) -> None:
     """Test StreamableHTTP with default security settings (protection enabled)."""
     process = start_server_process(server_port)
 
@@ -106,7 +110,7 @@ async def test_streamable_http_security_default_settings(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_host_header(server_port: int):
+async def test_streamable_http_security_invalid_host_header(server_port: int) -> None:
     """Test StreamableHTTP with invalid Host header."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True)
     process = start_server_process(server_port, security_settings)
@@ -134,7 +138,7 @@ async def test_streamable_http_security_invalid_host_header(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_origin_header(server_port: int):
+async def test_streamable_http_security_invalid_origin_header(server_port: int) -> None:
     """Test StreamableHTTP with invalid Origin header."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*"])
     process = start_server_process(server_port, security_settings)
@@ -162,7 +166,7 @@ async def test_streamable_http_security_invalid_origin_header(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_invalid_content_type(server_port: int):
+async def test_streamable_http_security_invalid_content_type(server_port: int) -> None:
     """Test StreamableHTTP POST with invalid Content-Type header."""
     process = start_server_process(server_port)
 
@@ -195,7 +199,7 @@ async def test_streamable_http_security_invalid_content_type(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_disabled(server_port: int):
+async def test_streamable_http_security_disabled(server_port: int) -> None:
     """Test StreamableHTTP with security disabled."""
     settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
     process = start_server_process(server_port, settings)
@@ -223,7 +227,7 @@ async def test_streamable_http_security_disabled(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
+async def test_streamable_http_security_custom_allowed_hosts(server_port: int) -> None:
     """Test StreamableHTTP with custom allowed hosts."""
     settings = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
@@ -254,7 +258,7 @@ async def test_streamable_http_security_custom_allowed_hosts(server_port: int):
 
 
 @pytest.mark.anyio
-async def test_streamable_http_security_get_request(server_port: int):
+async def test_streamable_http_security_get_request(server_port: int) -> None:
     """Test StreamableHTTP GET request with security."""
     security_settings = TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1"])
     process = start_server_process(server_port, security_settings)

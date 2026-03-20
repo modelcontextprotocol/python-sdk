@@ -11,7 +11,7 @@ from mcp.shared.session import RequestResponder
 
 
 @pytest.mark.anyio
-async def test_exception_handling_with_raise_exceptions_true():
+async def test_exception_handling_with_raise_exceptions_true() -> None:
     """Transport exceptions are re-raised when raise_exceptions=True."""
     server = Server("test-server")
     session = Mock(spec=ServerSession)
@@ -23,7 +23,7 @@ async def test_exception_handling_with_raise_exceptions_true():
 
 
 @pytest.mark.anyio
-async def test_exception_handling_with_raise_exceptions_false():
+async def test_exception_handling_with_raise_exceptions_false() -> None:
     """Transport exceptions are logged locally but not sent to the client.
 
     The transport that reported the error is likely broken; writing back
@@ -40,7 +40,7 @@ async def test_exception_handling_with_raise_exceptions_false():
 
 
 @pytest.mark.anyio
-async def test_normal_message_handling_not_affected():
+async def test_normal_message_handling_not_affected() -> None:
     """Test that normal messages still work correctly"""
     server = Server("test-server")
     session = Mock(spec=ServerSession)
@@ -62,7 +62,7 @@ async def test_normal_message_handling_not_affected():
 
 
 @pytest.mark.anyio
-async def test_server_run_exits_cleanly_when_transport_yields_exception_then_closes():
+async def test_server_run_exits_cleanly_when_transport_yields_exception_then_closes() -> None:
     """Regression test for #1967 / #2064.
 
     Exercises the real Server.run() path with real memory streams, reproducing

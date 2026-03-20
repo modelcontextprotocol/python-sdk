@@ -96,7 +96,7 @@ def app() -> MCPServer:
     return server
 
 
-async def test_client_is_initialized(app: MCPServer):
+async def test_client_is_initialized(app: MCPServer) -> None:
     """Test that the client is initialized after entering context."""
     async with Client(app) as client:
         assert client.initialize_result.capabilities == snapshot(
@@ -110,7 +110,7 @@ async def test_client_is_initialized(app: MCPServer):
         assert client.initialize_result.server_info.name == "test"
 
 
-async def test_client_with_simple_server(simple_server: Server):
+async def test_client_with_simple_server(simple_server: Server) -> None:
     """Test that from_server works with a basic Server instance."""
     async with Client(simple_server) as client:
         resources = await client.list_resources()
@@ -121,13 +121,13 @@ async def test_client_with_simple_server(simple_server: Server):
         )
 
 
-async def test_client_send_ping(app: MCPServer):
+async def test_client_send_ping(app: MCPServer) -> None:
     async with Client(app) as client:
         result = await client.send_ping()
         assert result == snapshot(EmptyResult())
 
 
-async def test_client_list_tools(app: MCPServer):
+async def test_client_list_tools(app: MCPServer) -> None:
     async with Client(app) as client:
         result = await client.list_tools()
         assert result == snapshot(
@@ -154,7 +154,7 @@ async def test_client_list_tools(app: MCPServer):
         )
 
 
-async def test_client_call_tool(app: MCPServer):
+async def test_client_call_tool(app: MCPServer) -> None:
     async with Client(app) as client:
         result = await client.call_tool("greet", {"name": "World"})
         assert result == snapshot(
@@ -165,7 +165,7 @@ async def test_client_call_tool(app: MCPServer):
         )
 
 
-async def test_read_resource(app: MCPServer):
+async def test_read_resource(app: MCPServer) -> None:
     """Test reading a resource."""
     async with Client(app) as client:
         result = await client.read_resource("test://resource")
@@ -176,7 +176,7 @@ async def test_read_resource(app: MCPServer):
         )
 
 
-async def test_read_resource_error_propagates():
+async def test_read_resource_error_propagates() -> None:
     """MCPError raised by a server handler propagates to the client with its code intact."""
 
     async def handle_read_resource(
@@ -191,7 +191,7 @@ async def test_read_resource_error_propagates():
         assert exc_info.value.error.code == 404
 
 
-async def test_get_prompt(app: MCPServer):
+async def test_get_prompt(app: MCPServer) -> None:
     """Test getting a prompt."""
     async with Client(app) as client:
         result = await client.get_prompt("greeting_prompt", {"name": "Alice"})
@@ -203,21 +203,21 @@ async def test_get_prompt(app: MCPServer):
         )
 
 
-def test_client_session_property_before_enter(app: MCPServer):
+def test_client_session_property_before_enter(app: MCPServer) -> None:
     """Test that accessing session before context manager raises RuntimeError."""
     client = Client(app)
     with pytest.raises(RuntimeError, match="Client must be used within an async context manager"):
         client.session
 
 
-async def test_client_reentry_raises_runtime_error(app: MCPServer):
+async def test_client_reentry_raises_runtime_error(app: MCPServer) -> None:
     """Test that reentering a client raises RuntimeError."""
     async with Client(app) as client:
         with pytest.raises(RuntimeError, match="Client is already entered"):
             await client.__aenter__()
 
 
-async def test_client_send_progress_notification():
+async def test_client_send_progress_notification() -> None:
     """Test sending progress notification."""
     received_from_client = None
     event = anyio.Event()
@@ -235,26 +235,26 @@ async def test_client_send_progress_notification():
         assert received_from_client == snapshot({"progress_token": "token123", "progress": 50.0})
 
 
-async def test_client_subscribe_resource(simple_server: Server):
+async def test_client_subscribe_resource(simple_server: Server) -> None:
     async with Client(simple_server) as client:
         result = await client.subscribe_resource("memory://test")
         assert result == snapshot(EmptyResult())
 
 
-async def test_client_unsubscribe_resource(simple_server: Server):
+async def test_client_unsubscribe_resource(simple_server: Server) -> None:
     async with Client(simple_server) as client:
         result = await client.unsubscribe_resource("memory://test")
         assert result == snapshot(EmptyResult())
 
 
-async def test_client_set_logging_level(simple_server: Server):
+async def test_client_set_logging_level(simple_server: Server) -> None:
     """Test setting logging level."""
     async with Client(simple_server) as client:
         result = await client.set_logging_level("debug")
         assert result == snapshot(EmptyResult())
 
 
-async def test_client_list_resources_with_params(app: MCPServer):
+async def test_client_list_resources_with_params(app: MCPServer) -> None:
     """Test listing resources with params parameter."""
     async with Client(app) as client:
         result = await client.list_resources()
@@ -272,14 +272,14 @@ async def test_client_list_resources_with_params(app: MCPServer):
         )
 
 
-async def test_client_list_resource_templates(app: MCPServer):
+async def test_client_list_resource_templates(app: MCPServer) -> None:
     """Test listing resource templates with params parameter."""
     async with Client(app) as client:
         result = await client.list_resource_templates()
         assert result == snapshot(ListResourceTemplatesResult(resource_templates=[]))
 
 
-async def test_list_prompts(app: MCPServer):
+async def test_list_prompts(app: MCPServer) -> None:
     """Test listing prompts with params parameter."""
     async with Client(app) as client:
         result = await client.list_prompts()
@@ -296,7 +296,7 @@ async def test_list_prompts(app: MCPServer):
         )
 
 
-async def test_complete_with_prompt_reference(simple_server: Server):
+async def test_complete_with_prompt_reference(simple_server: Server) -> None:
     """Test getting completions for a prompt argument."""
     async with Client(simple_server) as client:
         ref = types.PromptReference(type="ref/prompt", name="test_prompt")
@@ -304,13 +304,13 @@ async def test_complete_with_prompt_reference(simple_server: Server):
         assert result == snapshot(types.CompleteResult(completion=types.Completion(values=[])))
 
 
-def test_client_with_url_initializes_streamable_http_transport():
+def test_client_with_url_initializes_streamable_http_transport() -> None:
     with patch("mcp.client.client.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
     mock.assert_called_once_with("http://localhost:8000/mcp")
 
 
-async def test_client_uses_transport_directly(app: MCPServer):
+async def test_client_uses_transport_directly(app: MCPServer) -> None:
     transport = InMemoryTransport(app)
     async with Client(transport) as client:
         result = await client.call_tool("greet", {"name": "Transport"})

@@ -14,6 +14,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server.session import ServerSession
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -64,7 +65,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         mcp_server: MCPServer | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
-    ):
+    ) -> None:
         super().__init__(**kwargs)
         self._request_context = request_context
         self._mcp_server = mcp_server
@@ -224,7 +225,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         return str(self.request_context.request_id)
 
     @property
-    def session(self):
+    def session(self) -> ServerSession:
         """Access to the underlying session for advanced usage."""
         return self.request_context.session
 

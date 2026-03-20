@@ -28,14 +28,14 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_client_session_initialize():
+async def test_client_session_initialize() -> None:
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     initialized_notification = None
     result = None
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal initialized_notification
 
         session_message = await client_to_server_receive.receive()
@@ -111,14 +111,14 @@ async def test_client_session_initialize():
 
 
 @pytest.mark.anyio
-async def test_client_session_custom_client_info():
+async def test_client_session_custom_client_info() -> None:
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     custom_client_info = Implementation(name="test-client", version="1.2.3")
     received_client_info = None
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_client_info
 
         session_message = await client_to_server_receive.receive()
@@ -169,13 +169,13 @@ async def test_client_session_custom_client_info():
 
 
 @pytest.mark.anyio
-async def test_client_session_default_client_info():
+async def test_client_session_default_client_info() -> None:
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     received_client_info = None
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_client_info
 
         session_message = await client_to_server_receive.receive()
@@ -222,13 +222,13 @@ async def test_client_session_default_client_info():
 
 
 @pytest.mark.anyio
-async def test_client_session_version_negotiation_success():
+async def test_client_session_version_negotiation_success() -> None:
     """Test successful version negotiation with supported version"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     result = None
 
-    async def mock_server():
+    async def mock_server() -> None:
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
@@ -278,12 +278,12 @@ async def test_client_session_version_negotiation_success():
 
 
 @pytest.mark.anyio
-async def test_client_session_version_negotiation_failure():
+async def test_client_session_version_negotiation_failure() -> None:
     """Test version negotiation failure with unsupported version"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
-    async def mock_server():
+    async def mock_server() -> None:
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
@@ -326,14 +326,14 @@ async def test_client_session_version_negotiation_failure():
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_default():
+async def test_client_capabilities_default() -> None:
     """Test that client capabilities are properly set with default callbacks"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     received_capabilities = None
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
@@ -382,7 +382,7 @@ async def test_client_capabilities_default():
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_with_custom_callbacks():
+async def test_client_capabilities_with_custom_callbacks() -> None:
     """Test that client capabilities are properly set with custom callbacks"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -404,7 +404,7 @@ async def test_client_capabilities_with_custom_callbacks():
     ) -> types.ListRootsResult | types.ErrorData:
         return types.ListRootsResult(roots=[])
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
@@ -466,7 +466,7 @@ async def test_client_capabilities_with_custom_callbacks():
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_with_sampling_tools():
+async def test_client_capabilities_with_sampling_tools() -> None:
     """Test that sampling capabilities with tools are properly advertised"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -483,7 +483,7 @@ async def test_client_capabilities_with_sampling_tools():
             model="test-model",
         )
 
-    async def mock_server():
+    async def mock_server() -> None:
         nonlocal received_capabilities
 
         session_message = await client_to_server_receive.receive()
@@ -540,7 +540,7 @@ async def test_client_capabilities_with_sampling_tools():
 
 
 @pytest.mark.anyio
-async def test_initialize_result():
+async def test_initialize_result() -> None:
     """Test that initialize_result is None before init and contains the full result after."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -554,7 +554,7 @@ async def test_initialize_result():
     expected_server_info = Implementation(name="mock-server", version="0.1.0")
     expected_instructions = "Use the tools wisely."
 
-    async def mock_server():
+    async def mock_server() -> None:
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
         assert isinstance(jsonrpc_request, JSONRPCRequest)
@@ -608,14 +608,14 @@ async def test_initialize_result():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
-async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
+async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None) -> None:
     """Test that client tool call requests can include metadata"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
     mocked_tool = types.Tool(name="sample_tool", input_schema={})
 
-    async def mock_server():
+    async def mock_server() -> None:
         # Receive initialization request from client
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message

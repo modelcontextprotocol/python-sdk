@@ -12,7 +12,7 @@ from mcp.types import (
 
 
 class LoggingCollector:
-    def __init__(self):
+    def __init__(self) -> None:
         self.log_messages: list[LoggingMessageNotificationParams] = []
 
     async def __call__(self, params: LoggingMessageNotificationParams) -> None:
@@ -20,7 +20,7 @@ class LoggingCollector:
 
 
 @pytest.mark.anyio
-async def test_logging_callback():
+async def test_logging_callback() -> None:
     server = MCPServer("test")
     logging_collector = LoggingCollector()
 

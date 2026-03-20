@@ -577,7 +577,7 @@ class StreamableHTTPServerTransport:
                 # Store writer reference so close_sse_stream() can close it
                 self._sse_stream_writers[request_id] = sse_stream_writer
 
-                async def sse_writer():  # pragma: lax no cover
+                async def sse_writer() -> None:  # pragma: lax no cover
                     # Get the request ID from the incoming request message
                     try:
                         async with sse_stream_writer, request_stream_reader:
@@ -696,7 +696,7 @@ class StreamableHTTPServerTransport:
         # Create SSE stream
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
 
-        async def standalone_sse_writer():
+        async def standalone_sse_writer() -> None:
             try:
                 # Create a standalone message stream for server-initiated messages
 
@@ -890,7 +890,7 @@ class StreamableHTTPServerTransport:
             # Create SSE stream for replay
             sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, str]](0)
 
-            async def replay_sender():
+            async def replay_sender() -> None:
                 try:
                     async with sse_stream_writer:
                         # Define an async callback for sending events
@@ -979,7 +979,7 @@ class StreamableHTTPServerTransport:
         # Start a task group for message routing
         async with anyio.create_task_group() as tg:
             # Create a message router that distributes messages to request streams
-            async def message_router():
+            async def message_router() -> None:
                 try:
                     async for session_message in write_stream_reader:  # pragma: no branch
                         # Determine which request stream(s) should receive this message

@@ -39,7 +39,7 @@ class ServerSettings(BaseModel):
 class LegacySimpleOAuthProvider(SimpleOAuthProvider):
     """Simple OAuth provider for legacy MCP server."""
 
-    def __init__(self, auth_settings: SimpleAuthSettings, auth_callback_path: str, server_url: str):
+    def __init__(self, auth_settings: SimpleAuthSettings, auth_callback_path: str, server_url: str) -> None:
         super().__init__(auth_settings, auth_callback_path, server_url)
 
 

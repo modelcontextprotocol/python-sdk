@@ -20,7 +20,7 @@ class MockOAuthProvider:
     the BearerAuthMiddleware components.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tokens: dict[str, AccessToken] = {}  # token -> AccessToken
 
     def add_token(self, token: str, access_token: AccessToken) -> None:
@@ -49,7 +49,7 @@ def add_token_to_provider(
 class MockApp:
     """Mock ASGI app for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.called = False
         self.scope: Scope | None = None
         self.receive: Receive | None = None
@@ -106,14 +106,16 @@ def no_expiry_access_token() -> AccessToken:
 class TestBearerAuthBackend:
     """Tests for the BearerAuthBackend class."""
 
-    async def test_no_auth_header(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
+    async def test_no_auth_header(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]) -> None:
         """Test authentication with no Authorization header."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         request = Request({"type": "http", "headers": []})
         result = await backend.authenticate(request)
         assert result is None
 
-    async def test_non_bearer_auth_header(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
+    async def test_non_bearer_auth_header(
+        self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]
+    ) -> None:
         """Test authentication with non-Bearer Authorization header."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         request = Request(
@@ -125,7 +127,7 @@ class TestBearerAuthBackend:
         result = await backend.authenticate(request)
         assert result is None
 
-    async def test_invalid_token(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
+    async def test_invalid_token(self, mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any]) -> None:
         """Test authentication with invalid token."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         request = Request(
@@ -141,7 +143,7 @@ class TestBearerAuthBackend:
         self,
         mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any],
         expired_access_token: AccessToken,
-    ):
+    ) -> None:
         """Test authentication with expired token."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "expired_token", expired_access_token)
@@ -158,7 +160,7 @@ class TestBearerAuthBackend:
         self,
         mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any],
         valid_access_token: AccessToken,
-    ):
+    ) -> None:
         """Test authentication with valid token."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
@@ -182,7 +184,7 @@ class TestBearerAuthBackend:
         self,
         mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any],
         no_expiry_access_token: AccessToken,
-    ):
+    ) -> None:
         """Test authentication with token that has no expiry."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "no_expiry_token", no_expiry_access_token)
@@ -206,7 +208,7 @@ class TestBearerAuthBackend:
         self,
         mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any],
         valid_access_token: AccessToken,
-    ):
+    ) -> None:
         """Test with lowercase 'bearer' prefix in Authorization header"""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
@@ -226,7 +228,7 @@ class TestBearerAuthBackend:
         self,
         mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any],
         valid_access_token: AccessToken,
-    ):
+    ) -> None:
         """Test with mixed 'BeArEr' prefix in Authorization header"""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
@@ -246,7 +248,7 @@ class TestBearerAuthBackend:
         self,
         mock_oauth_provider: OAuthAuthorizationServerProvider[Any, Any, Any],
         valid_access_token: AccessToken,
-    ):
+    ) -> None:
         """Test authentication with mixed 'Authorization' header."""
         backend = BearerAuthBackend(token_verifier=ProviderTokenVerifier(mock_oauth_provider))
         add_token_to_provider(mock_oauth_provider, "valid_token", valid_access_token)
@@ -267,7 +269,7 @@ class TestBearerAuthBackend:
 class TestRequireAuthMiddleware:
     """Tests for the RequireAuthMiddleware class."""
 
-    async def test_no_user(self):
+    async def test_no_user(self) -> None:
         """Test middleware with no user in scope."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=["read"])
@@ -291,7 +293,7 @@ class TestRequireAuthMiddleware:
         assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
-    async def test_non_authenticated_user(self):
+    async def test_non_authenticated_user(self) -> None:
         """Test middleware with non-authenticated user in scope."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=["read"])
@@ -315,7 +317,7 @@ class TestRequireAuthMiddleware:
         assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
-    async def test_missing_required_scope(self, valid_access_token: AccessToken):
+    async def test_missing_required_scope(self, valid_access_token: AccessToken) -> None:
         """Test middleware with user missing required scope."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=["admin"])
@@ -344,7 +346,7 @@ class TestRequireAuthMiddleware:
         assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
-    async def test_no_auth_credentials(self, valid_access_token: AccessToken):
+    async def test_no_auth_credentials(self, valid_access_token: AccessToken) -> None:
         """Test middleware with no auth credentials in scope."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=["read"])
@@ -372,7 +374,7 @@ class TestRequireAuthMiddleware:
         assert any(h[0] == b"www-authenticate" for h in sent_messages[0]["headers"])
         assert not app.called
 
-    async def test_has_required_scopes(self, valid_access_token: AccessToken):
+    async def test_has_required_scopes(self, valid_access_token: AccessToken) -> None:
         """Test middleware with user having all required scopes."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=["read"])
@@ -397,7 +399,7 @@ class TestRequireAuthMiddleware:
         assert app.receive == receive
         assert app.send == send
 
-    async def test_multiple_required_scopes(self, valid_access_token: AccessToken):
+    async def test_multiple_required_scopes(self, valid_access_token: AccessToken) -> None:
         """Test middleware with multiple required scopes."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=["read", "write"])
@@ -422,7 +424,7 @@ class TestRequireAuthMiddleware:
         assert app.receive == receive
         assert app.send == send
 
-    async def test_no_required_scopes(self, valid_access_token: AccessToken):
+    async def test_no_required_scopes(self, valid_access_token: AccessToken) -> None:
         """Test middleware with no required scopes."""
         app = MockApp()
         middleware = RequireAuthMiddleware(app, required_scopes=[])

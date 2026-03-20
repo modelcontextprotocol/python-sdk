@@ -12,7 +12,7 @@ from mcp.shared.auth import OAuthClientInformationFull
 
 
 class AuthenticationError(Exception):
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         self.message = message
 
 
@@ -28,7 +28,7 @@ class ClientAuthenticator:
     logic is skipped.
     """
 
-    def __init__(self, provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
+    def __init__(self, provider: OAuthAuthorizationServerProvider[Any, Any, Any]) -> None:
         """Initialize the authenticator.
 
         Args:

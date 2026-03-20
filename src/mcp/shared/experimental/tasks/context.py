@@ -31,7 +31,7 @@ class TaskContext:
             await ctx.complete(result)
     """
 
-    def __init__(self, task: Task, store: TaskStore):
+    def __init__(self, task: Task, store: TaskStore) -> None:
         self._task = task
         self._store = store
         self._cancelled = False

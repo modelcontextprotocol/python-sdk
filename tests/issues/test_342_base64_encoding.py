@@ -15,7 +15,7 @@ from mcp.types import BlobResourceContents
 pytestmark = pytest.mark.anyio
 
 
-async def test_server_base64_encoding():
+async def test_server_base64_encoding() -> None:
     """Tests that binary resource data round-trips correctly through base64 encoding.
 
     The test uses binary data that produces different results with urlsafe vs standard

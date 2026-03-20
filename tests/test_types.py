@@ -26,7 +26,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_jsonrpc_request():
+async def test_jsonrpc_request() -> None:
     json_data = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -50,7 +50,7 @@ async def test_jsonrpc_request():
 
 
 @pytest.mark.anyio
-async def test_method_initialization():
+async def test_method_initialization() -> None:
     """Test that the method is automatically set on object creation.
     Testing just for InitializeRequest to keep the test simple, but should be set for other types as well.
     """
@@ -71,7 +71,7 @@ async def test_method_initialization():
 
 
 @pytest.mark.anyio
-async def test_tool_use_content():
+async def test_tool_use_content() -> None:
     """Test ToolUseContent type for SEP-1577."""
     tool_use_data = {
         "type": "tool_use",
@@ -93,7 +93,7 @@ async def test_tool_use_content():
 
 
 @pytest.mark.anyio
-async def test_tool_result_content():
+async def test_tool_result_content() -> None:
     """Test ToolResultContent type for SEP-1577."""
     tool_result_data = {
         "type": "tool_result",
@@ -115,7 +115,7 @@ async def test_tool_result_content():
 
 
 @pytest.mark.anyio
-async def test_tool_choice():
+async def test_tool_choice() -> None:
     """Test ToolChoice type for SEP-1577."""
     # Test with mode
     tool_choice_data = {"mode": "required"}
@@ -135,7 +135,7 @@ async def test_tool_choice():
 
 
 @pytest.mark.anyio
-async def test_sampling_message_with_user_role():
+async def test_sampling_message_with_user_role() -> None:
     """Test SamplingMessage with user role for SEP-1577."""
     # Test with single content
     user_msg_data = {"role": "user", "content": {"type": "text", "text": "Hello"}}
@@ -158,7 +158,7 @@ async def test_sampling_message_with_user_role():
 
 
 @pytest.mark.anyio
-async def test_sampling_message_with_assistant_role():
+async def test_sampling_message_with_assistant_role() -> None:
     """Test SamplingMessage with assistant role for SEP-1577."""
     # Test with tool use content
     assistant_msg_data = {
@@ -188,7 +188,7 @@ async def test_sampling_message_with_assistant_role():
 
 
 @pytest.mark.anyio
-async def test_sampling_message_backward_compatibility():
+async def test_sampling_message_backward_compatibility() -> None:
     """Test that SamplingMessage maintains backward compatibility."""
     # Old-style message (single content, no tools)
     old_style_data = {"role": "user", "content": {"type": "text", "text": "Hello"}}
@@ -215,7 +215,7 @@ async def test_sampling_message_backward_compatibility():
 
 
 @pytest.mark.anyio
-async def test_create_message_request_params_with_tools():
+async def test_create_message_request_params_with_tools() -> None:
     """Test CreateMessageRequestParams with tools for SEP-1577."""
     tool = Tool(
         name="get_weather",
@@ -238,7 +238,7 @@ async def test_create_message_request_params_with_tools():
 
 
 @pytest.mark.anyio
-async def test_create_message_result_with_tool_use():
+async def test_create_message_result_with_tool_use() -> None:
     """Test CreateMessageResultWithTools with tool use content for SEP-1577."""
     result_data = {
         "role": "assistant",
@@ -261,7 +261,7 @@ async def test_create_message_result_with_tool_use():
 
 
 @pytest.mark.anyio
-async def test_create_message_result_basic():
+async def test_create_message_result_basic() -> None:
     """Test CreateMessageResult with basic text content (backwards compatible)."""
     result_data = {
         "role": "assistant",
@@ -280,7 +280,7 @@ async def test_create_message_result_basic():
 
 
 @pytest.mark.anyio
-async def test_client_capabilities_with_sampling_tools():
+async def test_client_capabilities_with_sampling_tools() -> None:
     """Test ClientCapabilities with nested sampling capabilities for SEP-1577."""
     # New structured format
     capabilities_data: dict[str, Any] = {
@@ -299,7 +299,7 @@ async def test_client_capabilities_with_sampling_tools():
     assert full_caps.sampling.tools is not None
 
 
-def test_tool_preserves_json_schema_2020_12_fields():
+def test_tool_preserves_json_schema_2020_12_fields() -> None:
     """Verify that JSON Schema 2020-12 keywords are preserved in Tool.inputSchema.
 
     SEP-1613 establishes JSON Schema 2020-12 as the default dialect for MCP.
@@ -336,7 +336,7 @@ def test_tool_preserves_json_schema_2020_12_fields():
     assert serialized["inputSchema"]["additionalProperties"] is False
 
 
-def test_list_tools_result_preserves_json_schema_2020_12_fields():
+def test_list_tools_result_preserves_json_schema_2020_12_fields() -> None:
     """Verify JSON Schema 2020-12 fields survive ListToolsResult deserialization."""
     raw_response = {
         "tools": [

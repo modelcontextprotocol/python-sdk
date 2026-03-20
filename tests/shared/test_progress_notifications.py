@@ -15,14 +15,14 @@ from mcp.shared.session import RequestResponder
 
 
 @pytest.mark.anyio
-async def test_bidirectional_progress_notifications():
+async def test_bidirectional_progress_notifications() -> None:
     """Test that both client and server can send progress notifications."""
     # Create memory streams for client/server
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](5)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](5)
 
     # Run a server session so we can send progress updates in tool
-    async def run_server():
+    async def run_server() -> None:
         # Create a server session
         async with ServerSession(
             client_to_server_receive,
@@ -197,7 +197,7 @@ async def test_bidirectional_progress_notifications():
 
 
 @pytest.mark.anyio
-async def test_progress_callback_exception_logging():
+async def test_progress_callback_exception_logging() -> None:
     """Test that exceptions in progress callbacks are logged and \
         don't crash the session."""
     # Track logged warnings

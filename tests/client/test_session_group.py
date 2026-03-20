@@ -17,7 +17,7 @@ from mcp.shared.exceptions import MCPError
 
 
 @pytest.fixture
-def mock_exit_stack():
+def mock_exit_stack() -> mock.MagicMock:
     """Fixture for a mocked AsyncExitStack."""
     # Use unittest.mock.Mock directly if needed, or just a plain object
     # if only attribute access/existence is needed.
@@ -25,7 +25,7 @@ def mock_exit_stack():
     return mock.MagicMock(spec=contextlib.AsyncExitStack)
 
 
-def test_client_session_group_init():
+def test_client_session_group_init() -> None:
     mcp_session_group = ClientSessionGroup()
     assert not mcp_session_group._tools
     assert not mcp_session_group._resources
@@ -33,7 +33,7 @@ def test_client_session_group_init():
     assert not mcp_session_group._tool_to_session
 
 
-def test_client_session_group_component_properties():
+def test_client_session_group_component_properties() -> None:
     # --- Mock Dependencies ---
     mock_prompt = mock.Mock()
     mock_resource = mock.Mock()
@@ -52,7 +52,7 @@ def test_client_session_group_component_properties():
 
 
 @pytest.mark.anyio
-async def test_client_session_group_call_tool():
+async def test_client_session_group_call_tool() -> None:
     # --- Mock Dependencies ---
     mock_session = mock.AsyncMock()
 
@@ -87,7 +87,7 @@ async def test_client_session_group_call_tool():
 
 
 @pytest.mark.anyio
-async def test_client_session_group_connect_to_server(mock_exit_stack: contextlib.AsyncExitStack):
+async def test_client_session_group_connect_to_server(mock_exit_stack: contextlib.AsyncExitStack) -> None:
     """Test connecting to a server and aggregating components."""
     # --- Mock Dependencies ---
     mock_server_info = mock.Mock(spec=types.Implementation)
@@ -126,7 +126,9 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
 
 
 @pytest.mark.anyio
-async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_stack: contextlib.AsyncExitStack):
+async def test_client_session_group_connect_to_server_with_name_hook(
+    mock_exit_stack: contextlib.AsyncExitStack,
+) -> None:
     """Test connecting with a component name hook."""
     # --- Mock Dependencies ---
     mock_server_info = mock.Mock(spec=types.Implementation)
@@ -157,7 +159,7 @@ async def test_client_session_group_connect_to_server_with_name_hook(mock_exit_s
 
 
 @pytest.mark.anyio
-async def test_client_session_group_disconnect_from_server():
+async def test_client_session_group_disconnect_from_server() -> None:
     """Test disconnecting from a server."""
     # --- Test Setup ---
     group = ClientSessionGroup()
@@ -224,7 +226,7 @@ async def test_client_session_group_disconnect_from_server():
 @pytest.mark.anyio
 async def test_client_session_group_connect_to_server_duplicate_tool_raises_error(
     mock_exit_stack: contextlib.AsyncExitStack,
-):
+) -> None:
     """Test MCPError raised when connecting a server with a dup name."""
     # --- Setup Pre-existing State ---
     group = ClientSessionGroup(exit_stack=mock_exit_stack)
@@ -270,7 +272,7 @@ async def test_client_session_group_connect_to_server_duplicate_tool_raises_erro
 
 
 @pytest.mark.anyio
-async def test_client_session_group_disconnect_non_existent_server():
+async def test_client_session_group_disconnect_non_existent_server() -> None:
     """Test disconnecting a server that isn't connected."""
     session = mock.Mock(spec=mcp.ClientSession)
     group = ClientSessionGroup()
@@ -304,7 +306,7 @@ async def test_client_session_group_establish_session_parameterized(
     server_params_instance: StdioServerParameters | SseServerParameters | StreamableHttpParameters,
     client_type_name: str,  # Just for clarity or conditional logic if needed
     patch_target_for_client_func: str,
-):
+) -> None:
     with mock.patch("mcp.client.session_group.mcp.ClientSession") as mock_ClientSession_class:
         with mock.patch(patch_target_for_client_func) as mock_specific_client_func:
             mock_client_cm_instance = mock.AsyncMock(name=f"{client_type_name}ClientCM")

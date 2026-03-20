@@ -74,7 +74,7 @@ def tools(mcp: MCPServer, test_dir: Path) -> MCPServer:
 
 
 @pytest.mark.anyio
-async def test_list_resources(mcp: MCPServer):
+async def test_list_resources(mcp: MCPServer) -> None:
     resources = await mcp.list_resources()
     assert len(resources) == 4
 
@@ -87,7 +87,7 @@ async def test_list_resources(mcp: MCPServer):
 
 
 @pytest.mark.anyio
-async def test_read_resource_dir(mcp: MCPServer):
+async def test_read_resource_dir(mcp: MCPServer) -> None:
     res_iter = await mcp.read_resource("dir://test_dir")
     res_list = list(res_iter)
     assert len(res_list) == 1
@@ -104,7 +104,7 @@ async def test_read_resource_dir(mcp: MCPServer):
 
 
 @pytest.mark.anyio
-async def test_read_resource_file(mcp: MCPServer):
+async def test_read_resource_file(mcp: MCPServer) -> None:
     res_iter = await mcp.read_resource("file://test_dir/example.py")
     res_list = list(res_iter)
     assert len(res_list) == 1
@@ -113,13 +113,13 @@ async def test_read_resource_file(mcp: MCPServer):
 
 
 @pytest.mark.anyio
-async def test_delete_file(mcp: MCPServer, test_dir: Path):
+async def test_delete_file(mcp: MCPServer, test_dir: Path) -> None:
     await mcp.call_tool("delete_file", arguments={"path": str(test_dir / "example.py")})
     assert not (test_dir / "example.py").exists()
 
 
 @pytest.mark.anyio
-async def test_delete_file_and_check_resources(mcp: MCPServer, test_dir: Path):
+async def test_delete_file_and_check_resources(mcp: MCPServer, test_dir: Path) -> None:
     await mcp.call_tool("delete_file", arguments={"path": str(test_dir / "example.py")})
     res_iter = await mcp.read_resource("file://test_dir/example.py")
     res_list = list(res_iter)

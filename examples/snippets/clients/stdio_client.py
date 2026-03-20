@@ -33,7 +33,7 @@ async def handle_sampling_message(
     )
 
 
-async def run():
+async def run() -> None:
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write, sampling_callback=handle_sampling_message) as session:
             # Initialize the connection
@@ -71,7 +71,7 @@ async def run():
             print(f"Structured tool result: {result_structured}")
 
 
-def main():
+def main() -> None:
     """Entry point for the client script."""
     asyncio.run(run())
 

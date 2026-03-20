@@ -12,7 +12,7 @@ from mcp.server.mcpserver import MCPServer
 pytestmark = pytest.mark.anyio
 
 
-async def test_mime_type_with_parameters():
+async def test_mime_type_with_parameters() -> None:
     """Test that MIME types with parameters are accepted (RFC 2045)."""
     mcp = MCPServer("test")
 
@@ -26,7 +26,7 @@ async def test_mime_type_with_parameters():
     assert resources[0].mime_type == "text/html;profile=mcp-app"
 
 
-async def test_mime_type_with_parameters_and_space():
+async def test_mime_type_with_parameters_and_space() -> None:
     """Test MIME type with space after semicolon."""
     mcp = MCPServer("test")
 
@@ -39,7 +39,7 @@ async def test_mime_type_with_parameters_and_space():
     assert resources[0].mime_type == "application/json; charset=utf-8"
 
 
-async def test_mime_type_with_multiple_parameters():
+async def test_mime_type_with_multiple_parameters() -> None:
     """Test MIME type with multiple parameters."""
     mcp = MCPServer("test")
 
@@ -52,7 +52,7 @@ async def test_mime_type_with_multiple_parameters():
     assert resources[0].mime_type == "text/plain; charset=utf-8; format=fixed"
 
 
-async def test_mime_type_preserved_in_read_resource():
+async def test_mime_type_preserved_in_read_resource() -> None:
     """Test that MIME type with parameters is preserved when reading resource."""
     mcp = MCPServer("test")
 

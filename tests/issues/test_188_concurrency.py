@@ -6,14 +6,14 @@ from mcp.server.mcpserver import MCPServer
 
 
 @pytest.mark.anyio
-async def test_messages_are_executed_concurrently_tools():
+async def test_messages_are_executed_concurrently_tools() -> None:
     server = MCPServer("test")
     event = anyio.Event()
     tool_started = anyio.Event()
     call_order: list[str] = []
 
     @server.tool("sleep")
-    async def sleep_tool():
+    async def sleep_tool() -> str:
         call_order.append("waiting_for_event")
         tool_started.set()
         await event.wait()
@@ -21,7 +21,7 @@ async def test_messages_are_executed_concurrently_tools():
         return "done"
 
     @server.tool("trigger")
-    async def trigger():
+    async def trigger() -> str:
         # Wait for tool to start before setting the event
         await tool_started.wait()
         call_order.append("trigger_started")
@@ -47,14 +47,14 @@ async def test_messages_are_executed_concurrently_tools():
 
 
 @pytest.mark.anyio
-async def test_messages_are_executed_concurrently_tools_and_resources():
+async def test_messages_are_executed_concurrently_tools_and_resources() -> None:
     server = MCPServer("test")
     event = anyio.Event()
     tool_started = anyio.Event()
     call_order: list[str] = []
 
     @server.tool("sleep")
-    async def sleep_tool():
+    async def sleep_tool() -> str:
         call_order.append("waiting_for_event")
         tool_started.set()
         await event.wait()
@@ -62,7 +62,7 @@ async def test_messages_are_executed_concurrently_tools_and_resources():
         return "done"
 
     @server.resource("slow://slow_resource")
-    async def slow_resource():
+    async def slow_resource() -> str:
         # Wait for tool to start before setting the event
         await tool_started.wait()
         event.set()
