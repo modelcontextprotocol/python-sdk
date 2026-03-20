@@ -683,8 +683,7 @@ class ServerSession(
         Args:
             message: The session message to send
         """
-        if not isinstance(self._dispatcher, JSONRPCDispatcher):  # pragma: no cover
-            raise TypeError("send_message requires the default JSON-RPC dispatcher")
+        assert isinstance(self._dispatcher, JSONRPCDispatcher), "send_message requires the default JSON-RPC dispatcher"
         await self._dispatcher._write_stream.send(message)  # type: ignore[reportPrivateUsage]
 
     async def _handle_incoming(self, req: ServerRequestResponder) -> None:

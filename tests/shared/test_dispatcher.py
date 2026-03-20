@@ -8,7 +8,8 @@ import anyio
 import pytest
 
 from mcp.client.session import ClientSession
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared._context import RequestContext
 from mcp.shared.dispatcher import (
     JSONRPCDispatcher,
     OnErrorFn,
@@ -17,7 +18,14 @@ from mcp.shared.dispatcher import (
 )
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import MessageMetadata
-from mcp.types import ErrorData, RequestId
+from mcp.types import (
+    CreateMessageRequestParams,
+    CreateMessageResult,
+    ErrorData,
+    RequestId,
+    SamplingMessage,
+    TextContent,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -35,6 +43,7 @@ class SpyDispatcher:
         self._inner = inner
         self.sent_requests: list[dict[str, Any]] = []
         self.sent_notifications: list[dict[str, Any]] = []
+        self.sent_responses: list[dict[str, Any] | ErrorData] = []
 
     def set_handlers(self, on_request: OnRequestFn, on_notification: OnNotificationFn, on_error: OnErrorFn) -> None:
         self._inner.set_handlers(on_request, on_notification, on_error)
@@ -59,16 +68,33 @@ class SpyDispatcher:
         await self._inner.send_notification(notification, related_request_id)
 
     async def send_response(self, request_id: RequestId, response: dict[str, Any] | ErrorData) -> None:
-        await self._inner.send_response(request_id, response)  # pragma: no cover
+        self.sent_responses.append(response)
+        await self._inner.send_response(request_id, response)
 
 
 async def test_client_session_accepts_custom_dispatcher():
-    """ClientSession round-trips through a custom dispatcher end-to-end."""
+    """ClientSession round-trips through a custom dispatcher end-to-end, including
+    a server-initiated request (sampling) so all five dispatcher methods fire."""
     app = MCPServer("test")
 
     @app.tool()
-    def greet(name: str) -> str:
-        return f"Hello, {name}!"
+    async def ask(question: str, ctx: Context) -> str:
+        answer = await ctx.session.create_message(
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=question))],
+            max_tokens=10,
+        )
+        assert isinstance(answer.content, TextContent)
+        return answer.content.text
+
+    async def sampling_callback(
+        context: RequestContext[ClientSession], params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        return CreateMessageResult(
+            role="assistant",
+            content=TextContent(type="text", text="42"),
+            model="test",
+            stop_reason="endTurn",
+        )
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
@@ -83,17 +109,20 @@ async def test_client_session_accepts_custom_dispatcher():
             server = app._lowlevel_server  # type: ignore[reportPrivateUsage]
             tg.start_soon(lambda: server.run(server_read, server_write, server.create_initialization_options()))
 
-            async with ClientSession(dispatcher=spy) as session:
+            async with ClientSession(dispatcher=spy, sampling_callback=sampling_callback) as session:
                 await session.initialize()
-                result = await session.call_tool("greet", {"name": "world"})
-                assert result.content[0].text == "Hello, world!"  # type: ignore[union-attr]
+                result = await session.call_tool("ask", {"question": "meaning of life?"})
+                assert result.content[0].text == "42"  # type: ignore[union-attr]
 
             tg.cancel_scope.cancel()
 
-    # Initialize + call_tool + list_tools (output-schema refresh after the call).
+    # initialize, tools/call (triggers sampling on the server), tools/list (schema refresh)
     assert [r["method"] for r in spy.sent_requests] == ["initialize", "tools/call", "tools/list"]
-    # InitializedNotification.
     assert [n["method"] for n in spy.sent_notifications] == ["notifications/initialized"]
+    # The server's sampling/createMessage request hit us; our response went back through the spy.
+    assert len(spy.sent_responses) == 1
+    response = spy.sent_responses[0]
+    assert isinstance(response, dict) and response["model"] == "test"
 
 
 async def test_base_session_requires_streams_or_dispatcher():
