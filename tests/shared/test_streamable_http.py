@@ -1810,6 +1810,46 @@ def test_streamable_http_transport_includes_seeded_session_id_header():
 
 
 @pytest.mark.anyio
+async def test_streamable_http_client_resumption_starts_get_stream_once(monkeypatch: pytest.MonkeyPatch):
+    start_count = 0
+
+    async def fake_handle_get_stream(
+        self: StreamableHTTPTransport,
+        client: httpx.AsyncClient,
+        read_stream_writer: anyio.abc.ObjectSendStream[SessionMessage | Exception],
+    ) -> None:
+        nonlocal start_count
+        start_count += 1
+        await anyio.sleep(0)
+
+    async def fake_post_writer(
+        self: StreamableHTTPTransport,
+        client: httpx.AsyncClient,
+        write_stream_reader: anyio.abc.ObjectReceiveStream[SessionMessage],
+        read_stream_writer: anyio.abc.ObjectSendStream[SessionMessage | Exception],
+        write_stream: anyio.abc.ObjectSendStream[SessionMessage],
+        start_get_stream: Any,
+        tg: anyio.abc.TaskGroup,
+    ) -> None:
+        # Call twice; the second call should hit the early return guard.
+        start_get_stream()
+        start_get_stream()
+        await anyio.sleep(0)
+
+    monkeypatch.setattr(StreamableHTTPTransport, "handle_get_stream", fake_handle_get_stream)
+    monkeypatch.setattr(StreamableHTTPTransport, "post_writer", fake_post_writer)
+
+    async with streamable_http_client(
+        "http://localhost:8000/mcp",
+        session_id="resume-session-id",
+        terminate_on_close=False,
+    ):
+        await anyio.sleep(0)
+
+    assert start_count == 1
+
+
+@pytest.mark.anyio
 async def test_priming_event_not_sent_for_old_protocol_version():
     """Test that _maybe_send_priming_event skips for old protocol versions (backwards compat)."""
     # Create a transport with an event store
