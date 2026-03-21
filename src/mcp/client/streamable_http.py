@@ -72,14 +72,15 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, session_id: str | None = None) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            session_id: Optional pre-existing MCP session ID to resume.
         """
         self.url = url
-        self.session_id: str | None = None
+        self.session_id: str | None = session_id
         self.protocol_version: str | None = None
 
     def _prepare_headers(self) -> dict[str, str]:
@@ -512,6 +513,7 @@ async def streamable_http_client(
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
+    session_id: str | None = None,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
@@ -521,6 +523,8 @@ async def streamable_http_client(
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
+        session_id: Optional pre-existing MCP session ID to include in requests,
+            enabling explicit session resumption.
 
     Yields:
         Tuple containing:
@@ -538,7 +542,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    transport = StreamableHTTPTransport(url, session_id=session_id)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 

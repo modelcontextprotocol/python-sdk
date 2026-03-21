@@ -95,6 +95,9 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    streamable_http_session_id: str | None = None
+    """Optional pre-existing MCP session ID used when server is a StreamableHTTP URL."""
+
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
@@ -103,7 +106,7 @@ class Client:
         if isinstance(self.server, Server | MCPServer):
             self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
         elif isinstance(self.server, str):
-            self._transport = streamable_http_client(self.server)
+            self._transport = streamable_http_client(self.server, session_id=self.streamable_http_session_id)
         else:
             self._transport = self.server
 

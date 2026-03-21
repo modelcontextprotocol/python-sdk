@@ -307,7 +307,13 @@ async def test_complete_with_prompt_reference(simple_server: Server):
 def test_client_with_url_initializes_streamable_http_transport():
     with patch("mcp.client.client.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
-    mock.assert_called_once_with("http://localhost:8000/mcp")
+    mock.assert_called_once_with("http://localhost:8000/mcp", session_id=None)
+
+
+def test_client_with_url_and_session_id_initializes_streamable_http_transport():
+    with patch("mcp.client.client.streamable_http_client") as mock:
+        _ = Client("http://localhost:8000/mcp", streamable_http_session_id="resume-session-id")
+    mock.assert_called_once_with("http://localhost:8000/mcp", session_id="resume-session-id")
 
 
 async def test_client_uses_transport_directly(app: MCPServer):

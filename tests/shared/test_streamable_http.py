@@ -1801,6 +1801,14 @@ async def test_handle_sse_event_skips_empty_data():
         await read_stream.aclose()
 
 
+def test_streamable_http_transport_includes_seeded_session_id_header():
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp", session_id="resume-session-id")
+
+    headers = transport._prepare_headers()
+
+    assert headers["mcp-session-id"] == "resume-session-id"
+
+
 @pytest.mark.anyio
 async def test_priming_event_not_sent_for_old_protocol_version():
     """Test that _maybe_send_priming_event skips for old protocol versions (backwards compat)."""
