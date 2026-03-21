@@ -23,10 +23,6 @@ async def test_unknown_resource_returns_invalid_params_error_code():
     """Reading an unknown resource returns INVALID_PARAMS (-32602), not 0."""
     mcp = MCPServer()
 
-    @mcp.resource("resource://exists")
-    def existing_resource():
-        return "data"
-
     async with Client(mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("resource://does-not-exist")
