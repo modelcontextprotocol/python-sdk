@@ -31,7 +31,6 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -44,6 +43,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_PARAMS,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
@@ -439,7 +439,7 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             resource = await self._resource_manager.get_resource(uri, context)
         except ValueError:
-            raise ResourceError(f"Unknown resource: {uri}")
+            raise MCPError(code=INVALID_PARAMS, message=f"Unknown resource: {uri}")
 
         try:
             content = await resource.read()
@@ -447,7 +447,7 @@ class MCPServer(Generic[LifespanResultT]):
         except Exception as exc:
             logger.exception(f"Error getting resource {uri}")
             # If an exception happens when reading the resource, we should not leak the exception to the client.
-            raise ResourceError(f"Error reading resource {uri}") from exc
+            raise MCPError(code=INVALID_PARAMS, message=f"Error reading resource {uri}") from exc
 
     def add_tool(
         self,
