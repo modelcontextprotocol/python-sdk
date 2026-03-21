@@ -1809,27 +1809,26 @@ def test_streamable_http_transport_includes_seeded_session_id_header():
     assert headers["mcp-session-id"] == "resume-session-id"
 
 
-@pytest.mark.anyio
-async def test_streamable_http_client_resumption_starts_get_stream_once(monkeypatch: pytest.MonkeyPatch):
+def test_streamable_http_client_resumption_starts_get_stream_once(monkeypatch: pytest.MonkeyPatch):
     start_count = 0
 
     async def fake_handle_get_stream(
-        self: StreamableHTTPTransport,
-        client: httpx.AsyncClient,
-        read_stream_writer: anyio.abc.ObjectSendStream[SessionMessage | Exception],
+        self: StreamableHTTPTransport,  # noqa: ARG001
+        client: httpx.AsyncClient,  # noqa: ARG001
+        read_stream_writer: Any,  # noqa: ARG001
     ) -> None:
         nonlocal start_count
         start_count += 1
         await anyio.sleep(0)
 
     async def fake_post_writer(
-        self: StreamableHTTPTransport,
-        client: httpx.AsyncClient,
-        write_stream_reader: anyio.abc.ObjectReceiveStream[SessionMessage],
-        read_stream_writer: anyio.abc.ObjectSendStream[SessionMessage | Exception],
-        write_stream: anyio.abc.ObjectSendStream[SessionMessage],
-        start_get_stream: Any,
-        tg: anyio.abc.TaskGroup,
+        self: StreamableHTTPTransport,  # noqa: ARG001
+        client: httpx.AsyncClient,  # noqa: ARG001
+        write_stream_reader: Any,  # noqa: ARG001
+        read_stream_writer: Any,  # noqa: ARG001
+        write_stream: Any,  # noqa: ARG001
+        start_get_stream: Any,  # noqa: ARG001
+        tg: Any,  # noqa: ARG001
     ) -> None:
         # Call twice; the second call should hit the early return guard.
         start_get_stream()
@@ -1839,12 +1838,15 @@ async def test_streamable_http_client_resumption_starts_get_stream_once(monkeypa
     monkeypatch.setattr(StreamableHTTPTransport, "handle_get_stream", fake_handle_get_stream)
     monkeypatch.setattr(StreamableHTTPTransport, "post_writer", fake_post_writer)
 
-    async with streamable_http_client(
-        "http://localhost:8000/mcp",
-        session_id="resume-session-id",
-        terminate_on_close=False,
-    ):
-        await anyio.sleep(0)
+    async def exercise_client() -> None:
+        async with streamable_http_client(
+            "http://localhost:8000/mcp",
+            session_id="resume-session-id",
+            terminate_on_close=False,
+        ):
+            await anyio.sleep(0)
+
+    anyio.run(exercise_client)
 
     assert start_count == 1
 
