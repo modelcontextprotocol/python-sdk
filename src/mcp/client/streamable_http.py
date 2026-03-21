@@ -561,9 +561,18 @@ async def streamable_http_client(
             write_stream_reader,
             anyio.create_task_group() as tg,
         ):
+            get_stream_started = False
 
             def start_get_stream() -> None:
+                nonlocal get_stream_started
+                if get_stream_started:
+                    return
+                get_stream_started = True
                 tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
+
+            # If we're resuming an existing session, start the GET stream immediately.
+            if session_id:
+                start_get_stream()
 
             tg.start_soon(
                 transport.post_writer,
