@@ -571,12 +571,13 @@ class OAuthClientProvider(httpx.Auth):
                         else:
                             logger.debug(f"OAuth metadata discovery failed: {url}")
 
-                    # Step 3: Apply scope selection strategy
-                    self.context.client_metadata.scope = get_client_metadata_scopes(
-                        extract_scope_from_www_auth(response),
-                        self.context.protected_resource_metadata,
-                        self.context.oauth_metadata,
-                    )
+                    # Step 3: Apply scope selection strategy (only if not already set)
+                    if self.context.client_metadata.scope is None:
+                        self.context.client_metadata.scope = get_client_metadata_scopes(
+                            extract_scope_from_www_auth(response),
+                            self.context.protected_resource_metadata,
+                            self.context.oauth_metadata,
+                        )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
                     if not self.context.client_info:
