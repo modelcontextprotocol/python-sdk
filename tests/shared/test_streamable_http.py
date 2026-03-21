@@ -1848,7 +1848,8 @@ def test_streamable_http_client_resumption_starts_get_stream_once(monkeypatch: p
 
     anyio.run(exercise_client)
 
-    assert start_count == 1
+    if start_count != 1:
+        raise AssertionError(f"Expected exactly one GET stream start, got {start_count}")
 
 
 @pytest.mark.anyio
