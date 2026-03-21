@@ -1,17 +1,11 @@
 """Simple task server demonstrating MCP tasks over streamable HTTP."""
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-
 import anyio
 import click
 import uvicorn
 from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from starlette.applications import Starlette
-from starlette.routing import Mount
 
 
 async def handle_list_tools(
@@ -69,17 +63,7 @@ server.experimental.enable_tasks()
 @click.command()
 @click.option("--port", default=8000, help="Port to listen on")
 def main(port: int) -> int:
-    session_manager = StreamableHTTPSessionManager(app=server)
-
-    @asynccontextmanager
-    async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
-        async with session_manager.run():
-            yield
-
-    starlette_app = Starlette(
-        routes=[Mount("/mcp", app=session_manager.handle_request)],
-        lifespan=app_lifespan,
-    )
+    starlette_app = server.streamable_http_app()
 
     print(f"Starting server on http://localhost:{port}/mcp")
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)

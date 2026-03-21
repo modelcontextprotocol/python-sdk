@@ -3,7 +3,7 @@ from typing import Any, Literal
 import pytest
 
 from mcp import Client, types
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     LoggingMessageNotificationParams,
@@ -33,14 +33,10 @@ async def test_logging_callback():
     # Create a function that can send a log notification
     @server.tool("test_tool_with_log")
     async def test_tool_with_log(
-        message: str, level: Literal["debug", "info", "warning", "error"], logger: str
+        message: str, level: Literal["debug", "info", "warning", "error"], logger: str, ctx: Context
     ) -> bool:
         """Send a log notification to the client."""
-        await server.get_context().log(
-            level=level,
-            message=message,
-            logger_name=logger,
-        )
+        await ctx.log(level=level, message=message, logger_name=logger)
         return True
 
     @server.tool("test_tool_with_log_extra")
@@ -50,9 +46,10 @@ async def test_logging_callback():
         logger: str,
         extra_string: str,
         extra_dict: dict[str, Any],
+        ctx: Context,
     ) -> bool:
         """Send a log notification to the client with extra fields."""
-        await server.get_context().log(
+        await ctx.log(
             level=level,
             message=message,
             logger_name=logger,

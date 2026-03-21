@@ -169,6 +169,30 @@ result = await session.list_resources(params=PaginatedRequestParams(cursor="next
 result = await session.list_tools(params=PaginatedRequestParams(cursor="next_page_token"))
 ```
 
+### `ClientSession.get_server_capabilities()` replaced by `initialize_result` property
+
+`ClientSession` now stores the full `InitializeResult` via an `initialize_result` property. This provides access to `server_info`, `capabilities`, `instructions`, and the negotiated `protocol_version` through a single property. The `get_server_capabilities()` method has been removed.
+
+**Before (v1):**
+
+```python
+capabilities = session.get_server_capabilities()
+# server_info, instructions, protocol_version were not stored — had to capture initialize() return value
+```
+
+**After (v2):**
+
+```python
+result = session.initialize_result
+if result is not None:
+    capabilities = result.capabilities
+    server_info = result.server_info
+    instructions = result.instructions
+    version = result.protocol_version
+```
+
+The high-level `Client.initialize_result` returns the same `InitializeResult` but is non-nullable — initialization is guaranteed inside the context manager, so no `None` check is needed. This replaces v1's `Client.server_capabilities`; use `client.initialize_result.capabilities` instead.
+
 ### `McpError` renamed to `MCPError`
 
 The `McpError` exception class has been renamed to `MCPError` for consistent naming with the MCP acronym style used throughout the SDK.
@@ -287,6 +311,37 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 ```
 
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
+
+### `MCPServer.get_context()` removed
+
+`MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.
+
+**If you were calling `get_context()` from inside a tool/resource/prompt:** use the `ctx: Context` parameter injection instead.
+
+**Before (v1):**
+
+```python
+@mcp.tool()
+async def my_tool(x: int) -> str:
+    ctx = mcp.get_context()
+    await ctx.info("Processing...")
+    return str(x)
+```
+
+**After (v2):**
+
+```python
+@mcp.tool()
+async def my_tool(x: int, ctx: Context) -> str:
+    await ctx.info("Processing...")
+    return str(x)
+```
+
+### `MCPServer.call_tool()`, `read_resource()`, `get_prompt()` now accept a `context` parameter
+
+`MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling. If you call these methods directly and omit `context`, a Context with no active request is constructed for you — tools that don't use `ctx` work normally, but any attempt to use `ctx.session`, `ctx.request_id`, etc. will raise.
+
+The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
 
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
@@ -694,7 +749,7 @@ If you prefer the convenience of automatic wrapping, use `MCPServer` which still
 
 ### Lowlevel `Server`: `request_context` property removed
 
-The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar is now an internal implementation detail and should not be relied upon.
+The `server.request_context` property has been removed. Request context is now passed directly to handlers as the first argument (`ctx`). The `request_ctx` module-level contextvar has been removed entirely.
 
 **Before (v1):**
 
@@ -828,6 +883,6 @@ The lowlevel `Server` also now exposes a `session_manager` property to access th
 
 If you encounter issues during migration:
 
-1. Check the [API Reference](api.md) for updated method signatures
+1. Check the [API Reference](api/mcp/index.md) for updated method signatures
 2. Review the [examples](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples) for updated usage patterns
 3. Open an issue on [GitHub](https://github.com/modelcontextprotocol/python-sdk/issues) if you find a bug or need further assistance

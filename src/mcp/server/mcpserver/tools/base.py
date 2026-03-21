@@ -17,7 +17,7 @@ from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
-    from mcp.server.mcpserver.server import Context
+    from mcp.server.mcpserver.context import Context
 
 
 class Tool(BaseModel):
@@ -92,10 +92,14 @@ class Tool(BaseModel):
     async def run(
         self,
         arguments: dict[str, Any],
-        context: Context[LifespanContextT, RequestT] | None = None,
+        context: Context[LifespanContextT, RequestT],
         convert_result: bool = False,
     ) -> Any:
-        """Run the tool with arguments."""
+        """Run the tool with arguments.
+
+        Raises:
+            ToolError: If the tool function raises during execution.
+        """
         try:
             result = await self.fn_metadata.call_fn_with_arg_validation(
                 self.fn,

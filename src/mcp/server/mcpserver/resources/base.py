@@ -23,11 +23,7 @@ class Resource(BaseModel, abc.ABC):
     name: str | None = Field(description="Name of the resource", default=None)
     title: str | None = Field(description="Human-readable title of the resource", default=None)
     description: str | None = Field(description="Description of the resource", default=None)
-    mime_type: str = Field(
-        default="text/plain",
-        description="MIME type of the resource content",
-        pattern=r"^[a-zA-Z0-9]+/[a-zA-Z0-9\-+.]+(;\s*[a-zA-Z0-9\-_.]+=[a-zA-Z0-9\-_.]+)*$",
-    )
+    mime_type: str = Field(default="text/plain", description="MIME type of the resource content")
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this resource")
     annotations: Annotations | None = Field(default=None, description="Optional annotations for the resource")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this resource")

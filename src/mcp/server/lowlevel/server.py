@@ -36,7 +36,6 @@ handler callables by method string.
 
 from __future__ import annotations
 
-import contextvars
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -73,8 +72,6 @@ from mcp.shared.session import RequestResponder
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
-
-request_ctx: contextvars.ContextVar[ServerRequestContext[Any]] = contextvars.ContextVar("request_ctx")
 
 
 class NotificationOptions:
@@ -390,16 +387,23 @@ class Server(Generic[LifespanResultT]):
                 await stack.enter_async_context(task_support.run())
 
             async with anyio.create_task_group() as tg:
-                async for message in session.incoming_messages:
-                    logger.debug("Received message: %s", message)
+                try:
+                    async for message in session.incoming_messages:
+                        logger.debug("Received message: %s", message)
 
-                    tg.start_soon(
-                        self._handle_message,
-                        message,
-                        session,
-                        lifespan_context,
-                        raise_exceptions,
-                    )
+                        tg.start_soon(
+                            self._handle_message,
+                            message,
+                            session,
+                            lifespan_context,
+                            raise_exceptions,
+                        )
+                finally:
+                    # Transport closed: cancel in-flight handlers. Without this the
+                    # TG join waits for them, and when they eventually try to
+                    # respond they hit a closed write stream (the session's
+                    # _receive_loop closed it when the read stream ended).
+                    tg.cancel_scope.cancel()
 
     async def _handle_message(
         self,
@@ -417,11 +421,6 @@ class Server(Generic[LifespanResultT]):
                         )
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
-                    await session.send_log_message(
-                        level="error",
-                        data="Internal Server Error",
-                        logger="mcp.server.exception_handler",
-                    )
                     if raise_exceptions:
                         raise message
                 case _:
@@ -474,24 +473,36 @@ class Server(Generic[LifespanResultT]):
                     close_sse_stream=close_sse_stream_cb,
                     close_standalone_sse_stream=close_standalone_sse_stream_cb,
                 )
-                token = request_ctx.set(ctx)
-                try:
-                    response = await handler(ctx, req.params)
-                finally:
-                    request_ctx.reset(token)
+                response = await handler(ctx, req.params)
             except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
-                logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
-                return
+                if message.cancelled:
+                    # Client sent CancelledNotification; responder.cancel() already
+                    # sent an error response, so skip the duplicate.
+                    logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
+                    return
+                # Transport-close cancellation from the TG in run(); re-raise so the
+                # TG swallows its own cancellation.
+                raise
             except Exception as err:
                 if raise_exceptions:  # pragma: no cover
                     raise err
                 response = types.ErrorData(code=0, message=str(err))
-
-            await message.respond(response)
         else:  # pragma: no cover
-            await message.respond(types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found"))
+            response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
+
+        try:
+            await message.respond(response)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            # Transport closed between handler unblocking and respond. Happens
+            # when _receive_loop's finally wakes a handler blocked on
+            # send_request: the handler runs to respond() before run()'s TG
+            # cancel fires, but after the write stream closed. Closed if our
+            # end closed (_receive_loop's async-with exit); Broken if the peer
+            # end closed first (streamable_http terminate()).
+            logger.debug("Response for %s dropped - transport closed", message.request_id)
+            return
 
         logger.debug("Response sent")
 

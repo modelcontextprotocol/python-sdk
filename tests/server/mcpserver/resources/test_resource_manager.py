@@ -4,6 +4,7 @@ from tempfile import NamedTemporaryFile
 import pytest
 from pydantic import AnyUrl
 
+from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
 
 
@@ -86,7 +87,7 @@ class TestResourceManager:
             path=temp_file,
         )
         manager.add_resource(resource)
-        retrieved = await manager.get_resource(resource.uri)
+        retrieved = await manager.get_resource(resource.uri, Context())
         assert retrieved == resource
 
     @pytest.mark.anyio
@@ -104,7 +105,7 @@ class TestResourceManager:
         )
         manager._templates[template.uri_template] = template
 
-        resource = await manager.get_resource(AnyUrl("greet://world"))
+        resource = await manager.get_resource(AnyUrl("greet://world"), Context())
         assert isinstance(resource, FunctionResource)
         content = await resource.read()
         assert content == "Hello, world!"
@@ -114,7 +115,7 @@ class TestResourceManager:
         """Test getting a non-existent resource."""
         manager = ResourceManager()
         with pytest.raises(ValueError, match="Unknown resource"):
-            await manager.get_resource(AnyUrl("unknown://test"))
+            await manager.get_resource(AnyUrl("unknown://test"), Context())
 
     def test_list_resources(self, temp_file: Path):
         """Test listing all resources."""

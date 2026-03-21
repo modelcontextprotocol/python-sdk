@@ -408,16 +408,10 @@ For custom error messages, call `task.fail()` before raising.
 For web applications, use the Streamable HTTP transport:
 
 ```python
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-
 import uvicorn
-from starlette.applications import Starlette
-from starlette.routing import Mount
 
 from mcp.server import Server
 from mcp.server.experimental.task_context import ServerTaskContext
-from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import (
     CallToolResult, CreateTaskResult, TextContent, Tool, ToolExecution, TASK_REQUIRED,
 )
@@ -462,22 +456,8 @@ async def handle_tool(name: str, arguments: dict) -> CallToolResult | CreateTask
     return CallToolResult(content=[TextContent(type="text", text=f"Unknown: {name}")], isError=True)
 
 
-def create_app():
-    session_manager = StreamableHTTPSessionManager(app=server)
-
-    @asynccontextmanager
-    async def lifespan(app: Starlette) -> AsyncIterator[None]:
-        async with session_manager.run():
-            yield
-
-    return Starlette(
-        routes=[Mount("/mcp", app=session_manager.handle_request)],
-        lifespan=lifespan,
-    )
-
-
 if __name__ == "__main__":
-    uvicorn.run(create_app(), host="127.0.0.1", port=8000)
+    uvicorn.run(server.streamable_http_app(), host="127.0.0.1", port=8000)
 ```
 
 ## Testing Task Servers
