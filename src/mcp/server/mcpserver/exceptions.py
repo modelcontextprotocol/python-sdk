@@ -13,6 +13,10 @@ class ResourceError(MCPServerError):
     """Error in resource operations."""
 
 
+class PromptError(MCPServerError):
+    """Error in prompt operations."""
+
+
 class ToolError(MCPServerError):
     """Error in tool operations."""
 

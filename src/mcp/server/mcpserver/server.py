@@ -500,6 +500,39 @@ class MCPServer(Generic[LifespanResultT]):
         """
         self._tool_manager.remove_tool(name)
 
+    def remove_prompt(self, name: str) -> None:
+        """Remove a prompt from the server by name.
+
+        Args:
+            name: The name of the prompt to remove
+
+        Raises:
+            PromptError: If the prompt does not exist
+        """
+        self._prompt_manager.remove_prompt(name)
+
+    def remove_resource(self, uri: str) -> None:
+        """Remove a resource from the server by URI.
+
+        Args:
+            uri: The URI of the resource to remove
+
+        Raises:
+            ResourceError: If the resource does not exist
+        """
+        self._resource_manager.remove_resource(uri)
+
+    def remove_resource_template(self, uri_template: str) -> None:
+        """Remove a resource template from the server by URI template.
+
+        Args:
+            uri_template: The URI template of the template to remove
+
+        Raises:
+            ResourceError: If the template does not exist
+        """
+        self._resource_manager.remove_template(uri_template)
+
     def tool(
         self,
         name: str | None = None,
