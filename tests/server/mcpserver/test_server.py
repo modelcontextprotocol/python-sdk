@@ -834,7 +834,7 @@ class TestServerResources:
         mcp = MCPServer()
 
         @mcp.resource("resource://test")
-        def get_data() -> str:  # pragma: no cover
+        def get_data() -> str:
             return "Hello"
 
         async with Client(mcp) as client:
@@ -1574,7 +1574,7 @@ class TestServerPrompts:
         mcp = MCPServer()
 
         @mcp.prompt()
-        def fn() -> str:  # pragma: no cover
+        def fn() -> str:
             return "Hello"
 
         async with Client(mcp) as client:
