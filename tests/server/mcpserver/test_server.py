@@ -1072,9 +1072,9 @@ class TestContextInjection:
     @pytest.mark.anyio
     async def test_context_logging_with_structured_data(self):
         """Test that context logging accepts structured data per MCP spec (issue #397)."""
-        mcp = FastMCP()
+        mcp = MCPServer()
 
-        async def structured_logging_tool(msg: str, ctx: Context[ServerSession, None]) -> str:
+        async def structured_logging_tool(msg: str, ctx: Context) -> str:
             # Test with dictionary
             await ctx.info({"status": "success", "message": msg, "count": 42})
             # Test with list

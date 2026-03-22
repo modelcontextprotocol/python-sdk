@@ -51,12 +51,12 @@ async def test_logging_callback():
         """Send a log notification to the client with extra fields."""
         await ctx.log(
             level=level,
-            data={
-                "message": message,
+            message=message,
+            logger_name=logger,
+            extra={
                 "extra_string": extra_string,
                 "extra_dict": extra_dict,
             },
-            logger_name=logger,
         )
         return True
 
