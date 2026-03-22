@@ -13,7 +13,7 @@ from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import PromptError, ResourceError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
@@ -785,6 +785,69 @@ class TestServerResources:
             assert resource.name == "test_get_data"
             assert resource.mime_type == "text/plain"
 
+    async def test_remove_resource(self):
+        """Test removing a resource from the server."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://test")
+        def get_data() -> str:  # pragma: no cover
+            return "Hello"
+
+        assert len(mcp._resource_manager.list_resources()) == 1
+
+        mcp.remove_resource("resource://test")
+
+        assert len(mcp._resource_manager.list_resources()) == 0
+
+    async def test_remove_nonexistent_resource(self):
+        """Test that removing a non-existent resource raises ResourceError."""
+        mcp = MCPServer()
+
+        with pytest.raises(ResourceError, match="Unknown resource: resource://nonexistent"):
+            mcp.remove_resource("resource://nonexistent")
+
+    async def test_remove_resource_and_list(self):
+        """Test that a removed resource doesn't appear in list_resources."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://first")
+        def first() -> str:  # pragma: no cover
+            return "first"
+
+        @mcp.resource("resource://second")
+        def second() -> str:  # pragma: no cover
+            return "second"
+
+        async with Client(mcp) as client:
+            resources = await client.list_resources()
+            assert len(resources.resources) == 2
+
+        mcp.remove_resource("resource://first")
+
+        async with Client(mcp) as client:
+            resources = await client.list_resources()
+            assert len(resources.resources) == 1
+            assert resources.resources[0].uri == "resource://second"
+
+    async def test_remove_resource_and_read(self):
+        """Test that reading a removed resource fails appropriately."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://test")
+        def get_data() -> str:  # pragma: no cover
+            return "Hello"
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://test")
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "Hello"
+
+        mcp.remove_resource("resource://test")
+
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError, match="Unknown resource"):
+                await client.read_resource("resource://test")
+
 
 class TestServerResourceTemplates:
     async def test_resource_with_params(self):
@@ -919,6 +982,50 @@ class TestServerResourceTemplates:
                     contents=[TextResourceContents(uri="resource://bob/csv", mime_type="text/csv", text="csv for bob")]
                 )
             )
+
+    async def test_remove_resource_template(self):
+        """Test removing a resource template from the server."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://{name}/data")
+        def get_data(name: str) -> str:  # pragma: no cover
+            return f"Data for {name}"
+
+        assert len(mcp._resource_manager._templates) == 1
+
+        mcp.remove_resource_template("resource://{name}/data")
+
+        assert len(mcp._resource_manager._templates) == 0
+
+    async def test_remove_nonexistent_resource_template(self):
+        """Test that removing a non-existent template raises ResourceError."""
+        mcp = MCPServer()
+
+        with pytest.raises(ResourceError, match="Unknown resource template: resource://\\{name\\}/data"):
+            mcp.remove_resource_template("resource://{name}/data")
+
+    async def test_remove_resource_template_and_list(self):
+        """Test that a removed template doesn't appear in list_resource_templates."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://{name}/first")
+        def first(name: str) -> str:  # pragma: no cover
+            return f"first {name}"
+
+        @mcp.resource("resource://{name}/second")
+        def second(name: str) -> str:  # pragma: no cover
+            return f"second {name}"
+
+        async with Client(mcp) as client:
+            templates = await client.list_resource_templates()
+            assert len(templates.resource_templates) == 2
+
+        mcp.remove_resource_template("resource://{name}/first")
+
+        async with Client(mcp) as client:
+            templates = await client.list_resource_templates()
+            assert len(templates.resource_templates) == 1
+            assert templates.resource_templates[0].uri_template == "resource://{name}/second"
 
 
 class TestServerResourceMetadata:
@@ -1417,6 +1524,68 @@ class TestServerPrompts:
         async with Client(mcp) as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+    async def test_remove_prompt(self):
+        """Test removing a prompt from the server."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def fn() -> str:  # pragma: no cover
+            return "Hello"
+
+        assert len(mcp._prompt_manager.list_prompts()) == 1
+
+        mcp.remove_prompt("fn")
+
+        assert len(mcp._prompt_manager.list_prompts()) == 0
+
+    async def test_remove_nonexistent_prompt(self):
+        """Test that removing a non-existent prompt raises PromptError."""
+        mcp = MCPServer()
+
+        with pytest.raises(PromptError, match="Unknown prompt: nonexistent"):
+            mcp.remove_prompt("nonexistent")
+
+    async def test_remove_prompt_and_list(self):
+        """Test that a removed prompt doesn't appear in list_prompts."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def first() -> str:  # pragma: no cover
+            return "first"
+
+        @mcp.prompt()
+        def second() -> str:  # pragma: no cover
+            return "second"
+
+        async with Client(mcp) as client:
+            prompts = await client.list_prompts()
+            assert len(prompts.prompts) == 2
+
+        mcp.remove_prompt("first")
+
+        async with Client(mcp) as client:
+            prompts = await client.list_prompts()
+            assert len(prompts.prompts) == 1
+            assert prompts.prompts[0].name == "second"
+
+    async def test_remove_prompt_and_get(self):
+        """Test that getting a removed prompt fails appropriately."""
+        mcp = MCPServer()
+
+        @mcp.prompt()
+        def fn() -> str:  # pragma: no cover
+            return "Hello"
+
+        async with Client(mcp) as client:
+            result = await client.get_prompt("fn")
+            assert result.messages[0].content == TextContent(text="Hello")
+
+        mcp.remove_prompt("fn")
+
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError, match="Unknown prompt"):
+                await client.get_prompt("fn")
 
 
 async def test_completion_decorator() -> None:
