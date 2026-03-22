@@ -2,7 +2,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import AnyUrl, BaseModel, Field, RootModel, ValidationError
+# TODO(Marcelo): We should drop the `RootModel`.
+from pydantic import AnyUrl, BaseModel, Field, RootModel, ValidationError  # noqa: TID251
 from starlette.datastructures import FormData, QueryParams
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response

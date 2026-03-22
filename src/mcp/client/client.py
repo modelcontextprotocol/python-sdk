@@ -2,96 +2,110 @@
 
 from __future__ import annotations
 
-import logging
 from contextlib import AsyncExitStack
+from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
-from pydantic import AnyUrl
-
-import mcp.types as types
 from mcp.client._memory import InMemoryTransport
-from mcp.client.session import (
-    ClientSession,
-    ElicitationFnT,
-    ListRootsFnT,
-    LoggingFnT,
-    MessageHandlerFnT,
-    SamplingFnT,
-)
+from mcp.client._transport import Transport
+from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.shared.session import ProgressFnT
+from mcp.types import (
+    CallToolResult,
+    CompleteResult,
+    EmptyResult,
+    GetPromptResult,
+    Implementation,
+    InitializeResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ListToolsResult,
+    LoggingLevel,
+    PaginatedRequestParams,
+    PromptReference,
+    ReadResourceResult,
+    RequestParamsMeta,
+    ResourceTemplateReference,
+)
 
-logger = logging.getLogger(__name__)
 
-
+@dataclass
 class Client:
     """A high-level MCP client for connecting to MCP servers.
 
-    Currently supports in-memory transport for testing. Pass a Server or
-    FastMCP instance directly to the constructor.
+    Supports in-memory transport for testing (pass a Server or MCPServer instance),
+    Streamable HTTP transport (pass a URL string), or a custom Transport instance.
 
     Example:
         ```python
         from mcp.client import Client
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server.mcpserver import MCPServer
 
-        server = FastMCP("test")
+        server = MCPServer("test")
 
         @server.tool()
         def add(a: int, b: int) -> int:
             return a + b
 
-        async with Client(server) as client:
-            result = await client.call_tool("add", {"a": 1, "b": 2})
+        async def main():
+            async with Client(server) as client:
+                result = await client.call_tool("add", {"a": 1, "b": 2})
+
+        asyncio.run(main())
         ```
     """
 
-    # TODO(felixweinberger): Expand to support all transport types (like FastMCP 2):
-    # - Add ClientTransport base class with connect_session() method
-    # - Add StreamableHttpTransport, SSETransport, StdioTransport
-    # - Add infer_transport() to auto-detect transport from input type
-    # - Accept URL strings, Path objects, config dicts in constructor
-    # - Add auth support (OAuth, bearer tokens)
+    server: Server[Any] | MCPServer | Transport | str
+    """The MCP server to connect to.
 
-    def __init__(
-        self,
-        server: Server[Any] | FastMCP,
-        *,
-        raise_exceptions: bool = False,
-        read_timeout_seconds: float | None = None,
-        sampling_callback: SamplingFnT | None = None,
-        list_roots_callback: ListRootsFnT | None = None,
-        logging_callback: LoggingFnT | None = None,
-        message_handler: MessageHandlerFnT | None = None,
-        client_info: types.Implementation | None = None,
-        elicitation_callback: ElicitationFnT | None = None,
-    ) -> None:
-        """Initialize the client with a server.
+    If the server is a `Server` or `MCPServer` instance, it will be wrapped in an `InMemoryTransport`.
+    If the server is a URL string, it will be used as the URL for a `streamable_http_client` transport.
+    If the server is a `Transport` instance, it will be used directly.
+    """
 
-        Args:
-            server: The MCP server to connect to (Server or FastMCP instance)
-            raise_exceptions: Whether to raise exceptions from the server
-            read_timeout_seconds: Timeout for read operations
-            sampling_callback: Callback for handling sampling requests
-            list_roots_callback: Callback for handling list roots requests
-            logging_callback: Callback for handling logging notifications
-            message_handler: Callback for handling raw messages
-            client_info: Client implementation info to send to server
-            elicitation_callback: Callback for handling elicitation requests
-        """
-        self._server = server
-        self._raise_exceptions = raise_exceptions
-        self._read_timeout_seconds = read_timeout_seconds
-        self._sampling_callback = sampling_callback
-        self._list_roots_callback = list_roots_callback
-        self._logging_callback = logging_callback
-        self._message_handler = message_handler
-        self._client_info = client_info
-        self._elicitation_callback = elicitation_callback
+    _: KW_ONLY
 
-        self._session: ClientSession | None = None
-        self._exit_stack: AsyncExitStack | None = None
+    # TODO(Marcelo): When do `raise_exceptions=True` actually raises?
+    raise_exceptions: bool = False
+    """Whether to raise exceptions from the server."""
+
+    read_timeout_seconds: float | None = None
+    """Timeout for read operations."""
+
+    sampling_callback: SamplingFnT | None = None
+    """Callback for handling sampling requests."""
+
+    list_roots_callback: ListRootsFnT | None = None
+    """Callback for handling list roots requests."""
+
+    logging_callback: LoggingFnT | None = None
+    """Callback for handling logging notifications."""
+
+    # TODO(Marcelo): Why do we have both "callback" and "handler"?
+    message_handler: MessageHandlerFnT | None = None
+    """Callback for handling raw messages."""
+
+    client_info: Implementation | None = None
+    """Client implementation info to send to server."""
+
+    elicitation_callback: ElicitationFnT | None = None
+    """Callback for handling elicitation requests."""
+
+    _session: ClientSession | None = field(init=False, default=None)
+    _exit_stack: AsyncExitStack | None = field(init=False, default=None)
+    _transport: Transport = field(init=False)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.server, Server | MCPServer):
+            self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
+        elif isinstance(self.server, str):
+            self._transport = streamable_http_client(self.server)
+        else:
+            self._transport = self.server
 
     async def __aenter__(self) -> Client:
         """Enter the async context manager."""
@@ -99,40 +113,31 @@ class Client:
             raise RuntimeError("Client is already entered; cannot reenter")
 
         async with AsyncExitStack() as exit_stack:
-            # Create transport and connect
-            transport = InMemoryTransport(self._server, raise_exceptions=self._raise_exceptions)
-            read_stream, write_stream = await exit_stack.enter_async_context(transport.connect())
+            read_stream, write_stream = await exit_stack.enter_async_context(self._transport)
 
-            # Create session
             self._session = await exit_stack.enter_async_context(
                 ClientSession(
                     read_stream=read_stream,
                     write_stream=write_stream,
-                    read_timeout_seconds=self._read_timeout_seconds,
-                    sampling_callback=self._sampling_callback,
-                    list_roots_callback=self._list_roots_callback,
-                    logging_callback=self._logging_callback,
-                    message_handler=self._message_handler,
-                    client_info=self._client_info,
-                    elicitation_callback=self._elicitation_callback,
+                    read_timeout_seconds=self.read_timeout_seconds,
+                    sampling_callback=self.sampling_callback,
+                    list_roots_callback=self.list_roots_callback,
+                    logging_callback=self.logging_callback,
+                    message_handler=self.message_handler,
+                    client_info=self.client_info,
+                    elicitation_callback=self.elicitation_callback,
                 )
             )
 
-            # Initialize the session
             await self._session.initialize()
 
             # Transfer ownership to self for __aexit__ to handle
             self._exit_stack = exit_stack.pop_all()
             return self
 
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: Any,
-    ) -> None:
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
         """Exit the async context manager."""
-        if self._exit_stack:
+        if self._exit_stack:  # pragma: no branch
             await self._exit_stack.__aexit__(exc_type, exc_val, exc_tb)
         self._session = None
 
@@ -150,13 +155,20 @@ class Client:
         return self._session
 
     @property
-    def server_capabilities(self) -> types.ServerCapabilities | None:
-        """The server capabilities received during initialization, or None if not yet initialized."""
-        return self.session.get_server_capabilities()
+    def initialize_result(self) -> InitializeResult:
+        """The server's InitializeResult.
 
-    async def send_ping(self) -> types.EmptyResult:
+        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
+        Raises RuntimeError if accessed outside the context manager.
+        """
+        result = self.session.initialize_result
+        if result is None:  # pragma: no cover
+            raise RuntimeError("Client must be used within an async context manager")
+        return result
+
+    async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""
-        return await self.session.send_ping()
+        return await self.session.send_ping(meta=meta)
 
     async def send_progress_notification(
         self,
@@ -173,42 +185,47 @@ class Client:
             message=message,
         )
 
-    async def set_logging_level(self, level: types.LoggingLevel) -> types.EmptyResult:
+    async def set_logging_level(self, level: LoggingLevel, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Set the logging level on the server."""
-        return await self.session.set_logging_level(level)
+        return await self.session.set_logging_level(level=level, meta=meta)
 
     async def list_resources(
         self,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListResourcesResult:
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ListResourcesResult:
         """List available resources from the server."""
-        return await self.session.list_resources(params=params)
+        return await self.session.list_resources(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def list_resource_templates(
         self,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListResourceTemplatesResult:
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ListResourceTemplatesResult:
         """List available resource templates from the server."""
-        return await self.session.list_resource_templates(params=params)
+        return await self.session.list_resource_templates(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
-    async def read_resource(self, uri: str | AnyUrl) -> types.ReadResourceResult:
+    async def read_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> ReadResourceResult:
         """Read a resource from the server.
 
         Args:
-            uri: The URI of the resource to read
+            uri: The URI of the resource to read.
+            meta: Additional metadata for the request.
 
         Returns:
-            The resource content
+            The resource content.
         """
-        return await self.session.read_resource(uri)
+        return await self.session.read_resource(uri, meta=meta)
 
-    async def subscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def subscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Subscribe to resource updates."""
-        return await self.session.subscribe_resource(uri)
+        return await self.session.subscribe_resource(uri, meta=meta)
 
-    async def unsubscribe_resource(self, uri: str | AnyUrl) -> types.EmptyResult:
+    async def unsubscribe_resource(self, uri: str, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Unsubscribe from resource updates."""
-        return await self.session.unsubscribe_resource(uri)
+        return await self.session.unsubscribe_resource(uri, meta=meta)
 
     async def call_tool(
         self,
@@ -217,8 +234,8 @@ class Client:
         read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult:
+        meta: RequestParamsMeta | None = None,
+    ) -> CallToolResult:
         """Call a tool on the server.
 
         Args:
@@ -229,7 +246,7 @@ class Client:
             meta: Additional metadata for the request
 
         Returns:
-            The tool result
+            The tool result.
         """
         return await self.session.call_tool(
             name=name,
@@ -241,33 +258,34 @@ class Client:
 
     async def list_prompts(
         self,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListPromptsResult:
+        *,
+        cursor: str | None = None,
+        meta: RequestParamsMeta | None = None,
+    ) -> ListPromptsResult:
         """List available prompts from the server."""
-        return await self.session.list_prompts(params=params)
+        return await self.session.list_prompts(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def get_prompt(
-        self,
-        name: str,
-        arguments: dict[str, str] | None = None,
-    ) -> types.GetPromptResult:
+        self, name: str, arguments: dict[str, str] | None = None, *, meta: RequestParamsMeta | None = None
+    ) -> GetPromptResult:
         """Get a prompt from the server.
 
         Args:
             name: The name of the prompt
             arguments: Arguments to pass to the prompt
+            meta: Additional metadata for the request
 
         Returns:
-            The prompt content
+            The prompt content.
         """
-        return await self.session.get_prompt(name=name, arguments=arguments)
+        return await self.session.get_prompt(name=name, arguments=arguments, meta=meta)
 
     async def complete(
         self,
-        ref: types.ResourceTemplateReference | types.PromptReference,
+        ref: ResourceTemplateReference | PromptReference,
         argument: dict[str, str],
         context_arguments: dict[str, str] | None = None,
-    ) -> types.CompleteResult:
+    ) -> CompleteResult:
         """Get completions for a prompt or resource template argument.
 
         Args:
@@ -276,21 +294,15 @@ class Client:
             context_arguments: Additional context arguments
 
         Returns:
-            Completion suggestions
+            Completion suggestions.
         """
-        return await self.session.complete(
-            ref=ref,
-            argument=argument,
-            context_arguments=context_arguments,
-        )
+        return await self.session.complete(ref=ref, argument=argument, context_arguments=context_arguments)
 
-    async def list_tools(
-        self,
-        params: types.PaginatedRequestParams | None = None,
-    ) -> types.ListToolsResult:
+    async def list_tools(self, *, cursor: str | None = None, meta: RequestParamsMeta | None = None) -> ListToolsResult:
         """List available tools from the server."""
-        return await self.session.list_tools(params=params)
+        return await self.session.list_tools(params=PaginatedRequestParams(cursor=cursor, _meta=meta))
 
     async def send_roots_list_changed(self) -> None:
         """Send a notification that the roots list has changed."""
-        await self.session.send_roots_list_changed()
+        # TODO(Marcelo): Currently, there is no way for the server to handle this. We should add support.
+        await self.session.send_roots_list_changed()  # pragma: no cover

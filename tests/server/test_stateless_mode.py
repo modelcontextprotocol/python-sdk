@@ -13,7 +13,7 @@ from typing import Any
 import anyio
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import StatelessModeNotSupported

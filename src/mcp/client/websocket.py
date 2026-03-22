@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Subprotocol
 
-import mcp.types as types
+from mcp import types
 from mcp.shared.message import SessionMessage
 
 
@@ -25,8 +25,8 @@ async def websocket_client(
         (read_stream, write_stream)
 
     - read_stream: As you read from this stream, you'll receive either valid
-      JSONRPCMessage objects or Exception objects (when validation fails).
-    - write_stream: Write JSONRPCMessage objects to this stream to send them
+      SessionMessage objects or Exception objects (when validation fails).
+    - write_stream: Write SessionMessage objects to this stream to send them
       over the WebSocket to the server.
     """
 
@@ -38,11 +38,10 @@ async def websocket_client(
     write_stream: MemoryObjectSendStream[SessionMessage]
     write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
-
     # Connect using websockets, requesting the "mcp" subprotocol
     async with ws_connect(url, subprotocols=[Subprotocol("mcp")]) as ws:
+        read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
+        write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
         async def ws_reader():
             """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
@@ -51,7 +50,7 @@ async def websocket_client(
             async with read_stream_writer:
                 async for raw_text in ws:
                     try:
-                        message = types.JSONRPCMessage.model_validate_json(raw_text, by_name=False)
+                        message = types.jsonrpc_message_adapter.validate_json(raw_text, by_name=False)
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
                     except ValidationError as exc:  # pragma: no cover
@@ -65,10 +64,16 @@ async def websocket_client(
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
                     # Convert to a dict, then to JSON
-                    msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_none=True)
+                    msg_dict = session_message.message.model_dump(by_alias=True, mode="json", exclude_unset=True)
                     await ws.send(json.dumps(msg_dict))
 
-        async with anyio.create_task_group() as tg:
+        async with (
+            read_stream_writer,
+            read_stream,
+            write_stream,
+            write_stream_reader,
+            anyio.create_task_group() as tg,
+        ):
             # Start reader and writer tasks
             tg.start_soon(ws_reader)
             tg.start_soon(ws_writer)

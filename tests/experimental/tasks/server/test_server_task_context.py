@@ -8,7 +8,7 @@ import pytest
 
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.experimental.task_result_handler import TaskResultHandler
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 from mcp.types import (
@@ -164,7 +164,7 @@ async def test_server_task_context_fail_with_notify() -> None:
 
 @pytest.mark.anyio
 async def test_elicit_raises_when_client_lacks_capability() -> None:
-    """Test that elicit() raises McpError when client doesn't support elicitation."""
+    """Test that elicit() raises MCPError when client doesn't support elicitation."""
     store = InMemoryTaskStore()
     mock_session = Mock()
     mock_session.check_client_capability = Mock(return_value=False)
@@ -180,7 +180,7 @@ async def test_elicit_raises_when_client_lacks_capability() -> None:
         handler=handler,
     )
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await ctx.elicit(message="Test?", requested_schema={"type": "object"})
 
     assert "elicitation capability" in exc_info.value.error.message
@@ -190,7 +190,7 @@ async def test_elicit_raises_when_client_lacks_capability() -> None:
 
 @pytest.mark.anyio
 async def test_create_message_raises_when_client_lacks_capability() -> None:
-    """Test that create_message() raises McpError when client doesn't support sampling."""
+    """Test that create_message() raises MCPError when client doesn't support sampling."""
     store = InMemoryTaskStore()
     mock_session = Mock()
     mock_session.check_client_capability = Mock(return_value=False)
@@ -206,7 +206,7 @@ async def test_create_message_raises_when_client_lacks_capability() -> None:
         handler=handler,
     )
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await ctx.create_message(messages=[], max_tokens=100)
 
     assert "sampling capability" in exc_info.value.error.message

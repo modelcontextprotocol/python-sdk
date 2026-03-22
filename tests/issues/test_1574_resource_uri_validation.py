@@ -13,8 +13,14 @@ These tests verify the fix works end-to-end through the JSON-RPC protocol.
 import pytest
 
 from mcp import Client, types
-from mcp.server.lowlevel import Server
-from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.server import Server, ServerRequestContext
+from mcp.types import (
+    ListResourcesResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
+    TextResourceContents,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -26,24 +32,24 @@ async def test_relative_uri_roundtrip():
     the server would fail to serialize resources with relative URIs,
     or the URI would be transformed during the roundtrip.
     """
-    server = Server("test")
 
-    @server.list_resources()
-    async def list_resources():
-        return [
-            types.Resource(name="user", uri="users/me"),
-            types.Resource(name="config", uri="./config"),
-            types.Resource(name="parent", uri="../parent/resource"),
-        ]
+    async def handle_list_resources(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        return ListResourcesResult(
+            resources=[
+                types.Resource(name="user", uri="users/me"),
+                types.Resource(name="config", uri="./config"),
+                types.Resource(name="parent", uri="../parent/resource"),
+            ]
+        )
 
-    @server.read_resource()
-    async def read_resource(uri: str):
-        return [
-            ReadResourceContents(
-                content=f"data for {uri}",
-                mime_type="text/plain",
-            )
-        ]
+    async def handle_read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+        return ReadResourceResult(
+            contents=[TextResourceContents(uri=str(params.uri), text=f"data for {params.uri}", mime_type="text/plain")]
+        )
+
+    server = Server("test", on_list_resources=handle_list_resources, on_read_resource=handle_read_resource)
 
     async with Client(server) as client:
         # List should return the exact URIs we specified
@@ -67,18 +73,23 @@ async def test_custom_scheme_uri_roundtrip():
     Some MCP servers use custom schemes like "custom://resource".
     These should work end-to-end.
     """
-    server = Server("test")
 
-    @server.list_resources()
-    async def list_resources():
-        return [
-            types.Resource(name="custom", uri="custom://my-resource"),
-            types.Resource(name="file", uri="file:///path/to/file"),
-        ]
+    async def handle_list_resources(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        return ListResourcesResult(
+            resources=[
+                types.Resource(name="custom", uri="custom://my-resource"),
+                types.Resource(name="file", uri="file:///path/to/file"),
+            ]
+        )
 
-    @server.read_resource()
-    async def read_resource(uri: str):
-        return [ReadResourceContents(content="data", mime_type="text/plain")]
+    async def handle_read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+        return ReadResourceResult(
+            contents=[TextResourceContents(uri=str(params.uri), text="data", mime_type="text/plain")]
+        )
+
+    server = Server("test", on_list_resources=handle_list_resources, on_read_resource=handle_read_resource)
 
     async with Client(server) as client:
         resources = await client.list_resources()

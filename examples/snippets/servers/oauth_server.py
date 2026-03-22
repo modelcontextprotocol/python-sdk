@@ -6,7 +6,7 @@ from pydantic import AnyHttpUrl
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 class SimpleTokenVerifier(TokenVerifier):
@@ -16,8 +16,8 @@ class SimpleTokenVerifier(TokenVerifier):
         pass  # This is where you would implement actual token validation
 
 
-# Create FastMCP instance as a Resource Server
-mcp = FastMCP(
+# Create MCPServer instance as a Resource Server
+mcp = MCPServer(
     "Weather Service",
     # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),

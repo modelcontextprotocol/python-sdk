@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import cancel_task
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.types import INVALID_PARAMS, CallToolResult, TaskMetadata, TextContent
@@ -347,8 +347,8 @@ async def test_cancel_task_succeeds_for_working_task(store: InMemoryTaskStore) -
 
 @pytest.mark.anyio
 async def test_cancel_task_rejects_nonexistent_task(store: InMemoryTaskStore) -> None:
-    """Test cancel_task raises McpError with INVALID_PARAMS for nonexistent task."""
-    with pytest.raises(McpError) as exc_info:
+    """Test cancel_task raises MCPError with INVALID_PARAMS for nonexistent task."""
+    with pytest.raises(MCPError) as exc_info:
         await cancel_task(store, "nonexistent-task-id")
 
     assert exc_info.value.error.code == INVALID_PARAMS
@@ -357,11 +357,11 @@ async def test_cancel_task_rejects_nonexistent_task(store: InMemoryTaskStore) ->
 
 @pytest.mark.anyio
 async def test_cancel_task_rejects_completed_task(store: InMemoryTaskStore) -> None:
-    """Test cancel_task raises McpError with INVALID_PARAMS for completed task."""
+    """Test cancel_task raises MCPError with INVALID_PARAMS for completed task."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.task_id, status="completed")
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await cancel_task(store, task.task_id)
 
     assert exc_info.value.error.code == INVALID_PARAMS
@@ -370,11 +370,11 @@ async def test_cancel_task_rejects_completed_task(store: InMemoryTaskStore) -> N
 
 @pytest.mark.anyio
 async def test_cancel_task_rejects_failed_task(store: InMemoryTaskStore) -> None:
-    """Test cancel_task raises McpError with INVALID_PARAMS for failed task."""
+    """Test cancel_task raises MCPError with INVALID_PARAMS for failed task."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.task_id, status="failed")
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await cancel_task(store, task.task_id)
 
     assert exc_info.value.error.code == INVALID_PARAMS
@@ -383,11 +383,11 @@ async def test_cancel_task_rejects_failed_task(store: InMemoryTaskStore) -> None
 
 @pytest.mark.anyio
 async def test_cancel_task_rejects_already_cancelled_task(store: InMemoryTaskStore) -> None:
-    """Test cancel_task raises McpError with INVALID_PARAMS for already cancelled task."""
+    """Test cancel_task raises MCPError with INVALID_PARAMS for already cancelled task."""
     task = await store.create_task(metadata=TaskMetadata(ttl=60000))
     await store.update_task(task.task_id, status="cancelled")
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await cancel_task(store, task.task_id)
 
     assert exc_info.value.error.code == INVALID_PARAMS

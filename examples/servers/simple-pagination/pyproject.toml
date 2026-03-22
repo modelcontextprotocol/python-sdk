@@ -4,11 +4,7 @@ version = "0.1.0"
 description = "A simple MCP server demonstrating pagination for tools, resources, and prompts"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Anthropic, PBC." }]
-maintainers = [
-    { name = "David Soria Parra", email = "davidsp@anthropic.com" },
-    { name = "Justin Spahr-Summers", email = "justin@anthropic.com" },
-]
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 keywords = ["mcp", "llm", "automation", "pagination", "cursor"]
 license = { text = "MIT" }
 classifiers = [

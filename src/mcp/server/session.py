@@ -6,30 +6,22 @@ used in MCP servers to interact with the client.
 
 Common usage pattern:
 ```
-    server = Server(name)
-
-    @server.call_tool()
-    async def handle_tool_call(ctx: RequestContext, arguments: dict[str, Any]) -> Any:
+    async def handle_call_tool(ctx: RequestContext, params: CallToolRequestParams) -> CallToolResult:
         # Check client capabilities before proceeding
         if ctx.session.check_client_capability(
             types.ClientCapabilities(experimental={"advanced_tools": dict()})
         ):
-            # Perform advanced tool operations
-            result = await perform_advanced_tool_operation(arguments)
+            result = await perform_advanced_tool_operation(params.arguments)
         else:
-            # Fall back to basic tool operations
-            result = await perform_basic_tool_operation(arguments)
-
+            result = await perform_basic_tool_operation(params.arguments)
         return result
 
-    @server.list_prompts()
-    async def handle_list_prompts(ctx: RequestContext) -> list[types.Prompt]:
-        # Access session for any necessary checks or operations
+    async def handle_list_prompts(ctx: RequestContext, params) -> ListPromptsResult:
         if ctx.session.client_params:
-            # Customize prompts based on client initialization parameters
-            return generate_custom_prompts(ctx.session.client_params)
-        else:
-            return default_prompts
+            return ListPromptsResult(prompts=generate_custom_prompts(ctx.session.client_params))
+        return ListPromptsResult(prompts=default_prompts)
+
+    server = Server(name, on_call_tool=handle_call_tool, on_list_prompts=handle_list_prompts)
 ```
 
 The ServerSession class is typically used internally by the Server class and should not
@@ -42,9 +34,9 @@ from typing import Any, TypeVar, overload
 import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from pydantic import AnyUrl
+from pydantic import AnyUrl, TypeAdapter
 
-import mcp.types as types
+from mcp import types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
@@ -92,7 +84,7 @@ class ServerSession(
         init_options: InitializationOptions,
         stateless: bool = False,
     ) -> None:
-        super().__init__(read_stream, write_stream, types.ClientRequest, types.ClientNotification)
+        super().__init__(read_stream, write_stream)
         self._stateless = stateless
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized
@@ -105,8 +97,16 @@ class ServerSession(
         self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
 
     @property
+    def _receive_request_adapter(self) -> TypeAdapter[types.ClientRequest]:
+        return types.client_request_adapter
+
+    @property
+    def _receive_notification_adapter(self) -> TypeAdapter[types.ClientNotification]:
+        return types.client_notification_adapter
+
+    @property
     def client_params(self) -> types.InitializeRequestParams | None:
-        return self._client_params  # pragma: no cover
+        return self._client_params
 
     @property
     def experimental(self) -> ExperimentalServerSessionFeatures:
@@ -118,20 +118,20 @@ class ServerSession(
             self._experimental_features = ExperimentalServerSessionFeatures(self)
         return self._experimental_features
 
-    def check_client_capability(self, capability: types.ClientCapabilities) -> bool:  # pragma: no cover
+    def check_client_capability(self, capability: types.ClientCapabilities) -> bool:
         """Check if the client supports a specific capability."""
-        if self._client_params is None:
+        if self._client_params is None:  # pragma: lax no cover
             return False
 
         client_caps = self._client_params.capabilities
 
-        if capability.roots is not None:
+        if capability.roots is not None:  # pragma: lax no cover
             if client_caps.roots is None:
                 return False
             if capability.roots.list_changed and not client_caps.roots.list_changed:
                 return False
 
-        if capability.sampling is not None:
+        if capability.sampling is not None:  # pragma: lax no cover
             if client_caps.sampling is None:
                 return False
             if capability.sampling.context is not None and client_caps.sampling.context is None:
@@ -139,17 +139,17 @@ class ServerSession(
             if capability.sampling.tools is not None and client_caps.sampling.tools is None:
                 return False
 
-        if capability.elicitation is not None and client_caps.elicitation is None:
+        if capability.elicitation is not None and client_caps.elicitation is None:  # pragma: lax no cover
             return False
 
-        if capability.experimental is not None:
+        if capability.experimental is not None:  # pragma: lax no cover
             if client_caps.experimental is None:
                 return False
             for exp_key, exp_value in capability.experimental.items():
                 if exp_key not in client_caps.experimental or client_caps.experimental[exp_key] != exp_value:
                     return False
 
-        if capability.tasks is not None:
+        if capability.tasks is not None:  # pragma: lax no cover
             if client_caps.tasks is None:
                 return False
             if not check_tasks_capability(capability.tasks, client_caps.tasks):
@@ -162,29 +162,27 @@ class ServerSession(
             await super()._receive_loop()
 
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
-        match responder.request.root:
+        match responder.request:
             case types.InitializeRequest(params=params):
                 requested_version = params.protocol_version
                 self._initialization_state = InitializationState.Initializing
                 self._client_params = params
                 with responder:
                     await responder.respond(
-                        types.ServerResult(
-                            types.InitializeResult(
-                                protocol_version=requested_version
-                                if requested_version in SUPPORTED_PROTOCOL_VERSIONS
-                                else types.LATEST_PROTOCOL_VERSION,
-                                capabilities=self._init_options.capabilities,
-                                server_info=types.Implementation(
-                                    name=self._init_options.server_name,
-                                    title=self._init_options.title,
-                                    description=self._init_options.description,
-                                    version=self._init_options.server_version,
-                                    website_url=self._init_options.website_url,
-                                    icons=self._init_options.icons,
-                                ),
-                                instructions=self._init_options.instructions,
-                            )
+                        types.InitializeResult(
+                            protocol_version=requested_version
+                            if requested_version in SUPPORTED_PROTOCOL_VERSIONS
+                            else types.LATEST_PROTOCOL_VERSION,
+                            capabilities=self._init_options.capabilities,
+                            server_info=types.Implementation(
+                                name=self._init_options.server_name,
+                                title=self._init_options.title,
+                                description=self._init_options.description,
+                                version=self._init_options.server_version,
+                                website_url=self._init_options.website_url,
+                                icons=self._init_options.icons,
+                            ),
+                            instructions=self._init_options.instructions,
                         )
                     )
                 self._initialization_state = InitializationState.Initialized
@@ -198,7 +196,7 @@ class ServerSession(
     async def _received_notification(self, notification: types.ClientNotification) -> None:
         # Need this to avoid ASYNC910
         await anyio.lowlevel.checkpoint()
-        match notification.root:
+        match notification:
             case types.InitializedNotification():
                 self._initialization_state = InitializationState.Initialized
             case _:
@@ -214,14 +212,12 @@ class ServerSession(
     ) -> None:
         """Send a log message notification."""
         await self.send_notification(
-            types.ServerNotification(
-                types.LoggingMessageNotification(
-                    params=types.LoggingMessageNotificationParams(
-                        level=level,
-                        data=data,
-                        logger=logger,
-                    ),
-                )
+            types.LoggingMessageNotification(
+                params=types.LoggingMessageNotificationParams(
+                    level=level,
+                    data=data,
+                    logger=logger,
+                ),
             ),
             related_request_id,
         )
@@ -229,10 +225,8 @@ class ServerSession(
     async def send_resource_updated(self, uri: str | AnyUrl) -> None:  # pragma: no cover
         """Send a resource updated notification."""
         await self.send_notification(
-            types.ServerNotification(
-                types.ResourceUpdatedNotification(
-                    params=types.ResourceUpdatedNotificationParams(uri=str(uri)),
-                )
+            types.ResourceUpdatedNotification(
+                params=types.ResourceUpdatedNotificationParams(uri=str(uri)),
             )
         )
 
@@ -312,7 +306,7 @@ class ServerSession(
             The sampling result from the client.
 
         Raises:
-            McpError: If tools are provided but client doesn't support them.
+            MCPError: If tools are provided but client doesn't support them.
             ValueError: If tool_use or tool_result message structure is invalid.
             StatelessModeNotSupported: If called in stateless HTTP mode.
         """
@@ -322,21 +316,19 @@ class ServerSession(
         validate_sampling_tools(client_caps, tools, tool_choice)
         validate_tool_use_result_messages(messages)
 
-        request = types.ServerRequest(
-            types.CreateMessageRequest(
-                params=types.CreateMessageRequestParams(
-                    messages=messages,
-                    system_prompt=system_prompt,
-                    include_context=include_context,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stop_sequences=stop_sequences,
-                    metadata=metadata,
-                    model_preferences=model_preferences,
-                    tools=tools,
-                    tool_choice=tool_choice,
-                ),
-            )
+        request = types.CreateMessageRequest(
+            params=types.CreateMessageRequestParams(
+                messages=messages,
+                system_prompt=system_prompt,
+                include_context=include_context,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stop_sequences=stop_sequences,
+                metadata=metadata,
+                model_preferences=model_preferences,
+                tools=tools,
+                tool_choice=tool_choice,
+            ),
         )
         metadata_obj = ServerMessageMetadata(related_request_id=related_request_id)
 
@@ -358,7 +350,7 @@ class ServerSession(
         if self._stateless:
             raise StatelessModeNotSupported(method="list_roots")
         return await self.send_request(
-            types.ServerRequest(types.ListRootsRequest()),
+            types.ListRootsRequest(),
             types.ListRootsResult,
         )
 
@@ -371,12 +363,12 @@ class ServerSession(
         """Send a form mode elicitation/create request.
 
         Args:
-            message: The message to present to the user
-            requested_schema: Schema defining the expected response structure
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: The message to present to the user.
+            requested_schema: Schema defining the expected response structure.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response
+            The client's response.
 
         Note:
             This method is deprecated in favor of elicit_form(). It remains for
@@ -393,12 +385,12 @@ class ServerSession(
         """Send a form mode elicitation/create request.
 
         Args:
-            message: The message to present to the user
-            requested_schema: Schema defining the expected response structure
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: The message to present to the user.
+            requested_schema: Schema defining the expected response structure.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response with form data
+            The client's response with form data.
 
         Raises:
             StatelessModeNotSupported: If called in stateless HTTP mode.
@@ -406,13 +398,11 @@ class ServerSession(
         if self._stateless:
             raise StatelessModeNotSupported(method="elicitation")
         return await self.send_request(
-            types.ServerRequest(
-                types.ElicitRequest(
-                    params=types.ElicitRequestFormParams(
-                        message=message,
-                        requested_schema=requested_schema,
-                    ),
-                )
+            types.ElicitRequest(
+                params=types.ElicitRequestFormParams(
+                    message=message,
+                    requested_schema=requested_schema,
+                ),
             ),
             types.ElicitResult,
             metadata=ServerMessageMetadata(related_request_id=related_request_id),
@@ -431,13 +421,13 @@ class ServerSession(
         like OAuth flows, credential collection, or payment processing.
 
         Args:
-            message: Human-readable explanation of why the interaction is needed
-            url: The URL the user should navigate to
-            elicitation_id: Unique identifier for tracking this elicitation
-            related_request_id: Optional ID of the request that triggered this elicitation
+            message: Human-readable explanation of why the interaction is needed.
+            url: The URL the user should navigate to.
+            elicitation_id: Unique identifier for tracking this elicitation.
+            related_request_id: Optional ID of the request that triggered this elicitation.
 
         Returns:
-            The client's response indicating acceptance, decline, or cancellation
+            The client's response indicating acceptance, decline, or cancellation.
 
         Raises:
             StatelessModeNotSupported: If called in stateless HTTP mode.
@@ -445,14 +435,12 @@ class ServerSession(
         if self._stateless:
             raise StatelessModeNotSupported(method="elicitation")
         return await self.send_request(
-            types.ServerRequest(
-                types.ElicitRequest(
-                    params=types.ElicitRequestURLParams(
-                        message=message,
-                        url=url,
-                        elicitation_id=elicitation_id,
-                    ),
-                )
+            types.ElicitRequest(
+                params=types.ElicitRequestURLParams(
+                    message=message,
+                    url=url,
+                    elicitation_id=elicitation_id,
+                ),
             ),
             types.ElicitResult,
             metadata=ServerMessageMetadata(related_request_id=related_request_id),
@@ -461,7 +449,7 @@ class ServerSession(
     async def send_ping(self) -> types.EmptyResult:  # pragma: no cover
         """Send a ping request."""
         return await self.send_request(
-            types.ServerRequest(types.PingRequest()),
+            types.PingRequest(),
             types.EmptyResult,
         )
 
@@ -475,30 +463,28 @@ class ServerSession(
     ) -> None:
         """Send a progress notification."""
         await self.send_notification(
-            types.ServerNotification(
-                types.ProgressNotification(
-                    params=types.ProgressNotificationParams(
-                        progress_token=progress_token,
-                        progress=progress,
-                        total=total,
-                        message=message,
-                    ),
-                )
+            types.ProgressNotification(
+                params=types.ProgressNotificationParams(
+                    progress_token=progress_token,
+                    progress=progress,
+                    total=total,
+                    message=message,
+                ),
             ),
             related_request_id,
         )
 
-    async def send_resource_list_changed(self) -> None:  # pragma: no cover
+    async def send_resource_list_changed(self) -> None:
         """Send a resource list changed notification."""
-        await self.send_notification(types.ServerNotification(types.ResourceListChangedNotification()))
+        await self.send_notification(types.ResourceListChangedNotification())
 
     async def send_tool_list_changed(self) -> None:  # pragma: no cover
         """Send a tool list changed notification."""
-        await self.send_notification(types.ServerNotification(types.ToolListChangedNotification()))
+        await self.send_notification(types.ToolListChangedNotification())
 
     async def send_prompt_list_changed(self) -> None:  # pragma: no cover
         """Send a prompt list changed notification."""
-        await self.send_notification(types.ServerNotification(types.PromptListChangedNotification()))
+        await self.send_notification(types.PromptListChangedNotification())
 
     async def send_elicit_complete(
         self,
@@ -513,13 +499,11 @@ class ServerSession(
 
         Args:
             elicitation_id: The unique identifier of the completed elicitation
-            related_request_id: Optional ID of the request that triggered this
+            related_request_id: Optional ID of the request that triggered this notification
         """
         await self.send_notification(
-            types.ServerNotification(
-                types.ElicitCompleteNotification(
-                    params=types.ElicitCompleteNotificationParams(elicitation_id=elicitation_id)
-                )
+            types.ElicitCompleteNotification(
+                params=types.ElicitCompleteNotificationParams(elicitation_id=elicitation_id)
             ),
             related_request_id,
         )
@@ -552,7 +536,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id
@@ -597,7 +581,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id
@@ -667,7 +651,7 @@ class ServerSession(
         # Add related-task metadata if associated with a parent task
         if related_task_id is not None:
             # Defensive: model_dump() never includes _meta, but guard against future changes
-            if "_meta" not in params_data:  # pragma: no cover
+            if "_meta" not in params_data:  # pragma: no branch
                 params_data["_meta"] = {}
             params_data["_meta"][RELATED_TASK_METADATA_KEY] = types.RelatedTaskMetadata(
                 task_id=related_task_id

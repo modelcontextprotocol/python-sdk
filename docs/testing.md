@@ -8,9 +8,9 @@ This makes it easy to write tests without network overhead.
 Let's assume you have a simple server with a single tool:
 
 ```python title="server.py"
-from mcp.server import FastMCP
+from mcp.server import MCPServer
 
-app = FastMCP("Calculator")
+app = MCPServer("Calculator")
 
 @app.tool()
 def add(a: int, b: int) -> int:

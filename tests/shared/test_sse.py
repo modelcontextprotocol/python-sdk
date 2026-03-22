@@ -1,7 +1,6 @@
 import json
 import multiprocessing
 import socket
-import time
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -19,19 +18,23 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 import mcp.client.sse
-import mcp.types as types
+from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.sse import _extract_session_id_from_endpoint, sse_client
-from mcp.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
     EmptyResult,
-    ErrorData,
     Implementation,
     InitializeResult,
     JSONRPCResponse,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
     ReadResourceResult,
     ServerCapabilities,
     TextContent,
@@ -55,36 +58,48 @@ def server_url(server_port: int) -> str:
     return f"http://127.0.0.1:{server_port}"
 
 
-# Test server implementation
-class ServerTest(Server):  # pragma: no cover
-    def __init__(self):
-        super().__init__(SERVER_NAME)
+async def _handle_read_resource(  # pragma: no cover
+    ctx: ServerRequestContext, params: ReadResourceRequestParams
+) -> ReadResourceResult:
+    uri = str(params.uri)
+    parsed = urlparse(uri)
+    if parsed.scheme == "foobar":
+        text = f"Read {parsed.netloc}"
+    elif parsed.scheme == "slow":
+        await anyio.sleep(2.0)
+        text = f"Slow response from {parsed.netloc}"
+    else:
+        raise MCPError(code=404, message="OOPS! no resource with that URI was found")
+    return ReadResourceResult(contents=[TextResourceContents(uri=uri, text=text, mime_type="text/plain")])
 
-        @self.read_resource()
-        async def handle_read_resource(uri: str) -> str | bytes:
-            parsed = urlparse(uri)
-            if parsed.scheme == "foobar":
-                return f"Read {parsed.netloc}"
-            if parsed.scheme == "slow":
-                # Simulate a slow resource
-                await anyio.sleep(2.0)
-                return f"Slow response from {parsed.netloc}"
 
-            raise McpError(error=ErrorData(code=404, message="OOPS! no resource with that URI was found"))
+async def _handle_list_tools(  # pragma: no cover
+    ctx: ServerRequestContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(
+        tools=[
+            Tool(
+                name="test_tool",
+                description="A test tool",
+                input_schema={"type": "object", "properties": {}},
+            )
+        ]
+    )
 
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return [
-                Tool(
-                    name="test_tool",
-                    description="A test tool",
-                    input_schema={"type": "object", "properties": {}},
-                )
-            ]
 
-        @self.call_tool()
-        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
-            return [TextContent(type="text", text=f"Called {name}")]
+async def _handle_call_tool(  # pragma: no cover
+    ctx: ServerRequestContext, params: CallToolRequestParams
+) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=f"Called {params.name}")])
+
+
+def _create_server() -> Server:  # pragma: no cover
+    return Server(
+        SERVER_NAME,
+        on_read_resource=_handle_read_resource,
+        on_list_tools=_handle_list_tools,
+        on_call_tool=_handle_call_tool,
+    )
 
 
 # Test fixtures
@@ -95,7 +110,7 @@ def make_server_app() -> Starlette:  # pragma: no cover
         allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
-    server = ServerTest()
+    server = _create_server()
 
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
@@ -117,11 +132,6 @@ def run_server(server_port: int) -> None:  # pragma: no cover
     server = uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
     server.run()
-
-    # Give server time to start
-    while not server.started:
-        print("waiting for server to start")
-        time.sleep(0.5)
 
 
 @pytest.fixture()
@@ -193,19 +203,15 @@ async def test_sse_client_basic_connection(server: None, server_url: str) -> Non
 
 @pytest.mark.anyio
 async def test_sse_client_on_session_created(server: None, server_url: str) -> None:
-    captured_session_id: str | None = None
+    captured: list[str] = []
 
-    def on_session_created(session_id: str) -> None:
-        nonlocal captured_session_id
-        captured_session_id = session_id
-
-    async with sse_client(server_url + "/sse", on_session_created=on_session_created) as streams:
+    async with sse_client(server_url + "/sse", on_session_created=captured.append) as streams:
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-
-    assert captured_session_id is not None
-    assert len(captured_session_id) > 0
+            # Callback fires when the endpoint event arrives, before sse_client yields.
+            assert len(captured) == 1
+            assert len(captured[0]) > 0
 
 
 @pytest.mark.parametrize(
@@ -238,8 +244,9 @@ async def test_sse_client_on_session_created_not_called_when_no_session_id(
         async with ClientSession(*streams) as session:
             result = await session.initialize()
             assert isinstance(result, InitializeResult)
-
-    callback_mock.assert_not_called()
+            # Callback would have fired by now (endpoint event arrives before
+            # sse_client yields); if it hasn't, it won't.
+            callback_mock.assert_not_called()
 
 
 @pytest.fixture
@@ -266,7 +273,7 @@ async def test_sse_client_exception_handling(
     initialized_sse_client_session: ClientSession,
 ) -> None:
     session = initialized_sse_client_session
-    with pytest.raises(McpError, match="OOPS! no resource with that URI was found"):
+    with pytest.raises(MCPError, match="OOPS! no resource with that URI was found"):
         await session.read_resource(uri="xxx://will-not-work")
 
 
@@ -282,7 +289,7 @@ async def test_sse_client_timeout(  # pragma: no cover
     assert isinstance(response, ReadResourceResult)
 
     with anyio.move_on_after(3):
-        with pytest.raises(McpError, match="Read timed out"):
+        with pytest.raises(MCPError, match="Read timed out"):
             response = await session.read_resource(uri="slow://2")
             # we should receive an error here
         return
@@ -296,11 +303,6 @@ def run_mounted_server(server_port: int) -> None:  # pragma: no cover
     server = uvicorn.Server(config=uvicorn.Config(app=main_app, host="127.0.0.1", port=server_port, log_level="error"))
     print(f"starting server on {server_port}")
     server.run()
-
-    # Give server time to start
-    while not server.started:
-        print("waiting for server to start")
-        time.sleep(0.5)
 
 
 @pytest.fixture()
@@ -337,47 +339,46 @@ async def test_sse_client_basic_connection_mounted_app(mounted_server: None, ser
             assert isinstance(ping_result, EmptyResult)
 
 
-# Test server with request context that returns headers in the response
-class RequestContextServer(Server[object, Request]):  # pragma: no cover
-    def __init__(self):
-        super().__init__("request_context_server")
+async def _handle_context_call_tool(  # pragma: no cover
+    ctx: ServerRequestContext, params: CallToolRequestParams
+) -> CallToolResult:
+    headers_info: dict[str, Any] = {}
+    if ctx.request:
+        headers_info = dict(ctx.request.headers)
 
-        @self.call_tool()
-        async def handle_call_tool(name: str, args: dict[str, Any]) -> list[TextContent]:
-            headers_info = {}
-            context = self.request_context
-            if context.request:
-                headers_info = dict(context.request.headers)
+    if params.name == "echo_headers":
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(headers_info))])
+    elif params.name == "echo_context":
+        context_data = {
+            "request_id": (params.arguments or {}).get("request_id"),
+            "headers": headers_info,
+        }
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(context_data))])
 
-            if name == "echo_headers":
-                return [TextContent(type="text", text=json.dumps(headers_info))]
-            elif name == "echo_context":
-                context_data = {
-                    "request_id": args.get("request_id"),
-                    "headers": headers_info,
-                }
-                return [TextContent(type="text", text=json.dumps(context_data))]
+    return CallToolResult(content=[TextContent(type="text", text=f"Called {params.name}")])
 
-            return [TextContent(type="text", text=f"Called {name}")]
 
-        @self.list_tools()
-        async def handle_list_tools() -> list[Tool]:
-            return [
-                Tool(
-                    name="echo_headers",
-                    description="Echoes request headers",
-                    input_schema={"type": "object", "properties": {}},
-                ),
-                Tool(
-                    name="echo_context",
-                    description="Echoes request context",
-                    input_schema={
-                        "type": "object",
-                        "properties": {"request_id": {"type": "string"}},
-                        "required": ["request_id"],
-                    },
-                ),
-            ]
+async def _handle_context_list_tools(  # pragma: no cover
+    ctx: ServerRequestContext, params: PaginatedRequestParams | None
+) -> ListToolsResult:
+    return ListToolsResult(
+        tools=[
+            Tool(
+                name="echo_headers",
+                description="Echoes request headers",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            Tool(
+                name="echo_context",
+                description="Echoes request context",
+                input_schema={
+                    "type": "object",
+                    "properties": {"request_id": {"type": "string"}},
+                    "required": ["request_id"],
+                },
+            ),
+        ]
+    )
 
 
 def run_context_server(server_port: int) -> None:  # pragma: no cover
@@ -387,7 +388,11 @@ def run_context_server(server_port: int) -> None:  # pragma: no cover
         allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
     )
     sse = SseServerTransport("/messages/", security_settings=security_settings)
-    context_server = RequestContextServer()
+    context_server = Server(
+        "request_context_server",
+        on_call_tool=_handle_context_call_tool,
+        on_list_tools=_handle_context_list_tools,
+    )
 
     async def handle_sse(request: Request) -> Response:
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
@@ -503,12 +508,12 @@ def test_sse_message_id_coercion():
     See <https://www.jsonrpc.org/specification#response_object> for more details.
     """
     json_message = '{"jsonrpc": "2.0", "id": "123", "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123")))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id="123"))
 
     json_message = '{"jsonrpc": "2.0", "id": 123, "method": "ping", "params": null}'
-    msg = types.JSONRPCMessage.model_validate_json(json_message)
-    assert msg == snapshot(types.JSONRPCMessage(root=types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123)))
+    msg = types.JSONRPCRequest.model_validate_json(json_message)
+    assert msg == snapshot(types.JSONRPCRequest(method="ping", jsonrpc="2.0", id=123))
 
 
 @pytest.mark.parametrize(
@@ -539,12 +544,6 @@ def test_sse_server_transport_endpoint_validation(endpoint: str, expected_result
         assert sse._endpoint.startswith("/")
 
 
-# ResourceWarning filter: When mocking aconnect_sse, the sse_client's internal task
-# group doesn't receive proper cancellation signals, so the sse_reader task's finally
-# block (which closes read_stream_writer) doesn't execute. This is a test artifact -
-# the actual code path (`if not sse.data: continue`) IS exercised and works correctly.
-# Production code with real SSE connections cleans up properly.
-@pytest.mark.filterwarnings("ignore::ResourceWarning")
 @pytest.mark.anyio
 async def test_sse_client_handles_empty_keepalive_pings() -> None:
     """Test that SSE client properly handles empty data lines (keep-alive pings).
@@ -601,5 +600,32 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             msg = await read_stream.receive()
             # If we get here without error, the empty message was skipped successfully
             assert not isinstance(msg, Exception)
-            assert isinstance(msg.message.root, types.JSONRPCResponse)
-            assert msg.message.root.id == 1
+            assert isinstance(msg.message, types.JSONRPCResponse)
+            assert msg.message.id == 1
+
+
+@pytest.mark.anyio
+async def test_sse_session_cleanup_on_disconnect(server: None, server_url: str) -> None:
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1227
+
+    When a client disconnects, the server should remove the session from
+    _read_stream_writers. Without this cleanup, stale sessions accumulate and
+    POST requests to disconnected sessions return 202 Accepted followed by a
+    ClosedResourceError when the server tries to write to the dead stream.
+    """
+    captured: list[str] = []
+
+    # Connect a client session, then disconnect
+    async with sse_client(server_url + "/sse", on_session_created=captured.append) as streams:
+        async with ClientSession(*streams) as session:
+            await session.initialize()
+
+    # After disconnect, POST to the stale session should return 404
+    # (not 202 as it did before the fix)
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{server_url}/messages/?session_id={captured[0]}",
+            json={"jsonrpc": "2.0", "method": "ping", "id": 99},
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 404

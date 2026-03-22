@@ -1,9 +1,9 @@
+from urllib.parse import urlparse
+
 import anyio
 import click
-import mcp.types as types
-from mcp.server.lowlevel import Server
-from mcp.server.lowlevel.helper_types import ReadResourceContents
-from starlette.requests import Request
+from mcp import types
+from mcp.server import Server, ServerRequestContext
 
 SAMPLE_RESOURCES = {
     "greeting": {
@@ -21,20 +21,11 @@ SAMPLE_RESOURCES = {
 }
 
 
-@click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
-@click.option(
-    "--transport",
-    type=click.Choice(["stdio", "sse"]),
-    default="stdio",
-    help="Transport type",
-)
-def main(port: int, transport: str) -> int:
-    app = Server("mcp-simple-resource")
-
-    @app.list_resources()
-    async def list_resources() -> list[types.Resource]:
-        return [
+async def handle_list_resources(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListResourcesResult:
+    return types.ListResourcesResult(
+        resources=[
             types.Resource(
                 uri=f"file:///{name}.txt",
                 name=name,
@@ -44,45 +35,50 @@ def main(port: int, transport: str) -> int:
             )
             for name in SAMPLE_RESOURCES.keys()
         ]
+    )
 
-    @app.read_resource()
-    async def read_resource(uri: str):
-        from urllib.parse import urlparse
 
-        parsed = urlparse(uri)
-        if not parsed.path:
-            raise ValueError(f"Invalid resource path: {uri}")
-        name = parsed.path.replace(".txt", "").lstrip("/")
+async def handle_read_resource(
+    ctx: ServerRequestContext, params: types.ReadResourceRequestParams
+) -> types.ReadResourceResult:
+    parsed = urlparse(str(params.uri))
+    if not parsed.path:
+        raise ValueError(f"Invalid resource path: {params.uri}")
+    name = parsed.path.replace(".txt", "").lstrip("/")
 
-        if name not in SAMPLE_RESOURCES:
-            raise ValueError(f"Unknown resource: {uri}")
+    if name not in SAMPLE_RESOURCES:
+        raise ValueError(f"Unknown resource: {params.uri}")
 
-        return [ReadResourceContents(content=SAMPLE_RESOURCES[name]["content"], mime_type="text/plain")]
+    return types.ReadResourceResult(
+        contents=[
+            types.TextResourceContents(
+                uri=str(params.uri),
+                text=SAMPLE_RESOURCES[name]["content"],
+                mime_type="text/plain",
+            )
+        ]
+    )
 
-    if transport == "sse":
-        from mcp.server.sse import SseServerTransport
-        from starlette.applications import Starlette
-        from starlette.responses import Response
-        from starlette.routing import Mount, Route
 
-        sse = SseServerTransport("/messages/")
+@click.command()
+@click.option("--port", default=8000, help="Port to listen on for HTTP")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "streamable-http"]),
+    default="stdio",
+    help="Transport type",
+)
+def main(port: int, transport: str) -> int:
+    app = Server(
+        "mcp-simple-resource",
+        on_list_resources=handle_list_resources,
+        on_read_resource=handle_read_resource,
+    )
 
-        async def handle_sse(request: Request):
-            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]
-                await app.run(streams[0], streams[1], app.create_initialization_options())
-            return Response()
-
-        starlette_app = Starlette(
-            debug=True,
-            routes=[
-                Route("/sse", endpoint=handle_sse, methods=["GET"]),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
-
+    if transport == "streamable-http":
         import uvicorn
 
-        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
+        uvicorn.run(app.streamable_http_app(), host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 

@@ -1,27 +1,25 @@
-from typing import Any
-
 import anyio
 import pytest
 
-import mcp.types as types
-from mcp import Client
+from mcp import Client, types
 from mcp.client.session import ClientSession
-from mcp.server.lowlevel.server import Server
-from mcp.shared.exceptions import McpError
+from mcp.server import Server, ServerRequestContext
+from mcp.shared.exceptions import MCPError
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
+from mcp.shared.session import RequestResponder
 from mcp.types import (
+    PARSE_ERROR,
     CancelledNotification,
     CancelledNotificationParams,
-    ClientNotification,
-    ClientRequest,
+    ClientResult,
     EmptyResult,
     ErrorData,
     JSONRPCError,
-    JSONRPCMessage,
     JSONRPCRequest,
     JSONRPCResponse,
-    TextContent,
+    ServerNotification,
+    ServerRequest,
 )
 
 
@@ -46,43 +44,37 @@ async def test_request_cancellation():
     request_id = None
 
     # Create a server with a slow tool
-    server = Server(name="TestSessionServer")
-
-    # Register the tool handler
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextContent]:
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
         nonlocal request_id, ev_tool_called
-        if name == "slow_tool":
-            request_id = server.request_context.request_id
+        if params.name == "slow_tool":
+            request_id = ctx.request_id
             ev_tool_called.set()
             await anyio.sleep(10)  # Long enough to ensure we can cancel
-            return []  # pragma: no cover
-        raise ValueError(f"Unknown tool: {name}")  # pragma: no cover
+            return types.CallToolResult(content=[])  # pragma: no cover
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
-    # Register the tool so it shows up in list_tools
-    @server.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
-        return [
-            types.Tool(
-                name="slow_tool",
-                description="A slow tool that takes 10 seconds to complete",
-                input_schema={},
-            )
-        ]
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        raise NotImplementedError
+
+    server = Server(
+        name="TestSessionServer",
+        on_call_tool=handle_call_tool,
+        on_list_tools=handle_list_tools,
+    )
 
     async def make_request(client: Client):
         nonlocal ev_cancelled
         try:
             await client.session.send_request(
-                ClientRequest(
-                    types.CallToolRequest(
-                        params=types.CallToolRequestParams(name="slow_tool", arguments={}),
-                    )
+                types.CallToolRequest(
+                    params=types.CallToolRequestParams(name="slow_tool", arguments={}),
                 ),
                 types.CallToolResult,
             )
             pytest.fail("Request should have been cancelled")  # pragma: no cover
-        except McpError as e:
+        except MCPError as e:
             # Expected - request was cancelled
             assert "Request cancelled" in str(e)
             ev_cancelled.set()
@@ -98,16 +90,11 @@ async def test_request_cancellation():
             # Send cancellation notification
             assert request_id is not None
             await client.session.send_notification(
-                ClientNotification(
-                    CancelledNotification(
-                        params=CancelledNotificationParams(request_id=request_id),
-                    )
-                )
+                CancelledNotification(params=CancelledNotificationParams(request_id=request_id))
             )
 
             # Give cancellation time to process
-            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-            with anyio.fail_after(1):  # pragma: no cover
+            with anyio.fail_after(1):  # pragma: no branch
                 await ev_cancelled.wait()
 
 
@@ -130,7 +117,7 @@ async def test_response_id_type_mismatch_string_to_int():
             """Receive a request and respond with a string ID instead of integer."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
-            root = message.message.root
+            root = message.message
             assert isinstance(root, JSONRPCRequest)
             # Get the original request ID (which is an integer)
             request_id = root.id
@@ -142,7 +129,7 @@ async def test_response_id_type_mismatch_string_to_int():
                 id=str(request_id),  # Convert to string to simulate mismatch
                 result={},
             )
-            await server_write.send(SessionMessage(message=JSONRPCMessage(response)))
+            await server_write.send(SessionMessage(message=response))
 
         async def make_request(client_session: ClientSession):
             nonlocal result_holder
@@ -158,8 +145,7 @@ async def test_response_id_type_mismatch_string_to_int():
             tg.start_soon(mock_server)
             tg.start_soon(make_request, client_session)
 
-            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-            with anyio.fail_after(2):  # pragma: no cover
+            with anyio.fail_after(2):  # pragma: no branch
                 await ev_response_received.wait()
 
     assert len(result_holder) == 1
@@ -175,7 +161,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
     but the client sent "id": 0 (integer).
     """
     ev_error_received = anyio.Event()
-    error_holder: list[McpError] = []
+    error_holder: list[MCPError | Exception] = []
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
@@ -185,7 +171,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
             """Receive a request and respond with an error using a string ID."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
-            root = message.message.root
+            root = message.message
             assert isinstance(root, JSONRPCRequest)
             request_id = root.id
             assert isinstance(request_id, int)
@@ -196,14 +182,14 @@ async def test_error_response_id_type_mismatch_string_to_int():
                 id=str(request_id),  # Convert to string to simulate mismatch
                 error=ErrorData(code=-32600, message="Test error"),
             )
-            await server_write.send(SessionMessage(message=JSONRPCMessage(error_response)))
+            await server_write.send(SessionMessage(message=error_response))
 
         async def make_request(client_session: ClientSession):
             nonlocal error_holder
             try:
                 await client_session.send_ping()
-                pytest.fail("Expected McpError to be raised")  # pragma: no cover
-            except McpError as e:
+                pytest.fail("Expected MCPError to be raised")  # pragma: no cover
+            except MCPError as e:
                 error_holder.append(e)
                 ev_error_received.set()
 
@@ -214,8 +200,7 @@ async def test_error_response_id_type_mismatch_string_to_int():
             tg.start_soon(mock_server)
             tg.start_soon(make_request, client_session)
 
-            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-            with anyio.fail_after(2):  # pragma: no cover
+            with anyio.fail_after(2):  # pragma: no branch
                 await ev_error_received.wait()
 
     assert len(error_holder) == 1
@@ -247,18 +232,18 @@ async def test_response_id_non_numeric_string_no_match():
                 id="not_a_number",  # Non-numeric string
                 result={},
             )
-            await server_write.send(SessionMessage(message=JSONRPCMessage(response)))
+            await server_write.send(SessionMessage(message=response))
 
         async def make_request(client_session: ClientSession):
             try:
                 # Use a short timeout since we expect this to fail
                 await client_session.send_request(
-                    ClientRequest(types.PingRequest()),
+                    types.PingRequest(),
                     types.EmptyResult,
                     request_read_timeout_seconds=0.5,
                 )
                 pytest.fail("Expected timeout")  # pragma: no cover
-            except McpError as e:
+            except MCPError as e:
                 assert "Timed out" in str(e)
                 ev_timeout.set()
 
@@ -269,8 +254,7 @@ async def test_response_id_non_numeric_string_no_match():
             tg.start_soon(mock_server)
             tg.start_soon(make_request, client_session)
 
-            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-            with anyio.fail_after(2):  # pragma: no cover
+            with anyio.fail_after(2):  # pragma: no branch
                 await ev_timeout.wait()
 
 
@@ -292,7 +276,7 @@ async def test_connection_closed():
                 # any request will do
                 await client_session.initialize()
                 pytest.fail("Request should have errored")  # pragma: no cover
-            except McpError as e:
+            except MCPError as e:
                 # Expected - request errored
                 assert "Connection closed" in str(e)
                 ev_response.set()
@@ -314,8 +298,121 @@ async def test_connection_closed():
             tg.start_soon(make_request, client_session)
             tg.start_soon(mock_server)
 
-            # TODO(Marcelo): Drop the pragma once https://github.com/coveragepy/coveragepy/issues/1987 is fixed.
-            with anyio.fail_after(1):  # pragma: no cover
+            with anyio.fail_after(1):
                 await ev_closed.wait()
-            with anyio.fail_after(1):  # pragma: no cover
+            with anyio.fail_after(1):  # pragma: no branch
                 await ev_response.wait()
+
+
+@pytest.mark.anyio
+async def test_null_id_error_surfaced_via_message_handler():
+    """Test that a JSONRPCError with id=None is surfaced to the message handler.
+
+    Per JSON-RPC 2.0, error responses use id=null when the request id could not
+    be determined (e.g., parse errors). These cannot be correlated to any pending
+    request, so they are forwarded to the message handler as MCPError.
+    """
+    ev_error_received = anyio.Event()
+    error_holder: list[MCPError] = []
+
+    async def capture_errors(
+        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
+    ) -> None:
+        assert isinstance(message, MCPError)
+        error_holder.append(message)
+        ev_error_received.set()
+
+    sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        _server_read, server_write = server_streams
+
+        async def mock_server():
+            """Send a null-id error (simulating a parse error)."""
+            error_response = JSONRPCError(jsonrpc="2.0", id=None, error=sent_error)
+            await server_write.send(SessionMessage(message=error_response))
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+                message_handler=capture_errors,
+            ) as _client_session,
+        ):
+            tg.start_soon(mock_server)
+
+            with anyio.fail_after(2):  # pragma: no branch
+                await ev_error_received.wait()
+
+    assert len(error_holder) == 1
+    assert error_holder[0].error == sent_error
+
+
+@pytest.mark.anyio
+async def test_null_id_error_does_not_affect_pending_request():
+    """Test that a null-id error doesn't interfere with an in-flight request.
+
+    When a null-id error arrives while a request is pending, the error should
+    go to the message handler and the pending request should still complete
+    normally with its own response.
+    """
+    ev_error_received = anyio.Event()
+    ev_response_received = anyio.Event()
+    error_holder: list[MCPError] = []
+    result_holder: list[EmptyResult] = []
+
+    async def capture_errors(
+        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
+    ) -> None:
+        assert isinstance(message, MCPError)
+        error_holder.append(message)
+        ev_error_received.set()
+
+    sent_error = ErrorData(code=PARSE_ERROR, message="Parse error")
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def mock_server():
+            """Read a request, inject a null-id error, then respond normally."""
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+            assert isinstance(message.message, JSONRPCRequest)
+            request_id = message.message.id
+
+            # First, send a null-id error (should go to message handler)
+            await server_write.send(SessionMessage(message=JSONRPCError(jsonrpc="2.0", id=None, error=sent_error)))
+
+            # Then, respond normally to the pending request
+            await server_write.send(SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})))
+
+        async def make_request(client_session: ClientSession):
+            result = await client_session.send_ping()
+            result_holder.append(result)
+            ev_response_received.set()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+                message_handler=capture_errors,
+            ) as client_session,
+        ):
+            tg.start_soon(mock_server)
+            tg.start_soon(make_request, client_session)
+
+            with anyio.fail_after(2):  # pragma: no branch
+                await ev_error_received.wait()
+                await ev_response_received.wait()
+
+    # Null-id error reached the message handler
+    assert len(error_holder) == 1
+    assert error_holder[0].error == sent_error
+
+    # Pending request completed successfully
+    assert len(result_holder) == 1
+    assert isinstance(result_holder[0], EmptyResult)

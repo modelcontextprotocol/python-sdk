@@ -12,7 +12,7 @@ from mcp.shared.metadata_utils import get_display_name
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(
     command="uv",  # Using uv to run the server
-    args=["run", "server", "fastmcp_quickstart", "stdio"],
+    args=["run", "server", "mcpserver_quickstart", "stdio"],
     env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
 

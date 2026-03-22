@@ -1,30 +1,29 @@
-from typing import Any
+from __future__ import annotations
 
 import anyio
 import pytest
 
-import mcp.types as types
+from mcp import types
 from mcp.client.session import DEFAULT_CLIENT_INFO, ClientSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     CallToolResult,
-    ClientNotification,
-    ClientRequest,
     Implementation,
     InitializedNotification,
     InitializeRequest,
     InitializeResult,
-    JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    RequestParamsMeta,
     ServerCapabilities,
-    ServerResult,
     TextContent,
+    client_notification_adapter,
+    client_request_adapter,
 )
 
 
@@ -41,43 +40,39 @@ async def test_client_session_initialize():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(
-                    logging=None,
-                    resources=None,
-                    tools=None,
-                    experimental=None,
-                    prompts=None,
-                ),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-                instructions="The server instructions.",
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(
+                logging=None,
+                resources=None,
+                tools=None,
+                experimental=None,
+                prompts=None,
+            ),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+            instructions="The server instructions.",
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
             session_notification = await client_to_server_receive.receive()
             jsonrpc_notification = session_notification.message
-            assert isinstance(jsonrpc_notification.root, JSONRPCNotification)
-            initialized_notification = ClientNotification.model_validate(
+            assert isinstance(jsonrpc_notification, JSONRPCNotification)
+            initialized_notification = client_notification_adapter.validate_python(
                 jsonrpc_notification.model_dump(by_alias=True, mode="json", exclude_none=True)
             )
 
@@ -112,7 +107,7 @@ async def test_client_session_initialize():
 
     # Check that the client sent the initialized notification
     assert initialized_notification
-    assert isinstance(initialized_notification.root, InitializedNotification)
+    assert isinstance(initialized_notification, InitializedNotification)
 
 
 @pytest.mark.anyio
@@ -128,30 +123,26 @@ async def test_client_session_custom_client_info():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_client_info = request.root.params.client_info
+        assert isinstance(request, InitializeRequest)
+        received_client_info = request.params.client_info
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -189,30 +180,26 @@ async def test_client_session_default_client_info():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_client_info = request.root.params.client_info
+        assert isinstance(request, InitializeRequest)
+        received_client_info = request.params.client_info
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -220,10 +207,7 @@ async def test_client_session_default_client_info():
             await client_to_server_receive.receive()
 
     async with (
-        ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-        ) as session,
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
         anyio.create_task_group() as tg,
         client_to_server_send,
         client_to_server_receive,
@@ -247,33 +231,29 @@ async def test_client_session_version_negotiation_success():
     async def mock_server():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
         # Verify client sent the latest protocol version
-        assert request.root.params.protocol_version == LATEST_PROTOCOL_VERSION
+        assert request.params.protocol_version == LATEST_PROTOCOL_VERSION
 
         # Server responds with a supported older version
-        result = ServerResult(
-            InitializeResult(
-                protocol_version="2024-11-05",
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version="2024-11-05",
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -281,10 +261,7 @@ async def test_client_session_version_negotiation_success():
             await client_to_server_receive.receive()
 
     async with (
-        ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-        ) as session,
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
         anyio.create_task_group() as tg,
         client_to_server_send,
         client_to_server_receive,
@@ -309,39 +286,32 @@ async def test_client_session_version_negotiation_failure():
     async def mock_server():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
         # Server responds with an unsupported version
-        result = ServerResult(
-            InitializeResult(
-                protocol_version="2020-01-01",  # Unsupported old version
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version="2020-01-01",  # Unsupported old version
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
 
     async with (
-        ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-        ) as session,
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
         anyio.create_task_group() as tg,
         client_to_server_send,
         client_to_server_receive,
@@ -368,30 +338,26 @@ async def test_client_capabilities_default():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -399,10 +365,7 @@ async def test_client_capabilities_default():
             await client_to_server_receive.receive()
 
     async with (
-        ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-        ) as session,
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
         anyio.create_task_group() as tg,
         client_to_server_send,
         client_to_server_receive,
@@ -427,7 +390,7 @@ async def test_client_capabilities_with_custom_callbacks():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(
@@ -437,7 +400,7 @@ async def test_client_capabilities_with_custom_callbacks():
         )
 
     async def custom_list_roots_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
     ) -> types.ListRootsResult | types.ErrorData:
         return types.ListRootsResult(roots=[])
 
@@ -446,30 +409,26 @@ async def test_client_capabilities_with_custom_callbacks():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -515,7 +474,7 @@ async def test_client_capabilities_with_sampling_tools():
     received_capabilities = None
 
     async def custom_sampling_callback(  # pragma: no cover
-        context: RequestContext["ClientSession", Any],
+        context: RequestContext[ClientSession],
         params: types.CreateMessageRequestParams,
     ) -> types.CreateMessageResult | types.ErrorData:
         return types.CreateMessageResult(
@@ -529,30 +488,26 @@ async def test_client_capabilities_with_sampling_tools():
 
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
-        received_capabilities = request.root.params.capabilities
+        assert isinstance(request, InitializeRequest)
+        received_capabilities = request.params.capabilities
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -585,8 +540,8 @@ async def test_client_capabilities_with_sampling_tools():
 
 
 @pytest.mark.anyio
-async def test_get_server_capabilities():
-    """Test that get_server_capabilities returns None before init and capabilities after"""
+async def test_initialize_result():
+    """Test that initialize_result is None before init and contains the full result after."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -596,33 +551,32 @@ async def test_get_server_capabilities():
         resources=types.ResourcesCapability(subscribe=True, list_changed=True),
         tools=types.ToolsCapability(list_changed=False),
     )
+    expected_server_info = Implementation(name="mock-server", version="0.1.0")
+    expected_instructions = "Use the tools wisely."
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=expected_capabilities,
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=expected_capabilities,
+            server_info=expected_server_info,
+            instructions=expected_instructions,
         )
 
         async with server_to_client_send:
             await server_to_client_send.send(
                 SessionMessage(
-                    JSONRPCMessage(
-                        JSONRPCResponse(
-                            jsonrpc="2.0",
-                            id=jsonrpc_request.root.id,
-                            result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                        )
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=jsonrpc_request.id,
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                     )
                 )
             )
@@ -639,26 +593,22 @@ async def test_get_server_capabilities():
         server_to_client_send,
         server_to_client_receive,
     ):
-        assert session.get_server_capabilities() is None
+        assert session.initialize_result is None
 
         tg.start_soon(mock_server)
         await session.initialize()
 
-        capabilities = session.get_server_capabilities()
-        assert capabilities is not None
-        assert capabilities == expected_capabilities
-        assert capabilities.logging is not None
-        assert capabilities.prompts is not None
-        assert capabilities.prompts.list_changed is True
-        assert capabilities.resources is not None
-        assert capabilities.resources.subscribe is True
-        assert capabilities.tools is not None
-        assert capabilities.tools.list_changed is False
+        result = session.initialize_result
+        assert result is not None
+        assert result.server_info == expected_server_info
+        assert result.capabilities == expected_capabilities
+        assert result.instructions == expected_instructions
+        assert result.protocol_version == LATEST_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
-async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
+async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
     """Test that client tool call requests can include metadata"""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
@@ -669,29 +619,25 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         # Receive initialization request from client
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
-        request = ClientRequest.model_validate(
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        request = client_request_adapter.validate_python(
             jsonrpc_request.model_dump(by_alias=True, mode="json", exclude_none=True)
         )
-        assert isinstance(request.root, InitializeRequest)
+        assert isinstance(request, InitializeRequest)
 
-        result = ServerResult(
-            InitializeResult(
-                protocol_version=LATEST_PROTOCOL_VERSION,
-                capabilities=ServerCapabilities(),
-                server_info=Implementation(name="mock-server", version="0.1.0"),
-            )
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
         )
 
         # Answer initialization request
         await server_to_client_send.send(
             SessionMessage(
-                JSONRPCMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=jsonrpc_request.root.id,
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=jsonrpc_request.id,
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
         )
@@ -702,28 +648,24 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         # Wait for the client to send a 'tools/call' request
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
 
-        assert jsonrpc_request.root.method == "tools/call"
+        assert jsonrpc_request.method == "tools/call"
 
         if meta is not None:
-            assert jsonrpc_request.root.params
-            assert "_meta" in jsonrpc_request.root.params
-            assert jsonrpc_request.root.params["_meta"] == meta
+            assert jsonrpc_request.params
+            assert "_meta" in jsonrpc_request.params
+            assert jsonrpc_request.params["_meta"] == meta
 
-        result = ServerResult(
-            CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
-        )
+        result = CallToolResult(content=[TextContent(type="text", text="Called successfully")], is_error=False)
 
         # Send the tools/call result
         await server_to_client_send.send(
             SessionMessage(
-                JSONRPCMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=jsonrpc_request.root.id,
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=jsonrpc_request.id,
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
         )
@@ -732,20 +674,18 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         # The client requires this step to validate the tool output schema
         session_message = await client_to_server_receive.receive()
         jsonrpc_request = session_message.message
-        assert isinstance(jsonrpc_request.root, JSONRPCRequest)
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
 
-        assert jsonrpc_request.root.method == "tools/list"
+        assert jsonrpc_request.method == "tools/list"
 
         result = types.ListToolsResult(tools=[mocked_tool])
 
         await server_to_client_send.send(
             SessionMessage(
-                JSONRPCMessage(
-                    JSONRPCResponse(
-                        jsonrpc="2.0",
-                        id=jsonrpc_request.root.id,
-                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
-                    )
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=jsonrpc_request.id,
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
                 )
             )
         )
@@ -753,10 +693,7 @@ async def test_client_tool_call_with_meta(meta: dict[str, Any] | None):
         server_to_client_send.close()
 
     async with (
-        ClientSession(
-            server_to_client_receive,
-            client_to_server_send,
-        ) as session,
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
         anyio.create_task_group() as tg,
         client_to_server_send,
         client_to_server_receive,

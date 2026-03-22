@@ -21,7 +21,7 @@ The following dependencies are automatically installed:
 - [`starlette`](https://pypi.org/project/starlette/): Web framework used to build the HTTP transport endpoints.
 - [`python-multipart`](https://pypi.org/project/python-multipart/): Handle HTTP body parsing.
 - [`sse-starlette`](https://pypi.org/project/sse-starlette/): Server-Sent Events for Starlette, used to build the SSE transport endpoint.
-- [`pydantic-settings`](https://pypi.org/project/pydantic-settings/): Settings management used in FastMCP.
+- [`pydantic-settings`](https://pypi.org/project/pydantic-settings/): Settings management used in MCPServer.
 - [`uvicorn`](https://pypi.org/project/uvicorn/): ASGI server used to run the HTTP transport endpoints.
 - [`jsonschema`](https://pypi.org/project/jsonschema/): JSON schema validation.
 - [`pywin32`](https://pypi.org/project/pywin32/): Windows specific dependencies for the CLI tools.

@@ -5,17 +5,16 @@ with parameters like 'text/html;profile=mcp-app' which are valid per RFC 2045.
 """
 
 import pytest
-from pydantic import AnyUrl
 
 from mcp import Client
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 pytestmark = pytest.mark.anyio
 
 
 async def test_mime_type_with_parameters():
     """Test that MIME types with parameters are accepted (RFC 2045)."""
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
 
     # This should NOT raise a validation error
     @mcp.resource("ui://widget", mime_type="text/html;profile=mcp-app")
@@ -29,7 +28,7 @@ async def test_mime_type_with_parameters():
 
 async def test_mime_type_with_parameters_and_space():
     """Test MIME type with space after semicolon."""
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
 
     @mcp.resource("data://json", mime_type="application/json; charset=utf-8")
     def data() -> str:
@@ -42,7 +41,7 @@ async def test_mime_type_with_parameters_and_space():
 
 async def test_mime_type_with_multiple_parameters():
     """Test MIME type with multiple parameters."""
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
 
     @mcp.resource("data://multi", mime_type="text/plain; charset=utf-8; format=fixed")
     def data() -> str:
@@ -55,7 +54,7 @@ async def test_mime_type_with_multiple_parameters():
 
 async def test_mime_type_preserved_in_read_resource():
     """Test that MIME type with parameters is preserved when reading resource."""
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
 
     @mcp.resource("ui://my-widget", mime_type="text/html;profile=mcp-app")
     def my_widget() -> str:
@@ -63,6 +62,6 @@ async def test_mime_type_preserved_in_read_resource():
 
     async with Client(mcp) as client:
         # Read the resource
-        result = await client.read_resource(AnyUrl("ui://my-widget"))
+        result = await client.read_resource("ui://my-widget")
         assert len(result.contents) == 1
         assert result.contents[0].mime_type == "text/html;profile=mcp-app"

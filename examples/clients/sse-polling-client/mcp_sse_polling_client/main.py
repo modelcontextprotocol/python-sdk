@@ -21,8 +21,6 @@ import click
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-logger = logging.getLogger(__name__)
-
 
 async def run_demo(url: str, items: int, checkpoint_every: int) -> None:
     """Run the SSE polling demo."""
@@ -33,7 +31,7 @@ async def run_demo(url: str, items: int, checkpoint_every: int) -> None:
     print(f"Processing {items} items with checkpoints every {checkpoint_every}")
     print(f"{'=' * 60}\n")
 
-    async with streamable_http_client(url) as (read_stream, write_stream, _):
+    async with streamable_http_client(url) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
             print("Initializing connection...")

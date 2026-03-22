@@ -9,11 +9,11 @@ import contextlib
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Create multiple MCP servers
-api_mcp = FastMCP("API Server")
-chat_mcp = FastMCP("Chat Server")
+api_mcp = MCPServer("API Server")
+chat_mcp = MCPServer("Chat Server")
 
 
 @api_mcp.tool()
