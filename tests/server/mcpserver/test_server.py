@@ -1069,7 +1069,6 @@ class TestContextInjection:
                 mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
                 mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
 
-    @pytest.mark.anyio
     async def test_context_logging_with_structured_data(self):
         """Test that context logging accepts structured data per MCP spec (issue #397)."""
         mcp = MCPServer()
@@ -1083,6 +1082,8 @@ class TestContextInjection:
             await ctx.warning(404)
             # Test with boolean
             await ctx.error(True)
+            # Test with null
+            await ctx.info(None)
             # Test string still works (backward compatibility)
             await ctx.info("Plain string message")
             return f"Logged structured data for {msg}"
@@ -1098,7 +1099,7 @@ class TestContextInjection:
                 assert "Logged structured data for test" in content.text
 
                 # Verify all log calls were made with correct data types
-                assert mock_log.call_count == 5
+                assert mock_log.call_count == 6
 
                 # Check dictionary logging
                 mock_log.assert_any_call(
@@ -1128,6 +1129,14 @@ class TestContextInjection:
                 mock_log.assert_any_call(
                     level="error",
                     data=True,
+                    logger=None,
+                    related_request_id="1",
+                )
+
+                # Check null logging
+                mock_log.assert_any_call(
+                    level="info",
+                    data=None,
                     logger=None,
                     related_request_id="1",
                 )
