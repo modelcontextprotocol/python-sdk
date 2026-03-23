@@ -1846,10 +1846,9 @@ def test_streamable_http_client_resumption_starts_get_stream_once(monkeypatch: p
             terminate_on_close=False,
         ):
             await anyio.sleep(0)
+        unittest.TestCase().assertEqual(start_count, 1, f"Expected exactly one GET stream start, got {start_count}")
 
     anyio.run(exercise_client)
-
-    unittest.TestCase().assertEqual(start_count, 1, f"Expected exactly one GET stream start, got {start_count}")
 
 
 @pytest.mark.anyio
