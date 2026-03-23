@@ -19,6 +19,7 @@ from mcp.types import (
     EmptyResult,
     GetPromptResult,
     Implementation,
+    InitializeResult,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -29,7 +30,6 @@ from mcp.types import (
     ReadResourceResult,
     RequestParamsMeta,
     ResourceTemplateReference,
-    ServerCapabilities,
 )
 
 
@@ -155,9 +155,16 @@ class Client:
         return self._session
 
     @property
-    def server_capabilities(self) -> ServerCapabilities | None:
-        """The server capabilities received during initialization, or None if not yet initialized."""
-        return self.session.get_server_capabilities()
+    def initialize_result(self) -> InitializeResult:
+        """The server's InitializeResult.
+
+        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
+        Raises RuntimeError if accessed outside the context manager.
+        """
+        result = self.session.initialize_result
+        if result is None:  # pragma: no cover
+            raise RuntimeError("Client must be used within an async context manager")
+        return result
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> EmptyResult:
         """Send a ping request to the server."""
