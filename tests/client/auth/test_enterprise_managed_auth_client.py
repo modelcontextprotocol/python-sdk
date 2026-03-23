@@ -1575,9 +1575,7 @@ async def test_default_id_jag_expiry_constant(sample_id_token: str, sample_id_ja
 
 
 @pytest.mark.anyio
-async def test_exchange_token_without_oauth_metadata(
-    sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
-):
+async def test_exchange_token_without_oauth_metadata(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test token exchange when oauth_metadata is not set.
 
     This tests the scenario where OAuth metadata discovery hasn't happened yet.
@@ -1624,6 +1622,3 @@ async def test_exchange_token_without_oauth_metadata(
     # Verify the configured audience was used (no override since metadata is None)
     call_args = mock_client.post.call_args
     assert call_args[1]["data"]["audience"] == "https://auth.configured.example/"
-
-
-
