@@ -10,6 +10,7 @@ import multiprocessing
 import socket
 import time
 import traceback
+import unittest
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -1848,8 +1849,7 @@ def test_streamable_http_client_resumption_starts_get_stream_once(monkeypatch: p
 
     anyio.run(exercise_client)
 
-    if start_count != 1:
-        raise AssertionError(f"Expected exactly one GET stream start, got {start_count}")
+    unittest.TestCase().assertEqual(start_count, 1, f"Expected exactly one GET stream start, got {start_count}")
 
 
 @pytest.mark.anyio
