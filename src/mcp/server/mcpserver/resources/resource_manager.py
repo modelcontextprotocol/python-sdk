@@ -110,7 +110,7 @@ class ResourceManager:
         logger.debug("Listing templates", extra={"count": len(self._templates)})
         return list(self._templates.values())
 
-    def remove_resource(self, uri: str) -> None:
+    def remove_resource(self, uri: AnyUrl | str) -> None:
         """Remove a resource by URI.
 
         Args:
@@ -119,9 +119,10 @@ class ResourceManager:
         Raises:
             ResourceError: If the resource does not exist
         """
-        if uri not in self._resources:
+        uri_str = str(uri)
+        if uri_str not in self._resources:
             raise ResourceError(f"Unknown resource: {uri}")
-        del self._resources[uri]
+        del self._resources[uri_str]
 
     def remove_template(self, uri_template: str) -> None:
         """Remove a resource template by URI template.

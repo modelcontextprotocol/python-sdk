@@ -5,6 +5,7 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
 
 
@@ -175,3 +176,165 @@ class TestResourceManagerMetadata:
         )
 
         assert template.meta is None
+
+
+class TestRemoveResource:
+    """Test ResourceManager.remove_resource() functionality."""
+
+    def test_remove_existing_resource(self, temp_file: Path):
+        """Test removing an existing resource."""
+        manager = ResourceManager()
+        resource = FileResource(
+            uri=f"file://{temp_file}",
+            name="test",
+            path=temp_file,
+        )
+        manager.add_resource(resource)
+
+        # Verify resource exists
+        assert len(manager.list_resources()) == 1
+
+        # Remove the resource - should not raise any exception
+        manager.remove_resource(f"file://{temp_file}")
+
+        # Verify resource is removed
+        assert len(manager.list_resources()) == 0
+
+    def test_remove_nonexistent_resource(self):
+        """Test removing a non-existent resource raises ResourceError."""
+        manager = ResourceManager()
+
+        with pytest.raises(ResourceError, match="Unknown resource: nonexistent"):
+            manager.remove_resource("nonexistent")
+
+    def test_remove_resource_with_anyurl(self, temp_file: Path):
+        """Test removing a resource using AnyUrl instead of string."""
+        manager = ResourceManager()
+        resource = FileResource(
+            uri=f"file://{temp_file}",
+            name="test",
+            path=temp_file,
+        )
+        manager.add_resource(resource)
+
+        # Verify resource exists
+        assert len(manager.list_resources()) == 1
+
+        # Remove using AnyUrl - should work
+        manager.remove_resource(AnyUrl(f"file://{temp_file}"))
+
+        # Verify resource is removed
+        assert len(manager.list_resources()) == 0
+
+    def test_remove_one_resource_from_multiple(self, temp_file: Path):
+        """Test removing one resource when multiple resources exist."""
+        manager = ResourceManager()
+        resource1 = FileResource(
+            uri=f"file://{temp_file}1",
+            name="test1",
+            path=temp_file,
+        )
+        resource2 = FileResource(
+            uri=f"file://{temp_file}2",
+            name="test2",
+            path=temp_file,
+        )
+        resource3 = FileResource(
+            uri=f"file://{temp_file}3",
+            name="test3",
+            path=temp_file,
+        )
+        manager.add_resource(resource1)
+        manager.add_resource(resource2)
+        manager.add_resource(resource3)
+
+        # Verify all resources exist
+        assert len(manager.list_resources()) == 3
+
+        # Remove middle resource
+        manager.remove_resource(f"file://{temp_file}2")
+
+        # Verify only resource2 is removed
+        assert len(manager.list_resources()) == 2
+        assert manager.list_resources() == [resource1, resource3]
+
+    @pytest.mark.anyio
+    async def test_call_removed_resource_raises_error(self, temp_file: Path):
+        """Test that calling a removed resource raises ValueError."""
+        manager = ResourceManager()
+        resource = FileResource(
+            uri=f"file://{temp_file}",
+            name="test",
+            path=temp_file,
+        )
+        manager.add_resource(resource)
+
+        # Verify resource works before removal
+        result = await manager.get_resource(resource.uri, Context())
+        assert result == resource
+
+        # Remove the resource
+        manager.remove_resource(f"file://{temp_file}")
+
+        # Verify getting removed resource raises error
+        with pytest.raises(ValueError, match="Unknown resource"):
+            await manager.get_resource(resource.uri, Context())
+
+
+class TestRemoveTemplate:
+    """Test ResourceManager.remove_template() functionality."""
+
+    def test_remove_existing_template(self):
+        """Test removing an existing template."""
+        manager = ResourceManager()
+
+        def greet(name: str) -> str:
+            return f"Hello, {name}!"
+
+        template = manager.add_template(
+            fn=greet,
+            uri_template="greet://{name}",
+        )
+
+        # Verify template exists
+        assert len(manager.list_templates()) == 1
+
+        # Remove the template
+        manager.remove_template("greet://{name}")
+
+        # Verify template is removed
+        assert len(manager.list_templates()) == 0
+
+    def test_remove_nonexistent_template(self):
+        """Test removing a non-existent template raises ResourceError."""
+        manager = ResourceManager()
+
+        with pytest.raises(ResourceError, match="Unknown template: nonexistent"):
+            manager.remove_template("nonexistent")
+
+    def test_remove_one_template_from_multiple(self):
+        """Test removing one template when multiple templates exist."""
+        manager = ResourceManager()
+
+        def greet(name: str) -> str:
+            return f"Hello, {name}!"
+
+        def farewell(name: str) -> str:
+            return f"Goodbye, {name}!"
+
+        def ask(question: str) -> str:
+            return f"What is {question}?"
+
+        template1 = manager.add_template(fn=greet, uri_template="greet://{name}")
+        template2 = manager.add_template(fn=farewell, uri_template="farewell://{name}")
+        template3 = manager.add_template(fn=ask, uri_template="ask://{question}")
+
+        # Verify all templates exist
+        assert len(manager.list_templates()) == 3
+
+        # Remove middle template
+        manager.remove_template("farewell://{name}")
+
+        # Verify only farewell template is removed
+        assert len(manager.list_templates()) == 2
+        assert manager.list_templates() == [template1, template3]
