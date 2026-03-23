@@ -2630,6 +2630,8 @@ async def advanced_manual_flow() -> None:
     async with httpx.AsyncClient() as client:
         # Step 1: Exchange ID token for ID-JAG
         id_jag = await enterprise_auth.exchange_token_for_id_jag(client)
+        # WARNING: Only log tokens in development/testing environments
+        # In production, NEVER log tokens or token fragments as they are sensitive credentials
         print(f"Obtained ID-JAG: {id_jag[:50]}...")
 
         # Step 2: Build JWT bearer grant request
@@ -2646,11 +2648,52 @@ async def advanced_manual_flow() -> None:
             token_type=token_data["token_type"],
             expires_in=token_data.get("expires_in"),
         )
+        # WARNING: In production, do not log token expiry or any token information
         print(f"Access token obtained, expires in: {access_token.expires_in}s")
 
         # Use the access token for API calls
         _ = {"Authorization": f"Bearer {access_token.access_token}"}
         # ... make authenticated requests with headers
+
+
+async def token_refresh_example() -> None:
+    """Example showing how to refresh tokens when they expire.
+
+    When your access token expires, you need to obtain a fresh ID token
+    from your enterprise IdP and use the refresh helper method.
+    """
+    # Initial setup
+    id_token = await get_id_token_from_idp()
+
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token=id_token,
+        mcp_server_auth_issuer="https://auth.mcp-server.example.com",
+        mcp_server_resource_id="https://mcp-server.example.com",
+    )
+
+    enterprise_auth = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example.com",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+        ),
+        storage=SimpleTokenStorage(),
+        idp_token_endpoint="https://your-idp.com/oauth2/v1/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    _ = httpx.AsyncClient(auth=enterprise_auth, timeout=30.0)
+
+    # Use the client for MCP operations...
+    # ... time passes and token expires ...
+
+    # When token expires, get a fresh ID token from your IdP
+    new_id_token = await get_id_token_from_idp()
+
+    # Refresh the authentication using the helper method
+    await enterprise_auth.refresh_with_new_id_token(new_id_token)
+
+    # Next API call will automatically use the refreshed tokens
+    # No need to recreate the client or session
 
 
 if __name__ == "__main__":

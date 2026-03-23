@@ -414,7 +414,9 @@ async def run_cross_app_access_complete_flow(server_url: str) -> None:
 
 async def _run_auth_session(server_url: str, oauth_auth: OAuthClientProvider) -> None:
     """Common session logic for all OAuth flows."""
-    client = httpx.AsyncClient(auth=oauth_auth, timeout=30.0)
+    # Allow timeout to be configured via environment variable for different test scenarios
+    timeout = float(os.environ.get("MCP_CONFORMANCE_TIMEOUT", "30.0"))
+    client = httpx.AsyncClient(auth=oauth_auth, timeout=timeout)
     async with streamable_http_client(url=server_url, http_client=client) as (read_stream, write_stream):
         async with ClientSession(
             read_stream, write_stream, elicitation_callback=default_elicitation_callback
