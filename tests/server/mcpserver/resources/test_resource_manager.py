@@ -291,7 +291,7 @@ class TestRemoveTemplate:
         def greet(name: str) -> str:
             return f"Hello, {name}!"
 
-        template = manager.add_template(
+        manager.add_template(
             fn=greet,
             uri_template="greet://{name}",
         )
@@ -326,7 +326,7 @@ class TestRemoveTemplate:
             return f"What is {question}?"
 
         template1 = manager.add_template(fn=greet, uri_template="greet://{name}")
-        template2 = manager.add_template(fn=farewell, uri_template="farewell://{name}")
+        manager.add_template(fn=farewell, uri_template="farewell://{name}")
         template3 = manager.add_template(fn=ask, uri_template="ask://{question}")
 
         # Verify all templates exist

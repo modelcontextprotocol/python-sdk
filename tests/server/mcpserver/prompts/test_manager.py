@@ -1,7 +1,6 @@
 import pytest
 
 from mcp.server.mcpserver import Context
-from mcp.server.mcpserver.exceptions import PromptError
 from mcp.server.mcpserver.prompts.base import Prompt, UserMessage
 from mcp.server.mcpserver.prompts.manager import PromptManager
 from mcp.types import TextContent
