@@ -21,7 +21,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAu
 class InMemoryTokenStorage(TokenStorage):
     """Demo In-memory token storage implementation."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.tokens: OAuthToken | None = None
         self.client_info: OAuthClientInformationFull | None = None
 

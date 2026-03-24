@@ -143,13 +143,13 @@ select = [
     "TID251", # https://docs.astral.sh/ruff/rules/banned-api/
 ]
 ignore = [
+    "ANN204",  # special methods (__init__, __enter__, etc.) have well-known return types
     "ANN401",  # `Any` is sometimes the right type; pyright strict handles real misuse
     "PERF203",
 ]
 
 [tool.ruff.lint.flake8-annotations]
 allow-star-arg-any = true
-mypy-init-return = true
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "pydantic.RootModel".msg = "Use `pydantic.TypeAdapter` instead."

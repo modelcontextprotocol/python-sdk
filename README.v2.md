@@ -532,7 +532,7 @@ def get_user(user_id: str) -> UserProfile:
 
 # Classes WITHOUT type hints cannot be used for structured output
 class UntypedConfig:
-    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]  # noqa: ANN001, ANN204
+    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]  # noqa: ANN001
         self.setting1 = setting1
         self.setting2 = setting2
 
@@ -2327,7 +2327,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAu
 class InMemoryTokenStorage(TokenStorage):
     """Demo In-memory token storage implementation."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.tokens: OAuthToken | None = None
         self.client_info: OAuthClientInformationFull | None = None
 
