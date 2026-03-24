@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import anyio
+import httpx
 import pytest
 from inline_snapshot import snapshot
 
@@ -307,7 +308,18 @@ async def test_complete_with_prompt_reference(simple_server: Server):
 def test_client_with_url_initializes_streamable_http_transport():
     with patch("mcp.client.client.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
-    mock.assert_called_once_with("http://localhost:8000/mcp")
+    mock.assert_called_once_with("http://localhost:8000/mcp", auth=None)
+
+
+def test_client_with_url_passes_auth_to_transport():
+    class FakeAuth(httpx.Auth):
+        def auth_flow(self, request: httpx.Request):
+            yield request  # pragma: no cover
+
+    auth = FakeAuth()
+    with patch("mcp.client.client.streamable_http_client") as mock:
+        _ = Client("http://localhost:8000/mcp", auth=auth)
+    mock.assert_called_once_with("http://localhost:8000/mcp", auth=auth)
 
 
 async def test_client_uses_transport_directly(app: MCPServer):
