@@ -235,8 +235,12 @@ class Client:
         progress_callback: ProgressFnT | None = None,
         *,
         meta: RequestParamsMeta | None = None,
+        max_timeout_retries: int = 0,
     ) -> CallToolResult:
         """Call a tool on the server.
+
+        An idempotency key is always attached to the request so that the
+        server can deduplicate calls if needed.
 
         Args:
             name: The name of the tool to call
@@ -244,6 +248,8 @@ class Client:
             read_timeout_seconds: Timeout for the tool call
             progress_callback: Callback for progress updates
             meta: Additional metadata for the request
+            max_timeout_retries: Number of times to retry on timeout (default: 0).
+                Set this only when you know the tool call is safe to retry.
 
         Returns:
             The tool result.
@@ -254,6 +260,7 @@ class Client:
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
+            max_timeout_retries=max_timeout_retries,
         )
 
     async def list_prompts(

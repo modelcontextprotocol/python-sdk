@@ -12,7 +12,7 @@ from mcp import MCPError, types
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import (
     CallToolResult,
     EmptyResult,
@@ -320,3 +320,136 @@ async def test_client_uses_transport_directly(app: MCPServer):
                 structured_content={"result": "Hello, Transport!"},
             )
         )
+
+
+async def test_call_tool_always_sends_idempotency_key():
+    """Test that an idempotency key is always sent with every call_tool request."""
+    received_key: str | None = None
+    event = anyio.Event()
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="any_tool", input_schema={"type": "object", "properties": {}})]
+        )
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        nonlocal received_key
+        received_key = params.idempotency_key
+        event.set()
+        return types.CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server(
+        name="test_server",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            await client.call_tool("any_tool", {"msg": "hi"})
+            await event.wait()
+        assert received_key is not None
+
+
+async def test_call_tool_no_retry_by_default():
+    """Test that call_tool does not retry on timeout by default."""
+    call_count = 0
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        nonlocal call_count
+        call_count += 1
+        await anyio.sleep(10)
+        return types.CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server(
+        name="test_server",
+        on_call_tool=handle_call_tool,
+    )
+
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            with pytest.raises(MCPError) as exc_info:
+                await client.call_tool("slow_tool", read_timeout_seconds=0.1)
+            assert exc_info.value.code == types.REQUEST_TIMEOUT
+        assert call_count == 1
+
+
+async def test_call_tool_retries_on_timeout_when_requested():
+    """Test that call_tool retries on timeout when max_timeout_retries > 0."""
+    call_count = 0
+    received_keys: list[str | None] = []
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[types.Tool(name="slow_tool", input_schema={"type": "object", "properties": {}})]
+        )
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        nonlocal call_count
+        call_count += 1
+        received_keys.append(params.idempotency_key)
+        if call_count == 1:
+            await anyio.sleep(10)
+        return types.CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server(
+        name="test_server",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            result = await client.call_tool("slow_tool", read_timeout_seconds=0.1, max_timeout_retries=2)
+        assert result.content == [TextContent(text="ok")]
+        assert call_count == 2
+        # Same idempotency key across all attempts
+        assert received_keys[0] is not None
+        assert received_keys[0] == received_keys[1]
+
+
+async def test_call_tool_raises_after_all_retries_exhausted():
+    """Test that MCPError is raised after all timeout retries are exhausted."""
+    call_count = 0
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        nonlocal call_count
+        call_count += 1
+        await anyio.sleep(10)
+        return types.CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server(
+        name="test_server",
+        on_call_tool=handle_call_tool,
+    )
+
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            with pytest.raises(MCPError) as exc_info:
+                await client.call_tool("slow_tool", read_timeout_seconds=0.1, max_timeout_retries=1)
+            assert exc_info.value.code == types.REQUEST_TIMEOUT
+        assert call_count == 2
+
+
+async def test_idempotency_key_available_in_context():
+    """Test that idempotency_key is accessible via ctx.idempotency_key in tool handlers."""
+    received_key: str | None = None
+
+    server = MCPServer("test")
+
+    @server.tool()
+    async def echo_key(ctx: Context) -> str:
+        nonlocal received_key
+        received_key = ctx.idempotency_key
+        return f"key={received_key}"
+
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            result = await client.call_tool("echo_key")
+            assert result.content[0].text.startswith("key=")  # type: ignore[union-attr]
+            assert received_key is not None
+            assert len(received_key) > 0

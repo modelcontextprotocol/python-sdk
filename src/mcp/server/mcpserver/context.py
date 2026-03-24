@@ -55,6 +55,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     _request_context: ServerRequestContext[LifespanContextT, RequestT] | None
     _mcp_server: MCPServer | None
+    _idempotency_key: str | None
 
     # TODO(maxisbey): Consider making request_context/mcp_server required, or refactor Context entirely.
     def __init__(
@@ -62,12 +63,14 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         *,
         request_context: ServerRequestContext[LifespanContextT, RequestT] | None = None,
         mcp_server: MCPServer | None = None,
+        idempotency_key: str | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self._request_context = request_context
         self._mcp_server = mcp_server
+        self._idempotency_key = idempotency_key
 
     @property
     def mcp_server(self) -> MCPServer:
@@ -222,6 +225,11 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def request_id(self) -> str:
         """Get the unique ID for this request."""
         return str(self.request_context.request_id)
+
+    @property
+    def idempotency_key(self) -> str | None:
+        """Get the idempotency key for this request, if provided by the client."""
+        return self._idempotency_key
 
     @property
     def session(self):

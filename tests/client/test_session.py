@@ -22,6 +22,7 @@ from mcp.types import (
     RequestParamsMeta,
     ServerCapabilities,
     TextContent,
+    ToolsCapability,
     client_notification_adapter,
     client_request_adapter,
 )
@@ -705,3 +706,90 @@ async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
         await session.initialize()
 
         await session.call_tool(name=mocked_tool.name, arguments={"foo": "bar"}, meta=meta)
+
+
+@pytest.mark.anyio
+async def test_client_tool_call_idempotency_key_always_on_wire():
+    """Test that idempotencyKey always appears in the JSON-RPC params."""
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async def mock_server():
+        # Receive initialization request
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+
+        result = InitializeResult(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ServerCapabilities(tools=ToolsCapability(list_changed=False)),
+            server_info=Implementation(name="mock-server", version="0.1.0"),
+        )
+
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=jsonrpc_request.id,
+                    result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                )
+            )
+        )
+
+        # Receive initialized notification
+        await client_to_server_receive.receive()
+
+        # Receive tools/call request
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        assert jsonrpc_request.method == "tools/call"
+
+        # Verify idempotencyKey always present in wire params
+        assert jsonrpc_request.params is not None
+        assert "idempotencyKey" in jsonrpc_request.params
+        assert isinstance(jsonrpc_request.params["idempotencyKey"], str)
+        assert len(jsonrpc_request.params["idempotencyKey"]) > 0
+
+        call_result = CallToolResult(content=[TextContent(type="text", text="done")], is_error=False)
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=jsonrpc_request.id,
+                    result=call_result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                )
+            )
+        )
+
+        # Receive tools/list request (triggered by _validate_tool_result)
+        session_message = await client_to_server_receive.receive()
+        jsonrpc_request = session_message.message
+        assert isinstance(jsonrpc_request, JSONRPCRequest)
+        assert jsonrpc_request.method == "tools/list"
+
+        list_result = types.ListToolsResult(tools=[types.Tool(name="my_tool", input_schema={})])
+        await server_to_client_send.send(
+            SessionMessage(
+                JSONRPCResponse(
+                    jsonrpc="2.0",
+                    id=jsonrpc_request.id,
+                    result=list_result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                )
+            )
+        )
+
+        server_to_client_send.close()
+
+    async with (
+        ClientSession(server_to_client_receive, client_to_server_send) as session,
+        anyio.create_task_group() as tg,
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        tg.start_soon(mock_server)
+
+        await session.initialize()
+        await session.call_tool(name="my_tool", arguments={})

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Protocol
 
 import anyio.lowlevel
@@ -11,10 +12,12 @@ from mcp import types
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
+from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types._types import RequestParamsMeta
+from mcp.types.jsonrpc import REQUEST_TIMEOUT
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
 
@@ -304,22 +307,59 @@ class ClientSession(
         progress_callback: ProgressFnT | None = None,
         *,
         meta: RequestParamsMeta | None = None,
+        max_timeout_retries: int = 0,
     ) -> types.CallToolResult:
-        """Send a tools/call request with optional progress callback support."""
+        """Send a tools/call request with optional progress callback support.
 
-        result = await self.send_request(
-            types.CallToolRequest(
-                params=types.CallToolRequestParams(name=name, arguments=arguments, _meta=meta),
-            ),
-            types.CallToolResult,
-            request_read_timeout_seconds=read_timeout_seconds,
-            progress_callback=progress_callback,
-        )
+        An idempotency key is always attached to the request so that the
+        server can deduplicate calls if needed.
 
-        if not result.is_error:
-            await self._validate_tool_result(name, result)
+        Args:
+            name: The name of the tool to call.
+            arguments: Arguments to pass to the tool.
+            read_timeout_seconds: Timeout for the tool call.
+            progress_callback: Callback for progress updates.
+            meta: Additional metadata for the request.
+            max_timeout_retries: Number of times to retry on timeout.
+                Defaults to 0 (no retries). The caller should set this
+                only when they know the tool call is safe to retry.
+        """
+        idempotency_key = str(uuid.uuid4())
+        attempts = 1 + max_timeout_retries
 
-        return result
+        for attempt in range(attempts):
+            try:
+                result = await self.send_request(
+                    types.CallToolRequest(
+                        params=types.CallToolRequestParams(
+                            name=name,
+                            arguments=arguments,
+                            _meta=meta,
+                            idempotency_key=idempotency_key,
+                        ),
+                    ),
+                    types.CallToolResult,
+                    request_read_timeout_seconds=read_timeout_seconds,
+                    progress_callback=progress_callback,
+                )
+
+                if not result.is_error:
+                    await self._validate_tool_result(name, result)
+
+                return result
+            except MCPError as e:
+                if e.code == REQUEST_TIMEOUT and not attempt == attempts - 1:
+                    logger.info(
+                        "Timeout on tool call %r (attempt %d/%d), retrying with idempotency key %s",
+                        name,
+                        attempt + 1,
+                        attempts,
+                        idempotency_key,
+                    )
+                    continue
+                raise
+
+        raise AssertionError("unreachable")  # pragma: no cover
 
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
         """Validate the structured content of a tool result against its output schema."""

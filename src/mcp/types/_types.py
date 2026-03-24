@@ -1186,6 +1186,7 @@ class CallToolRequestParams(RequestParams):
 
     name: str
     arguments: dict[str, Any] | None = None
+    idempotency_key: str | None = None
 
 
 class CallToolRequest(Request[CallToolRequestParams, Literal["tools/call"]]):

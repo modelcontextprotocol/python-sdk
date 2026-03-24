@@ -1,0 +1,12 @@
+[project]
+name = "mcp-idempotency-demo"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["mcp", "anyio", "uvicorn", "httpx"]
+
+[tool.uv.sources]
+mcp = { path = "..", editable = true }
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

@@ -298,7 +298,7 @@ class MCPServer(Generic[LifespanResultT]):
     async def _handle_call_tool(
         self, ctx: ServerRequestContext[LifespanResultT], params: CallToolRequestParams
     ) -> CallToolResult:
-        context = Context(request_context=ctx, mcp_server=self)
+        context = Context(request_context=ctx, mcp_server=self, idempotency_key=params.idempotency_key)
         try:
             result = await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
