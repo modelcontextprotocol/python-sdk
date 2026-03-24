@@ -13,7 +13,7 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture
-async def full_featured_server() -> MCPServer:
+async def full_featured_server():
     """Create a server with tools, resources, prompts, and templates."""
     server = MCPServer("test")
 
@@ -57,7 +57,7 @@ async def test_list_methods_params_parameter(
     full_featured_server: MCPServer,
     method_name: str,
     request_method: str,
-) -> None:
+):
     """Test that the params parameter is accepted and correctly passed to the server.
 
     Covers: list_tools, list_resources, list_prompts, list_resource_templates
@@ -95,7 +95,7 @@ async def test_list_methods_params_parameter(
 
 async def test_list_tools_with_strict_server_validation(
     full_featured_server: MCPServer,
-) -> None:
+):
     """Test pagination with a server that validates request format strictly."""
     async with Client(full_featured_server) as client:
         result = await client.list_tools()
@@ -103,7 +103,7 @@ async def test_list_tools_with_strict_server_validation(
         assert len(result.tools) > 0
 
 
-async def test_list_tools_with_lowlevel_server() -> None:
+async def test_list_tools_with_lowlevel_server():
     """Test that list_tools works with a lowlevel Server using params."""
 
     async def handle_list_tools(

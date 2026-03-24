@@ -24,7 +24,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_in_flight_requests_cleared_after_completion() -> None:
+async def test_in_flight_requests_cleared_after_completion():
     """Verify that _in_flight is empty after all requests complete."""
     server = Server(name="test server")
     async with Client(server) as client:
@@ -37,7 +37,7 @@ async def test_in_flight_requests_cleared_after_completion() -> None:
 
 
 @pytest.mark.anyio
-async def test_request_cancellation() -> None:
+async def test_request_cancellation():
     """Test that requests can be cancelled while in-flight."""
     ev_tool_called = anyio.Event()
     ev_cancelled = anyio.Event()
@@ -64,7 +64,7 @@ async def test_request_cancellation() -> None:
         on_list_tools=handle_list_tools,
     )
 
-    async def make_request(client: Client) -> None:
+    async def make_request(client: Client):
         nonlocal ev_cancelled
         try:
             await client.session.send_request(
@@ -99,7 +99,7 @@ async def test_request_cancellation() -> None:
 
 
 @pytest.mark.anyio
-async def test_response_id_type_mismatch_string_to_int() -> None:
+async def test_response_id_type_mismatch_string_to_int():
     """Test that responses with string IDs are correctly matched to requests sent with
     integer IDs.
 
@@ -113,7 +113,7 @@ async def test_response_id_type_mismatch_string_to_int() -> None:
         client_read, client_write = client_streams
         server_read, server_write = server_streams
 
-        async def mock_server() -> None:
+        async def mock_server():
             """Receive a request and respond with a string ID instead of integer."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
@@ -131,7 +131,7 @@ async def test_response_id_type_mismatch_string_to_int() -> None:
             )
             await server_write.send(SessionMessage(message=response))
 
-        async def make_request(client_session: ClientSession) -> None:
+        async def make_request(client_session: ClientSession):
             nonlocal result_holder
             # Send a ping request (uses integer ID internally)
             result = await client_session.send_ping()
@@ -153,7 +153,7 @@ async def test_response_id_type_mismatch_string_to_int() -> None:
 
 
 @pytest.mark.anyio
-async def test_error_response_id_type_mismatch_string_to_int() -> None:
+async def test_error_response_id_type_mismatch_string_to_int():
     """Test that error responses with string IDs are correctly matched to requests
     sent with integer IDs.
 
@@ -167,7 +167,7 @@ async def test_error_response_id_type_mismatch_string_to_int() -> None:
         client_read, client_write = client_streams
         server_read, server_write = server_streams
 
-        async def mock_server() -> None:
+        async def mock_server():
             """Receive a request and respond with an error using a string ID."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
@@ -184,7 +184,7 @@ async def test_error_response_id_type_mismatch_string_to_int() -> None:
             )
             await server_write.send(SessionMessage(message=error_response))
 
-        async def make_request(client_session: ClientSession) -> None:
+        async def make_request(client_session: ClientSession):
             nonlocal error_holder
             try:
                 await client_session.send_ping()
@@ -208,7 +208,7 @@ async def test_error_response_id_type_mismatch_string_to_int() -> None:
 
 
 @pytest.mark.anyio
-async def test_response_id_non_numeric_string_no_match() -> None:
+async def test_response_id_non_numeric_string_no_match():
     """Test that responses with non-numeric string IDs don't incorrectly match
     integer request IDs.
 
@@ -221,7 +221,7 @@ async def test_response_id_non_numeric_string_no_match() -> None:
         client_read, client_write = client_streams
         server_read, server_write = server_streams
 
-        async def mock_server() -> None:
+        async def mock_server():
             """Receive a request and respond with a non-numeric string ID."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
@@ -234,7 +234,7 @@ async def test_response_id_non_numeric_string_no_match() -> None:
             )
             await server_write.send(SessionMessage(message=response))
 
-        async def make_request(client_session: ClientSession) -> None:
+        async def make_request(client_session: ClientSession):
             try:
                 # Use a short timeout since we expect this to fail
                 await client_session.send_request(
@@ -259,7 +259,7 @@ async def test_response_id_non_numeric_string_no_match() -> None:
 
 
 @pytest.mark.anyio
-async def test_connection_closed() -> None:
+async def test_connection_closed():
     """Test that pending requests are cancelled when the connection is closed remotely."""
 
     ev_closed = anyio.Event()
@@ -269,7 +269,7 @@ async def test_connection_closed() -> None:
         client_read, client_write = client_streams
         server_read, server_write = server_streams
 
-        async def make_request(client_session: ClientSession) -> None:
+        async def make_request(client_session: ClientSession):
             """Send a request in a separate task"""
             nonlocal ev_response
             try:
@@ -281,7 +281,7 @@ async def test_connection_closed() -> None:
                 assert "Connection closed" in str(e)
                 ev_response.set()
 
-        async def mock_server() -> None:
+        async def mock_server():
             """Wait for a request, then close the connection"""
             nonlocal ev_closed
             # Wait for a request
@@ -305,7 +305,7 @@ async def test_connection_closed() -> None:
 
 
 @pytest.mark.anyio
-async def test_null_id_error_surfaced_via_message_handler() -> None:
+async def test_null_id_error_surfaced_via_message_handler():
     """Test that a JSONRPCError with id=None is surfaced to the message handler.
 
     Per JSON-RPC 2.0, error responses use id=null when the request id could not
@@ -328,7 +328,7 @@ async def test_null_id_error_surfaced_via_message_handler() -> None:
         client_read, client_write = client_streams
         _server_read, server_write = server_streams
 
-        async def mock_server() -> None:
+        async def mock_server():
             """Send a null-id error (simulating a parse error)."""
             error_response = JSONRPCError(jsonrpc="2.0", id=None, error=sent_error)
             await server_write.send(SessionMessage(message=error_response))
@@ -351,7 +351,7 @@ async def test_null_id_error_surfaced_via_message_handler() -> None:
 
 
 @pytest.mark.anyio
-async def test_null_id_error_does_not_affect_pending_request() -> None:
+async def test_null_id_error_does_not_affect_pending_request():
     """Test that a null-id error doesn't interfere with an in-flight request.
 
     When a null-id error arrives while a request is pending, the error should
@@ -376,7 +376,7 @@ async def test_null_id_error_does_not_affect_pending_request() -> None:
         client_read, client_write = client_streams
         server_read, server_write = server_streams
 
-        async def mock_server() -> None:
+        async def mock_server():
             """Read a request, inject a null-id error, then respond normally."""
             message = await server_read.receive()
             assert isinstance(message, SessionMessage)
@@ -389,7 +389,7 @@ async def test_null_id_error_does_not_affect_pending_request() -> None:
             # Then, respond normally to the pending request
             await server_write.send(SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})))
 
-        async def make_request(client_session: ClientSession) -> None:
+        async def make_request(client_session: ClientSession):
             result = await client_session.send_ping()
             result_holder.append(result)
             ev_response_received.set()

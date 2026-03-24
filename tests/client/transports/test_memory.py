@@ -50,7 +50,7 @@ def mcpserver_server() -> MCPServer:
 pytestmark = pytest.mark.anyio
 
 
-async def test_with_server(simple_server: Server) -> None:
+async def test_with_server(simple_server: Server):
     """Test creating transport with a Server instance."""
     transport = InMemoryTransport(simple_server)
     async with transport as (read_stream, write_stream):
@@ -58,7 +58,7 @@ async def test_with_server(simple_server: Server) -> None:
         assert write_stream is not None
 
 
-async def test_with_mcpserver(mcpserver_server: MCPServer) -> None:
+async def test_with_mcpserver(mcpserver_server: MCPServer):
     """Test creating transport with an MCPServer instance."""
     transport = InMemoryTransport(mcpserver_server)
     async with transport as (read_stream, write_stream):
@@ -66,13 +66,13 @@ async def test_with_mcpserver(mcpserver_server: MCPServer) -> None:
         assert write_stream is not None
 
 
-async def test_server_is_running(mcpserver_server: MCPServer) -> None:
+async def test_server_is_running(mcpserver_server: MCPServer):
     """Test that the server is running and responding to requests."""
     async with Client(mcpserver_server) as client:
         assert client.initialize_result.capabilities.tools is not None
 
 
-async def test_list_tools(mcpserver_server: MCPServer) -> None:
+async def test_list_tools(mcpserver_server: MCPServer):
     """Test listing tools through the transport."""
     async with Client(mcpserver_server) as client:
         tools_result = await client.list_tools()
@@ -81,7 +81,7 @@ async def test_list_tools(mcpserver_server: MCPServer) -> None:
         assert "greet" in tool_names
 
 
-async def test_call_tool(mcpserver_server: MCPServer) -> None:
+async def test_call_tool(mcpserver_server: MCPServer):
     """Test calling a tool through the transport."""
     async with Client(mcpserver_server) as client:
         result = await client.call_tool("greet", {"name": "World"})
@@ -90,7 +90,7 @@ async def test_call_tool(mcpserver_server: MCPServer) -> None:
         assert "Hello, World!" in str(result.content[0])
 
 
-async def test_raise_exceptions(mcpserver_server: MCPServer) -> None:
+async def test_raise_exceptions(mcpserver_server: MCPServer):
     """Test that raise_exceptions parameter is passed through."""
     transport = InMemoryTransport(mcpserver_server, raise_exceptions=True)
     async with transport as (read_stream, _write_stream):

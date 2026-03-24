@@ -51,7 +51,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
     3. Maintaining token state for introspection
     """
 
-    def __init__(self, settings: SimpleAuthSettings, auth_callback_url: str, server_url: str) -> None:
+    def __init__(self, settings: SimpleAuthSettings, auth_callback_url: str, server_url: str):
         self.settings = settings
         self.auth_callback_url = auth_callback_url
         self.server_url = server_url

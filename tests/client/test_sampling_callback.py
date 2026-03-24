@@ -15,7 +15,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_sampling_callback() -> None:
+async def test_sampling_callback():
     server = MCPServer("test")
 
     callback_return = CreateMessageResult(
@@ -58,7 +58,7 @@ async def test_sampling_callback() -> None:
 
 
 @pytest.mark.anyio
-async def test_create_message_backwards_compat_single_content() -> None:
+async def test_create_message_backwards_compat_single_content():
     """Test backwards compatibility: create_message without tools returns single content."""
     server = MCPServer("test")
 
@@ -100,7 +100,7 @@ async def test_create_message_backwards_compat_single_content() -> None:
 
 
 @pytest.mark.anyio
-async def test_create_message_result_with_tools_type() -> None:
+async def test_create_message_result_with_tools_type():
     """Test that CreateMessageResultWithTools supports content_as_list."""
     # Test the type itself, not the overload (overload requires client capability setup)
     result = CreateMessageResultWithTools(

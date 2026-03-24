@@ -24,7 +24,7 @@ class Message(BaseModel):
     role: Literal["user", "assistant"]
     content: ContentBlock
 
-    def __init__(self, content: str | ContentBlock, **kwargs: Any) -> None:
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         if isinstance(content, str):
             content = TextContent(type="text", text=content)
         super().__init__(content=content, **kwargs)
@@ -35,7 +35,7 @@ class UserMessage(Message):
 
     role: Literal["user", "assistant"] = "user"
 
-    def __init__(self, content: str | ContentBlock, **kwargs: Any) -> None:
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 
@@ -44,7 +44,7 @@ class AssistantMessage(Message):
 
     role: Literal["user", "assistant"] = "assistant"
 
-    def __init__(self, content: str | ContentBlock, **kwargs: Any) -> None:
+    def __init__(self, content: str | ContentBlock, **kwargs: Any):
         super().__init__(content=content, **kwargs)
 
 

@@ -14,7 +14,7 @@ class Image:
         path: str | Path | None = None,
         data: bytes | None = None,
         format: str | None = None,
-    ) -> None:
+    ):
         if path is None and data is None:  # pragma: no cover
             raise ValueError("Either path or data must be provided")
         if path is not None and data is not None:  # pragma: no cover
@@ -62,7 +62,7 @@ class Audio:
         path: str | Path | None = None,
         data: bytes | None = None,
         format: str | None = None,
-    ) -> None:
+    ):
         if not bool(path) ^ bool(data):  # pragma: no cover
             raise ValueError("Either path or data can be provided")
 

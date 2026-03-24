@@ -59,7 +59,7 @@ pytestmark = pytest.mark.anyio
 class NotificationCollector:
     """Collects notifications from the server for testing."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.progress_notifications: list[ProgressNotificationParams] = []
         self.log_messages: list[LoggingMessageNotificationParams] = []
         self.resource_notifications: list[NotificationParams | None] = []
@@ -94,7 +94,7 @@ async def sampling_callback(
     )
 
 
-async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams) -> ElicitResult:
+async def elicitation_callback(context: RequestContext[ClientSession], params: ElicitRequestParams):
     """Elicitation callback for tests."""
     # For restaurant booking test
     if "No tables available" in params.message:
@@ -184,9 +184,7 @@ async def test_tool_progress() -> None:
     """Test tool progress reporting."""
     collector = NotificationCollector()
 
-    async def message_handler(
-        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):  # pragma: no cover
             raise message
@@ -265,9 +263,7 @@ async def test_notifications() -> None:
     """Test notifications and logging functionality."""
     collector = NotificationCollector()
 
-    async def message_handler(
-        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
-    ) -> None:
+    async def message_handler(message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception):
         await collector.handle_generic_notification(message)
         if isinstance(message, Exception):  # pragma: no cover
             raise message

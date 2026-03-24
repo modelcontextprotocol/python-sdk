@@ -72,7 +72,7 @@ class StreamableHTTPSessionManager:
         security_settings: TransportSecuritySettings | None = None,
         retry_interval: int | None = None,
         session_idle_timeout: float | None = None,
-    ) -> None:
+    ):
         if session_idle_timeout is not None and session_idle_timeout <= 0:
             raise ValueError("session_idle_timeout must be a positive number of seconds")
         if stateless and session_idle_timeout is not None:
@@ -289,7 +289,7 @@ class StreamableHTTPSessionManager:
 class StreamableHTTPASGIApp:
     """ASGI application for Streamable HTTP server transport."""
 
-    def __init__(self, session_manager: StreamableHTTPSessionManager) -> None:
+    def __init__(self, session_manager: StreamableHTTPSessionManager):
         self.session_manager = session_manager
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

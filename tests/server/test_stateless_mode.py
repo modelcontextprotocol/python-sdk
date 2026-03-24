@@ -49,14 +49,14 @@ async def stateless_session() -> AsyncGenerator[ServerSession, None]:
 
 
 @pytest.mark.anyio
-async def test_list_roots_fails_in_stateless_mode(stateless_session: ServerSession) -> None:
+async def test_list_roots_fails_in_stateless_mode(stateless_session: ServerSession):
     """Test that list_roots raises StatelessModeNotSupported in stateless mode."""
     with pytest.raises(StatelessModeNotSupported, match="list_roots"):
         await stateless_session.list_roots()
 
 
 @pytest.mark.anyio
-async def test_create_message_fails_in_stateless_mode(stateless_session: ServerSession) -> None:
+async def test_create_message_fails_in_stateless_mode(stateless_session: ServerSession):
     """Test that create_message raises StatelessModeNotSupported in stateless mode."""
     with pytest.raises(StatelessModeNotSupported, match="sampling"):
         await stateless_session.create_message(
@@ -71,7 +71,7 @@ async def test_create_message_fails_in_stateless_mode(stateless_session: ServerS
 
 
 @pytest.mark.anyio
-async def test_elicit_form_fails_in_stateless_mode(stateless_session: ServerSession) -> None:
+async def test_elicit_form_fails_in_stateless_mode(stateless_session: ServerSession):
     """Test that elicit_form raises StatelessModeNotSupported in stateless mode."""
     with pytest.raises(StatelessModeNotSupported, match="elicitation"):
         await stateless_session.elicit_form(
@@ -81,7 +81,7 @@ async def test_elicit_form_fails_in_stateless_mode(stateless_session: ServerSess
 
 
 @pytest.mark.anyio
-async def test_elicit_url_fails_in_stateless_mode(stateless_session: ServerSession) -> None:
+async def test_elicit_url_fails_in_stateless_mode(stateless_session: ServerSession):
     """Test that elicit_url raises StatelessModeNotSupported in stateless mode."""
     with pytest.raises(StatelessModeNotSupported, match="elicitation"):
         await stateless_session.elicit_url(
@@ -92,7 +92,7 @@ async def test_elicit_url_fails_in_stateless_mode(stateless_session: ServerSessi
 
 
 @pytest.mark.anyio
-async def test_elicit_deprecated_fails_in_stateless_mode(stateless_session: ServerSession) -> None:
+async def test_elicit_deprecated_fails_in_stateless_mode(stateless_session: ServerSession):
     """Test that the deprecated elicit method also fails in stateless mode."""
     with pytest.raises(StatelessModeNotSupported, match="elicitation"):
         await stateless_session.elicit(
@@ -102,7 +102,7 @@ async def test_elicit_deprecated_fails_in_stateless_mode(stateless_session: Serv
 
 
 @pytest.mark.anyio
-async def test_stateless_error_message_is_actionable(stateless_session: ServerSession) -> None:
+async def test_stateless_error_message_is_actionable(stateless_session: ServerSession):
     """Test that the error message provides actionable guidance."""
     with pytest.raises(StatelessModeNotSupported) as exc_info:
         await stateless_session.list_roots()
@@ -117,7 +117,7 @@ async def test_stateless_error_message_is_actionable(stateless_session: ServerSe
 
 
 @pytest.mark.anyio
-async def test_exception_has_method_attribute(stateless_session: ServerSession) -> None:
+async def test_exception_has_method_attribute(stateless_session: ServerSession):
     """Test that the exception has a method attribute for programmatic access."""
     with pytest.raises(StatelessModeNotSupported) as exc_info:
         await stateless_session.list_roots()
@@ -155,7 +155,7 @@ async def stateful_session() -> AsyncGenerator[ServerSession, None]:
 @pytest.mark.anyio
 async def test_stateful_mode_does_not_raise_stateless_error(
     stateful_session: ServerSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
+):
     """Test that StatelessModeNotSupported is not raised in stateful mode.
 
     We mock send_request to avoid blocking on I/O while still verifying

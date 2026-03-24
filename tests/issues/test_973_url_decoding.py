@@ -6,7 +6,7 @@ Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/97
 from mcp.server.mcpserver.resources import ResourceTemplate
 
 
-def test_template_matches_decodes_space() -> None:
+def test_template_matches_decodes_space():
     """Test that %20 is decoded to space."""
 
     def search(query: str) -> str:  # pragma: no cover
@@ -23,7 +23,7 @@ def test_template_matches_decodes_space() -> None:
     assert params["query"] == "hello world"
 
 
-def test_template_matches_decodes_accented_characters() -> None:
+def test_template_matches_decodes_accented_characters():
     """Test that %C3%A9 is decoded to e with accent."""
 
     def search(query: str) -> str:  # pragma: no cover
@@ -40,7 +40,7 @@ def test_template_matches_decodes_accented_characters() -> None:
     assert params["query"] == "café"
 
 
-def test_template_matches_decodes_complex_phrase() -> None:
+def test_template_matches_decodes_complex_phrase():
     """Test complex French phrase from the original issue."""
 
     def search(query: str) -> str:  # pragma: no cover
@@ -57,7 +57,7 @@ def test_template_matches_decodes_complex_phrase() -> None:
     assert params["query"] == "stick correcteur teinté anti-imperfections"
 
 
-def test_template_matches_preserves_plus_sign() -> None:
+def test_template_matches_preserves_plus_sign():
     """Test that plus sign remains as plus (not converted to space).
 
     In URI encoding, %20 is space. Plus-as-space is only for

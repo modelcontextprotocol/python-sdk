@@ -1,4 +1,3 @@
-from collections.abc import Generator
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -10,7 +9,7 @@ from mcp.server.mcpserver.resources import FileResource, FunctionResource, Resou
 
 
 @pytest.fixture
-def temp_file() -> Generator[Path, None, None]:
+def temp_file():
     """Create a temporary file for testing.
 
     File is automatically cleaned up after the test if it still exists.
@@ -29,7 +28,7 @@ def temp_file() -> Generator[Path, None, None]:
 class TestResourceManager:
     """Test ResourceManager functionality."""
 
-    def test_add_resource(self, temp_file: Path) -> None:
+    def test_add_resource(self, temp_file: Path):
         """Test adding a resource."""
         manager = ResourceManager()
         resource = FileResource(
@@ -41,7 +40,7 @@ class TestResourceManager:
         assert added == resource
         assert manager.list_resources() == [resource]
 
-    def test_add_duplicate_resource(self, temp_file: Path) -> None:
+    def test_add_duplicate_resource(self, temp_file: Path):
         """Test adding the same resource twice."""
         manager = ResourceManager()
         resource = FileResource(
@@ -54,7 +53,7 @@ class TestResourceManager:
         assert first == second
         assert manager.list_resources() == [resource]
 
-    def test_warn_on_duplicate_resources(self, temp_file: Path, caplog: pytest.LogCaptureFixture) -> None:
+    def test_warn_on_duplicate_resources(self, temp_file: Path, caplog: pytest.LogCaptureFixture):
         """Test warning on duplicate resources."""
         manager = ResourceManager()
         resource = FileResource(
@@ -66,7 +65,7 @@ class TestResourceManager:
         manager.add_resource(resource)
         assert "Resource already exists" in caplog.text
 
-    def test_disable_warn_on_duplicate_resources(self, temp_file: Path, caplog: pytest.LogCaptureFixture) -> None:
+    def test_disable_warn_on_duplicate_resources(self, temp_file: Path, caplog: pytest.LogCaptureFixture):
         """Test disabling warning on duplicate resources."""
         manager = ResourceManager(warn_on_duplicate_resources=False)
         resource = FileResource(
@@ -79,7 +78,7 @@ class TestResourceManager:
         assert "Resource already exists" not in caplog.text
 
     @pytest.mark.anyio
-    async def test_get_resource(self, temp_file: Path) -> None:
+    async def test_get_resource(self, temp_file: Path):
         """Test getting a resource by URI."""
         manager = ResourceManager()
         resource = FileResource(
@@ -92,7 +91,7 @@ class TestResourceManager:
         assert retrieved == resource
 
     @pytest.mark.anyio
-    async def test_get_resource_from_template(self) -> None:
+    async def test_get_resource_from_template(self):
         """Test getting a resource through a template."""
         manager = ResourceManager()
 
@@ -112,13 +111,13 @@ class TestResourceManager:
         assert content == "Hello, world!"
 
     @pytest.mark.anyio
-    async def test_get_unknown_resource(self) -> None:
+    async def test_get_unknown_resource(self):
         """Test getting a non-existent resource."""
         manager = ResourceManager()
         with pytest.raises(ValueError, match="Unknown resource"):
             await manager.get_resource(AnyUrl("unknown://test"), Context())
 
-    def test_list_resources(self, temp_file: Path) -> None:
+    def test_list_resources(self, temp_file: Path):
         """Test listing all resources."""
         manager = ResourceManager()
         resource1 = FileResource(
@@ -141,7 +140,7 @@ class TestResourceManager:
 class TestResourceManagerMetadata:
     """Test ResourceManager Metadata"""
 
-    def test_add_template_with_metadata(self) -> None:
+    def test_add_template_with_metadata(self):
         """Test that ResourceManager.add_template() accepts and passes meta parameter."""
 
         manager = ResourceManager()
@@ -162,7 +161,7 @@ class TestResourceManagerMetadata:
         assert template.meta["source"] == "database"
         assert template.meta["cached"] is True
 
-    def test_add_template_without_metadata(self) -> None:
+    def test_add_template_without_metadata(self):
         """Test that ResourceManager.add_template() works without meta parameter."""
 
         manager = ResourceManager()

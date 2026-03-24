@@ -7,7 +7,7 @@ from mcp.types import TextContent
 
 
 class TestPromptManager:
-    def test_add_prompt(self) -> None:
+    def test_add_prompt(self):
         """Test adding a prompt to the manager."""
 
         def fn() -> str:  # pragma: no cover
@@ -19,7 +19,7 @@ class TestPromptManager:
         assert added == prompt
         assert manager.get_prompt("fn") == prompt
 
-    def test_add_duplicate_prompt(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_add_duplicate_prompt(self, caplog: pytest.LogCaptureFixture):
         """Test adding the same prompt twice."""
 
         def fn() -> str:  # pragma: no cover
@@ -32,7 +32,7 @@ class TestPromptManager:
         assert first == second
         assert "Prompt already exists" in caplog.text
 
-    def test_disable_warn_on_duplicate_prompts(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_disable_warn_on_duplicate_prompts(self, caplog: pytest.LogCaptureFixture):
         """Test disabling warning on duplicate prompts."""
 
         def fn() -> str:  # pragma: no cover
@@ -45,7 +45,7 @@ class TestPromptManager:
         assert first == second
         assert "Prompt already exists" not in caplog.text
 
-    def test_list_prompts(self) -> None:
+    def test_list_prompts(self):
         """Test listing all prompts."""
 
         def fn1() -> str:  # pragma: no cover
@@ -64,7 +64,7 @@ class TestPromptManager:
         assert prompts == [prompt1, prompt2]
 
     @pytest.mark.anyio
-    async def test_render_prompt(self) -> None:
+    async def test_render_prompt(self):
         """Test rendering a prompt."""
 
         def fn() -> str:
@@ -77,7 +77,7 @@ class TestPromptManager:
         assert messages == [UserMessage(content=TextContent(type="text", text="Hello, world!"))]
 
     @pytest.mark.anyio
-    async def test_render_prompt_with_args(self) -> None:
+    async def test_render_prompt_with_args(self):
         """Test rendering a prompt with arguments."""
 
         def fn(name: str) -> str:
@@ -90,14 +90,14 @@ class TestPromptManager:
         assert messages == [UserMessage(content=TextContent(type="text", text="Hello, World!"))]
 
     @pytest.mark.anyio
-    async def test_render_unknown_prompt(self) -> None:
+    async def test_render_unknown_prompt(self):
         """Test rendering a non-existent prompt."""
         manager = PromptManager()
         with pytest.raises(ValueError, match="Unknown prompt: unknown"):
             await manager.render_prompt("unknown", None, Context())
 
     @pytest.mark.anyio
-    async def test_render_prompt_with_missing_args(self) -> None:
+    async def test_render_prompt_with_missing_args(self):
         """Test rendering a prompt with missing required arguments."""
 
         def fn(name: str) -> str:  # pragma: no cover

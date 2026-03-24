@@ -65,7 +65,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         mcp_server: MCPServer | None = None,
         # TODO(Marcelo): We should drop this kwargs parameter.
         **kwargs: Any,
-    ) -> None:
+    ):
         super().__init__(**kwargs)
         self._request_context = request_context
         self._mcp_server = mcp_server

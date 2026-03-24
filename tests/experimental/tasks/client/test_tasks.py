@@ -1,7 +1,7 @@
 """Tests for the experimental client task methods (session.experimental)."""
 
-from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 import anyio
@@ -72,9 +72,7 @@ async def _handle_call_tool_with_done_event(
     raise NotImplementedError
 
 
-def _make_lifespan(
-    store: InMemoryTaskStore, task_done_events: dict[str, Event]
-) -> Callable[[Server[AppContext]], AbstractAsyncContextManager[AppContext]]:
+def _make_lifespan(store: InMemoryTaskStore, task_done_events: dict[str, Event]):
     @asynccontextmanager
     async def app_lifespan(server: Server[AppContext]) -> AsyncIterator[AppContext]:
         async with anyio.create_task_group() as tg:

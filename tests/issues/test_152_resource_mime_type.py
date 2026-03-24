@@ -17,7 +17,7 @@ from mcp.types import (
 pytestmark = pytest.mark.anyio
 
 
-async def test_mcpserver_resource_mime_type() -> None:
+async def test_mcpserver_resource_mime_type():
     """Test that mime_type parameter is respected for resources."""
     mcp = MCPServer("test")
 
@@ -63,7 +63,7 @@ async def test_mcpserver_resource_mime_type() -> None:
         assert bytes_result.contents[0].mime_type == "image/png", "Bytes content mime type not preserved"
 
 
-async def test_lowlevel_resource_mime_type() -> None:
+async def test_lowlevel_resource_mime_type():
     """Test that mime_type parameter is respected for resources."""
 
     # Create a small test image as bytes

@@ -10,7 +10,7 @@ class MCPError(Exception):
 
     error: ErrorData
 
-    def __init__(self, code: int, message: str, data: Any = None) -> None:
+    def __init__(self, code: int, message: str, data: Any = None):
         super().__init__(code, message, data)
         if data is not None:
             self.error = ErrorData(code=code, message=message, data=data)
@@ -49,7 +49,7 @@ class StatelessModeNotSupported(RuntimeError):
     for bidirectional communication.
     """
 
-    def __init__(self, method: str) -> None:
+    def __init__(self, method: str):
         super().__init__(
             f"Cannot use {method} in stateless HTTP mode. "
             "Stateless mode does not support server-to-client requests. "
@@ -76,7 +76,7 @@ class UrlElicitationRequiredError(MCPError):
         ```
     """
 
-    def __init__(self, elicitations: list[ElicitRequestURLParams], message: str | None = None) -> None:
+    def __init__(self, elicitations: list[ElicitRequestURLParams], message: str | None = None):
         """Initialize UrlElicitationRequiredError."""
         if message is None:
             message = f"URL elicitation{'s' if len(elicitations) > 1 else ''} required"

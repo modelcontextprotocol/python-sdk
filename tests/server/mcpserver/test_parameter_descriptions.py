@@ -7,7 +7,7 @@ from mcp.server.mcpserver import MCPServer
 
 
 @pytest.mark.anyio
-async def test_parameter_descriptions() -> None:
+async def test_parameter_descriptions():
     mcp = MCPServer("Test Server")
 
     @mcp.tool()

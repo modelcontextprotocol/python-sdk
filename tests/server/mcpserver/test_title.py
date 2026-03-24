@@ -10,7 +10,7 @@ from mcp.types import Prompt, Resource, ResourceTemplate, Tool, ToolAnnotations
 
 
 @pytest.mark.anyio
-async def test_server_name_title_description_version() -> None:
+async def test_server_name_title_description_version():
     """Test that server title and description are set and retrievable correctly."""
     mcp = MCPServer(
         name="TestServer",
@@ -34,7 +34,7 @@ async def test_server_name_title_description_version() -> None:
 
 
 @pytest.mark.anyio
-async def test_tool_title_precedence() -> None:
+async def test_tool_title_precedence():
     """Test that tool title precedence works correctly: title > annotations.title > name."""
     # Create server with various tool configurations
     mcp = MCPServer(name="TitleTestServer")
@@ -88,7 +88,7 @@ async def test_tool_title_precedence() -> None:
 
 
 @pytest.mark.anyio
-async def test_prompt_title() -> None:
+async def test_prompt_title():
     """Test that prompt titles work correctly."""
     mcp = MCPServer(name="PromptTitleServer")
 
@@ -121,7 +121,7 @@ async def test_prompt_title() -> None:
 
 
 @pytest.mark.anyio
-async def test_resource_title() -> None:
+async def test_resource_title():
     """Test that resource titles work correctly."""
     mcp = MCPServer(name="ResourceTitleServer")
 
@@ -194,7 +194,7 @@ async def test_resource_title() -> None:
 
 
 @pytest.mark.anyio
-async def test_get_display_name_utility() -> None:
+async def test_get_display_name_utility():
     """Test the get_display_name utility function."""
 
     # Test tool precedence: title > annotations.title > name

@@ -25,7 +25,7 @@ class IntrospectionTokenVerifier(TokenVerifier):
         introspection_endpoint: str,
         server_url: str,
         validate_resource: bool = False,
-    ) -> None:
+    ):
         self.introspection_endpoint = introspection_endpoint
         self.server_url = server_url
         self.validate_resource = validate_resource

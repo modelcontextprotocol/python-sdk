@@ -27,7 +27,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_lowlevel_server_lifespan() -> None:
+async def test_lowlevel_server_lifespan():
     """Test that lifespan works in low-level server."""
 
     @asynccontextmanager
@@ -58,7 +58,7 @@ async def test_lowlevel_server_lifespan() -> None:
     # Run server in background task
     async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:
 
-        async def run_server() -> None:
+        async def run_server():
             await server.run(
                 receive_stream1,
                 send_stream2,
@@ -121,7 +121,7 @@ async def test_lowlevel_server_lifespan() -> None:
 
 
 @pytest.mark.anyio
-async def test_mcpserver_server_lifespan() -> None:
+async def test_mcpserver_server_lifespan():
     """Test that lifespan works in MCPServer server."""
 
     @asynccontextmanager
@@ -152,7 +152,7 @@ async def test_mcpserver_server_lifespan() -> None:
     # Run server in background task
     async with anyio.create_task_group() as tg, send_stream1, receive_stream1, send_stream2, receive_stream2:
 
-        async def run_server() -> None:
+        async def run_server():
             await server._lowlevel_server.run(
                 receive_stream1,
                 send_stream2,

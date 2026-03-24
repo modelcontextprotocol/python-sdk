@@ -36,7 +36,7 @@ class TransportSecuritySettings(BaseModel):
 class TransportSecurityMiddleware:
     """Middleware to enforce DNS rebinding protection for MCP transport endpoints."""
 
-    def __init__(self, settings: TransportSecuritySettings | None = None) -> None:
+    def __init__(self, settings: TransportSecuritySettings | None = None):
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 

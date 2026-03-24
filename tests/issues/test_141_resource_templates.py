@@ -10,7 +10,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_resource_template_edge_cases() -> None:
+async def test_resource_template_edge_cases():
     """Test server-side resource template validation"""
     mcp = MCPServer("Demo")
 
@@ -63,7 +63,7 @@ async def test_resource_template_edge_cases() -> None:
 
 
 @pytest.mark.anyio
-async def test_resource_template_client_interaction() -> None:
+async def test_resource_template_client_interaction():
     """Test client-side resource template interaction"""
     mcp = MCPServer("Demo")
 

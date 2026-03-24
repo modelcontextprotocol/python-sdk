@@ -47,7 +47,7 @@ class SimpleAuthProvider(SimpleOAuthProvider):
     2. Stores token state for introspection by Resource Servers
     """
 
-    def __init__(self, auth_settings: SimpleAuthSettings, auth_callback_path: str, server_url: str) -> None:
+    def __init__(self, auth_settings: SimpleAuthSettings, auth_callback_path: str, server_url: str):
         super().__init__(auth_settings, auth_callback_path, server_url)
 
 

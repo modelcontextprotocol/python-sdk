@@ -20,13 +20,13 @@ from tests.server.mcpserver.auth.test_auth_integration import MockOAuthProvider
 
 
 @pytest.fixture
-def oauth_provider() -> MockOAuthProvider:
+def oauth_provider():
     """Return a MockOAuthProvider instance that can be configured to raise errors."""
     return MockOAuthProvider()
 
 
 @pytest.fixture
-def app(oauth_provider: MockOAuthProvider) -> Starlette:
+def app(oauth_provider: MockOAuthProvider):
     # Enable client registration
     client_registration_options = ClientRegistrationOptions(enabled=True)
     revocation_options = RevocationOptions(enabled=True)
@@ -44,14 +44,14 @@ def app(oauth_provider: MockOAuthProvider) -> Starlette:
 
 
 @pytest.fixture
-def client(app: Starlette) -> httpx.AsyncClient:
+def client(app: Starlette):
     transport = ASGITransport(app=app)
     # Use base_url without a path since routes are directly on the app
     return httpx.AsyncClient(transport=transport, base_url="http://localhost")
 
 
 @pytest.fixture
-def pkce_challenge() -> dict[str, str]:
+def pkce_challenge():
     """Create a PKCE challenge with code_verifier and code_challenge."""
     # Generate a code verifier
     code_verifier = secrets.token_urlsafe(64)[:128]
@@ -84,7 +84,7 @@ async def registered_client(client: httpx.AsyncClient) -> dict[str, Any]:
 
 
 @pytest.mark.anyio
-async def test_registration_error_handling(client: httpx.AsyncClient, oauth_provider: MockOAuthProvider) -> None:
+async def test_registration_error_handling(client: httpx.AsyncClient, oauth_provider: MockOAuthProvider):
     # Mock the register_client method to raise a registration error
     with unittest.mock.patch.object(
         oauth_provider,
@@ -122,7 +122,7 @@ async def test_authorize_error_handling(
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
-) -> None:
+):
     # Mock the authorize method to raise an authorize error
     with unittest.mock.patch.object(
         oauth_provider,
@@ -163,7 +163,7 @@ async def test_token_error_handling_auth_code(
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
-) -> None:
+):
     # Register the client and get an auth code
     client_id = registered_client["client_id"]
     client_secret = registered_client["client_secret"]
@@ -222,7 +222,7 @@ async def test_token_error_handling_refresh_token(
     oauth_provider: MockOAuthProvider,
     registered_client: dict[str, Any],
     pkce_challenge: dict[str, str],
-) -> None:
+):
     # Register the client and get tokens
     client_id = registered_client["client_id"]
     client_secret = registered_client["client_secret"]

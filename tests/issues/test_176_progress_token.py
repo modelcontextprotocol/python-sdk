@@ -9,7 +9,7 @@ from mcp.server.mcpserver import Context
 pytestmark = pytest.mark.anyio
 
 
-async def test_progress_token_zero_first_call() -> None:
+async def test_progress_token_zero_first_call():
     """Test that progress notifications work when progress_token is 0 on first call."""
 
     # Create mock session with progress notification tracking

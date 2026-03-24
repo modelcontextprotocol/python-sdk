@@ -144,7 +144,7 @@ class MCPServer(Generic[LifespanResultT]):
         warn_on_duplicate_prompts: bool = True,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
-    ) -> None:
+    ):
         self.settings = Settings(
             debug=debug,
             log_level=log_level,

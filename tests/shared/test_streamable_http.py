@@ -10,10 +10,10 @@ import multiprocessing
 import socket
 import time
 import traceback
-from collections.abc import AsyncGenerator, AsyncIterator, Generator
+from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, NoReturn
+from typing import Any
 from unittest.mock import MagicMock
 from urllib.parse import urlparse
 
@@ -97,7 +97,7 @@ def extract_protocol_version_from_sse(response: requests.Response) -> str:
 class SimpleEventStore(EventStore):
     """Simple in-memory event store for testing."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         self._events: list[tuple[StreamId, EventId, types.JSONRPCMessage | None]] = []
         self._event_id_counter = 0
 
@@ -570,7 +570,7 @@ def json_server_url(json_server_port: int) -> str:
 
 
 # Basic request validation tests
-def test_accept_header_validation(basic_server: None, basic_server_url: str) -> None:
+def test_accept_header_validation(basic_server: None, basic_server_url: str):
     """Test that Accept header is properly validated."""
     # Test without Accept header (suppress requests library default Accept: */*)
     session = requests.Session()
@@ -595,7 +595,7 @@ def test_accept_header_validation(basic_server: None, basic_server_url: str) -> 
         "application/*;q=0.9, text/*;q=0.8",
     ],
 )
-def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accept_header: str) -> None:
+def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accept_header: str):
     """Test that wildcard Accept headers are accepted per RFC 7231."""
     response = requests.post(
         f"{basic_server_url}/mcp",
@@ -616,7 +616,7 @@ def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accep
         "text/*",
     ],
 )
-def test_accept_header_incompatible(basic_server: None, basic_server_url: str, accept_header: str) -> None:
+def test_accept_header_incompatible(basic_server: None, basic_server_url: str, accept_header: str):
     """Test that incompatible Accept headers are rejected for SSE mode."""
     response = requests.post(
         f"{basic_server_url}/mcp",
@@ -630,7 +630,7 @@ def test_accept_header_incompatible(basic_server: None, basic_server_url: str, a
     assert "Not Acceptable" in response.text
 
 
-def test_content_type_validation(basic_server: None, basic_server_url: str) -> None:
+def test_content_type_validation(basic_server: None, basic_server_url: str):
     """Test that Content-Type header is properly validated."""
     # Test with incorrect Content-Type
     response = requests.post(
@@ -646,7 +646,7 @@ def test_content_type_validation(basic_server: None, basic_server_url: str) -> N
     assert "Invalid Content-Type" in response.text
 
 
-def test_json_validation(basic_server: None, basic_server_url: str) -> None:
+def test_json_validation(basic_server: None, basic_server_url: str):
     """Test that JSON content is properly validated."""
     # Test with invalid JSON
     response = requests.post(
@@ -661,7 +661,7 @@ def test_json_validation(basic_server: None, basic_server_url: str) -> None:
     assert "Parse error" in response.text
 
 
-def test_json_parsing(basic_server: None, basic_server_url: str) -> None:
+def test_json_parsing(basic_server: None, basic_server_url: str):
     """Test that JSON content is properly parse."""
     # Test with valid JSON but invalid JSON-RPC
     response = requests.post(
@@ -676,7 +676,7 @@ def test_json_parsing(basic_server: None, basic_server_url: str) -> None:
     assert "Validation error" in response.text
 
 
-def test_method_not_allowed(basic_server: None, basic_server_url: str) -> None:
+def test_method_not_allowed(basic_server: None, basic_server_url: str):
     """Test that unsupported HTTP methods are rejected."""
     # Test with unsupported method (PUT)
     response = requests.put(
@@ -691,7 +691,7 @@ def test_method_not_allowed(basic_server: None, basic_server_url: str) -> None:
     assert "Method Not Allowed" in response.text
 
 
-def test_session_validation(basic_server: None, basic_server_url: str) -> None:
+def test_session_validation(basic_server: None, basic_server_url: str):
     """Test session ID validation."""
     # session_id not used directly in this test
 
@@ -708,7 +708,7 @@ def test_session_validation(basic_server: None, basic_server_url: str) -> None:
     assert "Missing session ID" in response.text
 
 
-def test_session_id_pattern() -> None:
+def test_session_id_pattern():
     """Test that SESSION_ID_PATTERN correctly validates session IDs."""
     # Valid session IDs (visible ASCII characters from 0x21 to 0x7E)
     valid_session_ids = [
@@ -743,7 +743,7 @@ def test_session_id_pattern() -> None:
             assert SESSION_ID_PATTERN.fullmatch(session_id) is None
 
 
-def test_streamable_http_transport_init_validation() -> None:
+def test_streamable_http_transport_init_validation():
     """Test that StreamableHTTPServerTransport validates session ID on init."""
     # Valid session ID should initialize without errors
     valid_transport = StreamableHTTPServerTransport(mcp_session_id="valid-id")
@@ -766,7 +766,7 @@ def test_streamable_http_transport_init_validation() -> None:
         StreamableHTTPServerTransport(mcp_session_id="test\n")
 
 
-def test_session_termination(basic_server: None, basic_server_url: str) -> None:
+def test_session_termination(basic_server: None, basic_server_url: str):
     """Test session termination via DELETE and subsequent request handling."""
     response = requests.post(
         f"{basic_server_url}/mcp",
@@ -806,7 +806,7 @@ def test_session_termination(basic_server: None, basic_server_url: str) -> None:
     assert "Session has been terminated" in response.text
 
 
-def test_response(basic_server: None, basic_server_url: str) -> None:
+def test_response(basic_server: None, basic_server_url: str):
     """Test response handling for a valid request."""
     mcp_url = f"{basic_server_url}/mcp"
     response = requests.post(
@@ -841,7 +841,7 @@ def test_response(basic_server: None, basic_server_url: str) -> None:
     assert tools_response.headers.get("Content-Type") == "text/event-stream"
 
 
-def test_json_response(json_response_server: None, json_server_url: str) -> None:
+def test_json_response(json_response_server: None, json_server_url: str):
     """Test response handling when is_json_response_enabled is True."""
     mcp_url = f"{json_server_url}/mcp"
     response = requests.post(
@@ -856,7 +856,7 @@ def test_json_response(json_response_server: None, json_server_url: str) -> None
     assert response.headers.get("Content-Type") == "application/json"
 
 
-def test_json_response_accept_json_only(json_response_server: None, json_server_url: str) -> None:
+def test_json_response_accept_json_only(json_response_server: None, json_server_url: str):
     """Test that json_response servers only require application/json in Accept header."""
     mcp_url = f"{json_server_url}/mcp"
     response = requests.post(
@@ -871,7 +871,7 @@ def test_json_response_accept_json_only(json_response_server: None, json_server_
     assert response.headers.get("Content-Type") == "application/json"
 
 
-def test_json_response_missing_accept_header(json_response_server: None, json_server_url: str) -> None:
+def test_json_response_missing_accept_header(json_response_server: None, json_server_url: str):
     """Test that json_response servers reject requests without Accept header."""
     mcp_url = f"{json_server_url}/mcp"
     # Suppress requests library default Accept: */* header
@@ -888,7 +888,7 @@ def test_json_response_missing_accept_header(json_response_server: None, json_se
     assert "Not Acceptable" in response.text
 
 
-def test_json_response_incorrect_accept_header(json_response_server: None, json_server_url: str) -> None:
+def test_json_response_incorrect_accept_header(json_response_server: None, json_server_url: str):
     """Test that json_response servers reject requests with incorrect Accept header."""
     mcp_url = f"{json_server_url}/mcp"
     # Test with only text/event-stream (wrong for JSON server)
@@ -912,9 +912,7 @@ def test_json_response_incorrect_accept_header(json_response_server: None, json_
         "application/*;q=0.9",
     ],
 )
-def test_json_response_wildcard_accept_header(
-    json_response_server: None, json_server_url: str, accept_header: str
-) -> None:
+def test_json_response_wildcard_accept_header(json_response_server: None, json_server_url: str, accept_header: str):
     """Test that json_response servers accept wildcard Accept headers per RFC 7231."""
     mcp_url = f"{json_server_url}/mcp"
     response = requests.post(
@@ -929,7 +927,7 @@ def test_json_response_wildcard_accept_header(
     assert response.headers.get("Content-Type") == "application/json"
 
 
-def test_get_sse_stream(basic_server: None, basic_server_url: str) -> None:
+def test_get_sse_stream(basic_server: None, basic_server_url: str):
     """Test establishing an SSE stream via GET request."""
     # First, we need to initialize a session
     mcp_url = f"{basic_server_url}/mcp"
@@ -989,7 +987,7 @@ def test_get_sse_stream(basic_server: None, basic_server_url: str) -> None:
     assert second_get.status_code == 409
 
 
-def test_get_validation(basic_server: None, basic_server_url: str) -> None:
+def test_get_validation(basic_server: None, basic_server_url: str):
     """Test validation for GET requests."""
     # First, we need to initialize a session
     mcp_url = f"{basic_server_url}/mcp"
@@ -1046,16 +1044,14 @@ def test_get_validation(basic_server: None, basic_server_url: str) -> None:
 
 # Client-specific fixtures
 @pytest.fixture
-async def http_client(
-    basic_server: None, basic_server_url: str
-) -> AsyncGenerator[httpx.AsyncClient, None]:  # pragma: no cover
+async def http_client(basic_server: None, basic_server_url: str):  # pragma: no cover
     """Create test client matching the SSE test pattern."""
     async with httpx.AsyncClient(base_url=basic_server_url) as client:
         yield client
 
 
 @pytest.fixture
-async def initialized_client_session(basic_server: None, basic_server_url: str) -> AsyncGenerator[ClientSession, None]:
+async def initialized_client_session(basic_server: None, basic_server_url: str):
     """Create initialized StreamableHTTP client session."""
     async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
@@ -1064,7 +1060,7 @@ async def initialized_client_session(basic_server: None, basic_server_url: str) 
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_basic_connection(basic_server: None, basic_server_url: str) -> None:
+async def test_streamable_http_client_basic_connection(basic_server: None, basic_server_url: str):
     """Test basic client connection with initialization."""
     async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
@@ -1075,7 +1071,7 @@ async def test_streamable_http_client_basic_connection(basic_server: None, basic
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession) -> None:
+async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession):
     """Test client resource read functionality."""
     response = await initialized_client_session.read_resource(uri="foobar://test-resource")
     assert len(response.contents) == 1
@@ -1085,7 +1081,7 @@ async def test_streamable_http_client_resource_read(initialized_client_session: 
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_tool_invocation(initialized_client_session: ClientSession) -> None:
+async def test_streamable_http_client_tool_invocation(initialized_client_session: ClientSession):
     """Test client tool invocation."""
     # First list tools
     tools = await initialized_client_session.list_tools()
@@ -1100,7 +1096,7 @@ async def test_streamable_http_client_tool_invocation(initialized_client_session
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession) -> None:
+async def test_streamable_http_client_error_handling(initialized_client_session: ClientSession):
     """Test error handling in client."""
     with pytest.raises(MCPError) as exc_info:
         await initialized_client_session.read_resource(uri="unknown://test-error")
@@ -1109,7 +1105,7 @@ async def test_streamable_http_client_error_handling(initialized_client_session:
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_session_persistence(basic_server: None, basic_server_url: str) -> None:
+async def test_streamable_http_client_session_persistence(basic_server: None, basic_server_url: str):
     """Test that session ID persists across requests."""
     async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
@@ -1130,7 +1126,7 @@ async def test_streamable_http_client_session_persistence(basic_server: None, ba
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_json_response(json_response_server: None, json_server_url: str) -> None:
+async def test_streamable_http_client_json_response(json_response_server: None, json_server_url: str):
     """Test client with JSON response mode."""
     async with streamable_http_client(f"{json_server_url}/mcp") as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
@@ -1151,7 +1147,7 @@ async def test_streamable_http_client_json_response(json_response_server: None, 
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_get_stream(basic_server: None, basic_server_url: str) -> None:
+async def test_streamable_http_client_get_stream(basic_server: None, basic_server_url: str):
     """Test GET stream functionality for server-initiated messages."""
     notifications_received: list[types.ServerNotification] = []
 
@@ -1202,7 +1198,7 @@ def create_session_id_capturing_client() -> tuple[httpx.AsyncClient, list[str]]:
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_session_termination(basic_server: None, basic_server_url: str) -> None:
+async def test_streamable_http_client_session_termination(basic_server: None, basic_server_url: str):
     """Test client session termination functionality."""
     # Use httpx client with event hooks to capture session ID
     httpx_client, captured_ids = create_session_id_capturing_client()
@@ -1239,7 +1235,7 @@ async def test_streamable_http_client_session_termination(basic_server: None, ba
 @pytest.mark.anyio
 async def test_streamable_http_client_session_termination_204(
     basic_server: None, basic_server_url: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+):
     """Test client session termination functionality with a 204 response.
 
     This test patches the httpx client to return a 204 response for DELETEs.
@@ -1298,7 +1294,7 @@ async def test_streamable_http_client_session_termination_204(
 
 
 @pytest.mark.anyio
-async def test_streamable_http_client_resumption(event_server: tuple[SimpleEventStore, str]) -> None:
+async def test_streamable_http_client_resumption(event_server: tuple[SimpleEventStore, str]):
     """Test client session resumption using sync primitives for reliable coordination."""
     _, server_url = event_server
 
@@ -1349,7 +1345,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
                 # Start the tool that will wait on lock in a task
                 async with anyio.create_task_group() as tg:  # pragma: no branch
 
-                    async def run_tool() -> None:
+                    async def run_tool():
                         metadata = ClientMessageMetadata(
                             on_resumption_token_update=on_resumption_token_update,
                         )
@@ -1416,7 +1412,7 @@ async def test_streamable_http_client_resumption(event_server: tuple[SimpleEvent
 
 
 @pytest.mark.anyio
-async def test_streamablehttp_server_sampling(basic_server: None, basic_server_url: str) -> None:
+async def test_streamablehttp_server_sampling(basic_server: None, basic_server_url: str):
     """Test server-initiated sampling request through streamable HTTP transport."""
     # Variable to track if sampling callback was invoked
     sampling_callback_invoked = False
@@ -1521,7 +1517,7 @@ async def _handle_context_call_tool(  # pragma: no cover
 
 
 # Server runner for context-aware testing
-def run_context_aware_server(port: int) -> None:  # pragma: no cover
+def run_context_aware_server(port: int):  # pragma: no cover
     """Run the context-aware test server."""
     server = Server(
         "ContextAwareServer",
@@ -1643,9 +1639,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
 
 
 @pytest.mark.anyio
-async def test_client_includes_protocol_version_header_after_init(
-    context_aware_server: None, basic_server_url: str
-) -> None:
+async def test_client_includes_protocol_version_header_after_init(context_aware_server: None, basic_server_url: str):
     """Test that client includes mcp-protocol-version header after initialization."""
     async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
@@ -1665,7 +1659,7 @@ async def test_client_includes_protocol_version_header_after_init(
             assert headers_data[MCP_PROTOCOL_VERSION_HEADER] == negotiated_version
 
 
-def test_server_validates_protocol_version_header(basic_server: None, basic_server_url: str) -> None:
+def test_server_validates_protocol_version_header(basic_server: None, basic_server_url: str):
     """Test that server returns 400 Bad Request version if header unsupported or invalid."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(
@@ -1723,7 +1717,7 @@ def test_server_validates_protocol_version_header(basic_server: None, basic_serv
     assert response.status_code == 200
 
 
-def test_server_backwards_compatibility_no_protocol_version(basic_server: None, basic_server_url: str) -> None:
+def test_server_backwards_compatibility_no_protocol_version(basic_server: None, basic_server_url: str):
     """Test server accepts requests without protocol version header."""
     # First initialize a session to get a valid session ID
     init_response = requests.post(
@@ -1753,11 +1747,11 @@ def test_server_backwards_compatibility_no_protocol_version(basic_server: None, 
 
 
 @pytest.mark.anyio
-async def test_client_crash_handled(basic_server: None, basic_server_url: str) -> None:
+async def test_client_crash_handled(basic_server: None, basic_server_url: str):
     """Test that cases where the client crashes are handled gracefully."""
 
     # Simulate bad client that crashes after init
-    async def bad_client() -> NoReturn:
+    async def bad_client():
         """Client that triggers ClosedResourceError"""
         async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
@@ -1782,7 +1776,7 @@ async def test_client_crash_handled(basic_server: None, basic_server_url: str) -
 
 
 @pytest.mark.anyio
-async def test_handle_sse_event_skips_empty_data() -> None:
+async def test_handle_sse_event_skips_empty_data():
     """Test that _handle_sse_event skips empty SSE data (keep-alive pings)."""
     transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
 
@@ -1808,7 +1802,7 @@ async def test_handle_sse_event_skips_empty_data() -> None:
 
 
 @pytest.mark.anyio
-async def test_priming_event_not_sent_for_old_protocol_version() -> None:
+async def test_priming_event_not_sent_for_old_protocol_version():
     """Test that _maybe_send_priming_event skips for old protocol versions (backwards compat)."""
     # Create a transport with an event store
     transport = StreamableHTTPServerTransport(
@@ -1837,7 +1831,7 @@ async def test_priming_event_not_sent_for_old_protocol_version() -> None:
 
 
 @pytest.mark.anyio
-async def test_priming_event_not_sent_without_event_store() -> None:
+async def test_priming_event_not_sent_without_event_store():
     """Test that _maybe_send_priming_event returns early when no event_store is configured."""
     # Create a transport WITHOUT an event store
     transport = StreamableHTTPServerTransport("/mcp")
@@ -1857,7 +1851,7 @@ async def test_priming_event_not_sent_without_event_store() -> None:
 
 
 @pytest.mark.anyio
-async def test_priming_event_includes_retry_interval() -> None:
+async def test_priming_event_includes_retry_interval():
     """Test that _maybe_send_priming_event includes retry field when retry_interval is set."""
     # Create a transport with an event store AND retry_interval
     transport = StreamableHTTPServerTransport(
@@ -1886,7 +1880,7 @@ async def test_priming_event_includes_retry_interval() -> None:
 
 
 @pytest.mark.anyio
-async def test_close_sse_stream_callback_not_provided_for_old_protocol_version() -> None:
+async def test_close_sse_stream_callback_not_provided_for_old_protocol_version():
     """Test that close_sse_stream callbacks are NOT provided for old protocol versions."""
     # Create a transport with an event store
     transport = StreamableHTTPServerTransport(
@@ -2125,7 +2119,7 @@ async def test_streamable_http_events_replayed_after_disconnect(
 @pytest.mark.anyio
 async def test_streamable_http_multiple_reconnections(
     event_server: tuple[SimpleEventStore, str],
-) -> None:
+):
     """Verify multiple close_sse_stream() calls each trigger a client reconnect.
 
     Server uses retry_interval=500ms, tool sleeps 600ms after each close to ensure

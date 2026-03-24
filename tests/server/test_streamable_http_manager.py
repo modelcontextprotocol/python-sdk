@@ -2,7 +2,6 @@
 
 import json
 import logging
-from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -20,7 +19,7 @@ from mcp.types import INVALID_REQUEST, ListToolsResult, PaginatedRequestParams
 
 
 @pytest.mark.anyio
-async def test_run_can_only_be_called_once() -> None:
+async def test_run_can_only_be_called_once():
     """Test that run() can only be called once per instance."""
     app = Server("test-server")
     manager = StreamableHTTPSessionManager(app=app)
@@ -38,14 +37,14 @@ async def test_run_can_only_be_called_once() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_prevents_concurrent_calls() -> None:
+async def test_run_prevents_concurrent_calls():
     """Test that concurrent calls to run() are prevented."""
     app = Server("test-server")
     manager = StreamableHTTPSessionManager(app=app)
 
     errors: list[Exception] = []
 
-    async def try_run() -> None:
+    async def try_run():
         try:
             async with manager.run():
                 # Simulate some work
@@ -64,7 +63,7 @@ async def test_run_prevents_concurrent_calls() -> None:
 
 
 @pytest.mark.anyio
-async def test_handle_request_without_run_raises_error() -> None:
+async def test_handle_request_without_run_raises_error():
     """Test that handle_request raises error if run() hasn't been called."""
     app = Server("test-server")
     manager = StreamableHTTPSessionManager(app=app)
@@ -72,10 +71,10 @@ async def test_handle_request_without_run_raises_error() -> None:
     # Mock ASGI parameters
     scope = {"type": "http", "method": "POST", "path": "/test"}
 
-    async def receive() -> Message:  # pragma: no cover
+    async def receive():  # pragma: no cover
         return {"type": "http.request", "body": b""}
 
-    async def send(message: Message) -> None:  # pragma: no cover
+    async def send(message: Message):  # pragma: no cover
         pass
 
     # Should raise error because run() hasn't been called
@@ -91,7 +90,7 @@ class TestException(Exception):
 
 
 @pytest.fixture
-async def running_manager() -> AsyncGenerator[tuple[StreamableHTTPSessionManager, Server], None]:
+async def running_manager():
     app = Server("test-cleanup-server")
     # It's important that the app instance used by the manager is the one we can patch
     manager = StreamableHTTPSessionManager(app=app)
@@ -101,9 +100,7 @@ async def running_manager() -> AsyncGenerator[tuple[StreamableHTTPSessionManager
 
 
 @pytest.mark.anyio
-async def test_stateful_session_cleanup_on_graceful_exit(
-    running_manager: tuple[StreamableHTTPSessionManager, Server],
-) -> None:
+async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, app = running_manager
 
     mock_mcp_run = AsyncMock(return_value=None)
@@ -112,7 +109,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(
 
     sent_messages: list[Message] = []
 
-    async def mock_send(message: Message) -> None:
+    async def mock_send(message: Message):
         sent_messages.append(message)
 
     scope = {
@@ -122,7 +119,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive() -> Message:  # pragma: no cover
+    async def mock_receive():  # pragma: no cover
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -158,9 +155,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(
 
 
 @pytest.mark.anyio
-async def test_stateful_session_cleanup_on_exception(
-    running_manager: tuple[StreamableHTTPSessionManager, Server],
-) -> None:
+async def test_stateful_session_cleanup_on_exception(running_manager: tuple[StreamableHTTPSessionManager, Server]):
     manager, app = running_manager
 
     mock_mcp_run = AsyncMock(side_effect=TestException("Simulated crash"))
@@ -168,7 +163,7 @@ async def test_stateful_session_cleanup_on_exception(
 
     sent_messages: list[Message] = []
 
-    async def mock_send(message: Message) -> None:
+    async def mock_send(message: Message):
         sent_messages.append(message)
         # If an exception occurs, the transport might try to send an error response
         # For this test, we mostly care that the session is established enough
@@ -183,7 +178,7 @@ async def test_stateful_session_cleanup_on_exception(
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive() -> Message:  # pragma: no cover
+    async def mock_receive():  # pragma: no cover
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -213,7 +208,7 @@ async def test_stateful_session_cleanup_on_exception(
 
 
 @pytest.mark.anyio
-async def test_stateless_requests_memory_cleanup() -> None:
+async def test_stateless_requests_memory_cleanup():
     """Test that stateless requests actually clean up resources using real transports."""
     app = Server("test-stateless-real-cleanup")
     manager = StreamableHTTPSessionManager(app=app, stateless=True)
@@ -238,7 +233,7 @@ async def test_stateless_requests_memory_cleanup() -> None:
             # Send a simple request
             sent_messages: list[Message] = []
 
-            async def mock_send(message: Message) -> None:
+            async def mock_send(message: Message):
                 sent_messages.append(message)
 
             scope = {
@@ -252,7 +247,7 @@ async def test_stateless_requests_memory_cleanup() -> None:
             }
 
             # Empty body to trigger early return
-            async def mock_receive() -> Message:
+            async def mock_receive():
                 return {
                     "type": "http.request",
                     "body": b"",
@@ -275,7 +270,7 @@ async def test_stateless_requests_memory_cleanup() -> None:
 
 
 @pytest.mark.anyio
-async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture) -> None:
+async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
     """Test that requests with unknown session IDs return HTTP 404 per MCP spec."""
     app = Server("test-unknown-session")
     manager = StreamableHTTPSessionManager(app=app)
@@ -284,7 +279,7 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture) 
         sent_messages: list[Message] = []
         response_body = b""
 
-        async def mock_send(message: Message) -> None:
+        async def mock_send(message: Message):
             nonlocal response_body
             sent_messages.append(message)
             if message["type"] == "http.response.body":
@@ -302,7 +297,7 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture) 
             ],
         }
 
-        async def mock_receive() -> Message:
+        async def mock_receive():
             return {"type": "http.request", "body": b"{}", "more_body": False}  # pragma: no cover
 
         with caplog.at_level(logging.INFO):
@@ -326,7 +321,7 @@ async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture) 
 
 
 @pytest.mark.anyio
-async def test_e2e_streamable_http_server_cleanup() -> None:
+async def test_e2e_streamable_http_server_cleanup():
     host = "testserver"
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
@@ -344,7 +339,7 @@ async def test_e2e_streamable_http_server_cleanup() -> None:
 
 
 @pytest.mark.anyio
-async def test_idle_session_is_reaped() -> None:
+async def test_idle_session_is_reaped():
     """After idle timeout fires, the session returns 404."""
     app = Server("test-idle-reap")
     manager = StreamableHTTPSessionManager(app=app, session_idle_timeout=0.05)
@@ -352,7 +347,7 @@ async def test_idle_session_is_reaped() -> None:
     async with manager.run():
         sent_messages: list[Message] = []
 
-        async def mock_send(message: Message) -> None:
+        async def mock_send(message: Message):
             sent_messages.append(message)
 
         scope = {
@@ -362,7 +357,7 @@ async def test_idle_session_is_reaped() -> None:
             "headers": [(b"content-type", b"application/json")],
         }
 
-        async def mock_receive() -> Message:  # pragma: no cover
+        async def mock_receive():  # pragma: no cover
             return {"type": "http.request", "body": b"", "more_body": False}
 
         await manager.handle_request(scope, mock_receive, mock_send)
@@ -385,7 +380,7 @@ async def test_idle_session_is_reaped() -> None:
         # Verify via public API: old session ID now returns 404
         response_messages: list[Message] = []
 
-        async def capture_send(message: Message) -> None:
+        async def capture_send(message: Message):
             response_messages.append(message)
 
         scope_with_session = {
@@ -408,13 +403,13 @@ async def test_idle_session_is_reaped() -> None:
         assert response_start["status"] == 404
 
 
-def test_session_idle_timeout_rejects_non_positive() -> None:
+def test_session_idle_timeout_rejects_non_positive():
     with pytest.raises(ValueError, match="positive number"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=-1)
     with pytest.raises(ValueError, match="positive number"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=0)
 
 
-def test_session_idle_timeout_rejects_stateless() -> None:
+def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)

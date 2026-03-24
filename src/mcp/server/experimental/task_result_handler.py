@@ -58,7 +58,7 @@ class TaskResultHandler:
         self,
         store: TaskStore,
         queue: TaskMessageQueue,
-    ) -> None:
+    ):
         self._store = store
         self._queue = queue
         # Map from internal request ID to resolver for routing responses

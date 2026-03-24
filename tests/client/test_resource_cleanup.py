@@ -1,4 +1,4 @@
-from typing import Any, NoReturn
+from typing import Any
 from unittest.mock import patch
 
 import anyio
@@ -11,7 +11,7 @@ from mcp.types import ClientNotification, ClientRequest, ClientResult, EmptyResu
 
 
 @pytest.mark.anyio
-async def test_send_request_stream_cleanup() -> None:
+async def test_send_request_stream_cleanup():
     """Test that send_request properly cleans up streams when an exception occurs.
 
     This test mocks out most of the session functionality to focus on stream cleanup.
@@ -43,7 +43,7 @@ async def test_send_request_stream_cleanup() -> None:
     request = PingRequest()
 
     # Patch the _write_stream.send method to raise an exception
-    async def mock_send(*args: Any, **kwargs: Any) -> NoReturn:
+    async def mock_send(*args: Any, **kwargs: Any):
         raise RuntimeError("Simulated network error")
 
     # Record the response streams before the test

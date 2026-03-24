@@ -7,13 +7,13 @@ from mcp.server.mcpserver import Context, MCPServer
 
 class Database:  # Replace with your actual DB type
     @classmethod
-    async def connect(cls) -> "Database":  # pragma: no cover
+    async def connect(cls):  # pragma: no cover
         return cls()
 
-    async def disconnect(self) -> None:  # pragma: no cover
+    async def disconnect(self):  # pragma: no cover
         pass
 
-    def query(self) -> str:  # pragma: no cover
+    def query(self):  # pragma: no cover
         return "Hello, World!"
 
 

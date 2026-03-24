@@ -8,7 +8,7 @@ from mcp.types import Annotations
 class TestResourceValidation:
     """Test base Resource validation."""
 
-    def test_resource_uri_accepts_any_string(self) -> None:
+    def test_resource_uri_accepts_any_string(self):
         """Test that URI field accepts any string per MCP spec."""
 
         def dummy_func() -> str:  # pragma: no cover
@@ -38,7 +38,7 @@ class TestResourceValidation:
         )
         assert resource.uri == "custom://resource"
 
-    def test_resource_name_from_uri(self) -> None:
+    def test_resource_name_from_uri(self):
         """Test name is extracted from URI if not provided."""
 
         def dummy_func() -> str:  # pragma: no cover
@@ -50,7 +50,7 @@ class TestResourceValidation:
         )
         assert resource.name == "resource://my-resource"
 
-    def test_resource_name_validation(self) -> None:
+    def test_resource_name_validation(self):
         """Test name validation."""
 
         def dummy_func() -> str:  # pragma: no cover
@@ -70,7 +70,7 @@ class TestResourceValidation:
         )
         assert resource.name == "explicit-name"
 
-    def test_resource_mime_type(self) -> None:
+    def test_resource_mime_type(self):
         """Test mime type handling."""
 
         def dummy_func() -> str:  # pragma: no cover
@@ -100,7 +100,7 @@ class TestResourceValidation:
         assert resource.mime_type == 'text/plain; charset="utf-8"'
 
     @pytest.mark.anyio
-    async def test_resource_read_abstract(self) -> None:
+    async def test_resource_read_abstract(self):
         """Test that Resource.read() is abstract."""
 
         class ConcreteResource(Resource):
@@ -113,7 +113,7 @@ class TestResourceValidation:
 class TestResourceAnnotations:
     """Test annotations on resources."""
 
-    def test_resource_with_annotations(self) -> None:
+    def test_resource_with_annotations(self):
         """Test creating a resource with annotations."""
 
         def get_data() -> str:  # pragma: no cover
@@ -127,7 +127,7 @@ class TestResourceAnnotations:
         assert resource.annotations.audience == ["user"]
         assert resource.annotations.priority == 0.8
 
-    def test_resource_without_annotations(self) -> None:
+    def test_resource_without_annotations(self):
         """Test that annotations are optional."""
 
         def get_data() -> str:  # pragma: no cover
@@ -138,7 +138,7 @@ class TestResourceAnnotations:
         assert resource.annotations is None
 
     @pytest.mark.anyio
-    async def test_resource_annotations_in_mcpserver(self) -> None:
+    async def test_resource_annotations_in_mcpserver(self):
         """Test resource annotations via MCPServer decorator."""
 
         mcp = MCPServer()
@@ -155,7 +155,7 @@ class TestResourceAnnotations:
         assert resources[0].annotations.priority == 0.5
 
     @pytest.mark.anyio
-    async def test_resource_annotations_with_both_audiences(self) -> None:
+    async def test_resource_annotations_with_both_audiences(self):
         """Test resource with both user and assistant audience."""
 
         mcp = MCPServer()
@@ -173,7 +173,7 @@ class TestResourceAnnotations:
 class TestAnnotationsValidation:
     """Test validation of annotation values."""
 
-    def test_priority_validation(self) -> None:
+    def test_priority_validation(self):
         """Test that priority is validated to be between 0.0 and 1.0."""
 
         # Valid priorities
@@ -188,7 +188,7 @@ class TestAnnotationsValidation:
         with pytest.raises(Exception):
             Annotations(priority=1.1)
 
-    def test_audience_validation(self) -> None:
+    def test_audience_validation(self):
         """Test that audience only accepts valid roles."""
 
         # Valid audiences
@@ -205,7 +205,7 @@ class TestAnnotationsValidation:
 class TestResourceMetadata:
     """Test metadata field on base Resource class."""
 
-    def test_resource_with_metadata(self) -> None:
+    def test_resource_with_metadata(self):
         """Test that Resource base class accepts meta parameter."""
 
         def dummy_func() -> str:  # pragma: no cover
@@ -225,7 +225,7 @@ class TestResourceMetadata:
         assert resource.meta["version"] == "1.0"
         assert resource.meta["category"] == "test"
 
-    def test_resource_without_metadata(self) -> None:
+    def test_resource_without_metadata(self):
         """Test that meta field defaults to None."""
 
         def dummy_func() -> str:  # pragma: no cover

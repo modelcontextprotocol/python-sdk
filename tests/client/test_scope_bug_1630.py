@@ -35,7 +35,7 @@ class MockTokenStorage:
 
 
 @pytest.mark.anyio
-async def test_401_uses_www_auth_scope_not_resource_metadata_url() -> None:
+async def test_401_uses_www_auth_scope_not_resource_metadata_url():
     """Regression test for #1630: Ensure scope is extracted from WWW-Authenticate header,
     not the resource_metadata URL.
 

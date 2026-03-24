@@ -7,7 +7,7 @@ from mcp.server.mcpserver.resources import FunctionResource
 class TestFunctionResource:
     """Test FunctionResource functionality."""
 
-    def test_function_resource_creation(self) -> None:
+    def test_function_resource_creation(self):
         """Test creating a FunctionResource."""
 
         def my_func() -> str:  # pragma: no cover
@@ -26,7 +26,7 @@ class TestFunctionResource:
         assert resource.fn == my_func
 
     @pytest.mark.anyio
-    async def test_read_text(self) -> None:
+    async def test_read_text(self):
         """Test reading text from a FunctionResource."""
 
         def get_data() -> str:
@@ -42,7 +42,7 @@ class TestFunctionResource:
         assert resource.mime_type == "text/plain"
 
     @pytest.mark.anyio
-    async def test_read_binary(self) -> None:
+    async def test_read_binary(self):
         """Test reading binary data from a FunctionResource."""
 
         def get_data() -> bytes:
@@ -57,7 +57,7 @@ class TestFunctionResource:
         assert content == b"Hello, world!"
 
     @pytest.mark.anyio
-    async def test_json_conversion(self) -> None:
+    async def test_json_conversion(self):
         """Test automatic JSON conversion of non-string results."""
 
         def get_data() -> dict[str, str]:
@@ -73,7 +73,7 @@ class TestFunctionResource:
         assert '"key": "value"' in content
 
     @pytest.mark.anyio
-    async def test_error_handling(self) -> None:
+    async def test_error_handling(self):
         """Test error handling in FunctionResource."""
 
         def failing_func() -> str:
@@ -88,7 +88,7 @@ class TestFunctionResource:
             await resource.read()
 
     @pytest.mark.anyio
-    async def test_basemodel_conversion(self) -> None:
+    async def test_basemodel_conversion(self):
         """Test handling of BaseModel types."""
 
         class MyModel(BaseModel):
@@ -103,7 +103,7 @@ class TestFunctionResource:
         assert content == '{\n  "name": "test"\n}'
 
     @pytest.mark.anyio
-    async def test_custom_type_conversion(self) -> None:
+    async def test_custom_type_conversion(self):
         """Test handling of custom types."""
 
         class CustomData:
@@ -122,7 +122,7 @@ class TestFunctionResource:
         assert isinstance(content, str)
 
     @pytest.mark.anyio
-    async def test_async_read_text(self) -> None:
+    async def test_async_read_text(self):
         """Test reading text from async FunctionResource."""
 
         async def get_data() -> str:
@@ -138,7 +138,7 @@ class TestFunctionResource:
         assert resource.mime_type == "text/plain"
 
     @pytest.mark.anyio
-    async def test_from_function(self) -> None:
+    async def test_from_function(self):
         """Test creating a FunctionResource from a function."""
 
         async def get_data() -> str:  # pragma: no cover
@@ -158,7 +158,7 @@ class TestFunctionResource:
 
 
 class TestFunctionResourceMetadata:
-    def test_from_function_with_metadata(self) -> None:
+    def test_from_function_with_metadata(self):
         # from_function() accepts meta dict and stores it on the resource for static resources
 
         def get_data() -> str:  # pragma: no cover
@@ -178,7 +178,7 @@ class TestFunctionResourceMetadata:
         assert "data" in resource.meta["tags"]
         assert "readonly" in resource.meta["tags"]
 
-    def test_from_function_without_metadata(self) -> None:
+    def test_from_function_without_metadata(self):
         # meta parameter is optional and defaults to None for backward compatibility
 
         def get_data() -> str:  # pragma: no cover

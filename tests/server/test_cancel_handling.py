@@ -27,7 +27,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_server_remains_functional_after_cancel() -> None:
+async def test_server_remains_functional_after_cancel():
     """Verify server can handle new requests after a cancellation."""
 
     # Track tool calls
@@ -61,7 +61,7 @@ async def test_server_remains_functional_after_cancel() -> None:
 
     async with Client(server) as client:
         # First request (will be cancelled)
-        async def first_request() -> None:
+        async def first_request():
             try:
                 await client.session.send_request(
                     CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
@@ -100,7 +100,7 @@ async def test_server_remains_functional_after_cancel() -> None:
 
 
 @pytest.mark.anyio
-async def test_server_cancels_in_flight_handlers_on_transport_close() -> None:
+async def test_server_cancels_in_flight_handlers_on_transport_close():
     """When the transport closes mid-request, server.run() must cancel in-flight
     handlers rather than join on them.
 
@@ -129,7 +129,7 @@ async def test_server_cancels_in_flight_handlers_on_transport_close() -> None:
     to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
     server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
 
-    async def run_server() -> None:
+    async def run_server():
         await server.run(server_read, server_write, server.create_initialization_options())
         server_run_returned.set()
 
@@ -173,7 +173,7 @@ async def test_server_cancels_in_flight_handlers_on_transport_close() -> None:
 
 
 @pytest.mark.anyio
-async def test_server_handles_transport_close_with_pending_server_to_client_requests() -> None:
+async def test_server_handles_transport_close_with_pending_server_to_client_requests():
     """When the transport closes while handlers are blocked on server→client
     requests (sampling, roots, elicitation), server.run() must still exit cleanly.
 
@@ -203,7 +203,7 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
     to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
     server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
 
-    async def run_server() -> None:
+    async def run_server():
         await server.run(server_read, server_write, server.create_initialization_options())
         server_run_returned.set()
 

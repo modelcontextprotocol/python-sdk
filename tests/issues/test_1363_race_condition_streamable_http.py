@@ -33,7 +33,7 @@ SERVER_NAME = "test_race_condition_server"
 
 
 class RaceConditionTestServer(Server):
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__(SERVER_NAME)
 
 
@@ -64,7 +64,7 @@ def create_app(json_response: bool = False) -> Starlette:
 class ServerThread(threading.Thread):
     """Thread that runs the ASGI application lifespan in a separate event loop."""
 
-    def __init__(self, app: Starlette) -> None:
+    def __init__(self, app: Starlette):
         super().__init__(daemon=True)
         self.app = app
         self._stop_event = threading.Event()
@@ -73,7 +73,7 @@ class ServerThread(threading.Thread):
         """Run the lifespan in a new event loop."""
 
         # Create a new event loop for this thread
-        async def run_lifespan() -> None:
+        async def run_lifespan():
             # Use the lifespan context (always present in our tests)
             lifespan_context = getattr(self.app.router, "lifespan_context", None)
             assert lifespan_context is not None  # Tests always create apps with lifespan
@@ -119,7 +119,7 @@ def check_logs_for_race_condition_errors(caplog: pytest.LogCaptureFixture, test_
 
 
 @pytest.mark.anyio
-async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFixture) -> None:
+async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFixture):
     """Test the race condition with invalid Accept headers.
 
     This test reproduces the exact scenario described in issue #1363:
@@ -193,7 +193,7 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
 
 
 @pytest.mark.anyio
-async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixture) -> None:
+async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixture):
     """Test the race condition with invalid Content-Type headers.
 
     This test reproduces the race condition scenario with Content-Type validation failure.
@@ -233,7 +233,7 @@ async def test_race_condition_invalid_content_type(caplog: pytest.LogCaptureFixt
 
 
 @pytest.mark.anyio
-async def test_race_condition_message_router_async_for(caplog: pytest.LogCaptureFixture) -> None:
+async def test_race_condition_message_router_async_for(caplog: pytest.LogCaptureFixture):
     """Uses json_response=True to trigger the `if self.is_json_response_enabled` branch,
     which reproduces the ClosedResourceError when message_router is suspended
     in async for loop while transport cleanup closes streams concurrently.

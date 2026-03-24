@@ -23,7 +23,7 @@ from mcp.types import (
 
 
 @pytest.mark.anyio
-async def test_server_session_initialize() -> None:
+async def test_server_session_initialize():
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -36,7 +36,7 @@ async def test_server_session_initialize() -> None:
 
     received_initialized = False
 
-    async def run_server() -> None:
+    async def run_server():
         nonlocal received_initialized
 
         async with ServerSession(
@@ -77,7 +77,7 @@ async def test_server_session_initialize() -> None:
 
 
 @pytest.mark.anyio
-async def test_server_capabilities() -> None:
+async def test_server_capabilities():
     notification_options = NotificationOptions()
     experimental_capabilities: dict[str, Any] = {}
 
@@ -129,7 +129,7 @@ async def test_server_capabilities() -> None:
 
 
 @pytest.mark.anyio
-async def test_server_session_initialize_with_older_protocol_version() -> None:
+async def test_server_session_initialize_with_older_protocol_version():
     """Test that server accepts and responds with older protocol (2024-11-05)."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -137,7 +137,7 @@ async def test_server_session_initialize_with_older_protocol_version() -> None:
     received_initialized = False
     received_protocol_version = None
 
-    async def run_server() -> None:
+    async def run_server():
         nonlocal received_initialized
 
         async with ServerSession(
@@ -159,7 +159,7 @@ async def test_server_session_initialize_with_older_protocol_version() -> None:
                     received_initialized = True
                     return
 
-    async def mock_client() -> None:
+    async def mock_client():
         nonlocal received_protocol_version
 
         # Send initialization request with older protocol version (2024-11-05)
@@ -208,7 +208,7 @@ async def test_server_session_initialize_with_older_protocol_version() -> None:
 
 
 @pytest.mark.anyio
-async def test_ping_request_before_initialization() -> None:
+async def test_ping_request_before_initialization():
     """Test that ping requests are allowed before initialization is complete."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -216,7 +216,7 @@ async def test_ping_request_before_initialization() -> None:
     ping_response_received = False
     ping_response_id = None
 
-    async def run_server() -> None:
+    async def run_server():
         async with ServerSession(
             client_to_server_receive,
             server_to_client_send,
@@ -239,7 +239,7 @@ async def test_ping_request_before_initialization() -> None:
                         await message.respond(types.EmptyResult())
                     return
 
-    async def mock_client() -> None:
+    async def mock_client():
         nonlocal ping_response_received, ping_response_id
 
         # Send ping request before any initialization
@@ -267,7 +267,7 @@ async def test_ping_request_before_initialization() -> None:
 
 
 @pytest.mark.anyio
-async def test_create_message_tool_result_validation() -> None:
+async def test_create_message_tool_result_validation():
     """Test tool_use/tool_result validation in create_message."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -392,7 +392,7 @@ async def test_create_message_tool_result_validation() -> None:
 
 
 @pytest.mark.anyio
-async def test_create_message_without_tools_capability() -> None:
+async def test_create_message_without_tools_capability():
     """Test that create_message raises MCPError when tools are provided without capability."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -442,7 +442,7 @@ async def test_create_message_without_tools_capability() -> None:
 
 
 @pytest.mark.anyio
-async def test_other_requests_blocked_before_initialization() -> None:
+async def test_other_requests_blocked_before_initialization():
     """Test that non-ping requests are still blocked before initialization."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -450,7 +450,7 @@ async def test_other_requests_blocked_before_initialization() -> None:
     error_response_received = False
     error_code = None
 
-    async def run_server() -> None:
+    async def run_server():
         async with ServerSession(
             client_to_server_receive,
             server_to_client_send,
@@ -464,7 +464,7 @@ async def test_other_requests_blocked_before_initialization() -> None:
             # No need to process incoming_messages since the error is handled automatically
             await anyio.sleep(0.1)  # Give time for the request to be processed
 
-    async def mock_client() -> None:
+    async def mock_client():
         nonlocal error_response_received, error_code
 
         # Try to send a non-ping request before initialization

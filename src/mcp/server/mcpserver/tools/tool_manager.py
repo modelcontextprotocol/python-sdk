@@ -23,7 +23,7 @@ class ToolManager:
         warn_on_duplicate_tools: bool = True,
         *,
         tools: list[Tool] | None = None,
-    ) -> None:
+    ):
         self._tools: dict[str, Tool] = {}
         if tools is not None:
             for tool in tools:

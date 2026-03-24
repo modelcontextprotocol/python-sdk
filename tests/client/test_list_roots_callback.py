@@ -9,7 +9,7 @@ from mcp.types import ListRootsResult, Root, TextContent
 
 
 @pytest.mark.anyio
-async def test_list_roots_callback() -> None:
+async def test_list_roots_callback():
     server = MCPServer("test")
 
     callback_return = ListRootsResult(
@@ -25,7 +25,7 @@ async def test_list_roots_callback() -> None:
         return callback_return
 
     @server.tool("test_list_roots")
-    async def test_list_roots(context: Context, message: str) -> bool:
+    async def test_list_roots(context: Context, message: str):
         roots = await context.session.list_roots()
         assert roots == callback_return
         return True

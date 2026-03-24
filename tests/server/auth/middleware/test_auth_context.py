@@ -17,7 +17,7 @@ from mcp.server.auth.provider import AccessToken
 class MockApp:
     """Mock ASGI app for testing."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         self.called = False
         self.scope: Scope | None = None
         self.receive: Receive | None = None
@@ -45,7 +45,7 @@ def valid_access_token() -> AccessToken:
 
 
 @pytest.mark.anyio
-async def test_auth_context_middleware_with_authenticated_user(valid_access_token: AccessToken) -> None:
+async def test_auth_context_middleware_with_authenticated_user(valid_access_token: AccessToken):
     """Test middleware with an authenticated user in scope."""
     app = MockApp()
     middleware = AuthContextMiddleware(app)
@@ -84,7 +84,7 @@ async def test_auth_context_middleware_with_authenticated_user(valid_access_toke
 
 
 @pytest.mark.anyio
-async def test_auth_context_middleware_with_no_user() -> None:
+async def test_auth_context_middleware_with_no_user():
     """Test middleware with no user in scope."""
     app = MockApp()
     middleware = AuthContextMiddleware(app)

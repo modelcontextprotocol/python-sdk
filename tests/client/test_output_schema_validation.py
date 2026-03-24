@@ -34,7 +34,7 @@ def _make_server(
 
 
 @pytest.mark.anyio
-async def test_tool_structured_output_client_side_validation_basemodel() -> None:
+async def test_tool_structured_output_client_side_validation_basemodel():
     """Test that client validates structured content against schema for BaseModel outputs"""
     output_schema = {
         "type": "object",
@@ -62,7 +62,7 @@ async def test_tool_structured_output_client_side_validation_basemodel() -> None
 
 
 @pytest.mark.anyio
-async def test_tool_structured_output_client_side_validation_primitive() -> None:
+async def test_tool_structured_output_client_side_validation_primitive():
     """Test that client validates structured content for primitive outputs"""
     output_schema = {
         "type": "object",
@@ -90,7 +90,7 @@ async def test_tool_structured_output_client_side_validation_primitive() -> None
 
 
 @pytest.mark.anyio
-async def test_tool_structured_output_client_side_validation_dict_typed() -> None:
+async def test_tool_structured_output_client_side_validation_dict_typed():
     """Test that client validates dict[str, T] structured content"""
     output_schema = {"type": "object", "additionalProperties": {"type": "integer"}, "title": "get_scores_Output"}
 
@@ -113,7 +113,7 @@ async def test_tool_structured_output_client_side_validation_dict_typed() -> Non
 
 
 @pytest.mark.anyio
-async def test_tool_structured_output_client_side_validation_missing_required() -> None:
+async def test_tool_structured_output_client_side_validation_missing_required():
     """Test that client validates missing required fields"""
     output_schema = {
         "type": "object",
@@ -141,7 +141,7 @@ async def test_tool_structured_output_client_side_validation_missing_required() 
 
 
 @pytest.mark.anyio
-async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture) -> None:
+async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
     """Test that client logs warning when tool is not in list_tools but has output_schema"""
 
     async def on_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:

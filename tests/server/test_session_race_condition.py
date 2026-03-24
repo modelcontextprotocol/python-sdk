@@ -18,7 +18,7 @@ from mcp.types import ServerCapabilities, Tool
 
 
 @pytest.mark.anyio
-async def test_request_immediately_after_initialize_response() -> None:
+async def test_request_immediately_after_initialize_response():
     """Test that requests are accepted immediately after initialize response.
 
     This reproduces the race condition in stateful HTTP mode where:
@@ -37,7 +37,7 @@ async def test_request_immediately_after_initialize_response() -> None:
     tools_list_success = False
     error_received = None
 
-    async def run_server() -> None:
+    async def run_server():
         nonlocal tools_list_success
 
         async with ServerSession(
@@ -79,7 +79,7 @@ async def test_request_immediately_after_initialize_response() -> None:
                         # Done - exit gracefully
                         return
 
-    async def mock_client() -> None:
+    async def mock_client():
         nonlocal error_received
 
         # Step 1: Send InitializeRequest

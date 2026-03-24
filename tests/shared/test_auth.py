@@ -3,7 +3,7 @@
 from mcp.shared.auth import OAuthMetadata
 
 
-def test_oauth() -> None:
+def test_oauth():
     """Should not throw when parsing OAuth metadata."""
     OAuthMetadata.model_validate(
         {
@@ -17,7 +17,7 @@ def test_oauth() -> None:
     )
 
 
-def test_oidc() -> None:
+def test_oidc():
     """Should not throw when parsing OIDC metadata."""
     OAuthMetadata.model_validate(
         {
@@ -37,7 +37,7 @@ def test_oidc() -> None:
     )
 
 
-def test_oauth_with_jarm() -> None:
+def test_oauth_with_jarm():
     """Should not throw when parsing OAuth metadata that includes JARM response modes."""
     OAuthMetadata.model_validate(
         {

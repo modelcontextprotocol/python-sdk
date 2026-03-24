@@ -31,7 +31,7 @@ tee = shutil.which("tee")
 
 @pytest.mark.anyio
 @pytest.mark.skipif(tee is None, reason="could not find tee command")
-async def test_stdio_context_manager_exiting() -> None:
+async def test_stdio_context_manager_exiting():
     assert tee is not None
     async with stdio_client(StdioServerParameters(command=tee)) as (_, _):
         pass
@@ -39,7 +39,7 @@ async def test_stdio_context_manager_exiting() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.skipif(tee is None, reason="could not find tee command")
-async def test_stdio_client() -> None:
+async def test_stdio_client():
     assert tee is not None
     server_parameters = StdioServerParameters(command=tee)
 
@@ -71,7 +71,7 @@ async def test_stdio_client() -> None:
 
 
 @pytest.mark.anyio
-async def test_stdio_client_bad_path() -> None:
+async def test_stdio_client_bad_path():
     """Check that the connection doesn't hang if process errors."""
     server_params = StdioServerParameters(command=sys.executable, args=["-c", "non-existent-file.py"])
     async with stdio_client(server_params) as (read_stream, write_stream):
@@ -86,7 +86,7 @@ async def test_stdio_client_bad_path() -> None:
 
 
 @pytest.mark.anyio
-async def test_stdio_client_nonexistent_command() -> None:
+async def test_stdio_client_nonexistent_command():
     """Test that stdio_client raises an error for non-existent commands."""
     # Create a server with a non-existent command
     server_params = StdioServerParameters(
@@ -104,7 +104,7 @@ async def test_stdio_client_nonexistent_command() -> None:
 
 
 @pytest.mark.anyio
-async def test_stdio_client_universal_cleanup() -> None:
+async def test_stdio_client_universal_cleanup():
     """Test that stdio_client completes cleanup within reasonable time
     even when connected to processes that exit slowly.
     """
@@ -156,7 +156,7 @@ async def test_stdio_client_universal_cleanup() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows signal handling is different")
-async def test_stdio_client_sigint_only_process() -> None:  # pragma: lax no cover
+async def test_stdio_client_sigint_only_process():  # pragma: lax no cover
     """Test cleanup with a process that ignores SIGTERM but responds to SIGINT."""
     # Create a Python script that ignores SIGTERM but handles SIGINT
     script_content = textwrap.dedent(
@@ -353,7 +353,7 @@ class TestChildProcessCleanup:
     """
 
     @pytest.mark.anyio
-    async def test_basic_child_process_cleanup(self) -> None:
+    async def test_basic_child_process_cleanup(self):
         """Parent spawns one child; terminating the tree kills both."""
         async with AsyncExitStack() as stack:
             sock, port = await _open_liveness_listener()
@@ -377,7 +377,7 @@ class TestChildProcessCleanup:
             await _assert_stream_closed(stream)
 
     @pytest.mark.anyio
-    async def test_nested_process_tree(self) -> None:
+    async def test_nested_process_tree(self):
         """Parent → child → grandchild; terminating the tree kills all three."""
         async with AsyncExitStack() as stack:
             sock, port = await _open_liveness_listener()
@@ -413,7 +413,7 @@ class TestChildProcessCleanup:
                 await _assert_stream_closed(stream)
 
     @pytest.mark.anyio
-    async def test_early_parent_exit(self) -> None:
+    async def test_early_parent_exit(self):
         """Parent exits immediately on SIGTERM; process-group termination still
         catches the child (exercises the race where the parent dies mid-cleanup).
         """
@@ -447,7 +447,7 @@ class TestChildProcessCleanup:
 
 
 @pytest.mark.anyio
-async def test_stdio_client_graceful_stdin_exit() -> None:
+async def test_stdio_client_graceful_stdin_exit():
     """Test that a process exits gracefully when stdin is closed,
     without needing SIGTERM or SIGKILL.
     """
@@ -502,7 +502,7 @@ async def test_stdio_client_graceful_stdin_exit() -> None:
 
 
 @pytest.mark.anyio
-async def test_stdio_client_stdin_close_ignored() -> None:
+async def test_stdio_client_stdin_close_ignored():
     """Test that when a process ignores stdin closure, the shutdown sequence
     properly escalates to SIGTERM.
     """

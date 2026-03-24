@@ -16,7 +16,7 @@ from mcp.types import CallToolRequestParams, CallToolResult, ListToolsResult, Pa
 
 
 @pytest.mark.anyio
-async def test_notification_validation_error(tmp_path: Path) -> None:
+async def test_notification_validation_error(tmp_path: Path):
     """Test that timeouts are handled gracefully and don't break the server.
 
     This test verifies that when a client request times out:
@@ -67,7 +67,7 @@ async def test_notification_validation_error(tmp_path: Path) -> None:
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
         task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
-    ) -> None:
+    ):
         with anyio.CancelScope() as scope:
             task_status.started(scope)  # type: ignore
             await server.run(
@@ -81,7 +81,7 @@ async def test_notification_validation_error(tmp_path: Path) -> None:
         read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
         write_stream: MemoryObjectSendStream[SessionMessage],
         scope: anyio.CancelScope,
-    ) -> None:
+    ):
         # No session-level timeout to avoid race conditions with fast operations
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()

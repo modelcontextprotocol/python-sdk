@@ -8,8 +8,8 @@ These tests demonstrate the full task lifecycle:
 5. Client retrieves result with tasks/result
 """
 
-from collections.abc import AsyncIterator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 import anyio
@@ -49,9 +49,7 @@ class AppContext:
     task_done_events: dict[str, Event] = field(default_factory=lambda: {})
 
 
-def _make_lifespan(
-    store: InMemoryTaskStore, task_done_events: dict[str, Event]
-) -> Callable[[Server[AppContext]], AbstractAsyncContextManager[AppContext]]:
+def _make_lifespan(store: InMemoryTaskStore, task_done_events: dict[str, Event]):
     @asynccontextmanager
     async def app_lifespan(server: Server[AppContext]) -> AsyncIterator[AppContext]:
         async with anyio.create_task_group() as tg:
