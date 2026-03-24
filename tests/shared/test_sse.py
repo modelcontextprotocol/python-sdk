@@ -1,10 +1,16 @@
 import json
 import multiprocessing
 import socket
+import sys
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from urllib.parse import urlparse
+
+# BaseExceptionGroup is builtin on 3.11+. On 3.10 it comes from the
+# exceptiongroup backport, which anyio pulls in as a dependency.
+if sys.version_info < (3, 11):  # pragma: lax no cover
+    from exceptiongroup import BaseExceptionGroup
 
 import anyio
 import httpx
@@ -602,6 +608,105 @@ async def test_sse_client_handles_empty_keepalive_pings() -> None:
             assert not isinstance(msg, Exception)
             assert isinstance(msg.message, types.JSONRPCResponse)
             assert msg.message.id == 1
+
+
+def _mock_sse_connection(aiter_sse: AsyncGenerator[ServerSentEvent, None]) -> Any:
+    """Patch sse_client's HTTP layer to yield the given SSE event stream."""
+    mock_event_source = MagicMock()
+    mock_event_source.aiter_sse.return_value = aiter_sse
+    mock_event_source.response.raise_for_status = MagicMock()
+
+    mock_aconnect_sse = MagicMock()
+    mock_aconnect_sse.__aenter__ = AsyncMock(return_value=mock_event_source)
+    mock_aconnect_sse.__aexit__ = AsyncMock(return_value=None)
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=MagicMock(status_code=200, raise_for_status=MagicMock()))
+
+    return patch.multiple(
+        "mcp.client.sse",
+        create_mcp_http_client=Mock(return_value=mock_client),
+        aconnect_sse=Mock(return_value=mock_aconnect_sse),
+    )
+
+
+@pytest.mark.anyio
+async def test_sse_client_raises_on_endpoint_origin_mismatch() -> None:
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/447
+
+    When the server sends an endpoint URL with a different origin than the
+    connection URL, sse_client must raise promptly instead of deadlocking.
+    Before the fix, the ValueError was caught and sent to a zero-buffer stream
+    with no reader, hanging forever.
+    """
+
+    async def events() -> AsyncGenerator[ServerSentEvent, None]:
+        yield ServerSentEvent(event="endpoint", data="http://wrong-host:9999/messages?sessionId=abc")
+        await anyio.sleep_forever()  # pragma: no cover
+
+    with _mock_sse_connection(events()), anyio.fail_after(5):
+        with pytest.raises(BaseExceptionGroup) as exc_info:
+            async with sse_client("http://test/sse"):  # pragma: no branch
+                pytest.fail("sse_client should not yield on origin mismatch")  # pragma: no cover
+    assert exc_info.group_contains(ValueError, match="Endpoint origin does not match")
+
+
+@pytest.mark.anyio
+async def test_sse_client_raises_on_error_before_endpoint() -> None:
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/447
+
+    Any exception raised while waiting for the endpoint event must propagate
+    instead of deadlocking on the zero-buffer read stream.
+    """
+
+    async def events() -> AsyncGenerator[ServerSentEvent, None]:
+        raise ConnectionError("connection reset by peer")
+        yield  # pragma: no cover
+
+    with _mock_sse_connection(events()), anyio.fail_after(5):
+        with pytest.raises(BaseExceptionGroup) as exc_info:
+            async with sse_client("http://test/sse"):  # pragma: no branch
+                pytest.fail("sse_client should not yield on pre-endpoint error")  # pragma: no cover
+    assert exc_info.group_contains(ConnectionError, match="connection reset")
+
+
+@pytest.mark.anyio
+async def test_sse_client_raises_on_message_before_endpoint() -> None:
+    """Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/447
+
+    If the server sends a message event before the endpoint event (protocol
+    violation), sse_client must raise rather than deadlock trying to send the
+    message to a stream nobody is reading yet.
+    """
+
+    async def events() -> AsyncGenerator[ServerSentEvent, None]:
+        yield ServerSentEvent(event="message", data='{"jsonrpc":"2.0","id":1,"result":{}}')
+        await anyio.sleep_forever()  # pragma: no cover
+
+    with _mock_sse_connection(events()), anyio.fail_after(5):
+        with pytest.raises(BaseExceptionGroup) as exc_info:
+            async with sse_client("http://test/sse"):  # pragma: no branch
+                pytest.fail("sse_client should not yield on protocol violation")  # pragma: no cover
+    assert exc_info.group_contains(RuntimeError, match="before endpoint event")
+
+
+@pytest.mark.anyio
+async def test_sse_client_delivers_post_endpoint_errors_via_stream() -> None:
+    """After the endpoint is received, errors in sse_reader are delivered on the
+    read stream so the session can handle them, rather than crashing the task group.
+    """
+
+    async def events() -> AsyncGenerator[ServerSentEvent, None]:
+        yield ServerSentEvent(event="endpoint", data="/messages/?session_id=abc")
+        raise ConnectionError("mid-stream failure")
+
+    with _mock_sse_connection(events()), anyio.fail_after(5):
+        async with sse_client("http://test/sse") as (read_stream, _):
+            received = await read_stream.receive()
+            assert isinstance(received, ConnectionError)
+            assert "mid-stream failure" in str(received)
 
 
 @pytest.mark.anyio
