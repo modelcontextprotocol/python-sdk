@@ -5,7 +5,7 @@ Run from the repository root:
 """
 
 import contextlib
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.routing import Host
@@ -24,7 +24,7 @@ def domain_info() -> str:
 
 # Create a lifespan context manager to run the session manager
 @contextlib.asynccontextmanager
-async def lifespan(app: Starlette) -> AsyncGenerator[None, None]:
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
     async with mcp.session_manager.run():
         yield
 
