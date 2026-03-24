@@ -9,14 +9,21 @@ import mcp.types as types
 from mcp.server.lowlevel.server import Server
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.shared.message import SessionMessage
 from mcp.types import (
+    LATEST_PROTOCOL_VERSION,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     CancelledNotification,
     CancelledNotificationParams,
+    ClientCapabilities,
     ClientNotification,
     ClientRequest,
+    Implementation,
+    InitializeRequestParams,
+    JSONRPCNotification,
+    JSONRPCRequest,
     Tool,
 )
 
@@ -122,16 +129,6 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
     This drives server.run() with raw memory streams because InMemoryTransport
     wraps it in its own finally-cancel (_memory.py) which masks the bug.
     """
-    from mcp.shared.message import SessionMessage
-    from mcp.types import (
-        LATEST_PROTOCOL_VERSION,
-        ClientCapabilities,
-        Implementation,
-        InitializeRequestParams,
-        JSONRPCNotification,
-        JSONRPCRequest,
-    )
-
     handler_started = anyio.Event()
     handler_cancelled = anyio.Event()
     server_run_returned = anyio.Event()
@@ -139,7 +136,7 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
     server = Server("test")
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         handler_started.set()
         try:
             await anyio.sleep_forever()
@@ -206,16 +203,6 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
       2. The woken handler's MCPError is caught in _handle_request, which falls
          through to respond() against a write stream _receive_loop already closed.
     """
-    from mcp.shared.message import SessionMessage
-    from mcp.types import (
-        LATEST_PROTOCOL_VERSION,
-        ClientCapabilities,
-        Implementation,
-        InitializeRequestParams,
-        JSONRPCNotification,
-        JSONRPCRequest,
-    )
-
     handlers_started = 0
     both_started = anyio.Event()
     server_run_returned = anyio.Event()
@@ -223,7 +210,7 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
     server = Server("test")
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
+    async def handle_call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         nonlocal handlers_started
         handlers_started += 1
         if handlers_started == 2:
