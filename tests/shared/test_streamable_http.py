@@ -8,8 +8,8 @@ from __future__ import annotations as _annotations
 import json
 import multiprocessing
 import socket
+import threading
 import time
-import traceback
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -108,7 +108,7 @@ class SimpleEventStore(EventStore):
         self._events.append((stream_id, event_id, message))
         return event_id
 
-    async def replay_events_after(  # pragma: no cover
+    async def replay_events_after(
         self,
         last_event_id: EventId,
         send_callback: EventCallback,
@@ -144,11 +144,11 @@ class ServerState:
 
 
 @asynccontextmanager
-async def _server_lifespan(_server: Server[ServerState]) -> AsyncIterator[ServerState]:  # pragma: no cover
+async def _server_lifespan(_server: Server[ServerState]) -> AsyncIterator[ServerState]:
     yield ServerState()
 
 
-async def _handle_read_resource(  # pragma: no cover
+async def _handle_read_resource(
     ctx: ServerRequestContext[ServerState], params: ReadResourceRequestParams
 ) -> ReadResourceResult:
     uri = str(params.uri)
@@ -163,7 +163,7 @@ async def _handle_read_resource(  # pragma: no cover
     return ReadResourceResult(contents=[TextResourceContents(uri=uri, text=text, mime_type="text/plain")])
 
 
-async def _handle_list_tools(  # pragma: no cover
+async def _handle_list_tools(
     ctx: ServerRequestContext[ServerState], params: PaginatedRequestParams | None
 ) -> ListToolsResult:
     return ListToolsResult(
@@ -228,9 +228,7 @@ async def _handle_list_tools(  # pragma: no cover
     )
 
 
-async def _handle_call_tool(  # pragma: no cover
-    ctx: ServerRequestContext[ServerState], params: CallToolRequestParams
-) -> CallToolResult:
+async def _handle_call_tool(ctx: ServerRequestContext[ServerState], params: CallToolRequestParams) -> CallToolResult:
     name = params.name
     args = params.arguments or {}
 
@@ -382,7 +380,7 @@ async def _handle_call_tool(  # pragma: no cover
     return CallToolResult(content=[TextContent(type="text", text=f"Called {name}")])
 
 
-def _create_server() -> Server[ServerState]:  # pragma: no cover
+def _create_server() -> Server[ServerState]:
     return Server(
         SERVER_NAME,
         lifespan=_server_lifespan,
@@ -396,7 +394,7 @@ def create_app(
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
-) -> Starlette:  # pragma: no cover
+) -> Starlette:
     """Create a Starlette application for testing using the session manager.
 
     Args:
@@ -431,23 +429,18 @@ def create_app(
     return app
 
 
-def run_server(
+def _start_server_thread(
     port: int,
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
-) -> None:  # pragma: no cover
-    """Run the test server.
+) -> tuple[threading.Thread, uvicorn.Server]:
+    """Start a test server in a background thread (in-process for coverage).
 
-    Args:
-        port: Port to listen on.
-        is_json_response_enabled: If True, use JSON responses instead of SSE streams.
-        event_store: Optional event store for testing resumability.
-        retry_interval: Retry interval in milliseconds for SSE polling.
+    Returns:
+        A tuple of (thread, uvicorn_server) for cleanup.
     """
-
     app = create_app(is_json_response_enabled, event_store, retry_interval)
-    # Configure server
     config = uvicorn.Config(
         app=app,
         host="127.0.0.1",
@@ -457,15 +450,10 @@ def run_server(
         timeout_keep_alive=5,
         access_log=False,
     )
-
-    # Start the server
     server = uvicorn.Server(config=config)
-
-    # This is important to catch exceptions and prevent test hangs
-    try:
-        server.run()
-    except Exception:
-        traceback.print_exc()
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    return thread, server
 
 
 # Test fixtures - using same approach as SSE tests
@@ -487,9 +475,8 @@ def json_server_port() -> int:
 
 @pytest.fixture
 def basic_server(basic_server_port: int) -> Generator[None, None, None]:
-    """Start a basic server."""
-    proc = multiprocessing.Process(target=run_server, kwargs={"port": basic_server_port}, daemon=True)
-    proc.start()
+    """Start a basic server in a background thread (in-process for coverage)."""
+    thread, server = _start_server_thread(port=basic_server_port)
 
     # Wait for server to be running
     wait_for_server(basic_server_port)
@@ -497,8 +484,8 @@ def basic_server(basic_server_port: int) -> Generator[None, None, None]:
     yield
 
     # Clean up
-    proc.kill()
-    proc.join(timeout=2)
+    server.should_exit = True
+    thread.join(timeout=5)
 
 
 @pytest.fixture
@@ -519,13 +506,8 @@ def event_server_port() -> int:
 def event_server(
     event_server_port: int, event_store: SimpleEventStore
 ) -> Generator[tuple[SimpleEventStore, str], None, None]:
-    """Start a server with event store and retry_interval enabled."""
-    proc = multiprocessing.Process(
-        target=run_server,
-        kwargs={"port": event_server_port, "event_store": event_store, "retry_interval": 500},
-        daemon=True,
-    )
-    proc.start()
+    """Start a server with event store and retry_interval enabled (in-process for coverage)."""
+    thread, server = _start_server_thread(port=event_server_port, event_store=event_store, retry_interval=500)
 
     # Wait for server to be running
     wait_for_server(event_server_port)
@@ -533,19 +515,14 @@ def event_server(
     yield event_store, f"http://127.0.0.1:{event_server_port}"
 
     # Clean up
-    proc.kill()
-    proc.join(timeout=2)
+    server.should_exit = True
+    thread.join(timeout=5)
 
 
 @pytest.fixture
 def json_response_server(json_server_port: int) -> Generator[None, None, None]:
-    """Start a server with JSON response enabled."""
-    proc = multiprocessing.Process(
-        target=run_server,
-        kwargs={"port": json_server_port, "is_json_response_enabled": True},
-        daemon=True,
-    )
-    proc.start()
+    """Start a server with JSON response enabled (in-process for coverage)."""
+    thread, server = _start_server_thread(port=json_server_port, is_json_response_enabled=True)
 
     # Wait for server to be running
     wait_for_server(json_server_port)
@@ -553,8 +530,8 @@ def json_response_server(json_server_port: int) -> Generator[None, None, None]:
     yield
 
     # Clean up
-    proc.kill()
-    proc.join(timeout=2)
+    server.should_exit = True
+    thread.join(timeout=5)
 
 
 @pytest.fixture
@@ -1043,13 +1020,6 @@ def test_get_validation(basic_server: None, basic_server_url: str):
 
 
 # Client-specific fixtures
-@pytest.fixture
-async def http_client(basic_server: None, basic_server_url: str):  # pragma: no cover
-    """Create test client matching the SSE test pattern."""
-    async with httpx.AsyncClient(base_url=basic_server_url) as client:
-        yield client
-
-
 @pytest.fixture
 async def initialized_client_session(basic_server: None, basic_server_url: str):
     """Create initialized StreamableHTTP client session."""
@@ -2316,3 +2286,190 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_replay_events_after_nonexistent_event_id():
+    """Test replay_events_after returns None for non-existent event ID."""
+    store = SimpleEventStore()
+
+    # Store some events first
+    stream_id = "stream-1"
+    await store.store_event(stream_id, types.JSONRPCResponse(jsonrpc="2.0", id="1", result={"key": "value"}))
+
+    # Try to replay after a non-existent event ID
+    callback = MagicMock()
+    result = await store.replay_events_after("999", callback)
+    assert result is None
+    callback.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_replay_events_after_replays_messages():
+    """Test replay_events_after correctly replays messages after a given event ID."""
+    store = SimpleEventStore()
+
+    stream_id = "stream-1"
+    msg1: types.JSONRPCMessage = types.JSONRPCResponse(jsonrpc="2.0", id="1", result={"first": True})
+    msg2: types.JSONRPCMessage = types.JSONRPCResponse(jsonrpc="2.0", id="2", result={"second": True})
+    # Store: priming event (None), real message, another None (priming), then real message
+    eid0 = await store.store_event(stream_id, None)
+    eid1 = await store.store_event(stream_id, msg1)
+    _eid_none = await store.store_event(stream_id, None)
+    eid2 = await store.store_event(stream_id, msg2)
+
+    # Replay after priming event — should get only real messages, skipping None
+    replayed: list[EventMessage] = []
+
+    async def callback(event_msg: EventMessage) -> None:
+        replayed.append(event_msg)
+
+    result = await store.replay_events_after(eid0, callback)
+    assert result == stream_id
+    assert len(replayed) == 2
+    assert replayed[0].event_id == eid1
+    assert replayed[1].event_id == eid2
+
+    # Replay after first message — should get only second
+    replayed.clear()
+    result = await store.replay_events_after(eid1, callback)
+    assert result == stream_id
+    assert len(replayed) == 1
+    assert replayed[0].event_id == eid2
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_slow_resource(initialized_client_session: ClientSession):
+    """Test reading a slow:// resource."""
+    result = await initialized_client_session.read_resource("slow://test-host")
+    assert len(result.contents) == 1
+    assert isinstance(result.contents[0], TextResourceContents)
+    assert result.contents[0].text == "Slow response from test-host"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_long_running_with_checkpoints(basic_server: None, basic_server_url: str):
+    """Test calling the long_running_with_checkpoints tool."""
+    captured_notifications: list[str] = []
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            return  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+                captured_notifications.append(str(message.params.data))
+
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            await session.initialize()
+
+            result = await session.call_tool("long_running_with_checkpoints", {})
+            assert len(result.content) == 1
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Completed!"
+
+            # Should have received the two log notifications
+            assert "Tool started" in captured_notifications
+            assert "Tool is almost done" in captured_notifications
+
+
+@pytest.mark.anyio
+async def test_streamablehttp_server_sampling_non_text_content(basic_server: None, basic_server_url: str):
+    """Test server-initiated sampling where callback returns non-text content."""
+
+    async def sampling_callback(
+        context: RequestContext[ClientSession],
+        params: types.CreateMessageRequestParams,
+    ) -> types.CreateMessageResult:
+        return types.CreateMessageResult(
+            role="assistant",
+            content=types.ImageContent(
+                type="image",
+                data="base64data",
+                mime_type="image/png",
+            ),
+            model="test-model",
+            stop_reason="endTurn",
+        )
+
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream, sampling_callback=sampling_callback) as session:
+            await session.initialize()
+
+            tool_result = await session.call_tool("test_sampling_tool", {})
+            assert len(tool_result.content) == 1
+            assert tool_result.content[0].type == "text"
+            # Non-text content should be stringified
+            assert "Response from sampling:" in tool_result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_tool_with_multiple_stream_closes(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """Test tool_with_multiple_stream_closes which calls close_sse_stream multiple times."""
+    _, server_url = event_server
+    captured_notifications: list[str] = []
+
+    async def message_handler(
+        message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+    ) -> None:
+        if isinstance(message, Exception):
+            return  # pragma: no cover
+        if isinstance(message, types.ServerNotification):  # pragma: no branch
+            if isinstance(message, types.LoggingMessageNotification):  # pragma: no branch
+                captured_notifications.append(str(message.params.data))
+
+    async with streamable_http_client(f"{server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream, message_handler=message_handler) as session:
+            await session.initialize()
+
+            result = await session.call_tool(
+                "tool_with_multiple_stream_closes",
+                {"checkpoints": 3, "sleep_time": 0.2},
+            )
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert "Completed 3 checkpoints" in result.content[0].text
+
+            # All checkpoint notifications should have been received
+            for i in range(3):
+                assert f"checkpoint_{i}" in captured_notifications
+
+
+@pytest.mark.anyio
+async def test_tool_with_multiple_stream_closes_no_event_store(
+    basic_server: None,
+    basic_server_url: str,
+) -> None:
+    """Test multi_close_tool without event store — close_sse_stream is None."""
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            result = await session.call_tool(
+                "tool_with_multiple_stream_closes",
+                {"checkpoints": 2, "sleep_time": 0.1},
+            )
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert "Completed 2 checkpoints" in result.content[0].text
+
+
+@pytest.mark.anyio
+async def test_tool_with_standalone_stream_close_no_event_store(
+    basic_server: None,
+    basic_server_url: str,
+) -> None:
+    """Test standalone_stream_close without event store — close_standalone_sse_stream is None."""
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+
+            result = await session.call_tool("tool_with_standalone_stream_close", {})
+            assert result.content[0].type == "text"
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "Standalone stream close test done"

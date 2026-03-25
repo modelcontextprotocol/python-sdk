@@ -200,8 +200,10 @@ class ServerSession(
             case types.InitializedNotification():
                 self._initialization_state = InitializationState.Initialized
             case _:
-                if self._initialization_state != InitializationState.Initialized:  # pragma: no cover
-                    raise RuntimeError("Received notification before initialization was complete")
+                if self._initialization_state != InitializationState.Initialized:
+                    raise RuntimeError(
+                        "Received notification before initialization was complete"
+                    )  # pragma: lax no cover
 
     async def send_log_message(
         self,
@@ -222,7 +224,7 @@ class ServerSession(
             related_request_id,
         )
 
-    async def send_resource_updated(self, uri: str | AnyUrl) -> None:  # pragma: no cover
+    async def send_resource_updated(self, uri: str | AnyUrl) -> None:
         """Send a resource updated notification."""
         await self.send_notification(
             types.ResourceUpdatedNotification(
@@ -446,9 +448,9 @@ class ServerSession(
             metadata=ServerMessageMetadata(related_request_id=related_request_id),
         )
 
-    async def send_ping(self) -> types.EmptyResult:  # pragma: no cover
+    async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
-        return await self.send_request(
+        return await self.send_request(  # pragma: lax no cover
             types.PingRequest(),
             types.EmptyResult,
         )
@@ -478,13 +480,13 @@ class ServerSession(
         """Send a resource list changed notification."""
         await self.send_notification(types.ResourceListChangedNotification())
 
-    async def send_tool_list_changed(self) -> None:  # pragma: no cover
+    async def send_tool_list_changed(self) -> None:
         """Send a tool list changed notification."""
-        await self.send_notification(types.ToolListChangedNotification())
+        await self.send_notification(types.ToolListChangedNotification())  # pragma: lax no cover
 
-    async def send_prompt_list_changed(self) -> None:  # pragma: no cover
+    async def send_prompt_list_changed(self) -> None:
         """Send a prompt list changed notification."""
-        await self.send_notification(types.PromptListChangedNotification())
+        await self.send_notification(types.PromptListChangedNotification())  # pragma: lax no cover
 
     async def send_elicit_complete(
         self,

@@ -177,7 +177,7 @@ class StreamableHTTPServerTransport:
         """Check if this transport has been explicitly terminated."""
         return self._terminated
 
-    def close_sse_stream(self, request_id: RequestId) -> None:  # pragma: no cover
+    def close_sse_stream(self, request_id: RequestId) -> None:
         """Close SSE connection for a specific request without terminating the stream.
 
         This method closes the HTTP connection for the specified request, triggering
@@ -205,7 +205,7 @@ class StreamableHTTPServerTransport:
             send_stream.close()
             receive_stream.close()
 
-    def close_standalone_sse_stream(self) -> None:  # pragma: no cover
+    def close_standalone_sse_stream(self) -> None:
         """Close the standalone GET SSE stream, triggering client reconnection.
 
         This method closes the HTTP connection for the standalone GET stream used
@@ -240,10 +240,10 @@ class StreamableHTTPServerTransport:
         # Only provide close callbacks when client supports resumability
         if self._event_store and protocol_version >= "2025-11-25":
 
-            async def close_stream_callback() -> None:  # pragma: no cover
+            async def close_stream_callback() -> None:
                 self.close_sse_stream(request_id)
 
-            async def close_standalone_stream_callback() -> None:  # pragma: no cover
+            async def close_standalone_stream_callback() -> None:
                 self.close_standalone_sse_stream()
 
             metadata = ServerMessageMetadata(
@@ -291,7 +291,7 @@ class StreamableHTTPServerTransport:
     ) -> Response:
         """Create an error response with a simple string message."""
         response_headers = {"Content-Type": CONTENT_TYPE_JSON}
-        if headers:  # pragma: no cover
+        if headers:
             response_headers.update(headers)
 
         if self.mcp_session_id:
@@ -342,7 +342,7 @@ class StreamableHTTPServerTransport:
         }
 
         # If an event ID was provided, include it
-        if event_message.event_id:  # pragma: no cover
+        if event_message.event_id:
             event_data["id"] = event_message.event_id
 
         return event_data
@@ -354,7 +354,7 @@ class StreamableHTTPServerTransport:
                 # Close the request stream
                 await self._request_streams[request_id][0].aclose()
                 await self._request_streams[request_id][1].aclose()
-            except Exception:  # pragma: no cover
+            except Exception:  # pragma: lax no cover
                 # During cleanup, we catch all exceptions since streams might be in various states
                 logger.debug("Error closing memory streams - may already be closed")
             finally:
@@ -372,7 +372,7 @@ class StreamableHTTPServerTransport:
             await error_response(scope, receive, send)
             return
 
-        if self._terminated:  # pragma: no cover
+        if self._terminated:
             # If the session has been terminated, return 404 Not Found
             response = self._create_error_response(
                 "Not Found: Session has been terminated",
@@ -387,7 +387,7 @@ class StreamableHTTPServerTransport:
             await self._handle_get_request(request, send)
         elif request.method == "DELETE":
             await self._handle_delete_request(request, send)
-        else:  # pragma: no cover
+        else:
             await self._handle_unsupported_request(request, send)
 
     def _check_accept_headers(self, request: Request) -> tuple[bool, bool]:
@@ -439,21 +439,21 @@ class StreamableHTTPServerTransport:
     async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
         writer = self._read_stream_writer
-        if writer is None:  # pragma: no cover
-            raise ValueError("No read stream writer available. Ensure connect() is called first.")
+        if writer is None:
+            raise ValueError("No read stream writer available. Ensure connect() is called first.")  # pragma: no cover
         try:
             # Validate Accept header
             if not await self._validate_accept_header(request, scope, send):
                 return
 
             # Validate Content-Type
-            if not self._check_content_type(request):  # pragma: no cover
-                response = self._create_error_response(
-                    "Unsupported Media Type: Content-Type must be application/json",
-                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
-                )
-                await response(scope, receive, send)
-                return
+            if not self._check_content_type(request):
+                response = self._create_error_response(  # pragma: lax no cover
+                    "Unsupported Media Type: Content-Type must be application/json",  # pragma: lax no cover
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,  # pragma: lax no cover
+                )  # pragma: lax no cover
+                await response(scope, receive, send)  # pragma: lax no cover
+                return  # pragma: lax no cover
 
             # Parse the body - only read it once
             body = await request.body()
@@ -467,7 +467,7 @@ class StreamableHTTPServerTransport:
 
             try:
                 message = jsonrpc_message_adapter.validate_python(raw_message, by_name=False)
-            except ValidationError as e:  # pragma: no cover
+            except ValidationError as e:
                 response = self._create_error_response(
                     f"Validation error: {str(e)}",
                     HTTPStatus.BAD_REQUEST,
@@ -486,14 +486,14 @@ class StreamableHTTPServerTransport:
                     request_session_id = self._get_session_id(request)
 
                     # If request has a session ID but doesn't match, return 404
-                    if request_session_id and request_session_id != self.mcp_session_id:  # pragma: no cover
-                        response = self._create_error_response(
-                            "Not Found: Invalid or expired session ID",
-                            HTTPStatus.NOT_FOUND,
-                        )
-                        await response(scope, receive, send)
-                        return
-            elif not await self._validate_request_headers(request, send):  # pragma: no cover
+                    if request_session_id and request_session_id != self.mcp_session_id:
+                        response = self._create_error_response(  # pragma: lax no cover
+                            "Not Found: Invalid or expired session ID",  # pragma: lax no cover
+                            HTTPStatus.NOT_FOUND,  # pragma: lax no cover
+                        )  # pragma: lax no cover
+                        await response(scope, receive, send)  # pragma: lax no cover
+                        return  # pragma: lax no cover
+            elif not await self._validate_request_headers(request, send):
                 return
 
             # For notifications and responses only, return 202 Accepted
@@ -544,30 +544,30 @@ class StreamableHTTPServerTransport:
                             response_message = event_message.message
                             break
                         # For notifications and requests, keep waiting
-                        else:  # pragma: no cover
-                            logger.debug(f"received: {event_message.message.method}")
+                        else:
+                            logger.debug(f"received: {event_message.message.method}")  # pragma: lax no cover
 
                     # At this point we should have a response
                     if response_message:
                         # Create JSON response
                         response = self._create_json_response(response_message)
                         await response(scope, receive, send)
-                    else:  # pragma: no cover
+                    else:
                         # This shouldn't happen in normal operation
-                        logger.error("No response message received before stream closed")
-                        response = self._create_error_response(
-                            "Error processing request: No response received",
-                            HTTPStatus.INTERNAL_SERVER_ERROR,
-                        )
-                        await response(scope, receive, send)
-                except Exception:  # pragma: no cover
-                    logger.exception("Error processing JSON response")
-                    response = self._create_error_response(
-                        "Error processing request",
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        INTERNAL_ERROR,
-                    )
-                    await response(scope, receive, send)
+                        logger.error("No response message received before stream closed")  # pragma: lax no cover
+                        response = self._create_error_response(  # pragma: lax no cover
+                            "Error processing request: No response received",  # pragma: lax no cover
+                            HTTPStatus.INTERNAL_SERVER_ERROR,  # pragma: lax no cover
+                        )  # pragma: lax no cover
+                        await response(scope, receive, send)  # pragma: lax no cover
+                except Exception:  # pragma: lax no cover
+                    logger.exception("Error processing JSON response")  # pragma: lax no cover
+                    response = self._create_error_response(  # pragma: lax no cover
+                        "Error processing request",  # pragma: lax no cover
+                        HTTPStatus.INTERNAL_SERVER_ERROR,  # pragma: lax no cover
+                        INTERNAL_ERROR,  # pragma: lax no cover
+                    )  # pragma: lax no cover
+                    await response(scope, receive, send)  # pragma: lax no cover
                 finally:
                     await self._clean_up_memory_streams(request_id)
             else:
@@ -626,14 +626,14 @@ class StreamableHTTPServerTransport:
                         # Then send the message to be processed by the server
                         session_message = self._create_session_message(message, request, request_id, protocol_version)
                         await writer.send(session_message)
-                except Exception:  # pragma: no cover
+                except Exception:  # pragma: lax no cover
                     logger.exception("SSE response error")
                     await sse_stream_writer.aclose()
                     await self._clean_up_memory_streams(request_id)
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:  # pragma: no cover
+        except Exception as err:  # pragma: lax no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -653,13 +653,15 @@ class StreamableHTTPServerTransport:
         and notifications on this stream.
         """
         writer = self._read_stream_writer
-        if writer is None:  # pragma: no cover
-            raise ValueError("No read stream writer available. Ensure connect() is called first.")
+        if writer is None:
+            raise ValueError(
+                "No read stream writer available. Ensure connect() is called first."
+            )  # pragma: lax no cover
 
         # Validate Accept header - must include text/event-stream
         _, has_sse = self._check_accept_headers(request)
 
-        if not has_sse:  # pragma: no cover
+        if not has_sse:
             response = self._create_error_response(
                 "Not Acceptable: Client must accept text/event-stream",
                 HTTPStatus.NOT_ACCEPTABLE,
@@ -667,11 +669,11 @@ class StreamableHTTPServerTransport:
             await response(request.scope, request.receive, send)
             return
 
-        if not await self._validate_request_headers(request, send):  # pragma: no cover
-            return
+        if not await self._validate_request_headers(request, send):
+            return  # pragma: lax no cover
 
         # Handle resumability: check for Last-Event-ID header
-        if last_event_id := request.headers.get(LAST_EVENT_ID_HEADER):  # pragma: no cover
+        if last_event_id := request.headers.get(LAST_EVENT_ID_HEADER):
             await self._replay_events(last_event_id, request, send)
             return
 
@@ -681,11 +683,11 @@ class StreamableHTTPServerTransport:
             "Content-Type": CONTENT_TYPE_SSE,
         }
 
-        if self.mcp_session_id:
+        if self.mcp_session_id:  # pragma: no branch
             headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         # Check if we already have an active GET stream
-        if GET_STREAM_KEY in self._request_streams:  # pragma: no cover
+        if GET_STREAM_KEY in self._request_streams:
             response = self._create_error_response(
                 "Conflict: Only one SSE stream is allowed per session",
                 HTTPStatus.CONFLICT,
@@ -714,8 +716,8 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
-            except Exception:  # pragma: no cover
-                logger.exception("Error in standalone SSE writer")
+            except Exception:  # pragma: lax no cover
+                logger.exception("Error in standalone SSE writer")  # pragma: lax no cover
             finally:
                 logger.debug("Closing standalone SSE writer")
                 await self._clean_up_memory_streams(GET_STREAM_KEY)
@@ -740,17 +742,17 @@ class StreamableHTTPServerTransport:
     async def _handle_delete_request(self, request: Request, send: Send) -> None:
         """Handle DELETE requests for explicit session termination."""
         # Validate session ID
-        if not self.mcp_session_id:  # pragma: no cover
+        if not self.mcp_session_id:
             # If no session ID set, return Method Not Allowed
-            response = self._create_error_response(
-                "Method Not Allowed: Session termination not supported",
-                HTTPStatus.METHOD_NOT_ALLOWED,
-            )
-            await response(request.scope, request.receive, send)
-            return
+            response = self._create_error_response(  # pragma: lax no cover
+                "Method Not Allowed: Session termination not supported",  # pragma: lax no cover
+                HTTPStatus.METHOD_NOT_ALLOWED,  # pragma: lax no cover
+            )  # pragma: lax no cover
+            await response(request.scope, request.receive, send)  # pragma: lax no cover
+            return  # pragma: lax no cover
 
-        if not await self._validate_request_headers(request, send):  # pragma: no cover
-            return
+        if not await self._validate_request_headers(request, send):
+            return  # pragma: lax no cover
 
         await self.terminate()
 
@@ -787,17 +789,17 @@ class StreamableHTTPServerTransport:
                 await self._write_stream_reader.aclose()
             if self._write_stream is not None:  # pragma: no branch
                 await self._write_stream.aclose()
-        except Exception as e:  # pragma: no cover
+        except Exception as e:  # pragma: lax no cover
             # During cleanup, we catch all exceptions since streams might be in various states
             logger.debug(f"Error closing streams: {e}")
 
-    async def _handle_unsupported_request(self, request: Request, send: Send) -> None:  # pragma: no cover
+    async def _handle_unsupported_request(self, request: Request, send: Send) -> None:
         """Handle unsupported HTTP methods."""
         headers = {
             "Content-Type": CONTENT_TYPE_JSON,
             "Allow": "GET, POST, DELETE",
         }
-        if self.mcp_session_id:
+        if self.mcp_session_id:  # pragma: no branch
             headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         response = self._create_error_response(
@@ -816,15 +818,15 @@ class StreamableHTTPServerTransport:
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
-        if not self.mcp_session_id:  # pragma: no cover
+        if not self.mcp_session_id:
             # If we're not using session IDs, return True
-            return True
+            return True  # pragma: lax no cover
 
         # Get the session ID from the request headers
         request_session_id = self._get_session_id(request)
 
         # If no session ID provided but required, return error
-        if not request_session_id:  # pragma: no cover
+        if not request_session_id:
             response = self._create_error_response(
                 "Bad Request: Missing session ID",
                 HTTPStatus.BAD_REQUEST,
@@ -833,13 +835,13 @@ class StreamableHTTPServerTransport:
             return False
 
         # If session ID doesn't match, return error
-        if request_session_id != self.mcp_session_id:  # pragma: no cover
-            response = self._create_error_response(
-                "Not Found: Invalid or expired session ID",
-                HTTPStatus.NOT_FOUND,
-            )
-            await response(request.scope, request.receive, send)
-            return False
+        if request_session_id != self.mcp_session_id:
+            response = self._create_error_response(  # pragma: lax no cover
+                "Not Found: Invalid or expired session ID",  # pragma: lax no cover
+                HTTPStatus.NOT_FOUND,  # pragma: lax no cover
+            )  # pragma: lax no cover
+            await response(request.scope, request.receive, send)  # pragma: lax no cover
+            return False  # pragma: lax no cover
 
         return True
 
@@ -849,11 +851,11 @@ class StreamableHTTPServerTransport:
         protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
 
         # If no protocol version provided, assume default version
-        if protocol_version is None:  # pragma: no cover
+        if protocol_version is None:
             protocol_version = DEFAULT_NEGOTIATED_VERSION
 
         # Check if the protocol version is supported
-        if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:  # pragma: no cover
+        if protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
             supported_versions = ", ".join(SUPPORTED_PROTOCOL_VERSIONS)
             response = self._create_error_response(
                 f"Bad Request: Unsupported protocol version: {protocol_version}. "
@@ -865,14 +867,14 @@ class StreamableHTTPServerTransport:
 
         return True
 
-    async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:  # pragma: no cover
+    async def _replay_events(self, last_event_id: str, request: Request, send: Send) -> None:
         """Replays events that would have been sent after the specified event ID.
 
         Only used when resumability is enabled.
         """
         event_store = self._event_store
         if not event_store:
-            return
+            return  # pragma: no cover
 
         try:
             headers = {
@@ -881,7 +883,7 @@ class StreamableHTTPServerTransport:
                 "Content-Type": CONTENT_TYPE_SSE,
             }
 
-            if self.mcp_session_id:
+            if self.mcp_session_id:  # pragma: no branch
                 headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
             # Get protocol version from header (already validated in _validate_protocol_version)
@@ -902,7 +904,7 @@ class StreamableHTTPServerTransport:
                         stream_id = await event_store.replay_events_after(last_event_id, send_event)
 
                         # If stream ID not in mapping, create it
-                        if stream_id and stream_id not in self._request_streams:
+                        if stream_id and stream_id not in self._request_streams:  # pragma: no branch
                             # Register SSE writer so close_sse_stream() can close it
                             self._sse_stream_writers[stream_id] = sse_stream_writer
 
@@ -921,9 +923,9 @@ class StreamableHTTPServerTransport:
                                     await sse_stream_writer.send(event_data)
                 except anyio.ClosedResourceError:
                     # Expected when close_sse_stream() is called
-                    logger.debug("Replay SSE stream closed by close_sse_stream()")
+                    logger.debug("Replay SSE stream closed by close_sse_stream()")  # pragma: no cover
                 except Exception:
-                    logger.exception("Error in replay sender")
+                    logger.exception("Error in replay sender")  # pragma: lax no cover
 
             # Create and start EventSourceResponse
             response = EventSourceResponse(
@@ -934,13 +936,13 @@ class StreamableHTTPServerTransport:
 
             try:
                 await response(request.scope, request.receive, send)
-            except Exception:
+            except Exception:  # pragma: lax no cover
                 logger.exception("Error in replay response")
             finally:
                 await sse_stream_writer.aclose()
                 await sse_stream_reader.aclose()
 
-        except Exception:
+        except Exception:  # pragma: lax no cover
             logger.exception("Error replaying events")
             response = self._create_error_response(
                 "Error replaying events",
@@ -991,7 +993,7 @@ class StreamableHTTPServerTransport:
                         if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
                             target_request_id = str(message.id)
                         # Extract related_request_id from meta if it exists
-                        elif (  # pragma: no cover
+                        elif (
                             session_message.metadata is not None
                             and isinstance(
                                 session_message.metadata,
@@ -1015,10 +1017,10 @@ class StreamableHTTPServerTransport:
                             try:
                                 # Send both the message and the event ID
                                 await self._request_streams[request_stream_id][0].send(EventMessage(message, event_id))
-                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: no cover
-                                # Stream might be closed, remove from registry
-                                self._request_streams.pop(request_stream_id, None)
-                        else:  # pragma: no cover
+                            except (anyio.BrokenResourceError, anyio.ClosedResourceError):  # pragma: lax no cover
+                                # Stream might be closed, remove from registry  # pragma: lax no cover
+                                self._request_streams.pop(request_stream_id, None)  # pragma: lax no cover
+                        else:
                             logger.debug(
                                 f"""Request stream {request_stream_id} not found
                                 for message. Still processing message as the client
@@ -1049,6 +1051,6 @@ class StreamableHTTPServerTransport:
                     await read_stream.aclose()
                     await write_stream_reader.aclose()
                     await write_stream.aclose()
-                except Exception as e:  # pragma: no cover
+                except Exception as e:  # pragma: lax no cover
                     # During cleanup, we catch all exceptions since streams might be in various states
                     logger.debug(f"Error closing streams: {e}")
