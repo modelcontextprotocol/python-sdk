@@ -1494,7 +1494,7 @@ async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolR
 
     if name == "echo_headers":
         headers_info: dict[str, Any] = {}
-        if ctx.request and isinstance(ctx.request, Request):
+        if ctx.request and isinstance(ctx.request, Request):  # pragma: no branch
             headers_info = dict(ctx.request.headers)
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(headers_info))])
 
@@ -1505,14 +1505,14 @@ async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolR
             "method": None,
             "path": None,
         }
-        if ctx.request and isinstance(ctx.request, Request):
+        if ctx.request and isinstance(ctx.request, Request):  # pragma: no branch
             request = ctx.request
             context_data["headers"] = dict(request.headers)
             context_data["method"] = request.method
             context_data["path"] = request.url.path
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(context_data))])
 
-    return CallToolResult(content=[TextContent(type="text", text=f"Unknown tool: {name}")])
+    return CallToolResult(content=[TextContent(type="text", text=f"Unknown tool: {name}")])  # pragma: no cover
 
 
 # Server runner for context-aware testing
