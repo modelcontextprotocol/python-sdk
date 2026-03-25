@@ -276,19 +276,12 @@ class MCPServer(Generic[LifespanResultT]):
     def run(
         self,
         transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
-        *,
-        stdin: anyio.AsyncFile[str] | None = None,
-        stdout: anyio.AsyncFile[str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Run the MCP server. Note this is a synchronous function.
 
         Args:
             transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
-            stdin: Optional async text stream for MCP input (stdio transport only).
-                When omitted, uses process stdin. See :func:`mcp.server.stdio.stdio_server`.
-            stdout: Optional async text stream for MCP output (stdio transport only).
-                When omitted, uses process stdout.
             **kwargs: Transport-specific options (see overloads for details)
         """
         TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
@@ -297,7 +290,7 @@ class MCPServer(Generic[LifespanResultT]):
 
         match transport:
             case "stdio":
-                anyio.run(lambda: self.run_stdio_async(stdin=stdin, stdout=stdout))
+                anyio.run(lambda: self.run_stdio_async(**kwargs))
             case "sse":  # pragma: no cover
                 anyio.run(lambda: self.run_sse_async(**kwargs))
             case "streamable-http":  # pragma: no cover
