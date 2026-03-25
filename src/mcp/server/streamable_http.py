@@ -633,7 +633,9 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:  # pragma: no cover
+        # Fires on some CI matrix entries (3.12 lowest-direct ubuntu) but not
+        # others — concurrent-shutdown exception timing varies by dep version.
+        except Exception as err:  # pragma: lax no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",
@@ -714,7 +716,9 @@ class StreamableHTTPServerTransport:
                         # Send the message via SSE
                         event_data = self._create_event_data(event_message)
                         await sse_stream_writer.send(event_data)
-            except Exception:
+            # Fires on most CI matrix entries but not 3.14 locked ubuntu —
+            # EventSourceResponse cancellation vs stream-close ordering varies.
+            except Exception:  # pragma: lax no cover
                 logger.exception("Error in standalone SSE writer")
             finally:
                 logger.debug("Closing standalone SSE writer")
