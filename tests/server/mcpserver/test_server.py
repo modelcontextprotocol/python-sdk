@@ -20,6 +20,7 @@ from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_PARAMS,
     AudioContent,
     BlobResourceContents,
     Completion,
@@ -692,12 +693,15 @@ class TestServerResources:
             assert result.contents[0].text == "Hello, world!"
 
     async def test_read_unknown_resource(self):
-        """Test that reading an unknown resource raises MCPError."""
+        """Test that reading an unknown resource returns -32602 with uri in data (SEP-2164)."""
         mcp = MCPServer()
 
         async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="Unknown resource: unknown://missing"):
+            with pytest.raises(MCPError, match="Unknown resource: unknown://missing") as exc_info:
                 await client.read_resource("unknown://missing")
+
+            assert exc_info.value.error.code == INVALID_PARAMS
+            assert exc_info.value.error.data == {"uri": "unknown://missing"}
 
     async def test_read_resource_error(self):
         """Test that resource read errors are properly wrapped in MCPError."""
