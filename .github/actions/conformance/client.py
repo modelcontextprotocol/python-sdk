@@ -352,9 +352,8 @@ async def run_cross_app_access_complete_flow(server_url: str) -> None:
     if not idp_issuer:
         raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_issuer'")
 
-    # Extract base URL and construct auth issuer and resource ID
-    # The conformance test sets up auth server at a known location
-    base_url = server_url.replace("/mcp", "")
+    # Extract base URL by stripping trailing /mcp path (Python 3.9+)
+    base_url = server_url.removesuffix("/mcp")
     auth_issuer = context.get("auth_issuer", base_url)
     resource_id = context.get("resource_id", server_url)
 
