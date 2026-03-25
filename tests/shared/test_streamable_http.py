@@ -8,6 +8,7 @@ from __future__ import annotations as _annotations
 import json
 import multiprocessing
 import socket
+import threading
 import time
 import traceback
 from collections.abc import AsyncIterator, Generator
@@ -1462,7 +1463,7 @@ async def test_streamablehttp_server_sampling(basic_server: None, basic_server_u
 
 
 # Context-aware server implementation for testing request context propagation
-async def _handle_context_list_tools(  # pragma: no cover
+async def _handle_context_list_tools(
     ctx: ServerRequestContext, params: PaginatedRequestParams | None
 ) -> ListToolsResult:
     return ListToolsResult(
@@ -1487,9 +1488,7 @@ async def _handle_context_list_tools(  # pragma: no cover
     )
 
 
-async def _handle_context_call_tool(  # pragma: no cover
-    ctx: ServerRequestContext, params: CallToolRequestParams
-) -> CallToolResult:
+async def _handle_context_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     name = params.name
     args = params.arguments or {}
 
@@ -1517,8 +1516,8 @@ async def _handle_context_call_tool(  # pragma: no cover
 
 
 # Server runner for context-aware testing
-def run_context_aware_server(port: int):  # pragma: no cover
-    """Run the context-aware test server."""
+def _create_context_aware_server(port: int) -> uvicorn.Server:
+    """Create the context-aware test server app and uvicorn.Server."""
     server = Server(
         "ContextAwareServer",
         on_list_tools=_handle_context_list_tools,
@@ -1547,24 +1546,22 @@ def run_context_aware_server(port: int):  # pragma: no cover
             log_level="error",
         )
     )
-    server_instance.run()
+    return server_instance
 
 
 @pytest.fixture
 def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
-    """Start the context-aware server in a separate process."""
-    proc = multiprocessing.Process(target=run_context_aware_server, args=(basic_server_port,), daemon=True)
-    proc.start()
+    """Start the context-aware server on a background thread (in-process for coverage)."""
+    server_instance = _create_context_aware_server(basic_server_port)
+    thread = threading.Thread(target=server_instance.run, daemon=True)
+    thread.start()
 
-    # Wait for server to be running
     wait_for_server(basic_server_port)
 
     yield
 
-    proc.kill()
-    proc.join(timeout=2)
-    if proc.is_alive():  # pragma: no cover
-        print("Context-aware server process failed to terminate")
+    server_instance.should_exit = True
+    thread.join(timeout=5)
 
 
 @pytest.mark.anyio
