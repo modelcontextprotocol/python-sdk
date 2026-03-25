@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 from unittest.mock import AsyncMock
 
 import anyio
@@ -17,14 +19,17 @@ async def test_run_stdio_async_passes_streams_to_stdio_server(monkeypatch: pytes
     captured: dict[str, object] = {}
 
     @asynccontextmanager
-    async def spy_stdio_server(stdin=None, stdout=None):
+    async def spy_stdio_server(
+        stdin: anyio.AsyncFile[str] | None = None,
+        stdout: anyio.AsyncFile[str] | None = None,
+    ) -> AsyncIterator[tuple[AsyncMock, AsyncMock]]:
         captured["stdin"] = stdin
         captured["stdout"] = stdout
         read_stream = AsyncMock()
         write_stream = AsyncMock()
         yield read_stream, write_stream
 
-    async def noop_run(*_args, **_kwargs):
+    async def noop_run(*_args: Any, **_kwargs: Any) -> None:
         return None
 
     monkeypatch.setattr("mcp.server.mcpserver.server.stdio_server", spy_stdio_server)
