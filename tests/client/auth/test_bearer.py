@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -260,7 +262,7 @@ async def test_handler_can_read_response_body():
             async with client.stream("POST", "https://api.example.com/mcp"):
                 pass  # pragma: no cover — auth flow raises before stream body opens
 
-    assert captured == ['{"error":"invalid_token"}']
+    assert [json.loads(body) for body in captured] == [{"error": "invalid_token"}]
 
 
 async def test_handler_receives_www_authenticate_header():
