@@ -554,21 +554,21 @@ Four behaviors have changed:
 containing `..` as a path component or looking like an absolute path
 (`/etc/passwd`, `C:\Windows`) now cause the template to not match.
 This is checked on the decoded value, so `..%2Fetc` and `%2E%2E` are
-caught too. If a parameter legitimately contains these (a git commit
-range, a fully-qualified identifier), exempt it:
+caught too. Note that `..` is only flagged as a standalone path
+component, so values like `v1.0..v2.0` or `HEAD~3..HEAD` are unaffected.
+
+If a parameter legitimately needs to receive absolute paths or
+traversal sequences, exempt it:
 
 ```python
 from mcp.server.mcpserver import ResourceSecurity
 
 @mcp.resource(
-    "git://diff/{+range}",
-    security=ResourceSecurity(exempt_params={"range"}),
+    "inspect://file/{+target}",
+    security=ResourceSecurity(exempt_params={"target"}),
 )
-def git_diff(range: str) -> str: ...
+def inspect_file(target: str) -> str: ...
 ```
-
-Note that `..` is only flagged as a standalone path component, so a
-value like `v1.0..v2.0` is unaffected.
 
 **Template literals are regex-escaped.** Previously a `.` in your
 template matched any character; now it matches only a literal dot.

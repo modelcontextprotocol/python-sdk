@@ -97,6 +97,9 @@ Reading `logs://api` uses the defaults. Reading
 `logs://api?since=15m&level=error` narrows it down. The path identifies
 *which* resource; the query tunes *how* you read it.
 
+Query params are matched leniently: order doesn't matter, extras are
+ignored, and omitted params fall through to your function defaults.
+
 ### Path segments as a list
 
 If you want each path segment as a separate list item rather than one
@@ -141,6 +144,10 @@ Before your handler runs, the SDK rejects any parameter that:
 - contains `..` as a path component
 - looks like an absolute path (`/etc/passwd`, `C:\Windows`)
 
+The `..` check is component-based, not a substring scan. Values like
+`v1.0..v2.0` or `HEAD~3..HEAD` pass because `..` is not a standalone
+path segment there.
+
 These checks apply to the decoded value, so they catch traversal
 regardless of how it was encoded in the URI (`../etc`, `..%2Fetc`,
 `%2E%2E/etc`, `..%5Cetc` all get caught).
@@ -174,19 +181,22 @@ client as a `ResourceError`.
 
 ### When the defaults get in the way
 
-Sometimes `..` in a parameter is legitimate. A git commit range like
-`HEAD~3..HEAD` contains `..` but it's not a path. Exempt that parameter:
+Sometimes the checks block legitimate values. An external-tool wrapper
+might intentionally receive an absolute path, or a parameter might be a
+relative reference like `../sibling` that your handler interprets
+safely without touching the filesystem. Exempt that parameter:
 
 ```python
 from mcp.server.mcpserver import ResourceSecurity
 
 
 @mcp.resource(
-    "git://diff/{+range}",
-    security=ResourceSecurity(exempt_params={"range"}),
+    "inspect://file/{+target}",
+    security=ResourceSecurity(exempt_params={"target"}),
 )
-def git_diff(range: str) -> str:
-    return run_git("diff", range)
+def inspect_file(target: str) -> str:
+    # target might be "/usr/bin/python3"; this handler is trusted
+    return describe_binary(target)
 ```
 
 Or relax the policy for the whole server:
