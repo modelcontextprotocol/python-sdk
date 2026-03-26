@@ -124,21 +124,27 @@ def safe_join(base: str | Path, *parts: str) -> Path:
 
     Args:
         base: The sandbox root. May be relative; it will be resolved.
-        parts: Path components to join. Each is checked for absolute
-            form before joining.
+        parts: Path components to join. Each is checked for null bytes
+            and absolute form before joining.
 
     Returns:
         The resolved path, guaranteed to be within ``base``.
 
     Raises:
-        PathEscapeError: If any part is absolute, or if the resolved
-            path is not contained within the resolved base.
+        PathEscapeError: If any part contains a null byte, any part is
+            absolute, or the resolved path is not contained within the
+            resolved base.
     """
     base_resolved = Path(base).resolve()
 
-    # Reject absolute parts up front: Path's / operator would silently
-    # discard everything to the left of an absolute component.
     for part in parts:
+        # Null bytes pass through Path construction but fail at the
+        # syscall boundary with a cryptic error. Reject here so callers
+        # get a clear PathEscapeError instead.
+        if "\0" in part:
+            raise PathEscapeError(f"Path component contains a null byte; refusing to join onto {base_resolved}")
+        # Absolute parts would silently discard everything to the left
+        # in Path's / operator.
         if is_absolute_path(part):
             raise PathEscapeError(f"Path component {part!r} is absolute; refusing to join onto {base_resolved}")
 

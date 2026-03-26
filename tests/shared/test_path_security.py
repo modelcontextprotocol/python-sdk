@@ -120,6 +120,16 @@ def test_safe_join_rejects_windows_drive(tmp_path: Path):
         safe_join(tmp_path, "C:\\Windows\\System32")
 
 
+def test_safe_join_rejects_null_byte(tmp_path: Path):
+    with pytest.raises(PathEscapeError, match="null byte"):
+        safe_join(tmp_path, "file\0.txt")
+
+
+def test_safe_join_rejects_null_byte_in_later_part(tmp_path: Path):
+    with pytest.raises(PathEscapeError, match="null byte"):
+        safe_join(tmp_path, "docs", "file\0.txt")
+
+
 def test_safe_join_rejects_symlink_escape(tmp_path: Path):
     outside = tmp_path / "outside"
     outside.mkdir()
