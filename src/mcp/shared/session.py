@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import typing
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
@@ -17,6 +18,7 @@ from mcp.shared.response_router import ResponseRouter
 from mcp.types import (
     CONNECTION_CLOSED,
     INVALID_PARAMS,
+    METHOD_NOT_FOUND,
     REQUEST_TIMEOUT,
     CancelledNotification,
     ClientNotification,
@@ -327,6 +329,16 @@ class BaseSession(
         raise NotImplementedError
 
     @property
+    def _known_request_methods(self) -> frozenset[str]:
+        """Return the set of method names this session accepts.
+
+        Subclasses override this to return the correct set for their request
+        union type (ClientRequest for servers, ServerRequest for clients).
+        Used to distinguish METHOD_NOT_FOUND from INVALID_PARAMS errors.
+        """
+        raise NotImplementedError
+
+    @property
     def _receive_notification_adapter(self) -> TypeAdapter[ReceiveNotificationT]:
         raise NotImplementedError
 
@@ -360,10 +372,24 @@ class BaseSession(
                             # response instead of crashing the server
                             logging.warning("Failed to validate request", exc_info=True)
                             logging.debug(f"Message that failed validation: {message.message}")
+                            # Per JSON-RPC spec, return METHOD_NOT_FOUND (-32601) when
+                            # the method is not in the supported set, and INVALID_PARAMS
+                            # (-32602) when the method is known but parameters are invalid.
+                            method = getattr(message.message, "method", None)
+                            try:
+                                known = self._known_request_methods
+                            except NotImplementedError:
+                                known = frozenset()
+                            if method is not None and method not in known:
+                                error_code = METHOD_NOT_FOUND
+                                error_msg = "Method not found"
+                            else:
+                                error_code = INVALID_PARAMS
+                                error_msg = "Invalid request parameters"
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
                                 id=message.message.id,
-                                error=ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
+                                error=ErrorData(code=error_code, message=error_msg, data=""),
                             )
                             session_message = SessionMessage(message=error_response)
                             await self._write_stream.send(session_message)

@@ -105,6 +105,17 @@ class ServerSession(
         return types.client_notification_adapter
 
     @property
+    def _known_request_methods(self) -> frozenset[str]:
+        import typing
+        return frozenset(
+            str(t.model_fields["method"].default)
+            for t in typing.get_args(types.ClientRequest)
+            if hasattr(t, "model_fields")
+            and "method" in t.model_fields
+            and t.model_fields["method"].default not in (None, ...)
+        )
+
+    @property
     def client_params(self) -> types.InitializeRequestParams | None:
         return self._client_params
 

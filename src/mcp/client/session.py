@@ -145,6 +145,17 @@ class ClientSession(
     def _receive_notification_adapter(self) -> TypeAdapter[types.ServerNotification]:
         return types.server_notification_adapter
 
+    @property
+    def _known_request_methods(self) -> frozenset[str]:
+        import typing
+        return frozenset(
+            str(t.model_fields["method"].default)
+            for t in typing.get_args(types.ServerRequest)
+            if hasattr(t, "model_fields")
+            and "method" in t.model_fields
+            and t.model_fields["method"].default not in (None, ...)
+        )
+
     async def initialize(self) -> types.InitializeResult:
         sampling = (
             (self._sampling_capabilities or types.SamplingCapability())
