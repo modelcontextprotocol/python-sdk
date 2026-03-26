@@ -566,8 +566,9 @@ By default, extracted parameter values are now rejected if they:
 
 - Contain `..` as a path component (e.g., `..`, `../etc`, `a/../../b`)
 - Look like an absolute filesystem path (e.g., `/etc/passwd`, `C:\Windows`)
-- Decode to contain structural delimiters that their operator forbids
-  (e.g., `%2F` smuggled into a simple `{name}`)
+
+These checks apply to the decoded value, so they catch traversal
+regardless of encoding (`../etc`, `..%2Fetc`, `%2E%2E/etc` all caught).
 
 If your template parameters legitimately contain `..` (e.g., git commit
 ranges like `HEAD~3..HEAD`) or absolute paths, exempt them:

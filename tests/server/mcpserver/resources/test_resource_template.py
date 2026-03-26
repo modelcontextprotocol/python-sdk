@@ -26,8 +26,9 @@ def test_matches_rfc6570_reserved_expansion():
     assert t.matches("file://docs/src/main.py") == {"path": "src/main.py"}
 
 
-def test_matches_rejects_encoded_slash_in_simple_var():
-    # Path traversal via encoded slash: %2F smuggled into a simple {var}
+def test_matches_rejects_encoded_slash_traversal():
+    # %2F decodes to / in UriTemplate.match(), giving "../../etc/passwd".
+    # ResourceSecurity's traversal check then rejects the '..' components.
     t = _make("file://docs/{name}")
     assert t.matches("file://docs/..%2F..%2Fetc%2Fpasswd") is None
 
@@ -73,27 +74,33 @@ def test_matches_explode_checks_each_segment():
     assert t.matches("api/a/../c") is None
 
 
-def test_matches_encoded_backslash_caught_by_traversal_layer():
-    # %5C decodes to '\\'. Backslash is not a URI delimiter, so it passes
-    # structural integrity (layer 1). The traversal check (layer 2)
-    # normalizes '\\' to '/' and catches the '..' components.
+def test_matches_encoded_backslash_caught_by_traversal_check():
+    # %5C decodes to '\\'. The traversal check normalizes '\\' to '/'
+    # and catches the '..' components.
     t = _make("file://docs/{name}")
     assert t.matches("file://docs/..%5C..%5Csecret") is None
 
 
-def test_matches_encoded_dots_caught_by_traversal_layer():
-    # %2E%2E decodes to '..'. Contains no structural delimiter, so passes
-    # layer 1. Layer 2's traversal check catches the '..' component.
+def test_matches_encoded_dots_caught_by_traversal_check():
+    # %2E%2E decodes to '..' which the traversal check rejects.
     t = _make("file://docs/{name}")
     assert t.matches("file://docs/%2E%2E") is None
 
 
 def test_matches_mixed_encoded_and_literal_slash():
-    # One encoded slash + one literal: literal '/' prevents the regex
-    # match at layer 0 (simple var stops at '/'), so this never reaches
-    # decoding. Different failure mode than pure-encoded traversal.
+    # The literal '/' stops the simple-var regex, so the URI doesn't
+    # match the template at all.
     t = _make("file://docs/{name}")
     assert t.matches("file://docs/..%2F../etc") is None
+
+
+def test_matches_encoded_slash_without_traversal_allowed():
+    # %2F decoding to '/' is fine when there's no traversal involved.
+    # UriTemplate accepts it; ResourceSecurity only blocks '..' and
+    # absolute paths. Handlers that need single-segment should use
+    # safe_join or validate explicitly.
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/sub%2Ffile.txt") == {"name": "sub/file.txt"}
 
 
 def test_matches_escapes_template_literals():

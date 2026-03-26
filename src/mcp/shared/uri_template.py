@@ -75,20 +75,6 @@ _MATCH_PATTERN: dict[Operator, str] = {
     "&": r"[^&#]*",  # query-cont value
 }
 
-# Characters that must not appear in a DECODED value for each operator.
-# If %2F smuggles a / into a simple {var}, the decoded value violates
-# the template author's declared structure and the match is rejected.
-_STRUCTURAL_FORBIDDEN: dict[Operator, frozenset[str]] = {
-    "": frozenset("/?#&"),
-    "+": frozenset(),
-    "#": frozenset(),
-    ".": frozenset("./?#"),
-    "/": frozenset("/?#"),
-    ";": frozenset(";/?#"),
-    "?": frozenset("&#"),
-    "&": frozenset("&#"),
-}
-
 
 class InvalidUriTemplate(ValueError):
     """Raised when a URI template string is malformed or unsupported.
@@ -343,16 +329,15 @@ class UriTemplate:
         """Match a concrete URI against this template and extract variables.
 
         This is the inverse of :meth:`expand`. The URI is matched against
-        a regex derived from the template; captured values are
-        percent-decoded and validated for structural integrity.
+        a regex derived from the template and captured values are
+        percent-decoded. For any value ``v``, ``match(expand({k: v}))``
+        returns ``{k: v}``.
 
-        **Structural integrity**: decoded values must not contain
-        characters that are structurally significant for their operator.
-        A simple ``{name}`` whose value decodes to contain ``/`` is
-        rejected — if that was intended, the template author should use
-        ``{+name}``. This blocks the ``%2F``-smuggling vector where a
-        client encodes a path separator to bypass single-segment
-        semantics.
+        Matching is structural at the URI level only: a simple ``{name}``
+        will not match across a literal ``/`` in the URI (the regex stops
+        there), but a percent-encoded ``%2F`` that decodes to ``/`` is
+        accepted as part of the value. Path-safety validation belongs at
+        a higher layer; see :mod:`mcp.shared.path_security`.
 
         Example::
 
@@ -361,8 +346,6 @@ class UriTemplate:
             {'name': 'readme.txt'}
             >>> t.match("file://docs/hello%20world.txt")
             {'name': 'hello world.txt'}
-            >>> t.match("file://docs/..%2Fetc%2Fpasswd") is None  # / in simple var
-            True
 
             >>> t = UriTemplate.parse("file://docs/{+path}")
             >>> t.match("file://docs/src/main.py")
@@ -381,8 +364,7 @@ class UriTemplate:
         Returns:
             A mapping from variable names to decoded values (``str`` for
             scalar variables, ``list[str]`` for explode variables), or
-            ``None`` if the URI does not match the template, a decoded
-            value violates structural integrity, or the URI exceeds
+            ``None`` if the URI does not match the template or exceeds
             ``max_uri_length``.
         """
         if len(uri) > max_uri_length:
@@ -395,12 +377,10 @@ class UriTemplate:
         # One capture group per variable, emitted in template order.
         for var, raw in zip(self._variables, m.groups()):
             spec = _OPERATOR_SPECS[var.operator]
-            forbidden = _STRUCTURAL_FORBIDDEN[var.operator]
 
             if var.explode:
                 # Explode capture holds the whole run including separators,
-                # e.g. "/a/b/c" or ";keys=a;keys=b". Split, decode each
-                # segment, check each.
+                # e.g. "/a/b/c" or ";keys=a;keys=b". Split and decode each.
                 if not raw:
                     result[var.name] = []
                     continue
@@ -419,18 +399,10 @@ class UriTemplate:
                             seg = ""
                         else:
                             return None
-                    decoded = unquote(seg)
-                    if any(c in decoded for c in forbidden):
-                        return None
-                    segments.append(decoded)
+                    segments.append(unquote(seg))
                 result[var.name] = segments
             else:
-                decoded = unquote(raw)
-                # Structural integrity: reject if decoding revealed a
-                # delimiter the operator doesn't permit.
-                if any(c in decoded for c in forbidden):
-                    return None
-                result[var.name] = decoded
+                result[var.name] = unquote(raw)
 
         return result
 

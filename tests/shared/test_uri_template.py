@@ -410,27 +410,26 @@ def test_match_escapes_template_literals():
 
 
 @pytest.mark.parametrize(
-    ("template", "uri"),
+    ("template", "uri", "expected"),
     [
-        # %2F in simple var — encoded-slash path traversal
-        ("file://docs/{name}", "file://docs/..%2F..%2Fetc%2Fpasswd"),
-        ("file://docs/{name}", "file://docs/..%2f..%2fetc%2fpasswd"),
-        # %3F (?) in simple var
-        ("{var}", "a%3Fb"),
-        # %2E (.) in label var — would break label structure
-        ("file{.ext}", "file.a%2Eb"),
-        # %2F in path-segment var
-        ("api{/v}", "api/a%2Fb"),
-        # %26 (&) in query var — would break query structure
-        ("search{?q}", "search?q=a%26b"),
+        # Percent-encoded delimiters round-trip through match/expand.
+        # Path-safety validation belongs to ResourceSecurity, not here.
+        ("file://docs/{name}", "file://docs/a%2Fb", {"name": "a/b"}),
+        ("{var}", "a%3Fb", {"var": "a?b"}),
+        ("{var}", "a%23b", {"var": "a#b"}),
+        ("{var}", "a%26b", {"var": "a&b"}),
+        ("file{.ext}", "file.a%2Eb", {"ext": "a.b"}),
+        ("api{/v}", "api/a%2Fb", {"v": "a/b"}),
+        ("search{?q}", "search?q=a%26b", {"q": "a&b"}),
+        ("{;filter}", ";filter=a%3Bb", {"filter": "a;b"}),
     ],
 )
-def test_match_structural_integrity_rejects_smuggled_delimiters(template: str, uri: str):
-    assert UriTemplate.parse(template).match(uri) is None
+def test_match_encoded_delimiters_roundtrip(template: str, uri: str, expected: dict[str, str]):
+    assert UriTemplate.parse(template).match(uri) == expected
 
 
-def test_match_structural_integrity_allows_slash_in_reserved():
-    # {+var} explicitly permits / — structural check must not block it
+def test_match_reserved_expansion_handles_slash():
+    # {+var} allows literal / (not just encoded)
     t = UriTemplate.parse("{+path}")
     assert t.match("a%2Fb") == {"path": "a/b"}
     assert t.match("a/b") == {"path": "a/b"}
@@ -438,24 +437,9 @@ def test_match_structural_integrity_allows_slash_in_reserved():
 
 def test_match_double_encoding_decoded_once():
     # %252F is %2F encoded again. Single decode gives "%2F" (a literal
-    # percent sign, a '2', and an 'F'), which contains no '/' and should
-    # be accepted. Guards against over-decoding.
+    # percent sign, a '2', and an 'F'). Guards against over-decoding.
     t = UriTemplate.parse("file://docs/{name}")
     assert t.match("file://docs/..%252Fetc") == {"name": "..%2Fetc"}
-
-
-def test_match_multi_param_one_poisoned_rejects_whole():
-    # One bad param in a multi-param template rejects the entire match
-    t = UriTemplate.parse("file://{org}/{repo}")
-    assert t.match("file://acme/..%2Fsecret") is None
-    # But the same template with clean params matches fine
-    assert t.match("file://acme/project") == {"org": "acme", "repo": "project"}
-
-
-def test_match_bare_encoded_delimiter_rejected():
-    # A value that decodes to only the forbidden delimiter
-    t = UriTemplate.parse("file://docs/{name}")
-    assert t.match("file://docs/%2F") is None
 
 
 def test_match_rejects_oversized_uri():
@@ -478,10 +462,11 @@ def test_match_default_uri_length_limit():
     assert t.match("x" * (DEFAULT_MAX_URI_LENGTH + 1)) is None
 
 
-def test_match_structural_integrity_per_explode_segment():
+def test_match_explode_encoded_separator_in_segment():
+    # An encoded separator inside a segment decodes as part of the value,
+    # not as a split point. The split happens at literal separators only.
     t = UriTemplate.parse("/files{/path*}")
-    # Each segment checked independently
-    assert t.match("/files/a%2Fb/c") is None
+    assert t.match("/files/a%2Fb/c") == {"path": ["a/b", "c"]}
 
 
 @pytest.mark.parametrize(

@@ -140,8 +140,10 @@ Before your handler runs, the SDK rejects any parameter that:
 
 - contains `..` as a path component
 - looks like an absolute path (`/etc/passwd`, `C:\Windows`)
-- smuggles a delimiter through URL encoding (for example, `%2F` in a
-  plain `{name}` where `/` isn't allowed)
+
+These checks apply to the decoded value, so they catch traversal
+regardless of how it was encoded in the URI (`../etc`, `..%2Fetc`,
+`%2E%2E/etc`, `..%5Cetc` all get caught).
 
 A request that trips these checks is treated as a non-match: the SDK
 raises `ResourceError("Unknown resource: {uri}")`, which the client
@@ -271,8 +273,8 @@ templates (below) if you have any, then raise for anything else.
 ### Templates
 
 The template engine `MCPServer` uses lives in `mcp.shared.uri_template`
-and works on its own. You get the same parsing, matching, and
-structural checks; you wire up the routing and policy yourself.
+and works on its own. You get the same parsing and matching; you wire
+up the routing and security policy yourself.
 
 #### Matching requests
 
@@ -306,8 +308,8 @@ server = Server("my-server", on_read_resource=on_read_resource)
 ```
 
 `UriTemplate.match()` returns the extracted variables or `None`. URL
-decoding and the structural checks (rejecting `%2F` in simple `{name}`
-and so on) happen inside `match()`, the same as in `MCPServer`.
+decoding happens inside `match()`; the decoded values are returned
+as-is without path-safety validation.
 
 Values come out as strings. Convert them yourself: `int(vars["id"])`,
 `Path(vars["path"])`, whatever your handler needs.

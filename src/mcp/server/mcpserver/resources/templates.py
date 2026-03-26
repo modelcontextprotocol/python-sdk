@@ -25,11 +25,10 @@ if TYPE_CHECKING:
 class ResourceSecurity:
     """Security policy applied to extracted resource template parameters.
 
-    These checks run **after** :meth:`~mcp.shared.uri_template.UriTemplate.match`
-    has already enforced structural integrity (e.g., rejected ``%2F`` in
-    simple ``{var}``). They catch semantic attacks that structural checks
-    cannot: ``..`` traversal and absolute-path injection work even with
-    perfectly-formed URI components.
+    These checks run after :meth:`~mcp.shared.uri_template.UriTemplate.match`
+    has extracted and decoded parameter values. They catch path-traversal
+    and absolute-path injection regardless of how the value was encoded in
+    the URI (literal, ``%2F``, ``%5C``, ``%2E%2E``).
 
     Example::
 
@@ -153,10 +152,9 @@ class ResourceTemplate(BaseModel):
     def matches(self, uri: str) -> dict[str, str | list[str]] | None:
         """Check if a URI matches this template and extract parameters.
 
-        Delegates to :meth:`UriTemplate.match` for RFC 6570 matching
-        with structural integrity (``%2F`` smuggling rejected for simple
-        vars), then applies this template's :class:`ResourceSecurity`
-        policy (path traversal, absolute paths).
+        Delegates to :meth:`UriTemplate.match` for RFC 6570 extraction,
+        then applies this template's :class:`ResourceSecurity` policy
+        (path traversal, absolute paths).
 
         Returns:
             Extracted parameters on success, or ``None`` if the URI
