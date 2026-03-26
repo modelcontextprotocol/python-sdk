@@ -1570,6 +1570,14 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
     server_instance.should_exit = True
     thread.join(timeout=5)
 
+    # Force GC and suppress Windows ProactorBasePipeTransport.__del__ warnings
+    # that surface when the event loop is torn down in a thread.
+    import gc
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=pytest.PytestUnraisableExceptionWarning)
+        gc.collect()
+
 
 @pytest.mark.anyio
 async def test_streamablehttp_request_context_propagation(context_aware_server: None, basic_server_url: str) -> None:
