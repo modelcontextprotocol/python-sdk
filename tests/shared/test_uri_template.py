@@ -280,6 +280,8 @@ def test_frozen():
         ("{/path*}", {"path": ["a", "b", "c"]}, "/a/b/c"),
         ("{.labels*}", {"labels": ["x", "y"]}, ".x.y"),
         ("{;keys*}", {"keys": ["a", "b"]}, ";keys=a;keys=b"),
+        # RFC §3.2.7 ifemp: ; omits = for empty explode items
+        ("{;keys*}", {"keys": ["a", "", "b"]}, ";keys=a;keys;keys=b"),
         # Undefined variables omitted
         ("{?q,page}", {"q": "x"}, "?q=x"),
         ("{a}{b}", {"a": "x"}, "x"),
@@ -333,6 +335,10 @@ def test_expand_rejects_invalid_value_types(value: object):
         # Level 3: path-style param
         ("item{;id}", "item;id=42", {"id": "42"}),
         ("item{;id}", "item;id", {"id": ""}),
+        # Explode: ; emits name=value per item, match strips the prefix
+        ("item{;keys*}", "item;keys=a;keys=b", {"keys": ["a", "b"]}),
+        ("item{;keys*}", "item;keys=a;keys;keys=b", {"keys": ["a", "", "b"]}),
+        ("item{;keys*}", "item", {"keys": []}),
         # Level 3: query
         ("search{?q}", "search?q=hello", {"q": "hello"}),
         ("search{?q}", "search?q=", {"q": ""}),
@@ -367,6 +373,12 @@ def test_match(template: str, uri: str, expected: dict[str, str | list[str]]):
         ("/users/{id}/posts/{pid}", "/users/1/posts/2/extra"),
         # Repeated-slash literal with wrong slash count
         ("///{a}////{b}////", "//x////y////"),
+        # ; name boundary: {;id} must not match a longer parameter name
+        ("item{;id}", "item;identity=john"),
+        ("item{;id}", "item;ident"),
+        # ; explode: wrong parameter name in any segment rejects the match
+        ("item{;keys*}", "item;admin=true"),
+        ("item{;keys*}", "item;keys=a;admin=true"),
     ],
 )
 def test_match_no_match(template: str, uri: str):
@@ -482,6 +494,10 @@ def test_match_structural_integrity_per_explode_segment():
         ("file{.ext}", {"ext": "txt"}),
         ("/files{/path*}", {"path": ["a", "b", "c"]}),
         ("{var}", {"var": "hello world"}),
+        ("item{;id}", {"id": "42"}),
+        ("item{;id}", {"id": ""}),
+        ("item{;keys*}", {"keys": ["a", "b", "c"]}),
+        ("item{;keys*}", {"keys": ["a", "", "b"]}),
     ],
 )
 def test_roundtrip_expand_then_match(template: str, variables: dict[str, str | list[str]]):

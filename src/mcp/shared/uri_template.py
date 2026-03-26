@@ -185,7 +185,12 @@ def _expand_expression(expr: _Expression, variables: Mapping[str, str | Sequence
             if var.explode:
                 # Each item gets the operator's separator; named ops repeat the key.
                 if spec.named:
-                    rendered.append(spec.separator.join(f"{var.name}={v}" for v in items))
+                    # RFC §3.2.7 ifemp: ; omits the = for empty values.
+                    rendered.append(
+                        spec.separator.join(
+                            var.name if (v == "" and expr.operator == ";") else f"{var.name}={v}" for v in items
+                        )
+                    )
                 else:
                     rendered.append(spec.separator.join(items))
             else:
@@ -394,14 +399,26 @@ class UriTemplate:
 
             if var.explode:
                 # Explode capture holds the whole run including separators,
-                # e.g. "/a/b/c". Split, decode each segment, check each.
+                # e.g. "/a/b/c" or ";keys=a;keys=b". Split, decode each
+                # segment, check each.
                 if not raw:
                     result[var.name] = []
                     continue
                 segments: list[str] = []
+                prefix = f"{var.name}="
                 for seg in raw.split(spec.separator):
                     if not seg:  # leading separator produces an empty first item
                         continue
+                    if spec.named:
+                        # Named explode emits name=value per item (or bare
+                        # name for ; with empty value). Validate the name
+                        # and strip the prefix before decoding.
+                        if seg.startswith(prefix):
+                            seg = seg[len(prefix) :]
+                        elif seg == var.name:
+                            seg = ""
+                        else:
+                            return None
                     decoded = unquote(seg)
                     if any(c in decoded for c in forbidden):
                         return None
@@ -464,9 +481,15 @@ def _expression_pattern(expr: _Expression) -> str:
             # Non-greedy so a trailing literal can terminate the run.
             pieces.append(f"((?:{sep}{body})*?)")
         elif spec.named:
-            # ;name=val or ?name=val — the = is optional for ; with empty value
-            eq = "=?" if expr.operator == ";" else "="
-            pieces.append(f"{lead}{re.escape(var.name)}{eq}({body})")
+            name = re.escape(var.name)
+            if expr.operator == ";":
+                # RFC ifemp: ; emits bare name for empty values, so = is
+                # optional. The lookahead asserts the name ends at = or a
+                # delimiter, preventing {;id} from matching ;identity.
+                pieces.append(f"{lead}{name}(?==|[;/?#]|$)=?({body})")
+            else:
+                # ? and & always emit name=, even for empty values.
+                pieces.append(f"{lead}{name}=({body})")
         else:
             pieces.append(f"{lead}({body})")
 
