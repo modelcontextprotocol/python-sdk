@@ -644,8 +644,9 @@ class MCPServer(Generic[LifespanResultT]):
         - bytes for binary content
         - other types will be converted to JSON
 
-        If the URI contains parameters (e.g. "resource://{param}") or the function
-        has parameters, it will be registered as a template resource.
+        If the URI contains parameters (e.g. "resource://{param}"), it is
+        registered as a template resource. Otherwise it is registered as a
+        static resource; function parameters on a static URI raise an error.
 
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")

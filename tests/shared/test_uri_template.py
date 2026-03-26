@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.shared.uri_template import InvalidUriTemplate, UriTemplate, Variable
+from mcp.shared.uri_template import DEFAULT_MAX_URI_LENGTH, InvalidUriTemplate, UriTemplate, Variable
 
 
 def test_parse_literal_only():
@@ -567,8 +567,6 @@ def test_match_accepts_uri_within_custom_limit():
 
 
 def test_match_default_uri_length_limit():
-    from mcp.shared.uri_template import DEFAULT_MAX_URI_LENGTH
-
     t = UriTemplate.parse("{+var}")
     # Just at the limit: should match
     assert t.match("x" * DEFAULT_MAX_URI_LENGTH) is not None

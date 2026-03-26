@@ -41,7 +41,15 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 from urllib.parse import quote, unquote
 
-__all__ = ["InvalidUriTemplate", "Operator", "UriTemplate", "Variable"]
+__all__ = [
+    "DEFAULT_MAX_EXPRESSIONS",
+    "DEFAULT_MAX_TEMPLATE_LENGTH",
+    "DEFAULT_MAX_URI_LENGTH",
+    "InvalidUriTemplate",
+    "Operator",
+    "UriTemplate",
+    "Variable",
+]
 
 Operator = Literal["", "+", "#", ".", "/", ";", "?", "&"]
 
@@ -387,8 +395,12 @@ class UriTemplate:
 
         This is the inverse of :meth:`expand`. The URI is matched against
         a regex derived from the template and captured values are
-        percent-decoded. For any value ``v``, ``match(expand({k: v}))``
-        returns ``{k: v}``.
+        percent-decoded. The round-trip ``match(expand({k: v})) == {k: v}``
+        holds when ``v`` does not contain its operator's separator
+        unencoded: ``{.ext}`` with ``ext="tar.gz"`` expands to
+        ``.tar.gz`` but matches back as ``ext="tar"`` since the ``.``
+        pattern stops at the first dot. RFC 6570 §1.4 notes this is an
+        inherent reversal limitation.
 
         Matching is structural at the URI level only: a simple ``{name}``
         will not match across a literal ``/`` in the URI (the regex stops
