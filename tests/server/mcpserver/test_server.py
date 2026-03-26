@@ -159,6 +159,36 @@ class TestServer:
         with pytest.raises(InvalidUriTemplate, match="Unclosed expression"):
             mcp.resource("file://{name")
 
+    async def test_resource_optional_query_params_use_function_defaults(self):
+        """Omitted {?...} query params should fall through to the
+        handler's Python defaults. Partial and reordered params work."""
+        mcp = MCPServer()
+
+        @mcp.resource("logs://{service}{?since,level}")
+        def tail_logs(service: str, since: str = "1h", level: str = "info") -> str:
+            return f"{service}|{since}|{level}"
+
+        async with Client(mcp) as client:
+            # No query → all defaults
+            r = await client.read_resource("logs://api")
+            assert isinstance(r.contents[0], TextResourceContents)
+            assert r.contents[0].text == "api|1h|info"
+
+            # Partial query → one default
+            r = await client.read_resource("logs://api?since=15m")
+            assert isinstance(r.contents[0], TextResourceContents)
+            assert r.contents[0].text == "api|15m|info"
+
+            # Reordered, both present
+            r = await client.read_resource("logs://api?level=error&since=5m")
+            assert isinstance(r.contents[0], TextResourceContents)
+            assert r.contents[0].text == "api|5m|error"
+
+            # Extra param ignored
+            r = await client.read_resource("logs://api?since=2h&utm=x")
+            assert isinstance(r.contents[0], TextResourceContents)
+            assert r.contents[0].text == "api|2h|info"
+
     async def test_resource_security_default_rejects_traversal(self):
         mcp = MCPServer()
 

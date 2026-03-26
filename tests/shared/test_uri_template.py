@@ -339,11 +339,22 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("item{;keys*}", "item;keys=a;keys=b", {"keys": ["a", "b"]}),
         ("item{;keys*}", "item;keys=a;keys;keys=b", {"keys": ["a", "", "b"]}),
         ("item{;keys*}", "item", {"keys": []}),
-        # Level 3: query
+        # Level 3: query. Lenient matching: partial, reordered, and
+        # extra params are all accepted. Absent params stay absent.
         ("search{?q}", "search?q=hello", {"q": "hello"}),
         ("search{?q}", "search?q=", {"q": ""}),
+        ("search{?q}", "search", {}),
         ("search{?q,lang}", "search?q=mcp&lang=en", {"q": "mcp", "lang": "en"}),
-        # Level 3: query continuation
+        ("search{?q,lang}", "search?lang=en&q=mcp", {"q": "mcp", "lang": "en"}),
+        ("search{?q,lang}", "search?q=mcp", {"q": "mcp"}),
+        ("search{?q,lang}", "search", {}),
+        ("search{?q}", "search?q=mcp&utm=x&ref=y", {"q": "mcp"}),
+        # URL-encoded query values are decoded
+        ("search{?q}", "search?q=hello%20world", {"q": "hello world"}),
+        # Multiple ?/& expressions collected together
+        ("api{?v}{&page,limit}", "api?limit=10&v=2", {"v": "2", "limit": "10"}),
+        # Level 3: query continuation with literal ? falls back to
+        # strict regex (template-order, all-present required)
         ("?a=1{&b}", "?a=1&b=2", {"b": "2"}),
         # Explode: path segments as list
         ("/files{/path*}", "/files/a/b/c", {"path": ["a", "b", "c"]}),
@@ -365,7 +376,6 @@ def test_match(template: str, uri: str, expected: dict[str, str | list[str]]):
         ("file://docs/{name}", "file://other/readme.txt"),
         ("{a}/{b}", "foo"),
         ("file{.ext}", "file"),
-        ("search{?q}", "search"),
         ("static", "different"),
         # Anchoring: trailing extra component must not match. Guards
         # against a refactor from fullmatch() to match() or search().
@@ -483,6 +493,11 @@ def test_match_explode_encoded_separator_in_segment():
         ("item{;id}", {"id": ""}),
         ("item{;keys*}", {"keys": ["a", "b", "c"]}),
         ("item{;keys*}", {"keys": ["a", "", "b"]}),
+        # Partial query expansion round-trips: expand omits undefined
+        # vars, match leaves them absent from the result.
+        ("logs://{service}{?since,level}", {"service": "api"}),
+        ("logs://{service}{?since,level}", {"service": "api", "since": "1h"}),
+        ("logs://{service}{?since,level}", {"service": "api", "since": "1h", "level": "error"}),
     ],
 )
 def test_roundtrip_expand_then_match(template: str, variables: dict[str, str | list[str]]):

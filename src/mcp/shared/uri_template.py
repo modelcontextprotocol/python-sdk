@@ -16,7 +16,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
-from urllib.parse import quote, unquote
+from urllib.parse import parse_qs, quote, unquote
 
 __all__ = ["InvalidUriTemplate", "Operator", "UriTemplate", "Variable"]
 
@@ -201,6 +201,8 @@ class UriTemplate:
     _parts: tuple[_Part, ...] = field(repr=False, compare=False)
     _variables: tuple[Variable, ...] = field(repr=False, compare=False)
     _pattern: re.Pattern[str] = field(repr=False, compare=False)
+    _path_variables: tuple[Variable, ...] = field(repr=False, compare=False)
+    _query_variables: tuple[Variable, ...] = field(repr=False, compare=False)
 
     @staticmethod
     def is_template(value: str) -> bool:
@@ -253,8 +255,22 @@ class UriTemplate:
             )
 
         parts, variables = _parse(template, max_expressions=max_expressions)
-        pattern = _build_pattern(parts)
-        return cls(template=template, _parts=parts, _variables=variables, _pattern=pattern)
+
+        # Trailing {?...}/{&...} expressions are matched leniently via
+        # parse_qs instead of regex: order-agnostic, partial, ignores
+        # extras. The path portion keeps regex matching.
+        path_parts, query_vars = _split_query_tail(parts)
+        path_vars = variables[: len(variables) - len(query_vars)]
+        pattern = _build_pattern(path_parts)
+
+        return cls(
+            template=template,
+            _parts=parts,
+            _variables=variables,
+            _pattern=pattern,
+            _path_variables=path_vars,
+            _query_variables=query_vars,
+        )
 
     @property
     def variables(self) -> tuple[Variable, ...]:
@@ -355,6 +371,19 @@ class UriTemplate:
             >>> t.match("/files/a/b/c")
             {'path': ['a', 'b', 'c']}
 
+        **Query parameters** (``{?q,lang}`` at the end of a template)
+        are matched leniently: order-agnostic, partial, and unrecognized
+        params are ignored. Absent params are omitted from the result so
+        downstream function defaults can apply::
+
+            >>> t = UriTemplate.parse("logs://{service}{?since,level}")
+            >>> t.match("logs://api")
+            {'service': 'api'}
+            >>> t.match("logs://api?level=error")
+            {'service': 'api', 'level': 'error'}
+            >>> t.match("logs://api?level=error&since=5m&utm=x")
+            {'service': 'api', 'since': '5m', 'level': 'error'}
+
         Args:
             uri: A concrete URI string.
             max_uri_length: Maximum permitted length of the input URI.
@@ -369,45 +398,116 @@ class UriTemplate:
         """
         if len(uri) > max_uri_length:
             return None
+
+        if self._query_variables:
+            # Two-phase: regex matches the path, parse_qs handles the
+            # query. Query params may be partial, reordered, or include
+            # extras; absent params stay absent so downstream defaults
+            # can apply.
+            path, _, query = uri.partition("?")
+            m = self._pattern.fullmatch(path)
+            if m is None:
+                return None
+            result = _extract_path(m, self._path_variables)
+            if result is None:
+                return None
+            if query:
+                parsed = parse_qs(query, keep_blank_values=True)
+                for var in self._query_variables:
+                    if var.name in parsed:
+                        result[var.name] = parsed[var.name][0]
+            return result
+
         m = self._pattern.fullmatch(uri)
         if m is None:
             return None
-
-        result: dict[str, str | list[str]] = {}
-        # One capture group per variable, emitted in template order.
-        for var, raw in zip(self._variables, m.groups()):
-            spec = _OPERATOR_SPECS[var.operator]
-
-            if var.explode:
-                # Explode capture holds the whole run including separators,
-                # e.g. "/a/b/c" or ";keys=a;keys=b". Split and decode each.
-                if not raw:
-                    result[var.name] = []
-                    continue
-                segments: list[str] = []
-                prefix = f"{var.name}="
-                for seg in raw.split(spec.separator):
-                    if not seg:  # leading separator produces an empty first item
-                        continue
-                    if spec.named:
-                        # Named explode emits name=value per item (or bare
-                        # name for ; with empty value). Validate the name
-                        # and strip the prefix before decoding.
-                        if seg.startswith(prefix):
-                            seg = seg[len(prefix) :]
-                        elif seg == var.name:
-                            seg = ""
-                        else:
-                            return None
-                    segments.append(unquote(seg))
-                result[var.name] = segments
-            else:
-                result[var.name] = unquote(raw)
-
-        return result
+        return _extract_path(m, self._variables)
 
     def __str__(self) -> str:
         return self.template
+
+
+def _extract_path(m: re.Match[str], variables: tuple[Variable, ...]) -> dict[str, str | list[str]] | None:
+    """Decode regex capture groups into a variable-name mapping.
+
+    Handles scalar and explode variables. Named explode (``;``) strips
+    and validates the ``name=`` prefix per item, returning ``None`` on
+    mismatch.
+    """
+    result: dict[str, str | list[str]] = {}
+    # One capture group per variable, emitted in template order.
+    for var, raw in zip(variables, m.groups()):
+        spec = _OPERATOR_SPECS[var.operator]
+
+        if var.explode:
+            # Explode capture holds the whole run including separators,
+            # e.g. "/a/b/c" or ";keys=a;keys=b". Split and decode each.
+            if not raw:
+                result[var.name] = []
+                continue
+            segments: list[str] = []
+            prefix = f"{var.name}="
+            for seg in raw.split(spec.separator):
+                if not seg:  # leading separator produces an empty first item
+                    continue
+                if spec.named:
+                    # Named explode emits name=value per item (or bare
+                    # name for ; with empty value). Validate the name
+                    # and strip the prefix before decoding.
+                    if seg.startswith(prefix):
+                        seg = seg[len(prefix) :]
+                    elif seg == var.name:
+                        seg = ""
+                    else:
+                        return None
+                segments.append(unquote(seg))
+            result[var.name] = segments
+        else:
+            result[var.name] = unquote(raw)
+
+    return result
+
+
+def _split_query_tail(
+    parts: tuple[_Part, ...],
+) -> tuple[tuple[_Part, ...], tuple[Variable, ...]]:
+    """Separate trailing ``?``/``&`` expressions from the path portion.
+
+    Lenient query matching (order-agnostic, partial, ignores extras)
+    applies when a template ends with one or more consecutive ``?``/``&``
+    expressions and the preceding path portion contains no literal
+    ``?``. If the path has a literal ``?`` (e.g., ``?fixed=1{&page}``),
+    the URI's ``?`` split won't align with the template's expression
+    boundary, so strict regex matching is used instead.
+
+    Returns:
+        A pair ``(path_parts, query_vars)``. If lenient matching does
+        not apply, ``query_vars`` is empty and ``path_parts`` is the
+        full input.
+    """
+    split = len(parts)
+    for i in range(len(parts) - 1, -1, -1):
+        part = parts[i]
+        if isinstance(part, _Expression) and part.operator in ("?", "&"):
+            split = i
+        else:
+            break
+
+    if split == len(parts):
+        return parts, ()
+
+    # If the path portion contains a literal ?, the URI's ? won't align
+    # with our template split. Fall back to strict regex.
+    for part in parts[:split]:
+        if isinstance(part, str) and "?" in part:
+            return parts, ()
+
+    query_vars: list[Variable] = []
+    for part in parts[split:]:
+        assert isinstance(part, _Expression)
+        query_vars.extend(part.variables)
+
+    return parts[:split], tuple(query_vars)
 
 
 def _build_pattern(parts: tuple[_Part, ...]) -> re.Pattern[str]:
@@ -415,8 +515,8 @@ def _build_pattern(parts: tuple[_Part, ...]) -> re.Pattern[str]:
 
     Walks parts in order: literals are ``re.escape``'d, expressions
     become capture groups. One group is emitted per variable, in the
-    same order as ``UriTemplate._variables``, so ``match.groups()`` can
-    be zipped directly.
+    same order as the variables appearing in ``parts``, so
+    ``match.groups()`` can be zipped directly.
 
     Raises:
         re.error: Only if pattern assembly is buggy — should not happen
