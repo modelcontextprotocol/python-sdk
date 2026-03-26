@@ -11,6 +11,7 @@ import socket
 import threading
 import time
 import traceback
+import warnings
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -1553,7 +1554,13 @@ def _create_context_aware_server(port: int) -> uvicorn.Server:
 def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
     """Start the context-aware server on a background thread (in-process for coverage)."""
     server_instance = _create_context_aware_server(basic_server_port)
-    thread = threading.Thread(target=server_instance.run, daemon=True)
+
+    def _run() -> None:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            server_instance.run()
+
+    thread = threading.Thread(target=_run, daemon=True)
     thread.start()
 
     wait_for_server(basic_server_port)
