@@ -345,6 +345,8 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("/files{/path*}/edit", "/files/a/b/edit", {"path": ["a", "b"]}),
         # Explode: labels
         ("host{.labels*}", "host.example.com", {"labels": ["example", "com"]}),
+        # Repeated-slash literals preserved exactly
+        ("///{a}////{b}////", "///x////y////", {"a": "x", "b": "y"}),
     ],
 )
 def test_match(template: str, uri: str, expected: dict[str, str | list[str]]):
@@ -359,10 +361,27 @@ def test_match(template: str, uri: str, expected: dict[str, str | list[str]]):
         ("file{.ext}", "file"),
         ("search{?q}", "search"),
         ("static", "different"),
+        # Anchoring: trailing extra component must not match. Guards
+        # against a refactor from fullmatch() to match() or search().
+        ("/users/{id}", "/users/123/extra"),
+        ("/users/{id}/posts/{pid}", "/users/1/posts/2/extra"),
+        # Repeated-slash literal with wrong slash count
+        ("///{a}////{b}////", "//x////y////"),
     ],
 )
 def test_match_no_match(template: str, uri: str):
     assert UriTemplate.parse(template).match(uri) is None
+
+
+def test_match_adjacent_vars_with_prefix_names():
+    # Two adjacent simple vars where one name is a prefix of the other.
+    # We use positional capture groups, so names only affect the result
+    # dict keys, not the regex. Standard greedy matching: the first var
+    # takes as much as it can while still letting the second satisfy +.
+    t = UriTemplate.parse("{var}{vara}")
+    assert t.match("ab") == {"var": "a", "vara": "b"}
+    assert t.match("abc") == {"var": "ab", "vara": "c"}
+    assert t.match("abcd") == {"var": "abc", "vara": "d"}
 
 
 def test_match_decodes_percent_encoding():
