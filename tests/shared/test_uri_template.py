@@ -121,6 +121,15 @@ def test_parse_rejects_adjacent_explodes_same_operator():
         UriTemplate.parse("{/a*}{/b*}")
 
 
+@pytest.mark.parametrize(
+    "template",
+    ["{x}/{x}", "{x,x}", "{a}{b}{a}", "{+x}/foo/{x}"],
+)
+def test_parse_rejects_duplicate_variable_names(template: str):
+    with pytest.raises(InvalidUriTemplate, match="appears more than once"):
+        UriTemplate.parse(template)
+
+
 def test_invalid_uri_template_is_value_error():
     with pytest.raises(ValueError):
         UriTemplate.parse("{}")
@@ -195,7 +204,8 @@ def test_parse_rejects_too_many_expressions():
 
 
 def test_parse_custom_limits_allow_larger():
-    tmpl = UriTemplate.parse("{a}" * 20, max_expressions=20)
+    template = "".join(f"{{v{i}}}" for i in range(20))
+    tmpl = UriTemplate.parse(template, max_expressions=20)
     assert len(tmpl.variables) == 20
 
 

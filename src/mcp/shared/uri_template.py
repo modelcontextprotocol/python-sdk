@@ -500,6 +500,7 @@ def _parse(template: str, *, max_expressions: int) -> tuple[tuple[_Part, ...], t
         i = end + 1
 
     _check_adjacent_explodes(template, parts)
+    _check_duplicate_variables(template, variables)
     return tuple(parts), tuple(variables)
 
 
@@ -568,6 +569,27 @@ def _parse_expression(template: str, body: str, pos: int) -> _Expression:
         variables.append(Variable(name=name, operator=operator, explode=explode))
 
     return _Expression(operator=operator, variables=tuple(variables))
+
+
+def _check_duplicate_variables(template: str, variables: list[Variable]) -> None:
+    """Reject templates that use the same variable name more than once.
+
+    RFC 6570 requires repeated variables to expand to the same value,
+    which would require backreference matching with potentially
+    exponential cost. Rather than silently returning only the last
+    captured value, we reject at parse time.
+
+    Raises:
+        InvalidUriTemplate: If any variable name appears more than once.
+    """
+    seen: set[str] = set()
+    for var in variables:
+        if var.name in seen:
+            raise InvalidUriTemplate(
+                f"Variable {var.name!r} appears more than once; repeated variables are not supported",
+                template=template,
+            )
+        seen.add(var.name)
 
 
 def _check_adjacent_explodes(template: str, parts: list[_Part]) -> None:
