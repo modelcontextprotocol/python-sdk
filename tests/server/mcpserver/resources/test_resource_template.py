@@ -55,7 +55,7 @@ def test_matches_allows_dotdot_as_substring():
 
 
 def test_matches_exempt_params_skip_security():
-    policy = ResourceSecurity(exempt_params=frozenset({"range"}))
+    policy = ResourceSecurity(exempt_params={"range"})
     t = _make("git://diff/{+range}", security=policy)
     assert t.matches("git://diff/../foo") == {"range": "../foo"}
 

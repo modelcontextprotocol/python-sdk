@@ -579,7 +579,7 @@ mcp = MCPServer()
 
 @mcp.resource(
     "git://diff/{+range}",
-    security=ResourceSecurity(exempt_params=frozenset({"range"})),
+    security=ResourceSecurity(exempt_params={"range"}),
 )
 def git_diff(range: str) -> str:
     ...

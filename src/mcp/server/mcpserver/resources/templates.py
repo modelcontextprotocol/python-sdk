@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Set
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -36,7 +36,7 @@ class ResourceSecurity:
         # Opt out for a parameter that legitimately contains ..
         @mcp.resource(
             "git://diff/{+range}",
-            security=ResourceSecurity(exempt_params=frozenset({"range"})),
+            security=ResourceSecurity(exempt_params={"range"}),
         )
         def git_diff(range: str) -> str: ...
     """
@@ -47,7 +47,7 @@ class ResourceSecurity:
     reject_absolute_paths: bool = True
     """Reject values that look like absolute filesystem paths."""
 
-    exempt_params: frozenset[str] = field(default_factory=frozenset[str])
+    exempt_params: Set[str] = field(default_factory=frozenset[str])
     """Parameter names to skip all checks for."""
 
     def validate(self, params: Mapping[str, str | list[str]]) -> bool:
