@@ -387,6 +387,28 @@ def test_match_structural_integrity_allows_slash_in_reserved():
     assert t.match("a/b") == {"path": "a/b"}
 
 
+def test_match_double_encoding_decoded_once():
+    # %252F is %2F encoded again. Single decode gives "%2F" (a literal
+    # percent sign, a '2', and an 'F'), which contains no '/' and should
+    # be accepted. Guards against over-decoding.
+    t = UriTemplate.parse("file://docs/{name}")
+    assert t.match("file://docs/..%252Fetc") == {"name": "..%2Fetc"}
+
+
+def test_match_multi_param_one_poisoned_rejects_whole():
+    # One bad param in a multi-param template rejects the entire match
+    t = UriTemplate.parse("file://{org}/{repo}")
+    assert t.match("file://acme/..%2Fsecret") is None
+    # But the same template with clean params matches fine
+    assert t.match("file://acme/project") == {"org": "acme", "repo": "project"}
+
+
+def test_match_bare_encoded_delimiter_rejected():
+    # A value that decodes to only the forbidden delimiter
+    t = UriTemplate.parse("file://docs/{name}")
+    assert t.match("file://docs/%2F") is None
+
+
 def test_match_structural_integrity_per_explode_segment():
     t = UriTemplate.parse("/files{/path*}")
     # Each segment checked independently

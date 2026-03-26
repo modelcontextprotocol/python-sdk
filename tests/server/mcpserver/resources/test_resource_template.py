@@ -73,6 +73,29 @@ def test_matches_explode_checks_each_segment():
     assert t.matches("api/a/../c") is None
 
 
+def test_matches_encoded_backslash_caught_by_traversal_layer():
+    # %5C decodes to '\\'. Backslash is not a URI delimiter, so it passes
+    # structural integrity (layer 1). The traversal check (layer 2)
+    # normalizes '\\' to '/' and catches the '..' components.
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/..%5C..%5Csecret") is None
+
+
+def test_matches_encoded_dots_caught_by_traversal_layer():
+    # %2E%2E decodes to '..'. Contains no structural delimiter, so passes
+    # layer 1. Layer 2's traversal check catches the '..' component.
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/%2E%2E") is None
+
+
+def test_matches_mixed_encoded_and_literal_slash():
+    # One encoded slash + one literal: literal '/' prevents the regex
+    # match at layer 0 (simple var stops at '/'), so this never reaches
+    # decoding. Different failure mode than pure-encoded traversal.
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/..%2F../etc") is None
+
+
 def test_matches_escapes_template_literals():
     # Regression: old impl treated . as regex wildcard
     t = _make("data://v1.0/{id}")
