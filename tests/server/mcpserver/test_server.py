@@ -12,7 +12,7 @@ from starlette.routing import Mount, Route
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
@@ -158,6 +158,47 @@ class TestServer:
         mcp = MCPServer()
         with pytest.raises(InvalidUriTemplate, match="Unclosed expression"):
             mcp.resource("file://{name")
+
+    async def test_resource_security_default_rejects_traversal(self):
+        mcp = MCPServer()
+
+        @mcp.resource("data://items/{name}")
+        def get_item(name: str) -> str:
+            return f"item:{name}"
+
+        async with Client(mcp) as client:
+            # ".." as a path component is rejected by default policy
+            with pytest.raises(MCPError, match="Unknown resource"):
+                await client.read_resource("data://items/..")
+
+    async def test_resource_security_per_resource_override(self):
+        mcp = MCPServer()
+
+        @mcp.resource(
+            "git://diff/{+range}",
+            security=ResourceSecurity(exempt_params=frozenset({"range"})),
+        )
+        def git_diff(range: str) -> str:
+            return f"diff:{range}"
+
+        async with Client(mcp) as client:
+            # "../foo" would be rejected by default, but "range" is exempt
+            result = await client.read_resource("git://diff/../foo")
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "diff:../foo"
+
+    async def test_resource_security_server_wide_override(self):
+        mcp = MCPServer(resource_security=ResourceSecurity(reject_path_traversal=False))
+
+        @mcp.resource("data://items/{name}")
+        def get_item(name: str) -> str:
+            return f"item:{name}"
+
+        async with Client(mcp) as client:
+            # Server-wide policy disabled traversal check; ".." now allowed
+            result = await client.read_resource("data://items/..")
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "item:.."
 
 
 class TestDnsRebindingProtection:

@@ -32,7 +32,13 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.mcpserver.resources import (
+    DEFAULT_RESOURCE_SECURITY,
+    FunctionResource,
+    Resource,
+    ResourceManager,
+    ResourceSecurity,
+)
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
@@ -144,7 +150,9 @@ class MCPServer(Generic[LifespanResultT]):
         warn_on_duplicate_prompts: bool = True,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
+        resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ):
+        self._resource_security = resource_security
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -626,6 +634,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        security: ResourceSecurity | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a function as a resource.
 
@@ -647,6 +656,9 @@ class MCPServer(Generic[LifespanResultT]):
             icons: Optional list of icons for the resource
             annotations: Optional annotations for the resource
             meta: Optional metadata dictionary for the resource
+            security: Path-safety policy for extracted template parameters.
+                Defaults to the server's ``resource_security`` setting.
+                Only applies to template resources.
 
         Example:
             ```python
@@ -717,6 +729,7 @@ class MCPServer(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    security=security if security is not None else self._resource_security,
                     meta=meta,
                 )
             else:

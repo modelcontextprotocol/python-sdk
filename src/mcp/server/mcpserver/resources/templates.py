@@ -75,9 +75,6 @@ class ResourceSecurity:
 DEFAULT_RESOURCE_SECURITY = ResourceSecurity()
 """Secure-by-default policy: traversal and absolute paths rejected."""
 
-UNSAFE_RESOURCE_SECURITY = ResourceSecurity(reject_path_traversal=False, reject_absolute_paths=False)
-"""No path checks. Use only when parameters are never used as filesystem paths."""
-
 
 class ResourceTemplate(BaseModel):
     """A template for dynamically creating resources."""

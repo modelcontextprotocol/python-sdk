@@ -8,7 +8,6 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
 from mcp.server.mcpserver.resources.templates import (
     DEFAULT_RESOURCE_SECURITY,
-    UNSAFE_RESOURCE_SECURITY,
     ResourceSecurity,
 )
 from mcp.types import Annotations
@@ -61,8 +60,9 @@ def test_matches_exempt_params_skip_security():
     assert t.matches("git://diff/../foo") == {"range": "../foo"}
 
 
-def test_matches_unsafe_policy_disables_checks():
-    t = _make("file://docs/{name}", security=UNSAFE_RESOURCE_SECURITY)
+def test_matches_disabled_policy_allows_traversal():
+    policy = ResourceSecurity(reject_path_traversal=False, reject_absolute_paths=False)
+    t = _make("file://docs/{name}", security=policy)
     assert t.matches("file://docs/..") == {"name": ".."}
 
 

@@ -1,6 +1,10 @@
 from .base import Resource
 from .resource_manager import ResourceManager
-from .templates import ResourceTemplate
+from .templates import (
+    DEFAULT_RESOURCE_SECURITY,
+    ResourceSecurity,
+    ResourceTemplate,
+)
 from .types import (
     BinaryResource,
     DirectoryResource,
@@ -20,4 +24,6 @@ __all__ = [
     "DirectoryResource",
     "ResourceTemplate",
     "ResourceManager",
+    "ResourceSecurity",
+    "DEFAULT_RESOURCE_SECURITY",
 ]
