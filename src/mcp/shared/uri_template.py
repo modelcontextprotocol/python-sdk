@@ -39,7 +39,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
-from urllib.parse import parse_qs, quote, unquote
+from urllib.parse import quote, unquote
 
 __all__ = ["InvalidUriTemplate", "Operator", "UriTemplate", "Variable"]
 
@@ -441,11 +441,13 @@ class UriTemplate:
             return None
 
         if self._query_variables:
-            # Two-phase: regex matches the path, parse_qs handles the
-            # query. Query params may be partial, reordered, or include
-            # extras; absent params stay absent so downstream defaults
-            # can apply.
-            path, _, query = uri.partition("?")
+            # Two-phase: regex matches the path, the query is split and
+            # decoded manually. Query params may be partial, reordered,
+            # or include extras; absent params stay absent so downstream
+            # defaults can apply. Fragment is stripped first since the
+            # template's {?...} tail never describes a fragment.
+            before_fragment, _, _ = uri.partition("#")
+            path, _, query = before_fragment.partition("?")
             m = self._pattern.fullmatch(path)
             if m is None:
                 return None
@@ -453,10 +455,10 @@ class UriTemplate:
             if result is None:
                 return None
             if query:
-                parsed = parse_qs(query, keep_blank_values=True)
+                parsed = _parse_query(query)
                 for var in self._query_variables:
                     if var.name in parsed:
-                        result[var.name] = parsed[var.name][0]
+                        result[var.name] = parsed[var.name]
             return result
 
         m = self._pattern.fullmatch(uri)
@@ -466,6 +468,26 @@ class UriTemplate:
 
     def __str__(self) -> str:
         return self.template
+
+
+def _parse_query(query: str) -> dict[str, str]:
+    """Parse a query string into a name→value mapping.
+
+    Unlike ``urllib.parse.parse_qs``, this follows RFC 3986 semantics:
+    ``+`` is a literal sub-delim, not a space. Form-urlencoding treats
+    ``+`` as space for HTML form submissions, but RFC 6570 and MCP
+    resource URIs follow RFC 3986 where only ``%20`` encodes a space.
+
+    Duplicate keys keep the first value. Pairs without ``=`` are
+    treated as empty-valued.
+    """
+    result: dict[str, str] = {}
+    for pair in query.split("&"):
+        name, _, value = pair.partition("=")
+        name = unquote(name)
+        if name and name not in result:
+            result[name] = unquote(value)
+    return result
 
 
 def _extract_path(m: re.Match[str], variables: Sequence[Variable]) -> dict[str, str | list[str]] | None:
@@ -535,10 +557,22 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
     if split == len(parts):
         return parts, []
 
-    # If the path portion contains a literal ?, the URI's ? won't align
-    # with our template split. Fall back to strict regex.
+    # The tail must start with a {?...} expression so that expand()
+    # emits a ? the URI can split on. A standalone {&page} expands
+    # with an & prefix, which partition("?") won't find.
+    first = parts[split]
+    assert isinstance(first, _Expression)
+    if first.operator != "?":
+        return parts, []
+
+    # If the path portion contains a literal ? or a {?...} expression,
+    # the URI's ? split won't align with our template boundary. Fall
+    # back to strict regex.
     for part in parts[:split]:
-        if isinstance(part, str) and "?" in part:
+        if isinstance(part, str):
+            if "?" in part:
+                return parts, []
+        elif part.operator == "?":
             return parts, []
 
     query_vars: list[Variable] = []

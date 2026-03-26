@@ -437,8 +437,17 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("search{?q}", "search?q=mcp&utm=x&ref=y", {"q": "mcp"}),
         # URL-encoded query values are decoded
         ("search{?q}", "search?q=hello%20world", {"q": "hello world"}),
+        # + is a literal sub-delim per RFC 3986, not a space (form-encoding)
+        ("search{?q}", "search?q=C++", {"q": "C++"}),
+        ("search{?q}", "search?q=1.0+build.5", {"q": "1.0+build.5"}),
+        # Fragment is stripped before query parsing
+        ("logs://{service}{?level}", "logs://api?level=error#section1", {"service": "api", "level": "error"}),
+        ("search{?q}", "search#frag", {}),
         # Multiple ?/& expressions collected together
         ("api{?v}{&page,limit}", "api?limit=10&v=2", {"v": "2", "limit": "10"}),
+        # Standalone {&var} falls through to strict regex (expands with
+        # & prefix, no ? for lenient matching to split on)
+        ("api{&page}", "api&page=2", {"page": "2"}),
         # Level 3: query continuation with literal ? falls back to
         # strict regex (template-order, all-present required)
         ("?a=1{&b}", "?a=1&b=2", {"b": "2"}),
