@@ -767,7 +767,10 @@ class StreamableHTTPServerTransport:
         """
 
         self._terminated = True
-        logger.info(f"Terminating session: {self.mcp_session_id}")
+        if self.mcp_session_id:
+            logger.info(f"Terminating session: {self.mcp_session_id}")
+        else:
+            logger.debug("Stateless request completed, cleaning up transport")
 
         # We need a copy of the keys to avoid modification during iteration
         request_stream_keys = list(self._request_streams.keys())

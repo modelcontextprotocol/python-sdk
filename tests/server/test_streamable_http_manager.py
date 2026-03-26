@@ -270,6 +270,48 @@ async def test_stateless_requests_memory_cleanup():
 
 
 @pytest.mark.anyio
+async def test_stateless_termination_logs_debug_not_info(caplog: pytest.LogCaptureFixture):
+    """Stateless mode termination should use DEBUG logs and avoid INFO-level "None" session text."""
+    app = Server("test-stateless-log-level")
+    manager = StreamableHTTPSessionManager(app=app, stateless=True)
+
+    async with manager.run():
+        app.run = AsyncMock(return_value=None)
+
+        async def mock_send(message: Message):
+            del message
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"accept", b"application/json, text/event-stream"),
+            ],
+        }
+
+        async def mock_receive():
+            return {
+                "type": "http.request",
+                "body": b"",
+                "more_body": False,
+            }
+
+        with caplog.at_level(logging.DEBUG, logger="mcp.server.streamable_http"):
+            await manager.handle_request(scope, mock_receive, mock_send)
+
+    streamable_http_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "mcp.server.streamable_http"
+    ]
+
+    assert "Stateless request completed, cleaning up transport" in streamable_http_messages
+    assert "Terminating session: None" not in streamable_http_messages
+
+
+@pytest.mark.anyio
 async def test_unknown_session_id_returns_404(caplog: pytest.LogCaptureFixture):
     """Test that requests with unknown session IDs return HTTP 404 per MCP spec."""
     app = Server("test-unknown-session")
