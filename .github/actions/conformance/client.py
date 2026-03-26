@@ -352,7 +352,9 @@ async def run_cross_app_access_complete_flow(server_url: str) -> None:
     if not idp_issuer:
         raise RuntimeError("MCP_CONFORMANCE_CONTEXT missing 'idp_issuer'")
 
-    # Extract base URL by stripping trailing /mcp path (Python 3.9+)
+    # Extract base URL by stripping trailing /mcp path (Python 3.9+).
+    # The conformance harness always serves MCP at <base>/mcp, so stripping
+    # the suffix gives us the auth-server base URL for fallback defaults.
     base_url = server_url.removesuffix("/mcp")
     auth_issuer = context.get("auth_issuer", base_url)
     resource_id = context.get("resource_id", server_url)
@@ -375,7 +377,6 @@ async def run_cross_app_access_complete_flow(server_url: str) -> None:
     client_id = context.get("client_id")
     client_secret = context.get("client_secret")
 
-    # Create storage and pre-configure client info if credentials are provided
     storage = InMemoryTokenStorage()
 
     # Create enterprise auth provider

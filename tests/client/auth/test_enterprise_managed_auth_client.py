@@ -20,7 +20,13 @@ from mcp.client.auth.extensions.enterprise_managed_auth import (
     decode_id_jag,
     validate_token_exchange_params,
 )
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata, OAuthToken
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+    ProtectedResourceMetadata,
+)
 
 
 @pytest.fixture
@@ -268,7 +274,6 @@ async def test_exchange_token_for_id_jag_success(sample_id_token: str, sample_id
 
     # Verify
     assert id_jag == sample_id_jag
-    assert provider._id_jag == sample_id_jag
 
     # Verify request was made correctly
     mock_client.post.assert_called_once()
@@ -395,7 +400,7 @@ async def test_exchange_id_jag_for_access_token_success(sample_id_jag: str, mock
 
 @pytest.mark.anyio
 async def test_exchange_id_jag_for_access_token_no_metadata(sample_id_jag: str, mock_token_storage: Any):
-    """Test JWT bearer grant fails without OAuth metadata."""
+    """Test JWT bearer grant falls back to constructed token URL without OAuth metadata."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -412,11 +417,18 @@ async def test_exchange_id_jag_for_access_token_no_metadata(sample_id_jag: str, 
         token_exchange_params=token_exchange_params,
     )
 
-    # No OAuth metadata set
+    # No OAuth metadata set — _get_token_endpoint() falls back to server URL base
 
-    # Should raise OAuthFlowError
-    with pytest.raises(OAuthFlowError, match="token endpoint not discovered"):
-        await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+
+    # Should fall back to constructing token URL from server URL (same as parent class)
+    assert isinstance(request, httpx.Request)
+    assert request.method == "POST"
+    assert str(request.url) == "https://mcp-server.example/token"
+
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert body_params["grant_type"][0] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
+    assert body_params["assertion"][0] == sample_id_jag
 
 
 @pytest.mark.anyio
@@ -481,8 +493,6 @@ async def test_perform_authorization_with_valid_tokens(mock_token_storage: Any, 
     _perform_authorization is only called by the parent when tokens need to be
     obtained or refreshed, so it unconditionally performs the full exchange flow.
     """
-    from mcp.shared.auth import OAuthMetadata
-
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -731,6 +741,42 @@ async def test_exchange_token_non_json_error_response(sample_id_token: str, mock
 
 
 @pytest.mark.anyio
+async def test_exchange_token_invalid_response_schema(sample_id_token: str, mock_token_storage: Any):
+    """Test token exchange with HTTP 200 but response missing required fields.
+
+    Regression test: ValidationError from model_validate_json must be caught
+    and wrapped in OAuthTokenError, not propagated raw.
+    """
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token=sample_id_token,
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    # HTTP 200 but missing required fields (e.g., access_token)
+    mock_response = httpx.Response(
+        status_code=200,
+        json={"unexpected_field": "value"},
+    )
+
+    mock_client = Mock(spec=httpx.AsyncClient)
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    with pytest.raises(OAuthTokenError, match="Invalid token exchange response from IdP"):
+        await provider.exchange_token_for_id_jag(mock_client)
+
+
+@pytest.mark.anyio
 async def test_exchange_token_warning_for_non_na_token_type(
     sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
 ):
@@ -794,11 +840,12 @@ async def test_exchange_id_jag_with_client_authentication(sample_id_jag: str, mo
         token_exchange_params=token_exchange_params,
     )
 
-    # Set client info with secret
+    # Set client info with secret (auth method set by registration, as in real flow)
     provider.context.client_info = OAuthClientInformationFull(
         client_id="test-client-id",
         client_secret="test-client-secret",
         redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        token_endpoint_auth_method="client_secret_basic",
     )
 
     # Set up OAuth metadata
@@ -815,10 +862,10 @@ async def test_exchange_id_jag_with_client_authentication(sample_id_jag: str, mo
     assert isinstance(request, httpx.Request)
     assert request.method == "POST"
 
-    # Verify client credentials were included in request body
+    # Verify client credentials were handled via client_secret_basic
     body_params = urllib.parse.parse_qs(request.content.decode())
-    assert body_params["client_id"][0] == "test-client-id"
-    # With client_secret_basic (default), credentials should be in Authorization header
+    # With client_secret_basic, credentials are in Authorization header, not body
+    assert "client_secret" not in body_params
     assert "Authorization" in request.headers
     assert request.headers["Authorization"].startswith("Basic ")
 
@@ -842,11 +889,12 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag: str, mock_toke
         token_exchange_params=token_exchange_params,
     )
 
-    # Set client info WITHOUT secret (client_secret=None)
+    # Set client info WITHOUT secret (client_secret=None), auth method "none" as set by registration
     provider.context.client_info = OAuthClientInformationFull(
         client_id="test-client-id",
         client_secret=None,  # No secret
         redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        token_endpoint_auth_method="none",
     )
 
     # Set up OAuth metadata
@@ -862,12 +910,11 @@ async def test_exchange_id_jag_with_client_id_only(sample_id_jag: str, mock_toke
     # Verify request was built correctly
     assert isinstance(request, httpx.Request)
 
-    # Verify client_id was included but NOT client_secret
+    # With auth method "none", no credentials are added
     body_params = urllib.parse.parse_qs(request.content.decode())
-    assert body_params["client_id"][0] == "test-client-id"
     assert "client_secret" not in body_params
-    # With no client_secret, there should be no Authorization header either
-    assert "Authorization" not in request.headers or not request.headers["Authorization"].startswith("Basic ")
+    # With auth_method == "none", no Basic Authorization header is sent.
+    assert "Authorization" not in request.headers
 
 
 @pytest.mark.anyio
@@ -1041,14 +1088,13 @@ async def test_perform_authorization_with_valid_tokens_no_id_jag(mock_token_stor
         token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
-    # Set valid tokens but NO cached ID-JAG
+    # Set valid tokens
     provider.context.current_tokens = OAuthToken(
         token_type="Bearer",
         access_token="valid-token",
         expires_in=3600,
     )
     provider.context.token_expiry_time = time.time() + 3600
-    provider._id_jag = None  # No cached ID-JAG
 
     # Mock the IDP token exchange response
     sample_id_jag = "test-id-jag-token"
@@ -1099,19 +1145,15 @@ async def test_refresh_with_new_id_token(mock_token_storage: Any):
         token_exchange_params=token_exchange_params,
     )
 
-    # Set some existing tokens and cached ID-JAG
+    # Set some existing tokens
     provider.context.current_tokens = OAuthToken(
         token_type="Bearer",
         access_token="old-access-token",
         expires_in=3600,
     )
-    provider._id_jag = "old-id-jag"
-    provider._id_jag_expiry = time.time() + 3600
 
     # Verify initial state
     assert provider._subject_token == old_id_token
-    assert provider._id_jag == "old-id-jag"
-    assert provider._id_jag_expiry is not None
     assert provider.context.current_tokens.access_token == "old-access-token"
 
     # Call refresh with new ID token
@@ -1121,105 +1163,13 @@ async def test_refresh_with_new_id_token(mock_token_storage: Any):
     assert provider._subject_token == new_id_token
     # Original token_exchange_params.subject_token must NOT be mutated (#7)
     assert provider.token_exchange_params.subject_token == old_id_token
-    assert provider._id_jag is None  # Cached ID-JAG should be cleared
-    assert provider._id_jag_expiry is None  # Expiry should be cleared
     assert provider.context.current_tokens is None  # Tokens should be cleared
     assert provider.context.token_expiry_time is None  # Expiry should be cleared
 
 
 @pytest.mark.anyio
-async def test_id_jag_expiry_tracking(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
-    """Test that ID-JAG expiry is tracked when obtained from IdP."""
-    token_exchange_params = TokenExchangeParameters.from_id_token(
-        id_token=sample_id_token,
-        mcp_server_auth_issuer="https://auth.mcp-server.example/",
-        mcp_server_resource_id="https://mcp-server.example/",
-    )
-
-    provider = EnterpriseAuthOAuthClientProvider(
-        server_url="https://mcp-server.example/",
-        client_metadata=OAuthClientMetadata(
-            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
-        ),
-        storage=mock_token_storage,
-        idp_token_endpoint="https://idp.example.com/oauth2/token",
-        token_exchange_params=token_exchange_params,
-    )
-
-    # Mock HTTP response with expires_in
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "issued_token_type": "urn:ietf:params:oauth:token-type:id-jag",
-            "access_token": sample_id_jag,
-            "token_type": "N_A",
-            "expires_in": 300,  # 5 minutes
-        },
-    )
-
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Perform token exchange
-    before_time = time.time()
-    _ = await provider.exchange_token_for_id_jag(mock_client)
-    after_time = time.time()
-
-    # Verify ID-JAG was cached
-    assert provider._id_jag == sample_id_jag
-    # Verify expiry was set (should be current time + 300 seconds)
-    assert provider._id_jag_expiry is not None
-    assert before_time + 300 <= provider._id_jag_expiry <= after_time + 300
-
-
-@pytest.mark.anyio
-async def test_id_jag_expiry_default_when_not_provided(
-    sample_id_token: str, sample_id_jag: str, mock_token_storage: Any
-):
-    """Test that default expiry (15 minutes = 900 seconds) is used when expires_in not provided."""
-    token_exchange_params = TokenExchangeParameters.from_id_token(
-        id_token=sample_id_token,
-        mcp_server_auth_issuer="https://auth.mcp-server.example/",
-        mcp_server_resource_id="https://mcp-server.example/",
-    )
-
-    provider = EnterpriseAuthOAuthClientProvider(
-        server_url="https://mcp-server.example/",
-        client_metadata=OAuthClientMetadata(
-            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
-        ),
-        storage=mock_token_storage,
-        idp_token_endpoint="https://idp.example.com/oauth2/token",
-        token_exchange_params=token_exchange_params,
-    )
-
-    # Mock HTTP response WITHOUT expires_in
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "issued_token_type": "urn:ietf:params:oauth:token-type:id-jag",
-            "access_token": sample_id_jag,
-            "token_type": "N_A",
-            # No expires_in field
-        },
-    )
-
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Perform token exchange
-    before_time = time.time()
-    await provider.exchange_token_for_id_jag(mock_client)
-    after_time = time.time()
-
-    # Verify default expiry was set (900 seconds = 15 minutes)
-    assert provider._id_jag_expiry is not None
-    assert before_time + 900 <= provider._id_jag_expiry <= after_time + 900
-
-
-@pytest.mark.anyio
-async def test_perform_authorization_checks_id_jag_expiry(mock_token_storage: Any, sample_id_jag: str):
-    """Test that _perform_authorization checks ID-JAG expiry before reusing."""
+async def test_perform_authorization_always_exchanges_even_with_tokens(mock_token_storage: Any, sample_id_jag: str):
+    """Test that _perform_authorization always performs full exchange even with existing tokens."""
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -1243,15 +1193,13 @@ async def test_perform_authorization_checks_id_jag_expiry(mock_token_storage: An
         token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
-    # Set valid tokens and cached ID-JAG that has EXPIRED
+    # Set valid tokens
     provider.context.current_tokens = OAuthToken(
         token_type="Bearer",
         access_token="valid-token",
         expires_in=3600,
     )
     provider.context.token_expiry_time = time.time() + 3600
-    provider._id_jag = sample_id_jag
-    provider._id_jag_expiry = time.time() - 10  # Expired 10 seconds ago
 
     # Mock the IDP token exchange response for new ID-JAG
     new_id_jag = "new-id-jag-token"
@@ -1287,8 +1235,6 @@ async def test_perform_authorization_always_exchanges(mock_token_storage: Any, s
     The parent class only calls _perform_authorization when new tokens are
     needed, so it must not short-circuit based on cached state.
     """
-    from mcp.shared.auth import OAuthMetadata, OAuthToken
-
     token_exchange_params = TokenExchangeParameters.from_id_token(
         id_token="dummy-token",
         mcp_server_auth_issuer="https://auth.mcp-server.example/",
@@ -1311,15 +1257,13 @@ async def test_perform_authorization_always_exchanges(mock_token_storage: Any, s
         token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
     )
 
-    # Set valid tokens and cached ID-JAG
+    # Set valid tokens
     provider.context.current_tokens = OAuthToken(
         token_type="Bearer",
         access_token="valid-token",
         expires_in=3600,
     )
     provider.context.token_expiry_time = time.time() + 3600
-    provider._id_jag = sample_id_jag
-    provider._id_jag_expiry = time.time() + 300
 
     new_id_jag = "freshly-exchanged-id-jag"
 
@@ -1542,102 +1486,6 @@ async def test_audience_override_disabled(sample_id_token: str, sample_id_jag: s
 
 
 @pytest.mark.anyio
-async def test_custom_default_id_jag_expiry(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
-    """Test that custom default_id_jag_expiry is used when IdP doesn't provide expires_in."""
-    custom_expiry = 1800  # 30 minutes
-
-    token_exchange_params = TokenExchangeParameters.from_id_token(
-        id_token=sample_id_token,
-        mcp_server_auth_issuer="https://auth.mcp-server.example/",
-        mcp_server_resource_id="https://mcp-server.example/",
-    )
-
-    provider = EnterpriseAuthOAuthClientProvider(
-        server_url="https://mcp-server.example/",
-        client_metadata=OAuthClientMetadata(
-            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
-        ),
-        storage=mock_token_storage,
-        idp_token_endpoint="https://idp.example.com/oauth2/token",
-        token_exchange_params=token_exchange_params,
-        default_id_jag_expiry=custom_expiry,  # Custom expiry
-    )
-
-    # Verify the custom default is set
-    assert provider.default_id_jag_expiry == custom_expiry
-
-    # Mock HTTP response WITHOUT expires_in
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "issued_token_type": "urn:ietf:params:oauth:token-type:id-jag",
-            "access_token": sample_id_jag,
-            "token_type": "N_A",
-            # No expires_in field
-        },
-    )
-
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Perform token exchange
-    before_time = time.time()
-    await provider.exchange_token_for_id_jag(mock_client)
-    after_time = time.time()
-
-    # Verify custom expiry was used (1800 seconds)
-    assert provider._id_jag_expiry is not None
-    assert before_time + custom_expiry <= provider._id_jag_expiry <= after_time + custom_expiry
-
-
-@pytest.mark.anyio
-async def test_default_id_jag_expiry_constant(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
-    """Test that DEFAULT_ID_JAG_EXPIRY_SECONDS class constant is used by default."""
-    token_exchange_params = TokenExchangeParameters.from_id_token(
-        id_token=sample_id_token,
-        mcp_server_auth_issuer="https://auth.mcp-server.example/",
-        mcp_server_resource_id="https://mcp-server.example/",
-    )
-
-    provider = EnterpriseAuthOAuthClientProvider(
-        server_url="https://mcp-server.example/",
-        client_metadata=OAuthClientMetadata(
-            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
-        ),
-        storage=mock_token_storage,
-        idp_token_endpoint="https://idp.example.com/oauth2/token",
-        token_exchange_params=token_exchange_params,
-        # Not providing default_id_jag_expiry, should use class constant
-    )
-
-    # Verify the class constant is used (900 seconds = 15 minutes)
-    assert provider.default_id_jag_expiry == EnterpriseAuthOAuthClientProvider.DEFAULT_ID_JAG_EXPIRY_SECONDS
-    assert provider.default_id_jag_expiry == 900  # 15 minutes
-
-    # Mock HTTP response WITHOUT expires_in
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
-            "issued_token_type": "urn:ietf:params:oauth:token-type:id-jag",
-            "access_token": sample_id_jag,
-            "token_type": "N_A",
-        },
-    )
-
-    mock_client = Mock(spec=httpx.AsyncClient)
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Perform token exchange
-    before_time = time.time()
-    await provider.exchange_token_for_id_jag(mock_client)
-    after_time = time.time()
-
-    # Verify default constant was used (900 seconds)
-    assert provider._id_jag_expiry is not None
-    assert before_time + 900 <= provider._id_jag_expiry <= after_time + 900
-
-
-@pytest.mark.anyio
 async def test_exchange_token_without_oauth_metadata(sample_id_token: str, sample_id_jag: str, mock_token_storage: Any):
     """Test token exchange when oauth_metadata is not set.
 
@@ -1685,3 +1533,260 @@ async def test_exchange_token_without_oauth_metadata(sample_id_token: str, sampl
     # Verify the configured audience was used (no override since metadata is None)
     call_args = mock_client.post.call_args
     assert call_args[1]["data"]["audience"] == "https://auth.configured.example/"
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_does_not_mutate_context_client_info(sample_id_jag: str, mock_token_storage: Any):
+    """Test that exchange_id_jag_for_access_token does not mutate context.client_info.
+
+    Regression test: the method previously mutated client_info.token_endpoint_auth_method
+    as a side effect, which could cause unexpected behavior on subsequent calls.
+    """
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    # Set client info with no auth method (None) and a secret
+    provider.context.client_info = OAuthClientInformationFull(
+        client_id="test-client-id",
+        client_secret="test-secret",
+        redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        token_endpoint_auth_method=None,  # Explicitly None
+    )
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # Call twice to verify idempotency
+    await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    assert provider.context.client_info.token_endpoint_auth_method is None
+
+    await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    assert provider.context.client_info.token_endpoint_auth_method is None
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_includes_resource_param(sample_id_jag: str, mock_token_storage: Any):
+    """Test that JWT bearer grant includes resource parameter per RFC 8707."""
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # Set protected resource metadata so should_include_resource_param returns True
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://mcp-server.example/"),
+        authorization_servers=[AnyHttpUrl("https://auth.mcp-server.example/")],
+    )
+
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    body_params = urllib.parse.parse_qs(request.content.decode())
+
+    assert "resource" in body_params
+    assert body_params["resource"][0] == "https://mcp-server.example/"
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_includes_resource_param_via_protocol_version(
+    sample_id_jag: str, mock_token_storage: Any
+):
+    """Test that JWT bearer grant includes resource when protocol version qualifies."""
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # No PRM, but protocol version >= 2025-06-18 qualifies
+    provider.context.protocol_version = "2025-06-18"
+
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    body_params = urllib.parse.parse_qs(request.content.decode())
+
+    assert "resource" in body_params
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_omits_resource_when_not_applicable(sample_id_jag: str, mock_token_storage: Any):
+    """Test that JWT bearer grant omits resource when conditions are not met."""
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # No PRM and no qualifying protocol version
+    provider.context.protected_resource_metadata = None
+    provider.context.protocol_version = None
+
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    body_params = urllib.parse.parse_qs(request.content.decode())
+
+    assert "resource" not in body_params
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_includes_scope(sample_id_jag: str, mock_token_storage: Any):
+    """Test that JWT bearer grant includes scope from client metadata."""
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+            scope="read write",
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    body_params = urllib.parse.parse_qs(request.content.decode())
+
+    assert "scope" in body_params
+    assert body_params["scope"][0] == "read write"
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_omits_scope_when_not_set(sample_id_jag: str, mock_token_storage: Any):
+    """Test that JWT bearer grant omits scope when client metadata has no scope."""
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+            # No scope
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+    body_params = urllib.parse.parse_qs(request.content.decode())
+
+    assert "scope" not in body_params
+
+
+@pytest.mark.anyio
+async def test_exchange_id_jag_without_client_info(sample_id_jag: str, mock_token_storage: Any):
+    """Test JWT bearer grant request building when context has no client_info at all."""
+    token_exchange_params = TokenExchangeParameters.from_id_token(
+        id_token="dummy-token",
+        mcp_server_auth_issuer="https://auth.mcp-server.example/",
+        mcp_server_resource_id="https://mcp-server.example/",
+    )
+
+    provider = EnterpriseAuthOAuthClientProvider(
+        server_url="https://mcp-server.example/",
+        client_metadata=OAuthClientMetadata(
+            redirect_uris=[AnyUrl("http://localhost:8080/callback")],
+        ),
+        storage=mock_token_storage,
+        idp_token_endpoint="https://idp.example.com/oauth2/token",
+        token_exchange_params=token_exchange_params,
+    )
+
+    provider.context.oauth_metadata = OAuthMetadata(
+        issuer=AnyHttpUrl("https://auth.mcp-server.example/"),
+        authorization_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/authorize"),
+        token_endpoint=AnyHttpUrl("https://auth.mcp-server.example/oauth2/token"),
+    )
+
+    # No client_info set (None)
+    assert provider.context.client_info is None
+
+    request = await provider.exchange_id_jag_for_access_token(sample_id_jag)
+
+    # Should still produce a valid request without client credentials
+    assert isinstance(request, httpx.Request)
+    body_params = urllib.parse.parse_qs(request.content.decode())
+    assert body_params["grant_type"][0] == "urn:ietf:params:oauth:grant-type:jwt-bearer"
+    assert body_params["assertion"][0] == sample_id_jag
+    assert "client_id" not in body_params

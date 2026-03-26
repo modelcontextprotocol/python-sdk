@@ -5,12 +5,11 @@ enterprise SSO integration.
 """
 
 import logging
-import time
 from json import JSONDecodeError
 
 import httpx
 import jwt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from typing_extensions import NotRequired, Required, TypedDict
 
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, OAuthTokenError, TokenStorage
@@ -140,7 +139,12 @@ class IDJAGTokenExchangeResponse(BaseModel):
 
 
 class IDJAGClaims(BaseModel):
-    """Claims structure for Identity Assertion JWT Authorization Grant."""
+    """Claims structure for Identity Assertion JWT Authorization Grant.
+
+    Note: ``typ`` is sourced from the JWT *header* (not the payload) by
+    ``decode_id_jag``.  It is included here for convenience so callers
+    can inspect the full ID-JAG structure from a single object.
+    """
 
     model_config = {"extra": "allow"}
 
@@ -174,16 +178,12 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
     Concurrency & Thread Safety:
     - SAFE: Concurrent requests within a single asyncio event loop. Token
-      operations (including ``_id_jag`` / ``_id_jag_expiry``) are protected
-      by the parent class's ``OAuthContext.lock`` via ``async_auth_flow``.
+      operations are protected by the parent class's ``OAuthContext.lock``
+      via ``async_auth_flow``.
     - UNSAFE: Sharing a provider instance across multiple OS threads. Each
       thread must instantiate its own provider and event loop.
     - Note: Ensure any shared ``TokenStorage`` implementation is async-safe.
     """
-
-    # Default ID-JAG expiry when IdP doesn't provide expires_in.
-    # 15 minutes is a conservative default for enterprise environments.
-    DEFAULT_ID_JAG_EXPIRY_SECONDS = 900
 
     def __init__(
         self,
@@ -195,7 +195,6 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         timeout: float = 300.0,
         idp_client_id: str | None = None,
         idp_client_secret: str | None = None,
-        default_id_jag_expiry: int = DEFAULT_ID_JAG_EXPIRY_SECONDS,
         override_audience_with_issuer: bool = True,
     ) -> None:
         """Initialize Enterprise Auth OAuth Client.
@@ -211,8 +210,6 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             idp_client_secret: Optional client secret registered with the IdP.
                 Must be accompanied by ``idp_client_id``; providing a secret
                 without an ID raises ``ValueError``.
-            default_id_jag_expiry: Fallback ID-JAG expiry in seconds if the IdP
-                omits ``expires_in`` (default: 900 s / 15 min).
             override_audience_with_issuer: If True (default), replaces the IdP
                 audience with the discovered OAuth issuer URL. Set to False for
                 federated identity setups where the audience must differ.
@@ -221,6 +218,13 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
             ValueError: If ``idp_client_secret`` is provided without ``idp_client_id``.
             OAuthFlowError: If ``token_exchange_params`` fail validation.
         """
+        # Validate pure parameters before creating any state (fail-fast)
+        if idp_client_secret is not None and idp_client_id is None:
+            raise ValueError(
+                "idp_client_secret was provided without idp_client_id. Provide both together, or omit the secret."
+            )
+        validate_token_exchange_params(token_exchange_params)
+
         super().__init__(
             server_url=server_url,
             client_metadata=client_metadata,
@@ -233,19 +237,7 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         self._subject_token = token_exchange_params.subject_token
         self.idp_client_id = idp_client_id
         self.idp_client_secret = idp_client_secret
-        self.default_id_jag_expiry = default_id_jag_expiry
         self.override_audience_with_issuer = override_audience_with_issuer
-        self._id_jag: str | None = None
-        self._id_jag_expiry: float | None = None
-
-        # Fail-fast: secret without ID is almost certainly a misconfiguration
-        if idp_client_secret is not None and idp_client_id is None:
-            raise ValueError(
-                "idp_client_secret was provided without idp_client_id. Provide both together, or omit the secret."
-            )
-
-        # Validate token exchange params at construction time
-        validate_token_exchange_params(token_exchange_params)
 
     async def exchange_token_for_id_jag(
         self,
@@ -266,7 +258,9 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
 
         audience = self.token_exchange_params.audience
         if self.override_audience_with_issuer:
-            if self.context.oauth_metadata and self.context.oauth_metadata.issuer:
+            # OAuthMetadata.issuer is a required AnyHttpUrl field (RFC 8414),
+            # so it is always non-None when oauth_metadata is present.
+            if self.context.oauth_metadata:
                 discovered_issuer = str(self.context.oauth_metadata.issuer)
                 if audience != discovered_issuer:
                     logger.warning(
@@ -288,7 +282,11 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         if self.token_exchange_params.scope and self.token_exchange_params.scope.strip():
             token_data["scope"] = self.token_exchange_params.scope
 
-        # Add IdP client authentication if provided
+        # Add IdP client authentication if provided.
+        # Sent as POST body parameters (not HTTP Basic) because this is the
+        # IdP's token-exchange endpoint — most enterprise IdPs (Okta, Azure AD,
+        # Ping) accept body credentials for token exchange.  HTTP Basic is
+        # allowed by RFC 6749 §2.3.1 but not universally required here.
         if self.idp_client_id is not None:
             token_data["client_id"] = self.idp_client_id
         if self.idp_client_secret is not None:
@@ -324,63 +322,60 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
                 logger.warning(f"Expected token_type 'N_A', got '{token_response.token_type}'")
 
             logger.debug("Successfully obtained ID-JAG")
-            self._id_jag = token_response.id_jag
-
-            if token_response.expires_in:
-                self._id_jag_expiry = time.time() + token_response.expires_in
-            else:
-                self._id_jag_expiry = time.time() + self.default_id_jag_expiry
-                logger.debug(f"IdP omitted expires_in; using default of {self.default_id_jag_expiry}s for ID-JAG")
 
             return token_response.id_jag
 
         except httpx.HTTPError as e:
             raise OAuthTokenError(f"HTTP error during token exchange: {e}") from e
+        except ValidationError as e:
+            raise OAuthTokenError("Invalid token exchange response from IdP") from e
 
     async def exchange_id_jag_for_access_token(
         self,
         id_jag: str,
     ) -> httpx.Request:
-        """Build JWT bearer grant request to exchange ID-JAG for access token (RFC 7523).
+        """Build a JWT bearer grant request to exchange an ID-JAG for an access token (RFC 7523).
 
-        Builds the request without executing it. HTTP execution and error parsing
-        are deferred to the parent class's `async_auth_flow` for consistency.
+        This method only *builds* the ``httpx.Request``; it does not execute
+        it.  HTTP execution and error parsing are deferred to the parent
+        class's ``async_auth_flow`` via ``_handle_token_response``.
+
+        Follows the same pattern as ``ClientCredentialsOAuthProvider._exchange_token_client_credentials``
+        and ``RFC7523OAuthClientProvider._exchange_token_jwt_bearer``:
+        use ``_get_token_endpoint()`` for the URL and ``prepare_token_auth()``
+        for client authentication — no manual ``client_id`` injection or
+        context swapping needed.
 
         Args:
-            id_jag: The ID-JAG token
+            id_jag: The ID-JAG token obtained from ``exchange_token_for_id_jag``
 
         Returns:
-            httpx.Request for the JWT bearer grant
-
-        Raises:
-            OAuthFlowError: If OAuth metadata not discovered
+            An ``httpx.Request`` for the JWT bearer grant
         """
         logger.debug("Building JWT bearer grant request for ID-JAG")
 
-        if not self.context.oauth_metadata or not self.context.oauth_metadata.token_endpoint:
-            raise OAuthFlowError("MCP server token endpoint not discovered")
-
-        token_endpoint = str(self.context.oauth_metadata.token_endpoint)
-
-        # Build as a plain dict — avoids the double-cast through TypedDict
         token_data: dict[str, str] = {
             "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
             "assertion": id_jag,
         }
 
-        # Add client_id to body. prepare_token_auth handles client_secret
-        # placement (Basic header vs. POST body) based on auth method.
-        if self.context.client_info:
-            if self.context.client_info.token_endpoint_auth_method is None:
-                self.context.client_info.token_endpoint_auth_method = "client_secret_basic"
-
-            if self.context.client_info.client_id is not None:
-                token_data["client_id"] = self.context.client_info.client_id
-
         headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+
+        # Delegate client authentication (client_secret_basic, client_secret_post,
+        # or none) to the parent's context helper — same as every other grant type.
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
-        return httpx.Request("POST", token_endpoint, data=token_data, headers=headers)
+        # Include resource parameter per RFC 8707 — same guard as every sibling provider
+        if self.context.should_include_resource_param(self.context.protocol_version):
+            token_data["resource"] = self.context.get_resource_url()
+
+        # Include scope if configured (may have been updated by parent's async_auth_flow
+        # from the server's WWW-Authenticate header before _perform_authorization is called)
+        if self.context.client_metadata.scope:
+            token_data["scope"] = self.context.client_metadata.scope
+
+        token_url = self._get_token_endpoint()
+        return httpx.Request("POST", token_url, data=token_data, headers=headers)
 
     async def _perform_authorization(self) -> httpx.Request:
         """Perform enterprise authorization flow.
@@ -400,7 +395,6 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         # Step 1: Exchange IDP subject token for ID-JAG (RFC 8693)
         async with httpx.AsyncClient(timeout=self.context.timeout) as client:
             id_jag = await self.exchange_token_for_id_jag(client)
-            self._id_jag = id_jag
 
         # Step 2: Build JWT bearer grant request (RFC 7523)
         jwt_bearer_request = await self.exchange_id_jag_for_access_token(id_jag)
@@ -412,23 +406,27 @@ class EnterpriseAuthOAuthClientProvider(OAuthClientProvider):
         """Refresh MCP server access tokens using a fresh ID token from the IdP.
 
         Updates the subject token and clears cached state so that the next API
-        request triggers a full re-authentication.
+        request triggers a full re-authentication.  Acquires the context lock
+        to prevent racing with an in-progress ``async_auth_flow``.
 
         Note: OAuth metadata is not re-discovered. If the MCP server's OAuth
         configuration has changed, create a new provider instance instead.
 
+        Warning: This method is NOT safe to call from a different OS thread.
+        Call it only from the same thread and event loop that owns this
+        provider instance.
+
         Args:
             new_id_token: Fresh ID token obtained from your enterprise IdP.
         """
-        logger.info("Refreshing tokens with new ID token from IdP")
-        # Update the mutable subject token (does NOT mutate the original params object)
-        self._subject_token = new_id_token
+        async with self.context.lock:
+            logger.info("Refreshing tokens with new ID token from IdP")
+            # Update the mutable subject token (does NOT mutate the original params object)
+            self._subject_token = new_id_token
 
-        # Clear caches to force full re-exchange on next request
-        self._id_jag = None
-        self._id_jag_expiry = None
-        self.context.clear_tokens()
-        logger.debug("Token refresh prepared — will re-authenticate on next request")
+            # Clear tokens to force full re-exchange on next request
+            self.context.clear_tokens()
+            logger.debug("Token refresh prepared — will re-authenticate on next request")
 
 
 def decode_id_jag(id_jag: str) -> IDJAGClaims:
@@ -452,7 +450,12 @@ def decode_id_jag(id_jag: str) -> IDJAGClaims:
 def validate_token_exchange_params(
     params: TokenExchangeParameters,
 ) -> None:
-    """Validate token exchange parameters.
+    """Validate token exchange parameters beyond Pydantic field constraints.
+
+    Pydantic ``Field(...)`` rejects *missing* values but permits empty strings.
+    This function adds:
+    - Empty-string checks for ``subject_token``, ``audience``, ``resource``
+    - Allow-list check for ``subject_token_type`` (id_token or saml2)
 
     Args:
         params: Token exchange parameters to validate
@@ -469,8 +472,8 @@ def validate_token_exchange_params(
     if not params.resource:
         raise OAuthFlowError("resource is required")
 
-    if params.subject_token_type not in [
+    if params.subject_token_type not in {
         "urn:ietf:params:oauth:token-type:id_token",
         "urn:ietf:params:oauth:token-type:saml2",
-    ]:
+    }:
         raise OAuthFlowError(f"Invalid subject_token_type: {params.subject_token_type}")
