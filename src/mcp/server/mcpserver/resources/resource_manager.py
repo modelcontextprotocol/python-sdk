@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import AnyUrl
 
 from mcp.server.mcpserver.resources.base import Resource
-from mcp.server.mcpserver.resources.templates import ResourceTemplate
+from mcp.server.mcpserver.resources.templates import DEFAULT_RESOURCE_SECURITY, ResourceSecurity, ResourceTemplate
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.types import Annotations, Icon
 
@@ -64,6 +64,7 @@ class ResourceManager:
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ) -> ResourceTemplate:
         """Add a template from a function."""
         template = ResourceTemplate.from_function(
@@ -76,6 +77,7 @@ class ResourceManager:
             icons=icons,
             annotations=annotations,
             meta=meta,
+            security=security,
         )
         self._templates[template.uri_template] = template
         return template

@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import inspect
 import json
-import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
@@ -43,6 +42,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import UriTemplate
 from mcp.types import (
     Annotations,
     BlobResourceContents,
@@ -668,6 +668,13 @@ class MCPServer(Generic[LifespanResultT]):
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
             ```
+
+        Raises:
+            InvalidUriTemplate: If ``uri`` is not a valid RFC 6570 template.
+            ValueError: If URI template parameters don't match the
+                function's parameters.
+            TypeError: If the decorator is applied without being called
+                (``@resource`` instead of ``@resource("uri")``).
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -676,18 +683,21 @@ class MCPServer(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
+        # Parse once, early — surfaces malformed-template errors at
+        # decoration time with a clear position, and gives us correct
+        # variable names for all RFC 6570 operators.
+        parsed = UriTemplate.parse(uri)
+        uri_params = set(parsed.variable_names)
+
         def decorator(fn: _CallableT) -> _CallableT:
             # Check if this should be a template
             sig = inspect.signature(fn)
-            has_uri_params = "{" in uri and "}" in uri
             has_func_params = bool(sig.parameters)
 
-            if has_uri_params or has_func_params:
+            if uri_params or has_func_params:
                 # Check for Context parameter to exclude from validation
                 context_param = find_context_parameter(fn)
 
-                # Validate that URI params match function params (excluding context)
-                uri_params = set(re.findall(r"{(\w+)}", uri))
                 # We need to remove the context_param from the resource function if
                 # there is any.
                 func_params = {p for p in sig.parameters.keys() if p != context_param}

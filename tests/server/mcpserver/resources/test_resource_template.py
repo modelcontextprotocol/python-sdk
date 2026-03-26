@@ -6,7 +6,78 @@ from pydantic import BaseModel
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
+from mcp.server.mcpserver.resources.templates import (
+    DEFAULT_RESOURCE_SECURITY,
+    UNSAFE_RESOURCE_SECURITY,
+    ResourceSecurity,
+)
 from mcp.types import Annotations
+
+
+def _make(uri_template: str, security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY) -> ResourceTemplate:
+    def handler(**kwargs: Any) -> str:
+        return "ok"
+
+    return ResourceTemplate.from_function(fn=handler, uri_template=uri_template, security=security)
+
+
+def test_matches_rfc6570_reserved_expansion():
+    # {+path} allows / — the feature the old regex implementation couldn't support
+    t = _make("file://docs/{+path}")
+    assert t.matches("file://docs/src/main.py") == {"path": "src/main.py"}
+
+
+def test_matches_rejects_encoded_slash_in_simple_var():
+    # Path traversal via encoded slash: %2F smuggled into a simple {var}
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/..%2F..%2Fetc%2Fpasswd") is None
+
+
+def test_matches_rejects_path_traversal_by_default():
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/..") is None
+
+
+def test_matches_rejects_path_traversal_in_reserved_var():
+    # Even {+path} gets the traversal check — it's semantic, not structural
+    t = _make("file://docs/{+path}")
+    assert t.matches("file://docs/../../etc/passwd") is None
+
+
+def test_matches_rejects_absolute_path():
+    t = _make("file://docs/{+path}")
+    assert t.matches("file://docs//etc/passwd") is None
+
+
+def test_matches_allows_dotdot_as_substring():
+    # .. is only dangerous as a path component
+    t = _make("git://refs/{range}")
+    assert t.matches("git://refs/v1.0..v2.0") == {"range": "v1.0..v2.0"}
+
+
+def test_matches_exempt_params_skip_security():
+    policy = ResourceSecurity(exempt_params=frozenset({"range"}))
+    t = _make("git://diff/{+range}", security=policy)
+    assert t.matches("git://diff/../foo") == {"range": "../foo"}
+
+
+def test_matches_unsafe_policy_disables_checks():
+    t = _make("file://docs/{name}", security=UNSAFE_RESOURCE_SECURITY)
+    assert t.matches("file://docs/..") == {"name": ".."}
+
+
+def test_matches_explode_checks_each_segment():
+    t = _make("api{/parts*}")
+    assert t.matches("api/a/b/c") == {"parts": ["a", "b", "c"]}
+    # Any segment with traversal rejects the whole match
+    assert t.matches("api/a/../c") is None
+
+
+def test_matches_escapes_template_literals():
+    # Regression: old impl treated . as regex wildcard
+    t = _make("data://v1.0/{id}")
+    assert t.matches("data://v1.0/42") == {"id": "42"}
+    assert t.matches("data://v1X0/42") is None
 
 
 class TestResourceTemplate:

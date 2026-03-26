@@ -3,21 +3,80 @@
 from __future__ import annotations
 
 import inspect
-import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
-from urllib.parse import unquote
 
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.shared.path_security import contains_path_traversal, is_absolute_path
+from mcp.shared.uri_template import UriTemplate
 from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
     from mcp.server.mcpserver.context import Context
+
+
+@dataclass(frozen=True)
+class ResourceSecurity:
+    """Security policy applied to extracted resource template parameters.
+
+    These checks run **after** :meth:`~mcp.shared.uri_template.UriTemplate.match`
+    has already enforced structural integrity (e.g., rejected ``%2F`` in
+    simple ``{var}``). They catch semantic attacks that structural checks
+    cannot: ``..`` traversal and absolute-path injection work even with
+    perfectly-formed URI components.
+
+    Example::
+
+        # Opt out for a parameter that legitimately contains ..
+        @mcp.resource(
+            "git://diff/{+range}",
+            security=ResourceSecurity(exempt_params=frozenset({"range"})),
+        )
+        def git_diff(range: str) -> str: ...
+    """
+
+    reject_path_traversal: bool = True
+    """Reject values containing ``..`` as a path component."""
+
+    reject_absolute_paths: bool = True
+    """Reject values that look like absolute filesystem paths."""
+
+    exempt_params: frozenset[str] = field(default_factory=frozenset[str])
+    """Parameter names to skip all checks for."""
+
+    def validate(self, params: Mapping[str, str | list[str]]) -> bool:
+        """Check all parameter values against the configured policy.
+
+        Args:
+            params: Extracted template parameters. List values (from
+                explode variables) are checked element-wise.
+
+        Returns:
+            ``True`` if all values pass; ``False`` on first violation.
+        """
+        for name, value in params.items():
+            if name in self.exempt_params:
+                continue
+            values = value if isinstance(value, list) else [value]
+            for v in values:
+                if self.reject_path_traversal and contains_path_traversal(v):
+                    return False
+                if self.reject_absolute_paths and is_absolute_path(v):
+                    return False
+        return True
+
+
+DEFAULT_RESOURCE_SECURITY = ResourceSecurity()
+"""Secure-by-default policy: traversal and absolute paths rejected."""
+
+UNSAFE_RESOURCE_SECURITY = ResourceSecurity(reject_path_traversal=False, reject_absolute_paths=False)
+"""No path checks. Use only when parameters are never used as filesystem paths."""
 
 
 class ResourceTemplate(BaseModel):
@@ -34,6 +93,8 @@ class ResourceTemplate(BaseModel):
     fn: Callable[..., Any] = Field(exclude=True)
     parameters: dict[str, Any] = Field(description="JSON schema for function parameters")
     context_kwarg: str | None = Field(None, description="Name of the kwarg that should receive context")
+    parsed_template: UriTemplate = Field(exclude=True, description="Parsed RFC 6570 template")
+    security: ResourceSecurity = Field(exclude=True, description="Path-safety policy for extracted parameters")
 
     @classmethod
     def from_function(
@@ -48,11 +109,19 @@ class ResourceTemplate(BaseModel):
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
         context_kwarg: str | None = None,
+        security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ) -> ResourceTemplate:
-        """Create a template from a function."""
+        """Create a template from a function.
+
+        Raises:
+            InvalidUriTemplate: If ``uri_template`` is malformed or uses
+                unsupported RFC 6570 features.
+        """
         func_name = name or fn.__name__
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")  # pragma: no cover
+
+        parsed = UriTemplate.parse(uri_template)
 
         # Find context parameter if it exists
         if context_kwarg is None:  # pragma: no branch
@@ -80,20 +149,28 @@ class ResourceTemplate(BaseModel):
             fn=fn,
             parameters=parameters,
             context_kwarg=context_kwarg,
+            parsed_template=parsed,
+            security=security,
         )
 
-    def matches(self, uri: str) -> dict[str, Any] | None:
-        """Check if URI matches template and extract parameters.
+    def matches(self, uri: str) -> dict[str, str | list[str]] | None:
+        """Check if a URI matches this template and extract parameters.
 
-        Extracted parameters are URL-decoded to handle percent-encoded characters.
+        Delegates to :meth:`UriTemplate.match` for RFC 6570 matching
+        with structural integrity (``%2F`` smuggling rejected for simple
+        vars), then applies this template's :class:`ResourceSecurity`
+        policy (path traversal, absolute paths).
+
+        Returns:
+            Extracted parameters on success, or ``None`` if the URI
+            doesn't match or a parameter fails security validation.
         """
-        # Convert template to regex pattern
-        pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
-        match = re.match(f"^{pattern}$", uri)
-        if match:
-            # URL-decode all extracted parameter values
-            return {key: unquote(value) for key, value in match.groupdict().items()}
-        return None
+        params = self.parsed_template.match(uri)
+        if params is None:
+            return None
+        if not self.security.validate(params):
+            return None
+        return params
 
     async def create_resource(
         self,

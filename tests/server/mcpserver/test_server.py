@@ -19,6 +19,7 @@ from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import InvalidUriTemplate
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
@@ -140,6 +141,23 @@ class TestServer:
             @mcp.resource  # Missing parentheses #type: ignore
             def get_data(x: str) -> str:  # pragma: no cover
                 return f"Data: {x}"
+
+    async def test_resource_decorator_rfc6570_reserved_expansion(self):
+        # Regression: old regex-based param extraction couldn't see `path`
+        # in `{+path}` and failed with a confusing mismatch error.
+        mcp = MCPServer()
+
+        @mcp.resource("file://docs/{+path}")
+        def read_doc(path: str) -> str:
+            raise NotImplementedError
+
+        templates = await mcp.list_resource_templates()
+        assert [t.uri_template for t in templates] == ["file://docs/{+path}"]
+
+    async def test_resource_decorator_rejects_malformed_template(self):
+        mcp = MCPServer()
+        with pytest.raises(InvalidUriTemplate, match="Unclosed expression"):
+            mcp.resource("file://{name")
 
 
 class TestDnsRebindingProtection:
