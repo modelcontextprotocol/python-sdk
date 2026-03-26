@@ -452,6 +452,10 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("api?x{?page}", "api?x?page=2", {"page": "2"}),
         # {?...} expression in path portion also falls through
         ("api{?q}x{?page}", "api?q=1x?page=2", {"q": "1", "page": "2"}),
+        # {#...} or literal # in path portion falls through: lenient
+        # matching would strip the fragment before the path regex sees it
+        ("page{#section}{?q}", "page#intro?q=x", {"section": "intro", "q": "x"}),
+        ("page#lit{?q}", "page#lit?q=x", {"q": "x"}),
         # Empty & segments in query are skipped
         ("search{?q}", "search?&q=hello&", {"q": "hello"}),
         # Duplicate query keys keep first value

@@ -579,14 +579,15 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
     if first.operator != "?":
         return parts, []
 
-    # If the path portion contains a literal ? or a {?...} expression,
-    # the URI's ? split won't align with our template boundary. Fall
-    # back to strict regex.
+    # If the path portion contains a literal ?/# or a {?...}/{#...}
+    # expression, lenient matching's partition("#") then partition("?")
+    # would strip content the path regex expects to see. Fall back to
+    # strict regex.
     for part in parts[:split]:
         if isinstance(part, str):
-            if "?" in part:
+            if "?" in part or "#" in part:
                 return parts, []
-        elif part.operator == "?":
+        elif part.operator in ("?", "#"):
             return parts, []
 
     query_vars: list[Variable] = []
