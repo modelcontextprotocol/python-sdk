@@ -451,7 +451,16 @@ def _start_server_thread(
         access_log=False,
     )
     server = uvicorn.Server(config=config)
-    thread = threading.Thread(target=server.run, daemon=True)
+
+    def _run_server():
+        import warnings
+
+        # Suppress uvicorn deprecation warnings in thread (Python 3.14+)
+        warnings.filterwarnings("ignore", message=".*asyncio.iscoroutinefunction.*is deprecated")
+        warnings.filterwarnings("ignore", category=ResourceWarning, message="unclosed.*socket")
+        server.run()
+
+    thread = threading.Thread(target=_run_server, daemon=True)
     thread.start()
     return thread, server
 
