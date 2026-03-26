@@ -7,8 +7,8 @@ from mcp.shared.uri_template import InvalidUriTemplate, UriTemplate, Variable
 
 def test_parse_literal_only():
     tmpl = UriTemplate.parse("file://docs/readme.txt")
-    assert tmpl.variables == ()
-    assert tmpl.variable_names == ()
+    assert tmpl.variables == []
+    assert tmpl.variable_names == []
     assert str(tmpl) == "file://docs/readme.txt"
 
 
@@ -32,8 +32,8 @@ def test_is_template(value: str, expected: bool):
 
 def test_parse_simple_variable():
     tmpl = UriTemplate.parse("file://docs/{name}")
-    assert tmpl.variables == (Variable(name="name", operator=""),)
-    assert tmpl.variable_names == ("name",)
+    assert tmpl.variables == [Variable(name="name", operator="")]
+    assert tmpl.variable_names == ["name"]
 
 
 @pytest.mark.parametrize(
@@ -57,13 +57,13 @@ def test_parse_all_operators(template: str, operator: str):
 
 def test_parse_multiple_variables_in_expression():
     tmpl = UriTemplate.parse("{?q,lang,page}")
-    assert tmpl.variable_names == ("q", "lang", "page")
+    assert tmpl.variable_names == ["q", "lang", "page"]
     assert all(v.operator == "?" for v in tmpl.variables)
 
 
 def test_parse_multiple_expressions():
     tmpl = UriTemplate.parse("db://{table}/{id}{?format}")
-    assert tmpl.variable_names == ("table", "id", "format")
+    assert tmpl.variable_names == ["table", "id", "format"]
     ops = [v.operator for v in tmpl.variables]
     assert ops == ["", "", "?"]
 
@@ -84,15 +84,15 @@ def test_parse_explode_supported_operators(template: str):
 
 def test_parse_mixed_explode_and_plain():
     tmpl = UriTemplate.parse("{/path*}{?q}")
-    assert tmpl.variables == (
+    assert tmpl.variables == [
         Variable(name="path", operator="/", explode=True),
         Variable(name="q", operator="?"),
-    )
+    ]
 
 
 def test_parse_varname_with_dots_and_underscores():
     tmpl = UriTemplate.parse("{foo_bar.baz}")
-    assert tmpl.variable_names == ("foo_bar.baz",)
+    assert tmpl.variable_names == ["foo_bar.baz"]
 
 
 def test_parse_rejects_unclosed_expression():
@@ -131,7 +131,7 @@ def test_parse_rejects_invalid_varname(name: str):
 
 def test_parse_accepts_dotted_varname():
     t = UriTemplate.parse("{a.b.c}")
-    assert t.variable_names == ("a.b.c",)
+    assert t.variable_names == ["a.b.c"]
 
 
 def test_parse_rejects_empty_spec_in_list():
@@ -222,7 +222,7 @@ def test_parse_treats_stray_close_brace_as_literal(template: str):
 
 def test_parse_stray_close_brace_between_expressions():
     tmpl = UriTemplate.parse("{a}}{b}")
-    assert tmpl.variable_names == ("a", "b")
+    assert tmpl.variable_names == ["a", "b"]
 
 
 def test_parse_allows_explode_separated_by_literal():

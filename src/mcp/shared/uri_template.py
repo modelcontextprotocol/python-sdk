@@ -121,12 +121,12 @@ class Variable:
     explode: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass
 class _Expression:
     """A parsed ``{...}`` expression: one operator, one or more variables."""
 
     operator: Operator
-    variables: tuple[Variable, ...]
+    variables: list[Variable]
 
 
 _Part = str | _Expression
@@ -236,11 +236,11 @@ class UriTemplate:
     """
 
     template: str
-    _parts: tuple[_Part, ...] = field(repr=False, compare=False)
-    _variables: tuple[Variable, ...] = field(repr=False, compare=False)
+    _parts: list[_Part] = field(repr=False, compare=False)
+    _variables: list[Variable] = field(repr=False, compare=False)
     _pattern: re.Pattern[str] = field(repr=False, compare=False)
-    _path_variables: tuple[Variable, ...] = field(repr=False, compare=False)
-    _query_variables: tuple[Variable, ...] = field(repr=False, compare=False)
+    _path_variables: list[Variable] = field(repr=False, compare=False)
+    _query_variables: list[Variable] = field(repr=False, compare=False)
 
     @staticmethod
     def is_template(value: str) -> bool:
@@ -311,14 +311,14 @@ class UriTemplate:
         )
 
     @property
-    def variables(self) -> tuple[Variable, ...]:
+    def variables(self) -> list[Variable]:
         """All variables in the template, in order of appearance."""
-        return self._variables
+        return list(self._variables)
 
     @property
-    def variable_names(self) -> tuple[str, ...]:
+    def variable_names(self) -> list[str]:
         """All variable names in the template, in order of appearance."""
-        return tuple(v.name for v in self._variables)
+        return [v.name for v in self._variables]
 
     def expand(self, variables: Mapping[str, str | Sequence[str]]) -> str:
         """Expand the template by substituting variable values.
@@ -465,7 +465,7 @@ class UriTemplate:
         return self.template
 
 
-def _extract_path(m: re.Match[str], variables: tuple[Variable, ...]) -> dict[str, str | list[str]] | None:
+def _extract_path(m: re.Match[str], variables: Sequence[Variable]) -> dict[str, str | list[str]] | None:
     """Decode regex capture groups into a variable-name mapping.
 
     Handles scalar and explode variables. Named explode (``;``) strips
@@ -506,9 +506,7 @@ def _extract_path(m: re.Match[str], variables: tuple[Variable, ...]) -> dict[str
     return result
 
 
-def _split_query_tail(
-    parts: tuple[_Part, ...],
-) -> tuple[tuple[_Part, ...], tuple[Variable, ...]]:
+def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
     """Separate trailing ``?``/``&`` expressions from the path portion.
 
     Lenient query matching (order-agnostic, partial, ignores extras)
@@ -532,23 +530,23 @@ def _split_query_tail(
             break
 
     if split == len(parts):
-        return parts, ()
+        return parts, []
 
     # If the path portion contains a literal ?, the URI's ? won't align
     # with our template split. Fall back to strict regex.
     for part in parts[:split]:
         if isinstance(part, str) and "?" in part:
-            return parts, ()
+            return parts, []
 
     query_vars: list[Variable] = []
     for part in parts[split:]:
         assert isinstance(part, _Expression)
         query_vars.extend(part.variables)
 
-    return parts[:split], tuple(query_vars)
+    return parts[:split], query_vars
 
 
-def _build_pattern(parts: tuple[_Part, ...]) -> re.Pattern[str]:
+def _build_pattern(parts: Sequence[_Part]) -> re.Pattern[str]:
     """Compile a regex that matches URIs produced by this template.
 
     Walks parts in order: literals are ``re.escape``'d, expressions
@@ -606,7 +604,7 @@ def _expression_pattern(expr: _Expression) -> str:
     return "".join(pieces)
 
 
-def _parse(template: str, *, max_expressions: int) -> tuple[tuple[_Part, ...], tuple[Variable, ...]]:
+def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Variable]]:
     """Split a template into an ordered sequence of literals and expressions.
 
     Walks the string, alternating between collecting literal runs and
@@ -663,7 +661,7 @@ def _parse(template: str, *, max_expressions: int) -> tuple[tuple[_Part, ...], t
 
     _check_adjacent_explodes(template, parts)
     _check_duplicate_variables(template, variables)
-    return tuple(parts), tuple(variables)
+    return parts, variables
 
 
 def _parse_expression(template: str, body: str, pos: int) -> _Expression:
@@ -730,7 +728,7 @@ def _parse_expression(template: str, body: str, pos: int) -> _Expression:
 
         variables.append(Variable(name=name, operator=operator, explode=explode))
 
-    return _Expression(operator=operator, variables=tuple(variables))
+    return _Expression(operator=operator, variables=variables)
 
 
 def _check_duplicate_variables(template: str, variables: list[Variable]) -> None:
