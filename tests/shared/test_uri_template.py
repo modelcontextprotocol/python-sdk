@@ -448,6 +448,14 @@ def test_expand_rejects_invalid_value_types(value: object):
         # Standalone {&var} falls through to strict regex (expands with
         # & prefix, no ? for lenient matching to split on)
         ("api{&page}", "api&page=2", {"page": "2"}),
+        # Literal ? in path portion falls through to strict regex
+        ("api?x{?page}", "api?x?page=2", {"page": "2"}),
+        # {?...} expression in path portion also falls through
+        ("api{?q}x{?page}", "api?q=1x?page=2", {"q": "1", "page": "2"}),
+        # Empty & segments in query are skipped
+        ("search{?q}", "search?&q=hello&", {"q": "hello"}),
+        # Duplicate query keys keep first value
+        ("search{?q}", "search?q=first&q=second", {"q": "first"}),
         # Level 3: query continuation with literal ? falls back to
         # strict regex (template-order, all-present required)
         ("?a=1{&b}", "?a=1&b=2", {"b": "2"}),
