@@ -6,7 +6,7 @@ import base64
 import inspect
 import json
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -105,6 +105,9 @@ class Settings(BaseSettings, Generic[LifespanResultT]):
     # prompt settings
     warn_on_duplicate_prompts: bool
 
+    dependencies: list[str]
+    """List of dependencies to install in the server environment. Used by the `mcp install` and `mcp dev` CLI."""
+
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None
     """An async context manager that will be called when the server is started."""
 
@@ -142,6 +145,7 @@ class MCPServer(Generic[LifespanResultT]):
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
+        dependencies: Collection[str] = (),
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
     ):
@@ -151,9 +155,11 @@ class MCPServer(Generic[LifespanResultT]):
             warn_on_duplicate_resources=warn_on_duplicate_resources,
             warn_on_duplicate_tools=warn_on_duplicate_tools,
             warn_on_duplicate_prompts=warn_on_duplicate_prompts,
+            dependencies=list(dependencies),
             lifespan=lifespan,
             auth=auth,
         )
+        self.dependencies = self.settings.dependencies
 
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
