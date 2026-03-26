@@ -702,18 +702,13 @@ class MCPServer(Generic[LifespanResultT]):
         uri_params = set(parsed.variable_names)
 
         def decorator(fn: _CallableT) -> _CallableT:
-            # Check if this should be a template
             sig = inspect.signature(fn)
-            has_func_params = bool(sig.parameters)
+            context_param = find_context_parameter(fn)
+            func_params = {p for p in sig.parameters.keys() if p != context_param}
 
-            if uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
-
+            # Template/static is decided purely by the URI: variables
+            # present means template, none means static.
+            if uri_params:
                 if uri_params != func_params:
                     raise ValueError(
                         f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
@@ -733,6 +728,20 @@ class MCPServer(Generic[LifespanResultT]):
                     meta=meta,
                 )
             else:
+                if func_params:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares parameters {func_params}. Add matching "
+                        f"{{...}} variables to the URI or remove the parameters."
+                    )
+                if context_param is not None:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares a Context parameter. Context injection "
+                        f"for static resources is not yet supported but is planned. "
+                        f"For now, add a template variable to the URI or remove the "
+                        f"Context parameter."
+                    )
                 # Register as regular resource
                 resource = FunctionResource.from_function(
                     fn=fn,

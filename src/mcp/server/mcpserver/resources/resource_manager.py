@@ -93,7 +93,7 @@ class ResourceManager:
 
         # Then check templates
         for template in self._templates.values():
-            if params := template.matches(uri_str):
+            if (params := template.matches(uri_str)) is not None:
                 try:
                     return await template.create_resource(uri_str, params, context=context)
                 except Exception as e:  # pragma: no cover

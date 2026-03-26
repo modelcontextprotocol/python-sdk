@@ -851,7 +851,7 @@ class TestServerResourceTemplates:
         parameters don't match"""
         mcp = MCPServer()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(ValueError, match="has no URI template variables"):
 
             @mcp.resource("resource://data")
             def get_data_fn(param: str) -> str:  # pragma: no cover
@@ -1191,6 +1191,29 @@ class TestContextInjection:
             assert isinstance(content, TextResourceContents)
             # Should have either request_id or indication that context was injected
             assert "Resource test - context injected" == content.text
+
+    async def test_static_resource_with_context_param_errors(self):
+        """A non-template URI with a Context-only handler should error
+        at decoration time with a clear message, not silently register
+        an unreachable resource."""
+        mcp = MCPServer()
+
+        with pytest.raises(ValueError, match="Context injection for static resources is not yet supported"):
+
+            @mcp.resource("weather://current")
+            def current_weather(ctx: Context) -> str:
+                raise NotImplementedError
+
+    async def test_static_resource_with_extra_params_errors(self):
+        """A non-template URI with non-Context params should error at
+        decoration time."""
+        mcp = MCPServer()
+
+        with pytest.raises(ValueError, match="has no URI template variables"):
+
+            @mcp.resource("data://fixed")
+            def get_data(name: str) -> str:
+                raise NotImplementedError
 
     async def test_resource_without_context(self):
         """Test that resources without context work normally."""
