@@ -263,8 +263,10 @@ def test_parse_rejects_unclosed_brace(template: str, position: int):
     ["}}", "}", "a}b", "{a}}{b}"],
 )
 def test_parse_treats_stray_close_brace_as_literal(template: str):
-    # RFC 6570 is lenient about } outside expressions; most implementations
-    # (including the TypeScript SDK) treat it as a literal rather than erroring.
+    # RFC 6570 §2.1 strictly excludes } from literals, but we accept it
+    # for TypeScript SDK parity. A stray } almost always indicates a
+    # typo; rejecting would be more helpful but would also break
+    # cross-SDK behavior.
     tmpl = UriTemplate.parse(template)
     assert str(tmpl) == template
 

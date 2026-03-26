@@ -585,6 +585,14 @@ duplicate variable names, and unsupported syntax now raise
 `InvalidUriTemplate` when the decorator runs, rather than silently
 misbehaving at match time.
 
+**Static URIs with Context-only handlers now error.** A non-template
+URI paired with a handler that takes only a `Context` parameter
+previously registered but was silently unreachable (the resource
+could never be read). This now raises `ValueError` at decoration time.
+Context injection for static resources is planned; until then, use a
+template with at least one variable or access context through other
+means.
+
 See [Resources](server/resources.md) for the full template syntax,
 security configuration, and filesystem safety utilities.
 

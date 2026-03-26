@@ -118,7 +118,7 @@ def walk_tree(path: list[str]) -> dict:
 ### Template reference
 
 The template syntax follows [RFC 6570](https://datatracker.ietf.org/doc/html/rfc6570).
-Here's what the SDK supports:
+The most common patterns:
 
 | Pattern      | Example input         | You get                 |
 |--------------|-----------------------|-------------------------|
@@ -141,7 +141,7 @@ or database operations, a hostile client can try path traversal
 
 Before your handler runs, the SDK rejects any parameter that:
 
-- contains `..` as a path component
+- would escape its starting directory via `..` components
 - looks like an absolute path (`/etc/passwd`, `C:\Windows`)
 
 The `..` check is component-based, not a substring scan. Values like
@@ -211,7 +211,7 @@ The configurable checks:
 
 | Setting                 | Default | What it does                        |
 |-------------------------|---------|-------------------------------------|
-| `reject_path_traversal` | `True`  | Rejects `..` as a path component    |
+| `reject_path_traversal` | `True`  | Rejects `..` sequences that escape the starting directory |
 | `reject_absolute_paths` | `True`  | Rejects `/foo`, `C:\foo`, UNC paths |
 | `exempt_params`         | empty   | Parameter names to skip checks for  |
 
