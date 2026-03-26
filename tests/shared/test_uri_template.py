@@ -277,6 +277,16 @@ def test_frozen():
         # Level 2: reserved expansion keeps / ? # etc.
         ("{+var}", {"var": "a/b/c"}, "a/b/c"),
         ("{+var}", {"var": "a?b#c"}, "a?b#c"),
+        # RFC §3.2.3: reserved expansion passes through existing
+        # pct-triplets unchanged; bare % is still encoded.
+        ("{+var}", {"var": "path%2Fto"}, "path%2Fto"),
+        ("{+var}", {"var": "50%"}, "50%25"),
+        ("{+var}", {"var": "50%2"}, "50%252"),
+        ("{+var}", {"var": "a%2Fb%20c"}, "a%2Fb%20c"),
+        ("{#var}", {"var": "a%2Fb"}, "#a%2Fb"),
+        # Simple expansion still encodes % unconditionally (triplet
+        # preservation is reserved-only).
+        ("{var}", {"var": "path%2Fto"}, "path%252Fto"),
         ("file://docs/{+path}", {"path": "src/main.py"}, "file://docs/src/main.py"),
         # Level 2: fragment
         ("{#var}", {"var": "section"}, "#section"),
@@ -422,12 +432,17 @@ def test_match_no_match(template: str, uri: str):
 def test_match_adjacent_vars_with_prefix_names():
     # Two adjacent simple vars where one name is a prefix of the other.
     # We use positional capture groups, so names only affect the result
-    # dict keys, not the regex. Standard greedy matching: the first var
-    # takes as much as it can while still letting the second satisfy +.
+    # dict keys, not the regex. Adjacent unrestricted vars are inherently
+    # ambiguous; greedy * resolution means the first takes everything.
     t = UriTemplate.parse("{var}{vara}")
-    assert t.match("ab") == {"var": "a", "vara": "b"}
-    assert t.match("abc") == {"var": "ab", "vara": "c"}
-    assert t.match("abcd") == {"var": "abc", "vara": "d"}
+    assert t.match("ab") == {"var": "ab", "vara": ""}
+    assert t.match("abcd") == {"var": "abcd", "vara": ""}
+
+
+def test_match_adjacent_vars_disambiguated_by_literal():
+    # A literal between vars resolves the ambiguity.
+    t = UriTemplate.parse("{a}-{b}")
+    assert t.match("foo-bar") == {"a": "foo", "b": "bar"}
 
 
 def test_match_decodes_percent_encoding():
@@ -515,6 +530,12 @@ def test_match_explode_encoded_separator_in_segment():
         ("{var}", {"var": "hello world"}),
         ("item{;id}", {"id": "42"}),
         ("item{;id}", {"id": ""}),
+        # Defined-but-empty values still emit the operator prefix; match
+        # must accept the empty capture after it.
+        ("page{#section}", {"section": ""}),
+        ("file{.ext}", {"ext": ""}),
+        ("api{/v}", {"v": ""}),
+        ("x{name}y", {"name": ""}),
         ("item{;keys*}", {"keys": ["a", "b", "c"]}),
         ("item{;keys*}", {"keys": ["a", "", "b"]}),
         # Partial query expansion round-trips: expand omits undefined

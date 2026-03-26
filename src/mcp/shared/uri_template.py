@@ -86,11 +86,11 @@ _OPERATOR_SPECS: dict[Operator, _OperatorSpec] = {
 # the characters that can appear in an expanded value for that operator,
 # stopping at the next structural delimiter.
 _MATCH_PATTERN: dict[Operator, str] = {
-    "": r"[^/?#&,]+",  # simple: everything structural is pct-encoded
-    "+": r"[^?#]+",  # reserved: / allowed, stop at query/fragment
-    "#": r".+",  # fragment: tail of URI
-    ".": r"[^./?#]+",  # label: stop at next .
-    "/": r"[^/?#]+",  # path segment: stop at next /
+    "": r"[^/?#&,]*",  # simple: everything structural is pct-encoded
+    "+": r"[^?#]*",  # reserved: / allowed, stop at query/fragment
+    "#": r".*",  # fragment: tail of URI
+    ".": r"[^./?#]*",  # label: stop at next .
+    "/": r"[^/?#]*",  # path segment: stop at next /
     ";": r"[^;/?#]*",  # path-param value (may be empty: ;name)
     "?": r"[^&#]*",  # query value (may be empty: ?name=)
     "&": r"[^&#]*",  # query-cont value
@@ -140,15 +140,32 @@ def _is_str_sequence(value: object) -> bool:
     return all(isinstance(item, str) for item in seq)
 
 
+_PCT_TRIPLET_RE = re.compile(r"%[0-9A-Fa-f]{2}")
+
+
 def _encode(value: str, *, allow_reserved: bool) -> str:
     """Percent-encode a value per RFC 6570 §3.2.1.
 
     Simple expansion encodes everything except unreserved characters.
-    Reserved expansion ({+var}, {#var}) additionally keeps RFC 3986
-    reserved characters intact.
+    Reserved expansion (``{+var}``, ``{#var}``) additionally keeps
+    RFC 3986 reserved characters intact and passes through existing
+    ``%XX`` pct-triplets unchanged (RFC 6570 §3.2.3). A bare ``%`` not
+    followed by two hex digits is still encoded to ``%25``.
     """
-    safe = _RESERVED if allow_reserved else ""
-    return quote(value, safe=safe)
+    if not allow_reserved:
+        return quote(value, safe="")
+
+    # Reserved expansion: walk the string, pass through triplets as-is,
+    # quote the gaps between them. A bare % with no triplet lands in a
+    # gap and gets encoded normally.
+    out: list[str] = []
+    last = 0
+    for m in _PCT_TRIPLET_RE.finditer(value):
+        out.append(quote(value[last : m.start()], safe=_RESERVED))
+        out.append(m.group())
+        last = m.end()
+    out.append(quote(value[last:], safe=_RESERVED))
+    return "".join(out)
 
 
 def _expand_expression(expr: _Expression, variables: Mapping[str, str | Sequence[str]]) -> str:
