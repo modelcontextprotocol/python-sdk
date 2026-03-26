@@ -15,12 +15,15 @@ Known matching limitations
 Matching is not specified by RFC 6570. A few templates can expand to
 URIs that ``match()`` cannot unambiguously reverse:
 
-* Multi-variable reserved expressions like ``{+x,y}`` use a comma as
-  separator but also permit commas *inside* values (commas are in the
-  reserved set). ``match("a,b,c")`` cannot know which comma is the
-  separator. The matcher takes the last comma as the split point; if
-  your values contain commas, prefer separate expressions (``{+x}/{+y}``)
-  or a different operator.
+* Reserved/fragment expressions (``{+var}``, ``{#var}``) are restricted
+  to positions that avoid quadratic-time backtracking: at most one per
+  template, and not immediately adjacent to another expression. The
+  ``[^?#]*`` pattern overlaps with every other operator's character
+  class; a failing match against ``{+a}{b}`` or ``{+a}/x/{+b}``
+  backtracks O(n²). Use a literal separator before a bounded
+  expression (``{+a}/sep/{b}``) or put the reserved expression last
+  (``file://docs/{+path}``). Trailing ``{?...}``/``{&...}`` query
+  expressions are always fine since they're matched via ``parse_qs``.
 
 * Reserved expansion ``{+var}`` leaves ``?`` and ``#`` unencoded, but
   the match pattern stops at those characters so that templates like
@@ -615,7 +618,7 @@ def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Va
     Raises:
         InvalidUriTemplate: On unclosed braces, too many expressions, or
             any error surfaced by :func:`_parse_expression` or
-            :func:`_check_adjacent_explodes`.
+            :func:`_check_ambiguous_adjacency`.
     """
     parts: list[_Part] = []
     variables: list[Variable] = []
@@ -659,7 +662,7 @@ def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Va
         # Advance past the closing brace.
         i = end + 1
 
-    _check_adjacent_explodes(template, parts)
+    _check_ambiguous_adjacency(template, parts)
     _check_duplicate_variables(template, variables)
     return parts, variables
 
@@ -752,36 +755,73 @@ def _check_duplicate_variables(template: str, variables: list[Variable]) -> None
         seen.add(var.name)
 
 
-def _check_adjacent_explodes(template: str, parts: list[_Part]) -> None:
-    """Reject templates with adjacent explode variables.
+def _check_ambiguous_adjacency(template: str, parts: list[_Part]) -> None:
+    """Reject templates where adjacent expressions would cause ambiguous or quadratic matching.
 
-    Patterns like ``{/a*}{/b*}`` are ambiguous for matching: given
-    ``/x/y/z``, the split between ``a`` and ``b`` is undetermined.
-    Different operators (``{/a*}{.b*}``) do not help in general because
-    the first operator's character class often includes the second's
-    separator, so the first explode greedily consumes both. We reject
-    all adjacent explodes at parse time rather than picking an arbitrary
-    resolution. A literal between them (``{/a*}/x{/b*}``) still
-    disambiguates.
+    Two patterns are rejected:
+
+    1. Adjacent explode variables (``{/a*}{/b*}``): the split between
+       ``a`` and ``b`` in ``/x/y/z`` is undetermined. Different
+       operators don't help since character classes overlap.
+
+    2. Reserved/fragment expansion in a position that causes quadratic
+       backtracking. The ``[^?#]*`` pattern for ``+`` and ``#``
+       overlaps with every other operator's character class, so when a
+       trailing match fails the engine backtracks through O(n) split
+       points. Two conditions trigger this:
+
+       - ``{+var}`` immediately adjacent to any expression
+         (``{+a}{b}``, ``{+a}{/b*}``)
+       - Two ``{+var}``/``{#var}`` anywhere in the path, even with a
+         literal between them (``{+a}/x/{+b}``) — the literal does not
+         disambiguate since ``[^?#]*`` matches it too
+
+       A 64KB payload against either can consume tens of seconds of CPU.
+
+    Trailing ``{?...}``/``{&...}`` expressions are handled via
+    ``parse_qs`` outside the path regex, so they do not count against
+    any check.
 
     Raises:
-        InvalidUriTemplate: If two explode variables appear with no
-            literal or non-explode variable between them.
+        InvalidUriTemplate: If any pattern is detected.
     """
     prev_explode = False
+    prev_reserved = False
+    seen_reserved = False
     for part in parts:
         if isinstance(part, str):
-            # Literal text breaks any adjacency.
+            # A literal breaks immediate adjacency but does not reset
+            # the seen-reserved count: [^?#]* matches most literals.
             prev_explode = False
+            prev_reserved = False
             continue
         for var in part.variables:
-            if var.explode:
-                if prev_explode:
-                    raise InvalidUriTemplate(
-                        "Adjacent explode expressions are ambiguous for matching and not supported",
-                        template=template,
-                    )
-                prev_explode = True
-            else:
-                # A non-explode variable also breaks adjacency.
+            # ?/& are stripped before pattern building and never reach
+            # the path regex.
+            if var.operator in ("?", "&"):
                 prev_explode = False
+                prev_reserved = False
+                continue
+
+            if prev_reserved:
+                raise InvalidUriTemplate(
+                    "{+var} or {#var} immediately followed by another expression "
+                    "causes quadratic-time matching; separate them with a literal",
+                    template=template,
+                )
+            if var.operator in ("+", "#") and seen_reserved:
+                raise InvalidUriTemplate(
+                    "Multiple {+var} or {#var} expressions in one template cause "
+                    "quadratic-time matching even with literals between them",
+                    template=template,
+                )
+            if var.explode and prev_explode:
+                raise InvalidUriTemplate(
+                    "Adjacent explode expressions are ambiguous for matching and not supported",
+                    template=template,
+                )
+
+            prev_explode = var.explode
+            prev_reserved = var.operator in ("+", "#")
+            if prev_reserved:
+                seen_reserved = True

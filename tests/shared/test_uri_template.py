@@ -165,6 +165,55 @@ def test_parse_rejects_adjacent_explodes(template: str):
 
 @pytest.mark.parametrize(
     "template",
+    [
+        # {+var} immediately adjacent to any expression
+        "{+a}{b}",
+        "{+a}{/b}",
+        "{+a}{/b*}",
+        "{+a}{.b}",
+        "{+a}{;b}",
+        "{#a}{b}",
+        "{+a,b}",  # multi-var in one expression: same adjacency
+        "prefix/{+path}{.ext}",  # literal before doesn't help
+        # Two {+var}/{#var} anywhere, even with literals between
+        "{+a}/x/{+b}",
+        "{+a},{+b}",
+        "{#a}/x/{+b}",
+        "{+a}.foo.{#b}",
+    ],
+)
+def test_parse_rejects_reserved_quadratic_patterns(template: str):
+    # These patterns cause O(n²) regex backtracking when a trailing
+    # literal fails to match. Rejecting at parse time eliminates the
+    # ReDoS vector at the source.
+    with pytest.raises(InvalidUriTemplate, match="quadratic"):
+        UriTemplate.parse(template)
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "file://docs/{+path}",  # + at end of template
+        "file://{+path}.txt",  # + followed by literal only
+        "file://{+path}/edit",  # + followed by literal only
+        "api/{+path}{?v,page}",  # + followed by query (stripped before regex)
+        "api/{+path}{&next}",  # + followed by query-continuation
+        "page{#section}",  # # at end
+        "{a}{+b}",  # + preceded by expression is fine; only following matters
+        "{+a}/sep/{b}",  # literal + bounded expression after: linear
+        "{+a},{b}",  # same: literal disambiguates when second is bounded
+    ],
+)
+def test_parse_allows_reserved_in_safe_positions(template: str):
+    # These do not exhibit quadratic backtracking: end-of-template,
+    # literal + bounded expression, or trailing query expression
+    # (handled by parse_qs outside the path regex).
+    t = UriTemplate.parse(template)
+    assert t is not None
+
+
+@pytest.mark.parametrize(
+    "template",
     ["{x}/{x}", "{x,x}", "{a}{b}{a}", "{+x}/foo/{x}"],
 )
 def test_parse_rejects_duplicate_variable_names(template: str):
@@ -306,7 +355,8 @@ def test_frozen():
         ("?a=1{&b}", {"b": "2"}, "?a=1&b=2"),
         # Multi-var in one expression
         ("{x,y}", {"x": "1", "y": "2"}, "1,2"),
-        ("{+x,y}", {"x": "a/b", "y": "c/d"}, "a/b,c/d"),
+        # {+x,y} is rejected at parse time (quadratic backtracking +
+        # inherent ambiguity). Use {+x}/{+y} with a literal separator.
         # Sequence values, non-explode (comma-join)
         ("{/list}", {"list": ["a", "b", "c"]}, "/a,b,c"),
         ("{?list}", {"list": ["a", "b"]}, "?list=a,b"),
