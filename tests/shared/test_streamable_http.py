@@ -2482,3 +2482,104 @@ async def test_tool_with_standalone_stream_close_no_event_store(
             assert result.content[0].type == "text"
             assert isinstance(result.content[0], TextContent)
             assert result.content[0].text == "Standalone stream close test done"
+
+
+def test_post_invalid_content_type(basic_server: None, basic_server_url: str) -> None:
+    """Test that POST with invalid Content-Type returns 400 (transport security)."""
+    url = f"{basic_server_url}/mcp"
+    session = requests.Session()
+
+    # First initialize to get a valid session
+    init_payload = {
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "test-client", "version": "1.0"},
+        },
+        "id": "init-1",
+    }
+    resp = session.post(url, json=init_payload, headers={"Accept": "application/json, text/event-stream"})
+    assert resp.status_code == 200
+
+    # Now POST with invalid Content-Type
+    resp = session.post(
+        url,
+        data="hello",
+        headers={"Content-Type": "text/plain", "Accept": "application/json, text/event-stream"},
+    )
+    assert resp.status_code == 400
+    assert "Invalid Content-Type header" in resp.text
+
+
+def test_post_mismatched_session_id(basic_server: None, basic_server_url: str) -> None:
+    """Test that POST with wrong session ID returns 404 (session manager)."""
+    url = f"{basic_server_url}/mcp"
+    session = requests.Session()
+
+    # First initialize
+    init_payload = {
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "test-client", "version": "1.0"},
+        },
+        "id": "init-1",
+    }
+    resp = session.post(url, json=init_payload, headers={"Accept": "application/json, text/event-stream"})
+    assert resp.status_code == 200
+
+    # POST with wrong session ID
+    resp = session.post(
+        url,
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "req-1"},
+        headers={
+            "Accept": "application/json, text/event-stream",
+            "Mcp-Session-Id": "wrong-session-id",
+        },
+    )
+    assert resp.status_code == 404
+    assert "Session not found" in resp.text
+
+
+def test_get_mismatched_session_id(basic_server: None, basic_server_url: str) -> None:
+    """Test that GET with wrong session ID returns 404 (session manager)."""
+    url = f"{basic_server_url}/mcp"
+
+    resp = requests.get(
+        url,
+        headers={
+            "Accept": "text/event-stream",
+            "Mcp-Session-Id": "wrong-session-id",
+        },
+    )
+    assert resp.status_code == 404
+    assert "Session not found" in resp.text
+
+
+def test_delete_mismatched_session_id(basic_server: None, basic_server_url: str) -> None:
+    """Test that DELETE with wrong session ID returns 404 (session manager)."""
+    url = f"{basic_server_url}/mcp"
+
+    resp = requests.delete(
+        url,
+        headers={"Mcp-Session-Id": "wrong-session-id"},
+    )
+    assert resp.status_code == 404
+    assert "Session not found" in resp.text
+
+
+def test_unsupported_http_method(basic_server: None, basic_server_url: str) -> None:
+    """Test that unsupported HTTP methods (e.g. PUT) return 405."""
+    url = f"{basic_server_url}/mcp"
+
+    resp = requests.put(
+        url,
+        json={"test": "data"},
+        headers={"Accept": "application/json"},
+    )
+    assert resp.status_code == 405
+    assert "Method Not Allowed" in resp.text

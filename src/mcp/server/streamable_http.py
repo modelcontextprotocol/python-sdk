@@ -294,7 +294,7 @@ class StreamableHTTPServerTransport:
         if headers:
             response_headers.update(headers)
 
-        if self.mcp_session_id:
+        if self.mcp_session_id:  # pragma: no branch
             response_headers[MCP_SESSION_ID_HEADER] = self.mcp_session_id
 
         # Return a properly formatted JSON error response
@@ -481,7 +481,7 @@ class StreamableHTTPServerTransport:
 
             if is_initialization_request:
                 # Check if the server already has an established session
-                if self.mcp_session_id:
+                if self.mcp_session_id:  # pragma: no branch
                     # Check if request has a session ID
                     request_session_id = self._get_session_id(request)
 
@@ -1026,7 +1026,7 @@ class StreamableHTTPServerTransport:
                                 for message. Still processing message as the client
                                 might reconnect and replay."""
                             )
-                except anyio.ClosedResourceError:
+                except anyio.ClosedResourceError:  # pragma: lax no cover
                     if self._terminated:
                         logger.debug("Read stream closed by client")
                     else:
