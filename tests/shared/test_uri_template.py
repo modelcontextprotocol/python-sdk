@@ -475,6 +475,10 @@ def test_match(template: str, uri: str, expected: dict[str, str | list[str]]):
         # ; explode: wrong parameter name in any segment rejects the match
         ("item{;keys*}", "item;admin=true"),
         ("item{;keys*}", "item;keys=a;admin=true"),
+        # Lenient-query branch: path portion fails to match
+        ("api/{name}{?q}", "wrong/path?q=x"),
+        # Lenient-query branch: ; explode name mismatch in path portion
+        ("item{;keys*}{?q}", "item;wrong=x?q=1"),
     ],
 )
 def test_match_no_match(template: str, uri: str):

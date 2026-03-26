@@ -197,6 +197,11 @@ class TestServer:
             return f"item:{name}"
 
         async with Client(mcp) as client:
+            # Safe value passes through to the handler
+            r = await client.read_resource("data://items/widget")
+            assert isinstance(r.contents[0], TextResourceContents)
+            assert r.contents[0].text == "item:widget"
+
             # ".." as a path component is rejected by default policy
             with pytest.raises(MCPError, match="Unknown resource"):
                 await client.read_resource("data://items/..")

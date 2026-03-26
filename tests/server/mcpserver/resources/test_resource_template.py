@@ -15,7 +15,7 @@ from mcp.types import Annotations
 
 def _make(uri_template: str, security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY) -> ResourceTemplate:
     def handler(**kwargs: Any) -> str:
-        return "ok"
+        raise NotImplementedError  # these tests only exercise matches()
 
     return ResourceTemplate.from_function(fn=handler, uri_template=uri_template, security=security)
 
