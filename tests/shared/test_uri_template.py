@@ -512,6 +512,19 @@ def test_match_adjacent_vars_with_prefix_names():
     assert t.match("abcd") == {"var": "abcd", "vara": ""}
 
 
+def test_match_explode_preserves_empty_list_items():
+    # Splitting the explode capture on its separator yields a leading
+    # empty item from the operator prefix; only that one is stripped.
+    # Subsequent empties are legitimate values from the input list.
+    t = UriTemplate.parse("{/path*}")
+    assert t.match("/a//c") == {"path": ["a", "", "c"]}
+    assert t.match("//a") == {"path": ["", "a"]}
+    assert t.match("/a/") == {"path": ["a", ""]}
+
+    t = UriTemplate.parse("host{.labels*}")
+    assert t.match("host.a..c") == {"labels": ["a", "", "c"]}
+
+
 def test_match_adjacent_vars_disambiguated_by_literal():
     # A literal between vars resolves the ambiguity.
     t = UriTemplate.parse("{a}-{b}")
@@ -609,6 +622,10 @@ def test_match_explode_encoded_separator_in_segment():
         ("x{name}y", {"name": ""}),
         ("item{;keys*}", {"keys": ["a", "b", "c"]}),
         ("item{;keys*}", {"keys": ["a", "", "b"]}),
+        # Empty strings in explode lists round-trip for unnamed operators
+        ("{/path*}", {"path": ["a", "", "c"]}),
+        ("{/path*}", {"path": ["", "a"]}),
+        ("host{.labels*}", {"labels": ["a", "", "c"]}),
         # Partial query expansion round-trips: expand omits undefined
         # vars, match leaves them absent from the result.
         ("logs://{service}{?since,level}", {"service": "api"}),
