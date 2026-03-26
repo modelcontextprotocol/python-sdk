@@ -210,6 +210,28 @@ class UriTemplate:
     _variables: tuple[Variable, ...] = field(repr=False, compare=False)
     _pattern: re.Pattern[str] = field(repr=False, compare=False)
 
+    @staticmethod
+    def is_template(value: str) -> bool:
+        """Check whether a string contains URI template expressions.
+
+        A cheap heuristic for distinguishing concrete URIs from templates
+        without the cost of full parsing. Returns ``True`` if the string
+        contains at least one ``{...}`` pair.
+
+        Example::
+
+            >>> UriTemplate.is_template("file://docs/{name}")
+            True
+            >>> UriTemplate.is_template("file://docs/readme.txt")
+            False
+
+        Note:
+            This does not validate the template. A ``True`` result does
+            not guarantee :meth:`parse` will succeed.
+        """
+        open_i = value.find("{")
+        return open_i != -1 and value.find("}", open_i) != -1
+
     @classmethod
     def parse(
         cls,

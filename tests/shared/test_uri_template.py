@@ -12,6 +12,24 @@ def test_parse_literal_only():
     assert str(tmpl) == "file://docs/readme.txt"
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("file://docs/{name}", True),
+        ("file://docs/readme.txt", False),
+        ("", False),
+        ("{a}", True),
+        ("{", False),
+        ("}", False),
+        ("}{", False),
+        ("prefix{+path}/suffix", True),
+        ("{invalid syntax but still a template}", True),
+    ],
+)
+def test_is_template(value: str, expected: bool):
+    assert UriTemplate.is_template(value) is expected
+
+
 def test_parse_simple_variable():
     tmpl = UriTemplate.parse("file://docs/{name}")
     assert tmpl.variables == (Variable(name="name", operator=""),)
