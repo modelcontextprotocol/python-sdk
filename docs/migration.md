@@ -545,69 +545,48 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
-### Resource templates: RFC 6570 support and security hardening
+### Resource templates: matching behavior changes
 
-Resource template matching has been rewritten to support RFC 6570 URI
-templates (Levels 1-3 plus path-style explode) and to apply path-safety
-checks to extracted parameters by default.
+Resource template matching has been rewritten with RFC 6570 support.
+Four behaviors have changed:
 
-**New capabilities:**
-
-- `{+path}` (reserved expansion) now works — it matches multi-segment
-  paths like `src/main.py`. Previously only simple `{var}` was supported.
-- All Level 3 operators: `{.ext}`, `{/seg}`, `{;param}`, `{?query}`, `{&cont}`
-- Path-style explode: `{/path*}` extracts a `list[str]` of segments
-- Template literals are now regex-escaped (a `.` in your template no
-  longer matches any character — this was a bug)
-
-**Security hardening (may require opt-out):**
-
-By default, extracted parameter values are now rejected if they:
-
-- Contain `..` as a path component (e.g., `..`, `../etc`, `a/../../b`)
-- Look like an absolute filesystem path (e.g., `/etc/passwd`, `C:\Windows`)
-
-These checks apply to the decoded value, so they catch traversal
-regardless of encoding (`../etc`, `..%2Fetc`, `%2E%2E/etc` all caught).
-
-If your template parameters legitimately contain `..` (e.g., git commit
-ranges like `HEAD~3..HEAD`) or absolute paths, exempt them:
+**Path-safety checks applied by default.** Extracted parameter values
+containing `..` as a path component or looking like an absolute path
+(`/etc/passwd`, `C:\Windows`) now cause the template to not match.
+This is checked on the decoded value, so `..%2Fetc` and `%2E%2E` are
+caught too. If a parameter legitimately contains these (a git commit
+range, a fully-qualified identifier), exempt it:
 
 ```python
-from mcp.server.mcpserver import MCPServer, ResourceSecurity
-
-mcp = MCPServer()
+from mcp.server.mcpserver import ResourceSecurity
 
 @mcp.resource(
     "git://diff/{+range}",
     security=ResourceSecurity(exempt_params={"range"}),
 )
-def git_diff(range: str) -> str:
-    ...
+def git_diff(range: str) -> str: ...
 ```
 
-Or relax the policy server-wide:
+Note that `..` is only flagged as a standalone path component, so a
+value like `v1.0..v2.0` is unaffected.
 
-```python
-mcp = MCPServer(
-    resource_security=ResourceSecurity(reject_path_traversal=False),
-)
-```
+**Template literals are regex-escaped.** Previously a `.` in your
+template matched any character; now it matches only a literal dot.
+`data://v1.0/{id}` no longer matches `data://v1X0/42`.
 
-**Filesystem handlers:** even with `{+path}` allowing slashes, you must
-still guard against traversal in your handler. Use `safe_join`:
+**Query parameters match leniently.** A template like
+`search://{q}{?limit}` now matches `search://foo` (with `limit` absent
+from the extracted params so your function default applies). Previously
+this returned no match. If you relied on all query parameters being
+required, add explicit checks in your handler.
 
-```python
-from mcp.shared.path_security import safe_join
+**Malformed templates fail at decoration time.** Unclosed braces,
+duplicate variable names, and unsupported syntax now raise
+`InvalidUriTemplate` when the decorator runs, rather than silently
+misbehaving at match time.
 
-@mcp.resource("file://docs/{+path}")
-def read_doc(path: str) -> str:
-    return safe_join("/data/docs", path).read_text()
-```
-
-**Malformed templates now fail at decoration time** with
-`InvalidUriTemplate` (a `ValueError` subclass carrying the error
-position), rather than silently misbehaving at match time.
+See [Resources](server/resources.md) for the full template syntax,
+security configuration, and filesystem safety utilities.
 
 ### Lowlevel `Server`: constructor parameters are now keyword-only
 
