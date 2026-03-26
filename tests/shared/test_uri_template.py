@@ -427,6 +427,26 @@ def test_match_bare_encoded_delimiter_rejected():
     assert t.match("file://docs/%2F") is None
 
 
+def test_match_rejects_oversized_uri():
+    t = UriTemplate.parse("{var}")
+    assert t.match("x" * 100, max_uri_length=50) is None
+
+
+def test_match_accepts_uri_within_custom_limit():
+    t = UriTemplate.parse("{var}")
+    assert t.match("x" * 100, max_uri_length=200) == {"var": "x" * 100}
+
+
+def test_match_default_uri_length_limit():
+    from mcp.shared.uri_template import DEFAULT_MAX_URI_LENGTH
+
+    t = UriTemplate.parse("{+var}")
+    # Just at the limit: should match
+    assert t.match("x" * DEFAULT_MAX_URI_LENGTH) is not None
+    # One over: should reject
+    assert t.match("x" * (DEFAULT_MAX_URI_LENGTH + 1)) is None
+
+
 def test_match_structural_integrity_per_explode_segment():
     t = UriTemplate.parse("/files{/path*}")
     # Each segment checked independently

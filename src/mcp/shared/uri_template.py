@@ -30,6 +30,7 @@ _VARNAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.]*$")
 
 DEFAULT_MAX_TEMPLATE_LENGTH = 1_000_000
 DEFAULT_MAX_EXPRESSIONS = 10_000
+DEFAULT_MAX_URI_LENGTH = 65_536
 
 # RFC 3986 reserved characters, kept unencoded by {+var} and {#var}.
 _RESERVED = ":/?#[]@!$&'()*+,;="
@@ -333,7 +334,7 @@ class UriTemplate:
                 out.append(_expand_expression(part, variables))
         return "".join(out)
 
-    def match(self, uri: str) -> dict[str, str | list[str]] | None:
+    def match(self, uri: str, *, max_uri_length: int = DEFAULT_MAX_URI_LENGTH) -> dict[str, str | list[str]] | None:
         """Match a concrete URI against this template and extract variables.
 
         This is the inverse of :meth:`expand`. The URI is matched against
@@ -368,13 +369,19 @@ class UriTemplate:
 
         Args:
             uri: A concrete URI string.
+            max_uri_length: Maximum permitted length of the input URI.
+                Oversized inputs return ``None`` without regex evaluation,
+                guarding against resource exhaustion.
 
         Returns:
             A mapping from variable names to decoded values (``str`` for
             scalar variables, ``list[str]`` for explode variables), or
-            ``None`` if the URI does not match the template or a decoded
-            value violates structural integrity.
+            ``None`` if the URI does not match the template, a decoded
+            value violates structural integrity, or the URI exceeds
+            ``max_uri_length``.
         """
+        if len(uri) > max_uri_length:
+            return None
         m = self._pattern.fullmatch(uri)
         if m is None:
             return None
