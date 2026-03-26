@@ -3,6 +3,7 @@
 import importlib.metadata
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,16 +40,14 @@ app = typer.Typer(
 )
 
 
-def _get_npx_command():
+def _get_npx_command() -> str | None:
     """Get the correct npx command for the current platform."""
     if sys.platform == "win32":
-        # Try both npx.cmd and npx.exe on Windows
+        # Use shutil.which() to safely locate the executable on Windows
+        # without invoking a shell, preventing command injection risks.
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
-            try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
+            if shutil.which(cmd) is not None:
                 return cmd
-            except subprocess.CalledProcessError:
-                continue
         return None
     return "npx"  # On Unix-like systems, just use npx
 
@@ -271,12 +270,13 @@ def dev(
             )
             sys.exit(1)
 
-        # Run the MCP Inspector command with shell=True on Windows
-        shell = sys.platform == "win32"
+        # Run the MCP Inspector command without shell=True to prevent
+        # command injection via shell metacharacters (see #1257).
+        # _get_npx_command() already resolves the correct executable
+        # (e.g. npx.cmd on Windows), so shell dispatch is unnecessary.
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
-            shell=shell,
             env=dict(os.environ.items()),  # Convert to list of tuples for env update
         )
         sys.exit(process.returncode)

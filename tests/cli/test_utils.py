@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -76,26 +77,21 @@ def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
-    """Should return one of the npx candidates on Windows."""
+    """Should return one of the npx candidates on Windows via shutil.which()."""
     candidates = ["npx.cmd", "npx.exe", "npx"]
 
-    def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[bytes]:
-        if cmd[0] in candidates:
-            return subprocess.CompletedProcess(cmd, 0)
-        else:  # pragma: no cover
-            raise subprocess.CalledProcessError(1, cmd[0])
+    def fake_which(cmd: str) -> str | None:
+        if cmd in candidates:
+            return f"/fake/path/{cmd}"
+        return None  # pragma: no cover
 
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(shutil, "which", fake_which)
     assert _get_npx_command() in candidates
 
 
 def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
-    """Should give None if every candidate fails."""
+    """Should give None if every candidate is absent from PATH."""
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
-
-    def always_fail(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
-        raise subprocess.CalledProcessError(1, args[0])
-
-    monkeypatch.setattr(subprocess, "run", always_fail)
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
     assert _get_npx_command() is None
