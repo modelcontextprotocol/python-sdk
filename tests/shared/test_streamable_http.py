@@ -1552,12 +1552,20 @@ def _create_context_aware_server(port: int) -> uvicorn.Server:
 
 @pytest.fixture
 def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
-    """Start the context-aware server on a background thread (in-process for coverage)."""
+    """Start the context-aware server on a background thread (in-process for coverage).
+
+    Unlike multiprocessing, threads share the host process's warning filters.
+    Uvicorn and the Windows ProactorEventLoop emit DeprecationWarning /
+    ResourceWarning during startup and teardown that pytest's
+    ``filterwarnings = ["error"]`` would otherwise promote to hard failures.
+    We therefore run the server with all warnings suppressed (mirroring
+    the implicit isolation that multiprocessing provided).
+    """
     server_instance = _create_context_aware_server(basic_server_port)
 
     def _run() -> None:
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            warnings.simplefilter("ignore")
             server_instance.run()
 
     thread = threading.Thread(target=_run, daemon=True)
@@ -1570,15 +1578,14 @@ def context_aware_server(basic_server_port: int) -> Generator[None, None, None]:
     server_instance.should_exit = True
     thread.join(timeout=5)
 
-    # Force GC and suppress Windows ProactorBasePipeTransport.__del__ warnings
-    # that surface when the event loop is torn down in a thread.
-    import gc
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=pytest.PytestUnraisableExceptionWarning)
-        gc.collect()
+# Marker to suppress Windows ProactorEventLoop teardown warnings on threaded servers.
+# When uvicorn runs in a thread (instead of a subprocess), transport finalizers fire
+# during GC in the main process and trigger PytestUnraisableExceptionWarning.
+_suppress_transport_teardown = pytest.mark.filterwarnings("ignore::pytest.PytestUnraisableExceptionWarning")
 
 
+@_suppress_transport_teardown
 @pytest.mark.anyio
 async def test_streamablehttp_request_context_propagation(context_aware_server: None, basic_server_url: str) -> None:
     """Test that request context is properly propagated through StreamableHTTP."""
@@ -1612,6 +1619,7 @@ async def test_streamablehttp_request_context_propagation(context_aware_server: 
                 assert headers_data.get("x-trace-id") == "trace-123"
 
 
+@_suppress_transport_teardown
 @pytest.mark.anyio
 async def test_streamablehttp_request_context_isolation(context_aware_server: None, basic_server_url: str) -> None:
     """Test that request contexts are isolated between StreamableHTTP clients."""
@@ -1650,6 +1658,7 @@ async def test_streamablehttp_request_context_isolation(context_aware_server: No
         assert ctx["headers"].get("authorization") == f"Bearer token-{i}"
 
 
+@_suppress_transport_teardown
 @pytest.mark.anyio
 async def test_client_includes_protocol_version_header_after_init(context_aware_server: None, basic_server_url: str):
     """Test that client includes mcp-protocol-version header after initialization."""
@@ -2263,6 +2272,7 @@ async def test_streamable_http_client_does_not_mutate_provided_client(
         assert custom_client.headers.get("Authorization") == "Bearer test-token"
 
 
+@_suppress_transport_teardown
 @pytest.mark.anyio
 async def test_streamable_http_client_mcp_headers_override_defaults(
     context_aware_server: None, basic_server_url: str
@@ -2294,6 +2304,7 @@ async def test_streamable_http_client_mcp_headers_override_defaults(
                 assert headers_data["content-type"] == "application/json"
 
 
+@_suppress_transport_teardown
 @pytest.mark.anyio
 async def test_streamable_http_client_preserves_custom_with_mcp_headers(
     context_aware_server: None, basic_server_url: str
