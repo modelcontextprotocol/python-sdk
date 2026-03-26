@@ -545,6 +545,69 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
+### Resource templates: RFC 6570 support and security hardening
+
+Resource template matching has been rewritten to support RFC 6570 URI
+templates (Levels 1-3 plus path-style explode) and to apply path-safety
+checks to extracted parameters by default.
+
+**New capabilities:**
+
+- `{+path}` (reserved expansion) now works — it matches multi-segment
+  paths like `src/main.py`. Previously only simple `{var}` was supported.
+- All Level 3 operators: `{.ext}`, `{/seg}`, `{;param}`, `{?query}`, `{&cont}`
+- Path-style explode: `{/path*}` extracts a `list[str]` of segments
+- Template literals are now regex-escaped (a `.` in your template no
+  longer matches any character — this was a bug)
+
+**Security hardening (may require opt-out):**
+
+By default, extracted parameter values are now rejected if they:
+
+- Contain `..` as a path component (e.g., `..`, `../etc`, `a/../../b`)
+- Look like an absolute filesystem path (e.g., `/etc/passwd`, `C:\Windows`)
+- Decode to contain structural delimiters that their operator forbids
+  (e.g., `%2F` smuggled into a simple `{name}`)
+
+If your template parameters legitimately contain `..` (e.g., git commit
+ranges like `HEAD~3..HEAD`) or absolute paths, exempt them:
+
+```python
+from mcp.server.mcpserver import MCPServer, ResourceSecurity
+
+mcp = MCPServer()
+
+@mcp.resource(
+    "git://diff/{+range}",
+    security=ResourceSecurity(exempt_params=frozenset({"range"})),
+)
+def git_diff(range: str) -> str:
+    ...
+```
+
+Or relax the policy server-wide:
+
+```python
+mcp = MCPServer(
+    resource_security=ResourceSecurity(reject_path_traversal=False),
+)
+```
+
+**Filesystem handlers:** even with `{+path}` allowing slashes, you must
+still guard against traversal in your handler. Use `safe_join`:
+
+```python
+from mcp.shared.path_security import safe_join
+
+@mcp.resource("file://docs/{+path}")
+def read_doc(path: str) -> str:
+    return safe_join("/data/docs", path).read_text()
+```
+
+**Malformed templates now fail at decoration time** with
+`InvalidUriTemplate` (a `ValueError` subclass carrying the error
+position), rather than silently misbehaving at match time.
+
 ### Lowlevel `Server`: constructor parameters are now keyword-only
 
 All parameters after `name` are now keyword-only. If you were passing `version` or other parameters positionally, use keyword arguments instead:
