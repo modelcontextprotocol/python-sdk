@@ -8,6 +8,26 @@ requests to handlers.
 Supports Levels 1-3 fully, plus Level 4 explode modifier for path-like
 operators (``{/var*}``, ``{.var*}``, ``{;var*}``). The Level 4 prefix
 modifier (``{var:N}``) and query-explode (``{?var*}``) are not supported.
+
+Known matching limitations
+--------------------------
+
+Matching is not specified by RFC 6570. A few templates can expand to
+URIs that ``match()`` cannot unambiguously reverse:
+
+* Multi-variable reserved expressions like ``{+x,y}`` use a comma as
+  separator but also permit commas *inside* values (commas are in the
+  reserved set). ``match("a,b,c")`` cannot know which comma is the
+  separator. The matcher takes the last comma as the split point; if
+  your values contain commas, prefer separate expressions (``{+x}/{+y}``)
+  or a different operator.
+
+* Reserved expansion ``{+var}`` leaves ``?`` and ``#`` unencoded, but
+  the match pattern stops at those characters so that templates like
+  ``{+path}{?q}`` can correctly separate path from query. A value
+  containing a literal ``?`` or ``#`` expands fine but will not
+  round-trip through ``match()``. Use simple ``{var}`` (which encodes
+  them) if round-trip matters for such values.
 """
 
 from __future__ import annotations
@@ -25,8 +45,9 @@ Operator = Literal["", "+", "#", ".", "/", ";", "?", "&"]
 _OPERATORS: frozenset[str] = frozenset({"+", "#", ".", "/", ";", "?", "&"})
 
 # RFC 6570 §2.3: varname = varchar *(["."] varchar), varchar = ALPHA / DIGIT / "_"
+# Dots appear only between varchar groups — not consecutive, not trailing.
 # (Percent-encoded varchars are technically allowed but unseen in practice.)
-_VARNAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.]*$")
+_VARNAME_RE = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$")
 
 DEFAULT_MAX_TEMPLATE_LENGTH = 1_000_000
 DEFAULT_MAX_EXPRESSIONS = 10_000
@@ -717,33 +738,35 @@ def _check_duplicate_variables(template: str, variables: list[Variable]) -> None
 
 
 def _check_adjacent_explodes(template: str, parts: list[_Part]) -> None:
-    """Reject templates with adjacent same-operator explode variables.
+    """Reject templates with adjacent explode variables.
 
     Patterns like ``{/a*}{/b*}`` are ambiguous for matching: given
-    ``/x/y/z``, the split between ``a`` and ``b`` is undetermined. We
-    reject these at parse time rather than picking an arbitrary
-    resolution. A literal between them (``{/a*}/x{/b*}``) or a different
-    operator (``{/a*}{.b*}``) disambiguates.
+    ``/x/y/z``, the split between ``a`` and ``b`` is undetermined.
+    Different operators (``{/a*}{.b*}``) do not help in general because
+    the first operator's character class often includes the second's
+    separator, so the first explode greedily consumes both. We reject
+    all adjacent explodes at parse time rather than picking an arbitrary
+    resolution. A literal between them (``{/a*}/x{/b*}``) still
+    disambiguates.
 
     Raises:
-        InvalidUriTemplate: If two explode variables with the same
-            operator appear with no literal or non-explode variable
-            between them.
+        InvalidUriTemplate: If two explode variables appear with no
+            literal or non-explode variable between them.
     """
-    prev_explode_op: Operator | None = None
+    prev_explode = False
     for part in parts:
         if isinstance(part, str):
             # Literal text breaks any adjacency.
-            prev_explode_op = None
+            prev_explode = False
             continue
         for var in part.variables:
             if var.explode:
-                if prev_explode_op == var.operator:
+                if prev_explode:
                     raise InvalidUriTemplate(
-                        f"Adjacent explode expressions with operator {var.operator!r} are ambiguous and not supported",
+                        "Adjacent explode expressions are ambiguous for matching and not supported",
                         template=template,
                     )
-                prev_explode_op = var.operator
+                prev_explode = True
             else:
                 # A non-explode variable also breaks adjacency.
-                prev_explode_op = None
+                prev_explode = False

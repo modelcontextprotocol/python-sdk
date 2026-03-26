@@ -112,10 +112,26 @@ def test_parse_rejects_operator_without_variable():
         UriTemplate.parse("{+}")
 
 
-@pytest.mark.parametrize("name", ["-bad", "bad-name", "bad name", "bad/name"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "-bad",
+        "bad-name",
+        "bad name",
+        "bad/name",
+        # RFC §2.3: dots only between varchars, not consecutive or trailing
+        "foo..bar",
+        "foo.",
+    ],
+)
 def test_parse_rejects_invalid_varname(name: str):
     with pytest.raises(InvalidUriTemplate, match="Invalid variable name"):
         UriTemplate.parse(f"{{{name}}}")
+
+
+def test_parse_accepts_dotted_varname():
+    t = UriTemplate.parse("{a.b.c}")
+    assert t.variable_names == ("a.b.c",)
 
 
 def test_parse_rejects_empty_spec_in_list():
@@ -134,9 +150,17 @@ def test_parse_rejects_unsupported_explode(template: str):
         UriTemplate.parse(template)
 
 
-def test_parse_rejects_adjacent_explodes_same_operator():
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{/a*}{/b*}",  # same operator
+        "{/a*}{.b*}",  # different operators: / char class includes ., still ambiguous
+        "{.a*}{;b*}",
+    ],
+)
+def test_parse_rejects_adjacent_explodes(template: str):
     with pytest.raises(InvalidUriTemplate, match="Adjacent explode"):
-        UriTemplate.parse("{/a*}{/b*}")
+        UriTemplate.parse(template)
 
 
 @pytest.mark.parametrize(
@@ -201,14 +225,14 @@ def test_parse_stray_close_brace_between_expressions():
     assert tmpl.variable_names == ("a", "b")
 
 
-def test_parse_allows_adjacent_explodes_different_operator():
-    tmpl = UriTemplate.parse("{/a*}{.b*}")
-    assert len(tmpl.variables) == 2
-
-
 def test_parse_allows_explode_separated_by_literal():
     tmpl = UriTemplate.parse("{/a*}/x{/b*}")
     assert len(tmpl.variables) == 2
+
+
+def test_parse_allows_explode_separated_by_non_explode_var():
+    tmpl = UriTemplate.parse("{/a*}{b}{.c*}")
+    assert len(tmpl.variables) == 3
 
 
 def test_parse_rejects_oversized_template():
