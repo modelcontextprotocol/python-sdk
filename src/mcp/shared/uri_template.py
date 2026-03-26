@@ -522,14 +522,11 @@ def _extract_path(m: re.Match[str], variables: Sequence[Variable]) -> dict[str, 
                 continue
             segments: list[str] = []
             prefix = f"{var.name}="
-            # Splitting on the separator yields an empty first item from
-            # the leading prefix. Strip only that one; subsequent empty
-            # items are legitimate empty values ({/path*} with ["a","","c"]
-            # expands to /a//c and must round-trip).
-            items = raw.split(spec.separator)
-            if items and not items[0]:
-                items = items[1:]
-            for seg in items:
+            # The explode regex ((?:SEP body)*?) guarantees non-empty
+            # captures start with the separator, so split()[0] is always
+            # "". Slice it off; subsequent empties are legitimate values
+            # ({/path*} with ["a","","c"] expands to /a//c).
+            for seg in raw.split(spec.separator)[1:]:
                 if spec.named:
                     # Named explode emits name=value per item (or bare
                     # name for ; with empty value). Validate the name
