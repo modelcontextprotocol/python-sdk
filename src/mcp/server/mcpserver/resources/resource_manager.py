@@ -83,7 +83,17 @@ class ResourceManager:
         return template
 
     async def get_resource(self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]) -> Resource:
-        """Get resource by URI, checking concrete resources first, then templates."""
+        """Get resource by URI, checking concrete resources first, then templates.
+
+        Note:
+            Pydantic's ``AnyUrl`` normalises percent-encoding and
+            resolves ``..`` segments during validation, so a value
+            constructed as ``AnyUrl("file:///a/%2E%2E/b")`` arrives
+            here as ``file:///b``. The JSON-RPC protocol layer passes
+            raw ``str`` values and is unaffected, but internal callers
+            wrapping URIs in ``AnyUrl`` should be aware that security
+            checks see the already-normalised form.
+        """
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
 
