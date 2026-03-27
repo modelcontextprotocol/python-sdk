@@ -537,8 +537,9 @@ class UriTemplate:
             return None
         prefix_result, prefix_end = prefix
 
-        if prefix_end > suffix_start:
-            return None
+        # _scan_prefix is bounded by suffix_start, so this holds by
+        # construction. Kept as an assertion to document the invariant.
+        assert prefix_end <= suffix_start
 
         middle = uri[prefix_end:suffix_start]
         greedy_value = _extract_greedy(self._greedy, middle)

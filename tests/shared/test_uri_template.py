@@ -571,6 +571,49 @@ def test_match_no_backtracking_on_pathological_input(template: str, uri: str):
     assert UriTemplate.parse(template).match(uri) is None
 
 
+@pytest.mark.parametrize(
+    ("template", "uri"),
+    [
+        # Prefix literal mismatch before a greedy var
+        ("file://{+path}", "http://x"),
+        # Prefix anchor not found: {a} needs '@' before greedy but none exists
+        ("{a}@{+path}", "no-at-sign-here"),
+        # Prefix literal doesn't fit within suffix boundary
+        ("foo{+a}oob", "fooob"),
+        # Greedy scalar contains its own stop-char ({+var} stops at ?)
+        ("api://{+path}", "api://foo?bar"),
+        # Explode span doesn't start with its separator
+        ("X{/path*}", "Xnoslash"),
+        # Explode body contains a non-separator stop-char
+        ("X{/path*}", "X/a?b"),
+    ],
+)
+def test_match_greedy_rejection_paths(template: str, uri: str):
+    assert UriTemplate.parse(template).match(uri) is None
+
+
+@pytest.mark.parametrize(
+    ("template", "uri", "expected"),
+    [
+        # ifemp in prefix before a greedy var: =value form
+        ("api{;key}{+rest}", "api;key=abc/xyz", {"key": "abc", "rest": "/xyz"}),
+        # ifemp in prefix: bare form (empty value)
+        ("api{;key}{+rest}", "api;key/xyz", {"key": "", "rest": "/xyz"}),
+        # Adjacent bounded caps in prefix: first takes to stop-char
+        ("{a}{b}{+rest}", "foo/bar", {"a": "foo", "b": "", "rest": "/bar"}),
+    ],
+)
+def test_match_prefix_scan_edge_cases(template: str, uri: str, expected: dict[str, str]):
+    assert UriTemplate.parse(template).match(uri) == expected
+
+
+def test_match_prefix_ifemp_rejects_name_continuation():
+    # {;key} before a greedy var: ;keys has no = and the 's' continues
+    # the name, so this is not our parameter.
+    t = UriTemplate.parse("api{;key}{+rest}")
+    assert t.match("api;keys/xyz") is None
+
+
 def test_match_large_uri_against_greedy_template():
     # Large payload against a greedy template — the scan visits each
     # character once for the suffix anchor and once for the greedy
