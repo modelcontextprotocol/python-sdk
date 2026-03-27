@@ -123,7 +123,7 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
     """Test the race condition with invalid Accept headers.
 
     This test reproduces the exact scenario described in issue #1363:
-    - Send POST request with incorrect Accept headers (missing either application/json or text/event-stream)
+    - Send POST request with incorrect Accept headers that match neither JSON nor SSE
     - Request fails validation early and returns quickly
     - This should trigger the race condition where message_router encounters ClosedResourceError
     """
@@ -137,7 +137,7 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
 
         # Suppress WARNING logs (expected validation errors) and capture ERROR logs
         with caplog.at_level(logging.ERROR):
-            # Test with missing text/event-stream in Accept header
+            # Test with an incompatible text media type
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
@@ -145,14 +145,14 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
                     "/",
                     json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                     headers={
-                        "Accept": "application/json",  # Missing text/event-stream
+                        "Accept": "text/plain",
                         "Content-Type": "application/json",
                     },
                 )
-                # Should get 406 Not Acceptable due to missing text/event-stream
+                # Should get 406 Not Acceptable for an unsupported media type
                 assert response.status_code == 406
 
-            # Test with missing application/json in Accept header
+            # Test with an incompatible application media type
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
@@ -160,11 +160,11 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
                     "/",
                     json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                     headers={
-                        "Accept": "text/event-stream",  # Missing application/json
+                        "Accept": "application/xml",
                         "Content-Type": "application/json",
                     },
                 )
-                # Should get 406 Not Acceptable due to missing application/json
+                # Should get 406 Not Acceptable for an unsupported media type
                 assert response.status_code == 406
 
             # Test with completely invalid Accept header

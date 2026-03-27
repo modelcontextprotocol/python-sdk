@@ -609,11 +609,56 @@ def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accep
 
 
 @pytest.mark.parametrize(
+    ("accept_header", "expected_content_type"),
+    [
+        ("application/json", "application/json"),
+        ("text/event-stream", "text/event-stream"),
+    ],
+)
+def test_accept_header_single_media_type_negotiates_response(
+    basic_server: None, basic_server_url: str, accept_header: str, expected_content_type: str
+):
+    """Test that SSE-capable servers negotiate JSON or SSE from a single accepted media type."""
+    mcp_url = f"{basic_server_url}/mcp"
+    init_response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": accept_header,
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert init_response.status_code == 200
+    assert init_response.headers.get("Content-Type") == expected_content_type
+
+    session_id = init_response.headers.get(MCP_SESSION_ID_HEADER)
+    assert session_id is not None
+
+    if expected_content_type == "application/json":
+        negotiated_version = init_response.json()["result"]["protocolVersion"]
+    else:
+        negotiated_version = extract_protocol_version_from_sse(init_response)
+
+    tools_response = requests.post(
+        mcp_url,
+        headers={
+            "Accept": accept_header,
+            "Content-Type": "application/json",
+            MCP_SESSION_ID_HEADER: session_id,
+            MCP_PROTOCOL_VERSION_HEADER: negotiated_version,
+        },
+        json={"jsonrpc": "2.0", "method": "tools/list", "id": "tools-accept-single-media"},
+    )
+    assert tools_response.status_code == 200
+    assert tools_response.headers.get("Content-Type") == expected_content_type
+
+
+@pytest.mark.parametrize(
     "accept_header",
     [
         "text/html",
-        "application/*",
-        "text/*",
+        "text/plain",
+        "application/xml",
     ],
 )
 def test_accept_header_incompatible(basic_server: None, basic_server_url: str, accept_header: str):

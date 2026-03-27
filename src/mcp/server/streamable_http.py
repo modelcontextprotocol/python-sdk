@@ -426,15 +426,23 @@ class StreamableHTTPServerTransport:
                 )
                 await response(scope, request.receive, send)
                 return False
-        # For SSE responses, require both content types
-        elif not (has_json and has_sse):
+        # For SSE-capable responses, accept either JSON or SSE and negotiate later.
+        elif not (has_json or has_sse):
             response = self._create_error_response(
-                "Not Acceptable: Client must accept both application/json and text/event-stream",
+                "Not Acceptable: Client must accept application/json or text/event-stream",
                 HTTPStatus.NOT_ACCEPTABLE,
             )
             await response(scope, request.receive, send)
             return False
         return True
+
+    def _should_use_json_response(self, request: Request) -> bool:
+        """Choose JSON when required or when the client does not accept SSE."""
+        if self.is_json_response_enabled:
+            return True
+
+        has_json, has_sse = self._check_accept_headers(request)
+        return has_json and not has_sse
 
     async def _handle_post_request(self, scope: Scope, request: Request, receive: Receive, send: Send) -> None:
         """Handle POST requests containing JSON-RPC messages."""
@@ -475,6 +483,8 @@ class StreamableHTTPServerTransport:
                 )
                 await response(scope, receive, send)
                 return
+
+            use_json_response = self._should_use_json_response(request)
 
             # Check if this is an initialization request
             is_initialization_request = isinstance(message, JSONRPCRequest) and message.method == "initialize"
@@ -527,7 +537,7 @@ class StreamableHTTPServerTransport:
             self._request_streams[request_id] = anyio.create_memory_object_stream[EventMessage](0)
             request_stream_reader = self._request_streams[request_id][1]
 
-            if self.is_json_response_enabled:
+            if use_json_response:
                 # Process the message
                 metadata = ServerMessageMetadata(request_context=request)
                 session_message = SessionMessage(message, metadata=metadata)
