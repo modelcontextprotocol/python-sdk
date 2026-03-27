@@ -44,7 +44,7 @@ Instead, register a template with placeholders:
 
 ```python
 @mcp.resource("tickets://{ticket_id}")
-def get_ticket(ticket_id: str) -> dict:
+def get_ticket(ticket_id: str) -> dict[str, str]:
     ticket = helpdesk.find(ticket_id)
     return {"id": ticket_id, "subject": ticket.subject, "status": ticket.status}
 ```
@@ -61,7 +61,7 @@ type and the SDK will convert:
 
 ```python
 @mcp.resource("orders://{order_id}")
-def get_order(order_id: int) -> dict:
+def get_order(order_id: int) -> dict[str, Any]:
     # "12345" from the URI becomes the int 12345
     return db.orders.get(order_id)
 ```
@@ -107,7 +107,7 @@ string with slashes, use `{/name*}`:
 
 ```python
 @mcp.resource("tree://nodes{/path*}")
-def walk_tree(path: list[str]) -> dict:
+def walk_tree(path: list[str]) -> dict[str, Any]:
     # tree://nodes/a/b/c gives path = ["a", "b", "c"]
     node = root
     for segment in path:
@@ -243,11 +243,13 @@ For fixed URIs, keep a registry and dispatch on exact match:
 from mcp.server.lowlevel import Server
 from mcp.types import (
     ListResourcesResult,
+    PaginatedRequestParams,
     ReadResourceRequestParams,
     ReadResourceResult,
     Resource,
     TextResourceContents,
 )
+from mcp.server.context import ServerRequestContext
 
 RESOURCES = {
     "config://features": lambda: '{"beta_search": true}',
@@ -255,13 +257,17 @@ RESOURCES = {
 }
 
 
-async def on_list_resources(ctx, params) -> ListResourcesResult:
+async def on_list_resources(
+    ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None
+) -> ListResourcesResult:
     return ListResourcesResult(
         resources=[Resource(name=uri, uri=uri) for uri in RESOURCES]
     )
 
 
-async def on_read_resource(ctx, params: ReadResourceRequestParams) -> ReadResourceResult:
+async def on_read_resource(
+    ctx: ServerRequestContext[Any], params: ReadResourceRequestParams
+) -> ReadResourceResult:
     if (producer := RESOURCES.get(params.uri)) is not None:
         return ReadResourceResult(
             contents=[TextResourceContents(uri=params.uri, text=producer())]
@@ -292,6 +298,7 @@ Parse your templates once, then match incoming URIs against them in
 your read handler:
 
 ```python
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.shared.uri_template import UriTemplate
 from mcp.types import ReadResourceRequestParams, ReadResourceResult, TextResourceContents
@@ -302,7 +309,9 @@ TEMPLATES = {
 }
 
 
-async def on_read_resource(ctx, params: ReadResourceRequestParams) -> ReadResourceResult:
+async def on_read_resource(
+    ctx: ServerRequestContext[Any], params: ReadResourceRequestParams
+) -> ReadResourceResult:
     if (vars := TEMPLATES["files"].match(params.uri)) is not None:
         content = read_file_safely(vars["path"])
         return ReadResourceResult(contents=[TextResourceContents(uri=params.uri, text=content)])
@@ -353,10 +362,12 @@ the protocol `ResourceTemplate` type, using the same template strings
 you parsed above:
 
 ```python
-from mcp.types import ListResourceTemplatesResult, ResourceTemplate
+from mcp.types import ListResourceTemplatesResult, PaginatedRequestParams, ResourceTemplate
 
 
-async def on_list_resource_templates(ctx, params) -> ListResourceTemplatesResult:
+async def on_list_resource_templates(
+    ctx: ServerRequestContext[Any], params: PaginatedRequestParams | None
+) -> ListResourceTemplatesResult:
     return ListResourceTemplatesResult(
         resource_templates=[
             ResourceTemplate(name="files", uri_template=str(TEMPLATES["files"])),
