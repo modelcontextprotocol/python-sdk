@@ -251,6 +251,8 @@ There's no decorator; you return the protocol types yourself.
 For fixed URIs, keep a registry and dispatch on exact match:
 
 ```python
+from typing import Any
+
 from mcp.server.lowlevel import Server
 from mcp.types import (
     ListResourcesResult,
@@ -309,6 +311,8 @@ Parse your templates once, then match incoming URIs against them in
 your read handler:
 
 ```python
+from typing import Any
+
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.shared.uri_template import UriTemplate
@@ -373,6 +377,8 @@ the protocol `ResourceTemplate` type, using the same template strings
 you parsed above:
 
 ```python
+from typing import Any
+
 from mcp.types import ListResourceTemplatesResult, PaginatedRequestParams, ResourceTemplate
 
 

@@ -819,8 +819,11 @@ def _check_ambiguous_adjacency(template: str, parts: list[_Part]) -> None:
        trailing match fails the engine backtracks through O(n) split
        points. Two conditions trigger this:
 
-       - ``{+var}`` immediately adjacent to any expression
-         (``{+a}{b}``, ``{+a}{/b*}``)
+       - ``{+var}`` immediately adjacent to any expression on either
+         side (``{+a}{b}``, ``{a}{+b}``, ``{/a}{+b}``). The ``#``
+         operator is exempt from the preceded-by case since it
+         prepends a literal ``#`` that the preceding group cannot
+         match.
        - Two ``{+var}``/``{#var}`` anywhere in the path, even with a
          literal between them (``{+a}/x/{+b}``) — the literal does not
          disambiguate since ``[^?#]*`` matches it too
@@ -836,6 +839,7 @@ def _check_ambiguous_adjacency(template: str, parts: list[_Part]) -> None:
     """
     prev_explode = False
     prev_reserved = False
+    prev_path_expr = False
     seen_reserved = False
     for part in parts:
         if isinstance(part, str):
@@ -843,6 +847,7 @@ def _check_ambiguous_adjacency(template: str, parts: list[_Part]) -> None:
             # the seen-reserved count: [^?#]* matches most literals.
             prev_explode = False
             prev_reserved = False
+            prev_path_expr = False
             continue
         for var in part.variables:
             # ?/& are stripped before pattern building and never reach
@@ -850,11 +855,12 @@ def _check_ambiguous_adjacency(template: str, parts: list[_Part]) -> None:
             if var.operator in ("?", "&"):
                 prev_explode = False
                 prev_reserved = False
+                prev_path_expr = False
                 continue
 
-            if prev_reserved:
+            if prev_reserved or (var.operator == "+" and prev_path_expr):
                 raise InvalidUriTemplate(
-                    "{+var} or {#var} immediately followed by another expression "
+                    "{+var} or {#var} immediately adjacent to another expression "
                     "causes quadratic-time matching; separate them with a literal",
                     template=template,
                 )
@@ -872,5 +878,6 @@ def _check_ambiguous_adjacency(template: str, parts: list[_Part]) -> None:
 
             prev_explode = var.explode
             prev_reserved = var.operator in ("+", "#")
+            prev_path_expr = True
             if prev_reserved:
                 seen_reserved = True

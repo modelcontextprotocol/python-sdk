@@ -166,7 +166,7 @@ def test_parse_rejects_adjacent_explodes(template: str):
 @pytest.mark.parametrize(
     "template",
     [
-        # {+var} immediately adjacent to any expression
+        # {+var} immediately adjacent to any expression (either side)
         "{+a}{b}",
         "{+a}{/b}",
         "{+a}{/b*}",
@@ -175,6 +175,10 @@ def test_parse_rejects_adjacent_explodes(template: str):
         "{#a}{b}",
         "{+a,b}",  # multi-var in one expression: same adjacency
         "prefix/{+path}{.ext}",  # literal before doesn't help
+        "{a}{+b}",  # + preceded by expression: same overlap
+        "{.a}{+b}",
+        "{/a}{+b}",
+        "x{name}{+path}y",
         # Two {+var}/{#var} anywhere, even with literals between
         "{+a}/x/{+b}",
         "{+a},{+b}",
@@ -199,7 +203,7 @@ def test_parse_rejects_reserved_quadratic_patterns(template: str):
         "api/{+path}{?v,page}",  # + followed by query (stripped before regex)
         "api/{+path}{&next}",  # + followed by query-continuation
         "page{#section}",  # # at end
-        "{a}{+b}",  # + preceded by expression is fine; only following matters
+        "{a}{#b}",  # # prepends literal '#' that {a}'s class excludes
         "{+a}/sep/{b}",  # literal + bounded expression after: linear
         "{+a},{b}",  # same: literal disambiguates when second is bounded
     ],
