@@ -11,6 +11,9 @@ file. A resource is something the application *reads* to understand the
 world. Reading a resource should not change state or kick off expensive
 work. If it does either, you probably want a tool.
 
+For the protocol-level details (message formats, lifecycle, pagination),
+see the [MCP resources specification](https://modelcontextprotocol.io/specification/latest/server/resources).
+
 ## A static resource
 
 The simplest case is a fixed URI that returns the same kind of content
@@ -68,24 +71,33 @@ def get_order(order_id: int) -> dict[str, Any]:
 
 ### Multi-segment paths
 
-A plain `{name}` matches a single URI segment. It stops at the first
-slash. To match across slashes, use `{+name}`:
+A plain `{name}` stops at the first slash. If your template is
+`files://{name}`, a client reading `files://readme.txt` matches fine,
+but `files://guides/intro.md` does not: the slash after `guides` ends
+the match, and `intro.md` is left over.
+
+To capture the whole path including slashes, use `{+name}`:
 
 ```python
 @mcp.resource("files://{+path}")
 def read_file(path: str) -> str:
-    # Matches files://readme.txt
-    # Also matches files://guides/quickstart/intro.md
+    # files://readme.txt        gives path = "readme.txt"
+    # files://guides/intro.md   gives path = "guides/intro.md"
     ...
 ```
 
-This is the pattern you want for filesystem paths, nested object keys,
-or anything hierarchical.
+Reach for `{+name}` whenever the value is hierarchical: filesystem
+paths, nested object keys, URL paths you're proxying.
 
 ### Query parameters
 
-Optional configuration goes in query parameters. Use `{?name}` or list
-several with `{?a,b,c}`:
+Say you want clients to read `logs://api` for recent logs, but also
+`logs://api?since=15m&level=error` when they need to narrow it down.
+The `?since=15m&level=error` part is optional configuration, and you
+don't want a separate template for every combination.
+
+Declare these as query parameters with `{?name}`, or list several at
+once with `{?a,b,c}`:
 
 ```python
 @mcp.resource("logs://{service}{?since,level}")
@@ -93,9 +105,8 @@ def tail_logs(service: str, since: str = "1h", level: str = "info") -> str:
     return log_store.query(service, since=since, min_level=level)
 ```
 
-Reading `logs://api` uses the defaults. Reading
-`logs://api?since=15m&level=error` narrows it down. The path identifies
-*which* resource; the query tunes *how* you read it.
+The path identifies *which* resource; the query tunes *how* you read
+it.
 
 Query params are matched leniently: order doesn't matter, extras are
 ignored, and omitted params fall through to your function defaults.
