@@ -67,6 +67,21 @@ def test_matches_disabled_policy_allows_traversal():
     assert t.matches("file://docs/..") == {"name": ".."}
 
 
+def test_matches_rejects_null_byte_by_default():
+    # %00 decodes to \x00 which defeats string comparisons
+    # ("..\x00" != "..") and can truncate in C extensions.
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/key%00.txt") is None
+    # Null byte also defeats the traversal check's component comparison
+    assert t.matches("file://docs/..%00%2Fsecret") is None
+
+
+def test_matches_null_byte_check_can_be_disabled():
+    policy = ResourceSecurity(reject_null_bytes=False)
+    t = _make("file://docs/{name}", security=policy)
+    assert t.matches("file://docs/key%00.txt") == {"name": "key\x00.txt"}
+
+
 def test_matches_explode_checks_each_segment():
     t = _make("api{/parts*}")
     assert t.matches("api/a/b/c") == {"parts": ["a", "b", "c"]}

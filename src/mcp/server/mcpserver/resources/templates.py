@@ -46,6 +46,11 @@ class ResourceSecurity:
     reject_absolute_paths: bool = True
     """Reject values that look like absolute filesystem paths."""
 
+    reject_null_bytes: bool = True
+    """Reject values containing NUL (``\\x00``). Null bytes defeat string
+    comparisons (``"..\\x00" != ".."``) and can cause truncation in C
+    extensions or subprocess calls."""
+
     exempt_params: Set[str] = field(default_factory=frozenset[str])
     """Parameter names to skip all checks for."""
 
@@ -64,6 +69,8 @@ class ResourceSecurity:
                 continue
             values = value if isinstance(value, list) else [value]
             for v in values:
+                if self.reject_null_bytes and "\0" in v:
+                    return False
                 if self.reject_path_traversal and contains_path_traversal(v):
                     return False
                 if self.reject_absolute_paths and is_absolute_path(v):
