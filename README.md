@@ -123,6 +123,13 @@ Alternatively, for projects using pip for dependencies:
 pip install "mcp[cli]"
 ```
 
+On Windows, add the `stdio` extra if you want `pywin32`-backed Job Object cleanup for subprocesses spawned through `mcp.client.stdio`:
+
+```bash
+uv add "mcp[cli,stdio]"
+pip install "mcp[cli,stdio]"
+```
+
 ### Running the standalone MCP development tools
 
 To run the mcp command with uv:

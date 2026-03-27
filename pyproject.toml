@@ -36,7 +36,6 @@ dependencies = [
     "pydantic-settings>=2.5.2",
     "uvicorn>=0.31.1; sys_platform != 'emscripten'",
     "jsonschema>=4.20.0",
-    "pywin32>=311; sys_platform == 'win32'",
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
@@ -45,6 +44,7 @@ dependencies = [
 [project.optional-dependencies]
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
+stdio = ["pywin32>=311; sys_platform == 'win32'"]
 ws = ["websockets>=15.0.1"]
 
 [project.scripts]
@@ -56,8 +56,8 @@ required-version = ">=0.9.5"
 
 [dependency-groups]
 dev = [
-    # We add mcp[cli,ws] so `uv sync` considers the extras.
-    "mcp[cli,ws]",
+    # We add mcp[cli,stdio,ws] so `uv sync` considers the extras.
+    "mcp[cli,stdio,ws]",
     "pyright>=1.1.400",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
