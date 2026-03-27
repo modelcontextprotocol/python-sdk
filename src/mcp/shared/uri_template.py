@@ -9,28 +9,31 @@ Supports Levels 1-3 fully, plus Level 4 explode modifier for path-like
 operators (``{/var*}``, ``{.var*}``, ``{;var*}``). The Level 4 prefix
 modifier (``{var:N}``) and query-explode (``{?var*}``) are not supported.
 
-Known matching limitations
---------------------------
+Matching semantics
+------------------
 
-Matching is not specified by RFC 6570. A few templates can expand to
-URIs that ``match()`` cannot unambiguously reverse:
+Matching is not specified by RFC 6570 (§1.4 explicitly defers to regex
+languages). This implementation uses a linear-time two-ended scan that
+never backtracks, so match time is O(n) in URI length regardless of
+template structure.
 
-* Reserved/fragment expressions (``{+var}``, ``{#var}``) are restricted
-  to positions that avoid quadratic-time backtracking: at most one per
-  template, and not immediately adjacent to another expression. The
-  ``[^?#]*`` pattern overlaps with every other operator's character
-  class; a failing match against ``{+a}{b}`` or ``{+a}/x/{+b}``
-  backtracks O(n²). Use a literal separator before a bounded
-  expression (``{+a}/sep/{b}``) or put the reserved expression last
-  (``file://docs/{+path}``). Trailing ``{?...}``/``{&...}`` query
-  expressions are always fine since they're matched via ``parse_qs``.
+A template may contain **at most one multi-segment variable** —
+``{+var}``, ``{#var}``, or an explode-modified variable (``{/var*}``,
+``{.var*}``, ``{;var*}``). This variable greedily consumes whatever the
+surrounding bounded variables and literals do not. Two such variables
+in one template are inherently ambiguous (which one gets the extra
+segment?) and are rejected at parse time.
 
-* Reserved expansion ``{+var}`` leaves ``?`` and ``#`` unencoded, but
-  the match pattern stops at those characters so that templates like
-  ``{+path}{?q}`` can correctly separate path from query. A value
-  containing a literal ``?`` or ``#`` expands fine but will not
-  round-trip through ``match()``. Use simple ``{var}`` (which encodes
-  them) if round-trip matters for such values.
+Bounded variables before the multi-segment variable match **lazily**
+(first occurrence of the following literal); those after match
+**greedily** (last occurrence of the preceding literal). Templates
+without a multi-segment variable match greedily throughout, identical
+to regex semantics.
+
+Reserved expansion ``{+var}`` leaves ``?`` and ``#`` unencoded, but
+the scan stops at those characters so ``{+path}{?q}`` can separate path
+from query. A value containing a literal ``?`` or ``#`` expands fine
+but will not round-trip through ``match()``.
 """
 
 from __future__ import annotations
@@ -38,7 +41,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Literal, cast
+from typing import Literal, TypeAlias, cast
 from urllib.parse import quote, unquote
 
 __all__ = [
@@ -93,18 +96,19 @@ _OPERATOR_SPECS: dict[Operator, _OperatorSpec] = {
     "&": _OperatorSpec(prefix="&", separator="&", named=True, allow_reserved=False),
 }
 
-# Per-operator character class for regex matching. Each pattern matches
-# the characters that can appear in an expanded value for that operator,
-# stopping at the next structural delimiter.
-_MATCH_PATTERN: dict[Operator, str] = {
-    "": r"[^/?#&,]*",  # simple: everything structural is pct-encoded
-    "+": r"[^?#]*",  # reserved: / allowed, stop at query/fragment
-    "#": r".*",  # fragment: tail of URI
-    ".": r"[^./?#]*",  # label: stop at next .
-    "/": r"[^/?#]*",  # path segment: stop at next /
-    ";": r"[^;/?#]*",  # path-param value (may be empty: ;name)
-    "?": r"[^&#]*",  # query value (may be empty: ?name=)
-    "&": r"[^&#]*",  # query-cont value
+# Per-operator stop characters for the linear scan. A bounded variable's
+# value ends at the first occurrence of any character in its stop set,
+# mirroring the character-class boundaries a regex would use but without
+# the backtracking.
+_STOP_CHARS: dict[Operator, str] = {
+    "": "/?#&,",  # simple: everything structural is pct-encoded
+    "+": "?#",  # reserved: / allowed, stop at query/fragment
+    "#": "",  # fragment: tail of URI, nothing stops it
+    ".": "./?#",  # label: stop at next .
+    "/": "/?#",  # path segment: stop at next /
+    ";": ";/?#",  # path-param value (may be empty: ;name)
+    "?": "&#",  # query value (may be empty: ?name=)
+    "&": "&#",  # query-cont value
 }
 
 
@@ -141,6 +145,39 @@ class _Expression:
 
 
 _Part = str | _Expression
+
+
+@dataclass(frozen=True)
+class _Lit:
+    """A literal run in the flattened match-atom sequence."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class _Cap:
+    """A single-variable capture in the flattened match-atom sequence.
+
+    ``ifemp`` marks the ``;`` operator's optional-equals quirk: ``{;id}``
+    expands to ``;id=value`` or bare ``;id`` when the value is empty, so
+    the scan must accept both forms.
+    """
+
+    var: Variable
+    ifemp: bool = False
+
+
+_Atom: TypeAlias = "_Lit | _Cap"
+
+
+def _is_greedy(var: Variable) -> bool:
+    """Return True if this variable can span multiple path segments.
+
+    Reserved/fragment expansion and explode variables are the only
+    constructs whose match range is not bounded by a single structural
+    delimiter. A template may contain at most one such variable.
+    """
+    return var.explode or var.operator in ("+", "#")
 
 
 def _is_str_sequence(value: object) -> bool:
@@ -249,8 +286,9 @@ class UriTemplate:
     template: str
     _parts: list[_Part] = field(repr=False, compare=False)
     _variables: list[Variable] = field(repr=False, compare=False)
-    _pattern: re.Pattern[str] = field(repr=False, compare=False)
-    _path_variables: list[Variable] = field(repr=False, compare=False)
+    _prefix: list[_Atom] = field(repr=False, compare=False)
+    _greedy: Variable | None = field(repr=False, compare=False)
+    _suffix: list[_Atom] = field(repr=False, compare=False)
     _query_variables: list[Variable] = field(repr=False, compare=False)
 
     @staticmethod
@@ -306,18 +344,19 @@ class UriTemplate:
         parts, variables = _parse(template, max_expressions=max_expressions)
 
         # Trailing {?...}/{&...} expressions are matched leniently via
-        # parse_qs instead of regex: order-agnostic, partial, ignores
-        # extras. The path portion keeps regex matching.
+        # parse_qs rather than the scan: order-agnostic, partial, ignores
+        # extras. The path portion uses the linear scan.
         path_parts, query_vars = _split_query_tail(parts)
-        path_vars = variables[: len(variables) - len(query_vars)]
-        pattern = _build_pattern(path_parts)
+        atoms = _flatten(path_parts)
+        prefix, greedy, suffix = _partition_greedy(atoms, template)
 
         return cls(
             template=template,
             _parts=parts,
             _variables=variables,
-            _pattern=pattern,
-            _path_variables=path_vars,
+            _prefix=prefix,
+            _greedy=greedy,
+            _suffix=suffix,
             _query_variables=query_vars,
         )
 
@@ -453,17 +492,14 @@ class UriTemplate:
             return None
 
         if self._query_variables:
-            # Two-phase: regex matches the path, the query is split and
+            # Two-phase: scan matches the path, the query is split and
             # decoded manually. Query params may be partial, reordered,
             # or include extras; absent params stay absent so downstream
             # defaults can apply. Fragment is stripped first since the
             # template's {?...} tail never describes a fragment.
             before_fragment, _, _ = uri.partition("#")
             path, _, query = before_fragment.partition("?")
-            m = self._pattern.fullmatch(path)
-            if m is None:
-                return None
-            result = _extract_path(m, self._path_variables)
+            result = self._scan(path)
             if result is None:
                 return None
             if query:
@@ -473,10 +509,43 @@ class UriTemplate:
                         result[var.name] = parsed[var.name]
             return result
 
-        m = self._pattern.fullmatch(uri)
-        if m is None:
+        return self._scan(uri)
+
+    def _scan(self, uri: str) -> dict[str, str | list[str]] | None:
+        """Run the two-ended linear scan against the path portion of a URI."""
+        n = len(uri)
+
+        # Suffix right-to-left: literals anchor via endswith, bounded
+        # vars take the minimum needed (rfind for the preceding literal).
+        # This matches regex greedy-first semantics for templates without
+        # a greedy var, and minimises the suffix claim when one exists.
+        suffix = _scan_suffix(self._suffix, uri, n)
+        if suffix is None:
             return None
-        return _extract_path(m, self._variables)
+        suffix_result, suffix_start = suffix
+
+        if self._greedy is None:
+            # No greedy var: suffix scan consumed the whole template.
+            # It must have consumed the whole URI too.
+            return suffix_result if suffix_start == 0 else None
+
+        # Prefix left-to-right: each bounded var takes the minimum
+        # needed (find for the following literal), leaving as much as
+        # possible for the greedy var in the middle.
+        prefix = _scan_prefix(self._prefix, uri, 0, suffix_start)
+        if prefix is None:
+            return None
+        prefix_result, prefix_end = prefix
+
+        if prefix_end > suffix_start:
+            return None
+
+        middle = uri[prefix_end:suffix_start]
+        greedy_value = _extract_greedy(self._greedy, middle)
+        if greedy_value is None:
+            return None
+
+        return {**prefix_result, self._greedy.name: greedy_value, **suffix_result}
 
     def __str__(self) -> str:
         return self.template
@@ -502,47 +571,54 @@ def _parse_query(query: str) -> dict[str, str]:
     return result
 
 
-def _extract_path(m: re.Match[str], variables: Sequence[Variable]) -> dict[str, str | list[str]] | None:
-    """Decode regex capture groups into a variable-name mapping.
+def _extract_greedy(var: Variable, raw: str) -> str | list[str] | None:
+    """Decode the greedy variable's isolated middle span.
 
-    Handles scalar and explode variables. Named explode (``;``) strips
-    and validates the ``name=`` prefix per item, returning ``None`` on
-    mismatch.
+    For scalar greedy (``{+var}``, ``{#var}``) this is a stop-char
+    validation and a single ``unquote``. For explode variables the span
+    is a run of separator-delimited segments (``/a/b/c`` or
+    ``;keys=a;keys=b``) that is split, validated, and decoded per item.
     """
-    result: dict[str, str | list[str]] = {}
-    # One capture group per variable, emitted in template order.
-    for var, raw in zip(variables, m.groups()):
-        spec = _OPERATOR_SPECS[var.operator]
+    spec = _OPERATOR_SPECS[var.operator]
+    stops = _STOP_CHARS[var.operator]
 
-        if var.explode:
-            # Explode capture holds the whole run including separators,
-            # e.g. "/a/b/c" or ";keys=a;keys=b". Split and decode each.
-            if not raw:
-                result[var.name] = []
-                continue
-            segments: list[str] = []
-            prefix = f"{var.name}="
-            # The explode regex ((?:SEP body)*?) guarantees non-empty
-            # captures start with the separator, so split()[0] is always
-            # "". Slice it off; subsequent empties are legitimate values
-            # ({/path*} with ["a","","c"] expands to /a//c).
-            for seg in raw.split(spec.separator)[1:]:
-                if spec.named:
-                    # Named explode emits name=value per item (or bare
-                    # name for ; with empty value). Validate the name
-                    # and strip the prefix before decoding.
-                    if seg.startswith(prefix):
-                        seg = seg[len(prefix) :]
-                    elif seg == var.name:
-                        seg = ""
-                    else:
-                        return None
-                segments.append(unquote(seg))
-            result[var.name] = segments
-        else:
-            result[var.name] = unquote(raw)
+    if not var.explode:
+        if any(c in stops for c in raw):
+            return None
+        return unquote(raw)
 
-    return result
+    sep = spec.separator
+    if not raw:
+        return []
+    # A non-empty explode span must begin with the separator: {/a*}
+    # expands to "/x/y", never "x/y". The scan does not consume the
+    # separator itself, so it must be the first character here.
+    if raw[0] != sep:
+        return None
+    # Segments must not contain the operator's non-separator stop
+    # characters (e.g. {/path*} segments may contain neither ? nor #).
+    body_stops = set(stops) - {sep}
+    if any(c in body_stops for c in raw):
+        return None
+
+    segments: list[str] = []
+    prefix = f"{var.name}="
+    # split()[0] is always "" because raw starts with the separator;
+    # subsequent empties are legitimate values ({/path*} with
+    # ["a","","c"] expands to /a//c).
+    for seg in raw.split(sep)[1:]:
+        if spec.named:
+            # Named explode emits name=value per item (or bare name
+            # under ; with empty value). Validate the name and strip
+            # the prefix before decoding.
+            if seg.startswith(prefix):
+                seg = seg[len(prefix) :]
+            elif seg == var.name:
+                seg = ""
+            else:
+                return None
+        segments.append(unquote(seg))
+    return segments
 
 
 def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
@@ -598,64 +674,6 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
     return parts[:split], query_vars
 
 
-def _build_pattern(parts: Sequence[_Part]) -> re.Pattern[str]:
-    """Compile a regex that matches URIs produced by this template.
-
-    Walks parts in order: literals are ``re.escape``'d, expressions
-    become capture groups. One group is emitted per variable, in the
-    same order as the variables appearing in ``parts``, so
-    ``match.groups()`` can be zipped directly.
-
-    Raises:
-        re.error: Only if pattern assembly is buggy — should not happen
-            for templates that passed :func:`_parse`.
-    """
-    chunks: list[str] = []
-    for part in parts:
-        if isinstance(part, str):
-            chunks.append(re.escape(part))
-        else:
-            chunks.append(_expression_pattern(part))
-    return re.compile("".join(chunks))
-
-
-def _expression_pattern(expr: _Expression) -> str:
-    """Build the regex fragment for a single ``{...}`` expression.
-
-    Emits the operator's prefix, then one capture group per variable
-    separated by the operator's separator. Named operators (``; ? &``)
-    include ``name=`` before the capture.
-    """
-    spec = _OPERATOR_SPECS[expr.operator]
-    body = _MATCH_PATTERN[expr.operator]
-    sep = re.escape(spec.separator)
-    prefix = re.escape(spec.prefix)
-
-    pieces: list[str] = []
-    for i, var in enumerate(expr.variables):
-        # First var gets the prefix; subsequent vars get the separator.
-        lead = prefix if i == 0 else sep
-
-        if var.explode:
-            # Capture the whole run of separator+value repetitions.
-            # Non-greedy so a trailing literal can terminate the run.
-            pieces.append(f"((?:{sep}{body})*?)")
-        elif spec.named:
-            name = re.escape(var.name)
-            if expr.operator == ";":
-                # RFC ifemp: ; emits bare name for empty values, so = is
-                # optional. The lookahead asserts the name ends at = or a
-                # delimiter, preventing {;id} from matching ;identity.
-                pieces.append(f"{lead}{name}(?==|[;/?#]|$)=?({body})")
-            else:
-                # ? and & always emit name=, even for empty values.
-                pieces.append(f"{lead}{name}=({body})")
-        else:
-            pieces.append(f"{lead}({body})")
-
-    return "".join(pieces)
-
-
 def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Variable]]:
     """Split a template into an ordered sequence of literals and expressions.
 
@@ -666,8 +684,7 @@ def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Va
 
     Raises:
         InvalidUriTemplate: On unclosed braces, too many expressions, or
-            any error surfaced by :func:`_parse_expression` or
-            :func:`_check_ambiguous_adjacency`.
+            any error surfaced by :func:`_parse_expression`.
     """
     parts: list[_Part] = []
     variables: list[Variable] = []
@@ -711,7 +728,6 @@ def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Va
         # Advance past the closing brace.
         i = end + 1
 
-    _check_ambiguous_adjacency(template, parts)
     _check_duplicate_variables(template, variables)
     return parts, variables
 
@@ -804,80 +820,202 @@ def _check_duplicate_variables(template: str, variables: list[Variable]) -> None
         seen.add(var.name)
 
 
-def _check_ambiguous_adjacency(template: str, parts: list[_Part]) -> None:
-    """Reject templates where adjacent expressions would cause ambiguous or quadratic matching.
+def _flatten(parts: list[_Part]) -> list[_Atom]:
+    """Lower expressions into a flat sequence of literals and single-variable captures.
 
-    Two patterns are rejected:
+    Operator prefixes and separators become explicit ``_Lit`` atoms so
+    the scan only ever sees two atom kinds. Adjacent literals are
+    coalesced so that anchor-finding (``find``/``rfind``) operates on
+    the longest possible literal, reducing false matches.
 
-    1. Adjacent explode variables (``{/a*}{/b*}``): the split between
-       ``a`` and ``b`` in ``/x/y/z`` is undetermined. Different
-       operators don't help since character classes overlap.
-
-    2. Reserved/fragment expansion in a position that causes quadratic
-       backtracking. The ``[^?#]*`` pattern for ``+`` and ``#``
-       overlaps with every other operator's character class, so when a
-       trailing match fails the engine backtracks through O(n) split
-       points. Two conditions trigger this:
-
-       - ``{+var}`` immediately adjacent to any expression on either
-         side (``{+a}{b}``, ``{a}{+b}``, ``{/a}{+b}``). The ``#``
-         operator is exempt from the preceded-by case since it
-         prepends a literal ``#`` that the preceding group cannot
-         match.
-       - Two ``{+var}``/``{#var}`` anywhere in the path, even with a
-         literal between them (``{+a}/x/{+b}``) — the literal does not
-         disambiguate since ``[^?#]*`` matches it too
-
-       A 64KB payload against either can consume tens of seconds of CPU.
-
-    Trailing ``{?...}``/``{&...}`` expressions are handled via
-    ``parse_qs`` outside the path regex, so they do not count against
-    any check.
-
-    Raises:
-        InvalidUriTemplate: If any pattern is detected.
+    Explode variables emit no lead literal: the explode capture
+    includes its own separator-prefixed repetitions (``{/a*}`` →
+    ``/x/y/z``, not ``/`` then ``x/y/z``).
     """
-    prev_explode = False
-    prev_reserved = False
-    prev_path_expr = False
-    seen_reserved = False
+    atoms: list[_Atom] = []
+
+    def push_lit(text: str) -> None:
+        if not text:
+            return
+        if atoms and isinstance(atoms[-1], _Lit):
+            atoms[-1] = _Lit(atoms[-1].text + text)
+        else:
+            atoms.append(_Lit(text))
+
     for part in parts:
         if isinstance(part, str):
-            # A literal breaks immediate adjacency but does not reset
-            # the seen-reserved count: [^?#]* matches most literals.
-            prev_explode = False
-            prev_reserved = False
-            prev_path_expr = False
+            push_lit(part)
             continue
-        for var in part.variables:
-            # ?/& are stripped before pattern building and never reach
-            # the path regex.
-            if var.operator in ("?", "&"):
-                prev_explode = False
-                prev_reserved = False
-                prev_path_expr = False
+        spec = _OPERATOR_SPECS[part.operator]
+        for i, var in enumerate(part.variables):
+            lead = spec.prefix if i == 0 else spec.separator
+            if var.explode:
+                atoms.append(_Cap(var))
+            elif spec.named:
+                # ; uses ifemp (bare name when empty); ? and & always
+                # emit name= so the equals is part of the literal.
+                if part.operator == ";":
+                    push_lit(f"{lead}{var.name}")
+                    atoms.append(_Cap(var, ifemp=True))
+                else:
+                    push_lit(f"{lead}{var.name}=")
+                    atoms.append(_Cap(var))
+            else:
+                push_lit(lead)
+                atoms.append(_Cap(var))
+    return atoms
+
+
+def _partition_greedy(atoms: list[_Atom], template: str) -> tuple[list[_Atom], Variable | None, list[_Atom]]:
+    """Split atoms at the single greedy variable, if any.
+
+    Returns ``(prefix, greedy_var, suffix)``. If there is no greedy
+    variable the entire atom list is returned as the suffix so that
+    the right-to-left scan (which matches regex-greedy semantics)
+    handles it.
+
+    Raises:
+        InvalidUriTemplate: If more than one greedy variable is
+            present. Two multi-segment variables in one template are
+            inherently ambiguous — there is no principled way to decide
+            which one absorbs an extra segment.
+    """
+    greedy_idx: int | None = None
+    for i, atom in enumerate(atoms):
+        if isinstance(atom, _Cap) and _is_greedy(atom.var):
+            if greedy_idx is not None:
+                raise InvalidUriTemplate(
+                    "Template contains more than one multi-segment variable "
+                    "({+var}, {#var}, or explode modifier); matching would be ambiguous",
+                    template=template,
+                )
+            greedy_idx = i
+    if greedy_idx is None:
+        return [], None, atoms
+    greedy = atoms[greedy_idx]
+    assert isinstance(greedy, _Cap)
+    return atoms[:greedy_idx], greedy.var, atoms[greedy_idx + 1 :]
+
+
+def _scan_suffix(atoms: list[_Atom], uri: str, end: int) -> tuple[dict[str, str | list[str]], int] | None:
+    """Scan atoms right-to-left from ``end``, returning captures and start position.
+
+    Each bounded variable takes the minimum span that lets its
+    preceding literal match (found via ``rfind``), which makes the
+    *first* variable in template order greedy — identical to Python
+    regex semantics for a sequence of greedy groups.
+    """
+    result: dict[str, str | list[str]] = {}
+    pos = end
+    i = len(atoms) - 1
+    while i >= 0:
+        atom = atoms[i]
+        if isinstance(atom, _Lit):
+            n = len(atom.text)
+            if pos < n or uri[pos - n : pos] != atom.text:
+                return None
+            pos -= n
+            i -= 1
+            continue
+
+        var = atom.var
+        stops = _STOP_CHARS[var.operator]
+        prev = atoms[i - 1] if i > 0 else None
+
+        if atom.ifemp:
+            # ;name or ;name=value. The preceding _Lit is ";name".
+            # Try empty first: if the lit ends at pos the value is
+            # absent (RFC ifemp). Otherwise require =value.
+            assert isinstance(prev, _Lit)
+            if uri.endswith(prev.text, 0, pos):
+                result[var.name] = ""
+                i -= 1
                 continue
+            start = pos
+            while start > 0 and uri[start - 1] not in stops and uri[start - 1] != "=":
+                start -= 1
+            if start == 0 or uri[start - 1] != "=":
+                return None
+            result[var.name] = unquote(uri[start:pos])
+            pos = start - 1
+            i -= 1
+            continue
 
-            if prev_reserved or (var.operator == "+" and prev_path_expr):
-                raise InvalidUriTemplate(
-                    "{+var} or {#var} immediately adjacent to another expression "
-                    "causes quadratic-time matching; separate them with a literal",
-                    template=template,
-                )
-            if var.operator in ("+", "#") and seen_reserved:
-                raise InvalidUriTemplate(
-                    "Multiple {+var} or {#var} expressions in one template cause "
-                    "quadratic-time matching even with literals between them",
-                    template=template,
-                )
-            if var.explode and prev_explode:
-                raise InvalidUriTemplate(
-                    "Adjacent explode expressions are ambiguous for matching and not supported",
-                    template=template,
-                )
+        # Earliest valid start: the var cannot extend left past any
+        # stop-char, so scan backward to find that boundary.
+        earliest = pos
+        while earliest > 0 and uri[earliest - 1] not in stops:
+            earliest -= 1
 
-            prev_explode = var.explode
-            prev_reserved = var.operator in ("+", "#")
-            prev_path_expr = True
-            if prev_reserved:
-                seen_reserved = True
+        if prev is None:
+            start = earliest
+        elif isinstance(prev, _Lit):
+            # Rightmost occurrence of the preceding literal whose end
+            # falls within the var's valid range.
+            idx = uri.rfind(prev.text, 0, pos)
+            if idx == -1 or idx + len(prev.text) < earliest:
+                return None
+            start = idx + len(prev.text)
+        else:
+            # Adjacent capture with no literal anchor: this (later)
+            # var takes nothing, the earlier var takes the span.
+            start = pos
+
+        result[var.name] = unquote(uri[start:pos])
+        pos = start
+        i -= 1
+    return result, pos
+
+
+def _scan_prefix(atoms: list[_Atom], uri: str, start: int, limit: int) -> tuple[dict[str, str | list[str]], int] | None:
+    """Scan atoms left-to-right from ``start``, not exceeding ``limit``.
+
+    Each bounded variable takes the minimum span that lets its
+    following literal match (found via ``find``), leaving the
+    greedy variable as much of the URI as possible.
+    """
+    result: dict[str, str | list[str]] = {}
+    pos = start
+    n = len(atoms)
+    for i in range(n):
+        atom = atoms[i]
+        if isinstance(atom, _Lit):
+            end = pos + len(atom.text)
+            if end > limit or uri[pos:end] != atom.text:
+                return None
+            pos = end
+            continue
+
+        var = atom.var
+        stops = _STOP_CHARS[var.operator]
+        nxt = atoms[i + 1] if i + 1 < n else None
+
+        if atom.ifemp:
+            # Optional = after ;name. A non-= non-delimiter here means
+            # the name continued (e.g. ;keys vs ;key) — reject.
+            if pos < limit and uri[pos] == "=":
+                pos += 1
+            elif pos < limit and uri[pos] not in stops:
+                return None
+
+        # Latest valid end: the var stops at the first stop-char or
+        # the scan limit, whichever comes first.
+        latest = pos
+        while latest < limit and uri[latest] not in stops:
+            latest += 1
+
+        if nxt is None:
+            end = latest
+        elif isinstance(nxt, _Lit):
+            # First occurrence of the following literal starting
+            # within the var's valid range.
+            idx = uri.find(nxt.text, pos, latest + len(nxt.text))
+            if idx == -1 or idx > latest:
+                return None
+            end = idx
+        else:
+            end = latest
+
+        result[var.name] = unquote(uri[pos:end])
+        pos = end
+    return result, pos

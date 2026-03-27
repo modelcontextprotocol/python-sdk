@@ -153,44 +153,29 @@ def test_parse_rejects_unsupported_explode(template: str):
 @pytest.mark.parametrize(
     "template",
     [
-        "{/a*}{/b*}",  # same operator
-        "{/a*}{.b*}",  # different operators: / char class includes ., still ambiguous
+        # Two explode variables — any combination
+        "{/a*}{/b*}",
+        "{/a*}{.b*}",
         "{.a*}{;b*}",
-    ],
-)
-def test_parse_rejects_adjacent_explodes(template: str):
-    with pytest.raises(InvalidUriTemplate, match="Adjacent explode"):
-        UriTemplate.parse(template)
-
-
-@pytest.mark.parametrize(
-    "template",
-    [
-        # {+var} immediately adjacent to any expression (either side)
-        "{+a}{b}",
-        "{+a}{/b}",
+        "{/a*}/x{/b*}",  # literal between doesn't help: still two greedy
+        "{/a*}{b}{.c*}",  # non-explode between doesn't help either
+        # {+var}/{#var} combined with explode
         "{+a}{/b*}",
-        "{+a}{.b}",
-        "{+a}{;b}",
-        "{#a}{b}",
-        "{+a,b}",  # multi-var in one expression: same adjacency
-        "prefix/{+path}{.ext}",  # literal before doesn't help
-        "{a}{+b}",  # + preceded by expression: same overlap
-        "{.a}{+b}",
-        "{/a}{+b}",
-        "x{name}{+path}y",
-        # Two {+var}/{#var} anywhere, even with literals between
+        # Multi-var + expression: each var is greedy
+        "{+a,b}",
+        # Two {+var}/{#var} anywhere
         "{+a}/x/{+b}",
         "{+a},{+b}",
         "{#a}/x/{+b}",
         "{+a}.foo.{#b}",
     ],
 )
-def test_parse_rejects_reserved_quadratic_patterns(template: str):
-    # These patterns cause O(n²) regex backtracking when a trailing
-    # literal fails to match. Rejecting at parse time eliminates the
-    # ReDoS vector at the source.
-    with pytest.raises(InvalidUriTemplate, match="quadratic"):
+def test_parse_rejects_multiple_multi_segment_variables(template: str):
+    # Two multi-segment variables make matching inherently ambiguous:
+    # there is no principled way to decide which one absorbs an extra
+    # segment. The linear scan can only partition the URI around a
+    # single greedy slot.
+    with pytest.raises(InvalidUriTemplate, match="more than one multi-segment"):
         UriTemplate.parse(template)
 
 
@@ -200,18 +185,29 @@ def test_parse_rejects_reserved_quadratic_patterns(template: str):
         "file://docs/{+path}",  # + at end of template
         "file://{+path}.txt",  # + followed by literal only
         "file://{+path}/edit",  # + followed by literal only
-        "api/{+path}{?v,page}",  # + followed by query (stripped before regex)
+        "api/{+path}{?v,page}",  # + followed by query (handled by parse_qs)
         "api/{+path}{&next}",  # + followed by query-continuation
         "page{#section}",  # # at end
-        "{a}{#b}",  # # prepends literal '#' that {a}'s class excludes
-        "{+a}/sep/{b}",  # literal + bounded expression after: linear
-        "{+a},{b}",  # same: literal disambiguates when second is bounded
+        "{a}{#b}",  # # prepends literal '#' that {a}'s stop-set includes
+        "{+a}/sep/{b}",  # + with bounded vars after
+        "{+a},{b}",
+        # Previously rejected for adjacency; now safe under linear scan
+        "{+a}{b}",  # suffix var scans back to its stop-char
+        "{+a}{/b}",
+        "{+a}{.b}",
+        "{+a}{;b}",
+        "{#a}{b}",
+        "prefix/{+path}{.ext}",
+        "{a}{+b}",  # prefix var scans forward to its stop-char
+        "{.a}{+b}",
+        "{/a}{+b}",
+        "x{name}{+path}y",
     ],
 )
-def test_parse_allows_reserved_in_safe_positions(template: str):
-    # These do not exhibit quadratic backtracking: end-of-template,
-    # literal + bounded expression, or trailing query expression
-    # (handled by parse_qs outside the path regex).
+def test_parse_allows_single_multi_segment_variable(template: str):
+    # One multi-segment variable is fine: the linear scan isolates it
+    # between the prefix and suffix boundaries, and the scan never
+    # backtracks so match time stays O(n) regardless of URI content.
     t = UriTemplate.parse(template)
     assert t is not None
 
@@ -278,16 +274,6 @@ def test_parse_treats_stray_close_brace_as_literal(template: str):
 def test_parse_stray_close_brace_between_expressions():
     tmpl = UriTemplate.parse("{a}}{b}")
     assert tmpl.variable_names == ["a", "b"]
-
-
-def test_parse_allows_explode_separated_by_literal():
-    tmpl = UriTemplate.parse("{/a*}/x{/b*}")
-    assert len(tmpl.variables) == 2
-
-
-def test_parse_allows_explode_separated_by_non_explode_var():
-    tmpl = UriTemplate.parse("{/a*}{b}{.c*}")
-    assert len(tmpl.variables) == 3
 
 
 def test_parse_rejects_oversized_template():
@@ -361,8 +347,8 @@ def test_frozen():
         ("?a=1{&b}", {"b": "2"}, "?a=1&b=2"),
         # Multi-var in one expression
         ("{x,y}", {"x": "1", "y": "2"}, "1,2"),
-        # {+x,y} is rejected at parse time (quadratic backtracking +
-        # inherent ambiguity). Use {+x}/{+y} with a literal separator.
+        # {+x,y} is rejected at parse time: each var in a + expression
+        # is multi-segment, and a template may only have one.
         # Sequence values, non-explode (comma-join)
         ("{/list}", {"list": ["a", "b", "c"]}, "/a,b,c"),
         ("{?list}", {"list": ["a", "b"]}, "?list=a,b"),
@@ -537,6 +523,64 @@ def test_match_adjacent_vars_disambiguated_by_literal():
     # A literal between vars resolves the ambiguity.
     t = UriTemplate.parse("{a}-{b}")
     assert t.match("foo-bar") == {"a": "foo", "b": "bar"}
+
+
+@pytest.mark.parametrize(
+    ("template", "uri", "expected"),
+    [
+        # {+var} followed by a bounded var: suffix scan reads back to
+        # the bounded var's stop-char, greedy var gets the rest.
+        ("{+path}{/name}", "a/b/c/readme", {"path": "a/b/c", "name": "readme"}),
+        ("{+path}{.ext}", "src/main.py", {"path": "src/main", "ext": "py"}),
+        ("prefix/{+path}{.ext}", "prefix/a/b.txt", {"path": "a/b", "ext": "txt"}),
+        # {+var} preceded by a bounded var: prefix scan reads forward
+        # to the bounded var's stop-char.
+        ("{/name}{+rest}", "/foo/bar/baz", {"name": "foo", "rest": "/bar/baz"}),
+        # Bounded vars before the greedy var match lazily (first anchor)
+        ("{owner}@{+path}", "alice@src/main", {"owner": "alice", "path": "src/main"}),
+        # Bounded vars after the greedy var match greedily (last anchor)
+        ("{+path}@{name}", "src@main@v1", {"path": "src@main", "name": "v1"}),
+        # {#frag} with a trailing bounded var
+        ("{#section}{/page}", "#intro/1", {"section": "intro", "page": "1"}),
+    ],
+)
+def test_match_greedy_with_adjacent_bounded_vars(template: str, uri: str, expected: dict[str, str]):
+    # These templates were previously rejected at parse time to avoid
+    # regex backtracking. The linear scan handles them in O(n).
+    assert UriTemplate.parse(template).match(uri) == expected
+
+
+@pytest.mark.parametrize(
+    ("template", "uri"),
+    [
+        # Adjacent bounded vars with a failing suffix: scan commits to
+        # one split and fails immediately, no retry.
+        ("{a}{b}X", "z" * 200),
+        ("{a}{b}{c}X", "z" * 200),
+        # Mid-template {?...} with greedy var and failing suffix.
+        ("{?a}{+b}x", "?a=" + "y" * 200),
+        # Chained anchors that all appear in input but suffix fails.
+        ("{a}L{b}L{c}L{d}M", "L" * 200),
+    ],
+)
+def test_match_no_backtracking_on_pathological_input(template: str, uri: str):
+    # These patterns caused O(n²) or worse backtracking under the regex
+    # matcher. The linear scan returns None without retrying splits.
+    # (Correctness check only; we benchmark separately to avoid flaky
+    # timing assertions in CI.)
+    assert UriTemplate.parse(template).match(uri) is None
+
+
+def test_match_large_uri_against_greedy_template():
+    # Large payload against a greedy template — the scan visits each
+    # character once for the suffix anchor and once for the greedy
+    # validation, so this is O(n) not O(n²).
+    t = UriTemplate.parse("{+path}/end")
+    body = "seg/" * 15000
+    result = t.match(body + "end")
+    assert result == {"path": body[:-1]}
+    # And the failing case returns None without retrying splits.
+    assert t.match(body + "nope") is None
 
 
 def test_match_decodes_percent_encoding():
