@@ -38,10 +38,10 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, contextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -79,8 +79,8 @@ def _bind_request_auth_context(request_context: Any) -> Iterator[None]:
     """Rebind auth context from the current transport request while handling a message."""
     authenticated_user = None
     scope = getattr(request_context, "scope", None)
-    if isinstance(scope, dict):
-        scope_user = scope.get("user")
+    if isinstance(scope, Mapping):
+        scope_user = cast(Mapping[str, object], scope).get("user")
         if isinstance(scope_user, AuthenticatedUser):
             authenticated_user = scope_user
 
