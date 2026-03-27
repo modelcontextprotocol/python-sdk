@@ -12,17 +12,24 @@ from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, Logg
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.shared._context import RequestContext
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     CallToolResult,
     CompleteResult,
+    CreateMessageRequest,
+    ElicitRequest,
     EmptyResult,
+    ErrorData,
     GetPromptResult,
     Implementation,
+    IncompleteResult,
     InitializeResult,
+    InputResponses,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
+    ListRootsRequest,
     ListToolsResult,
     LoggingLevel,
     PaginatedRequestParams,
@@ -31,6 +38,9 @@ from mcp.types import (
     RequestParamsMeta,
     ResourceTemplateReference,
 )
+
+MRTR_MAX_ROUNDS = 8
+"""Bound on MRTR retry rounds. A well-formed handler converges; an unbounded loop is a bug."""
 
 
 @dataclass
@@ -94,6 +104,9 @@ class Client:
 
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
+
+    max_mrtr_rounds: int = MRTR_MAX_ROUNDS
+    """Maximum MRTR retry rounds before raising (SEP-2322). A server that never converges is a bug."""
 
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
@@ -238,6 +251,12 @@ class Client:
     ) -> CallToolResult:
         """Call a tool on the server.
 
+        If the server returns an ``IncompleteResult`` (SEP-2322 MRTR), this
+        method drives the retry loop internally: each embedded input request
+        is dispatched to the matching callback (``elicitation_callback``,
+        ``sampling_callback``, or ``list_roots_callback``) and the tool is
+        re-called with the collected responses plus echoed ``request_state``.
+
         Args:
             name: The name of the tool to call
             arguments: Arguments to pass to the tool
@@ -248,13 +267,64 @@ class Client:
         Returns:
             The tool result.
         """
-        return await self.session.call_tool(
-            name=name,
-            arguments=arguments,
-            read_timeout_seconds=read_timeout_seconds,
-            progress_callback=progress_callback,
-            meta=meta,
+        input_responses: InputResponses | None = None
+        request_state: str | None = None
+
+        for _round in range(self.max_mrtr_rounds):
+            result = await self.session.call_tool_mrtr(
+                name=name,
+                arguments=arguments,
+                read_timeout_seconds=read_timeout_seconds,
+                progress_callback=progress_callback,
+                meta=meta,
+                input_responses=input_responses,
+                request_state=request_state,
+            )
+
+            if isinstance(result, CallToolResult):
+                return result
+
+            input_responses = await self._fulfil_input_requests(result)
+            request_state = result.request_state
+
+        raise RuntimeError(
+            f"MRTR retry loop for tool {name!r} exceeded {self.max_mrtr_rounds} rounds without converging"
         )
+
+    async def _fulfil_input_requests(self, incomplete: IncompleteResult) -> InputResponses | None:
+        """Dispatch each embedded input request to the matching callback."""
+        if not incomplete.input_requests:
+            return None
+
+        ctx = RequestContext[ClientSession](session=self.session)
+        responses: InputResponses = {}
+
+        for key, req in incomplete.input_requests.items():
+            match req:
+                case ElicitRequest(params=params):
+                    if self.elicitation_callback is None:
+                        raise RuntimeError(
+                            f"Server sent elicitation input request {key!r} but no elicitation_callback is configured"
+                        )
+                    result = await self.elicitation_callback(ctx, params)
+                case CreateMessageRequest(params=params):
+                    if self.sampling_callback is None:  # pragma: no cover
+                        raise RuntimeError(
+                            f"Server sent sampling input request {key!r} but no sampling_callback is configured"
+                        )
+                    result = await self.sampling_callback(ctx, params)
+                case ListRootsRequest():
+                    if self.list_roots_callback is None:  # pragma: no cover
+                        raise RuntimeError(
+                            f"Server sent roots input request {key!r} but no list_roots_callback is configured"
+                        )
+                    result = await self.list_roots_callback(ctx)
+
+            if isinstance(result, ErrorData):
+                raise RuntimeError(f"Input request {key!r} failed: {result.message}")
+            responses[key] = result
+
+        return responses
 
     async def list_prompts(
         self,

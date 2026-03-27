@@ -7,10 +7,12 @@ from unittest.mock import patch
 import anyio
 import pytest
 from inline_snapshot import snapshot
+from pydantic import FileUrl
 
 from mcp import MCPError, types
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
+from mcp.client.context import ClientRequestContext
 from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
 from mcp.types import (
@@ -320,3 +322,209 @@ async def test_client_uses_transport_directly(app: MCPServer):
                 structured_content={"result": "Hello, Transport!"},
             )
         )
+
+
+# ─── MRTR (SEP-2322) ────────────────────────────────────────────────────────
+
+
+async def _mrtr_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
+    return types.ListToolsResult(tools=[])
+
+
+async def test_mrtr_single_round_elicitation():
+    """Server returns IncompleteResult with one elicitation; Client drives retry transparently."""
+
+    async def on_call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> types.CallToolResult | types.IncompleteResult:
+        units = params.input_responses.get("units") if params.input_responses else None
+        if units is None:
+            return types.IncompleteResult(
+                input_requests={
+                    "units": types.ElicitRequest(
+                        params=types.ElicitRequestFormParams(
+                            message="Which units?",
+                            requested_schema={"type": "object", "properties": {"u": {"type": "string"}}},
+                        )
+                    )
+                },
+            )
+        u = units["content"]["u"]
+        location = params.arguments["location"] if params.arguments else "?"
+        return types.CallToolResult(content=[TextContent(text=f"Weather in {location}: 22°{u}")])
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    async def elicitation_cb(context: ClientRequestContext, params: types.ElicitRequestParams) -> types.ElicitResult:
+        return types.ElicitResult(action="accept", content={"u": "C"})
+
+    async with Client(server, elicitation_callback=elicitation_cb) as client:
+        result = await client.call_tool("weather", {"location": "Tokyo"})
+        assert result == snapshot(CallToolResult(content=[TextContent(text="Weather in Tokyo: 22°C")]))
+
+
+async def test_mrtr_multi_round_with_request_state():
+    """Two-round elicitation accumulating state in request_state (the ADO-rules SEP example)."""
+
+    async def on_call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> types.CallToolResult | types.IncompleteResult:
+        responses = params.input_responses or {}
+        state = params.request_state
+
+        if "resolution" not in responses and state is None:
+            return types.IncompleteResult(
+                input_requests={
+                    "resolution": types.ElicitRequest(
+                        params=types.ElicitRequestFormParams(message="Resolution?", requested_schema={})
+                    )
+                },
+            )
+
+        if state is None:
+            resolution = responses["resolution"]["content"]["r"]
+            return types.IncompleteResult(
+                input_requests={
+                    "dup": types.ElicitRequest(
+                        params=types.ElicitRequestFormParams(message="Duplicate of?", requested_schema={})
+                    )
+                },
+                request_state=f"resolution={resolution}",
+            )
+
+        dup = responses["dup"]["content"]["id"]
+        return types.CallToolResult(content=[TextContent(text=f"{state} dup={dup}")])
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    answers = {"Resolution?": {"r": "Duplicate"}, "Duplicate of?": {"id": "4301"}}
+
+    async def elicitation_cb(context: ClientRequestContext, params: types.ElicitRequestParams) -> types.ElicitResult:
+        assert isinstance(params, types.ElicitRequestFormParams)
+        return types.ElicitResult(action="accept", content=dict(answers[params.message]))
+
+    async with Client(server, elicitation_callback=elicitation_cb) as client:
+        result = await client.call_tool("update_item", {})
+        assert result == snapshot(CallToolResult(content=[TextContent(text="resolution=Duplicate dup=4301")]))
+
+
+async def test_mrtr_round_limit_exceeded():
+    """Server never converges → Client raises after max_mrtr_rounds."""
+
+    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.IncompleteResult:
+        return types.IncompleteResult(request_state="spin")
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    async with Client(server, max_mrtr_rounds=3) as client:
+        with pytest.raises(RuntimeError, match="exceeded 3 rounds"):
+            await client.call_tool("stuck", {})
+
+
+async def test_mrtr_elicitation_without_callback_raises():
+    """IncompleteResult with elicitation but no callback → clear error."""
+
+    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.IncompleteResult:
+        return types.IncompleteResult(
+            input_requests={
+                "ask": types.ElicitRequest(params=types.ElicitRequestFormParams(message="?", requested_schema={}))
+            },
+        )
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError, match="no elicitation_callback"):
+            await client.call_tool("ask", {})
+
+
+async def test_mrtr_sampling_input_request():
+    """IncompleteResult with a sampling input request is dispatched to sampling_callback."""
+
+    async def on_call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> types.CallToolResult | types.IncompleteResult:
+        if params.input_responses and "q" in params.input_responses:
+            answer = params.input_responses["q"]["content"]["text"]
+            return types.CallToolResult(content=[TextContent(text=answer)])
+        return types.IncompleteResult(
+            input_requests={
+                "q": types.CreateMessageRequest(
+                    params=types.CreateMessageRequestParams(
+                        messages=[
+                            types.SamplingMessage(role="user", content=types.TextContent(text="Capital of France?"))
+                        ],
+                        max_tokens=50,
+                    )
+                )
+            },
+        )
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    async def sampling_cb(
+        context: ClientRequestContext, params: types.CreateMessageRequestParams
+    ) -> types.CreateMessageResult:
+        return types.CreateMessageResult(
+            role="assistant", content=types.TextContent(text="Paris"), model="test", stop_reason="endTurn"
+        )
+
+    async with Client(server, sampling_callback=sampling_cb) as client:
+        result = await client.call_tool("ask", {})
+        assert result == snapshot(CallToolResult(content=[TextContent(text="Paris")]))
+
+
+async def test_mrtr_list_roots_input_request():
+    """IncompleteResult with a roots/list input request is dispatched to list_roots_callback."""
+
+    async def on_call_tool(
+        ctx: ServerRequestContext, params: types.CallToolRequestParams
+    ) -> types.CallToolResult | types.IncompleteResult:
+        if params.input_responses and "roots" in params.input_responses:
+            n = len(params.input_responses["roots"]["roots"])
+            return types.CallToolResult(content=[TextContent(text=f"saw {n} roots")])
+        return types.IncompleteResult(input_requests={"roots": types.ListRootsRequest()})
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    async def list_roots_cb(context: ClientRequestContext) -> types.ListRootsResult:
+        return types.ListRootsResult(roots=[types.Root(uri=FileUrl("file:///a")), types.Root(uri=FileUrl("file:///b"))])
+
+    async with Client(server, list_roots_callback=list_roots_cb) as client:
+        result = await client.call_tool("scan", {})
+        assert result == snapshot(CallToolResult(content=[TextContent(text="saw 2 roots")]))
+
+
+async def test_mrtr_callback_returns_error_data():
+    """Callback returning ErrorData surfaces as RuntimeError."""
+
+    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.IncompleteResult:
+        return types.IncompleteResult(
+            input_requests={
+                "ask": types.ElicitRequest(params=types.ElicitRequestFormParams(message="?", requested_schema={}))
+            },
+        )
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    async def elicitation_cb(context: ClientRequestContext, params: types.ElicitRequestParams) -> types.ErrorData:
+        return types.ErrorData(code=-1, message="user closed dialog")
+
+    async with Client(server, elicitation_callback=elicitation_cb) as client:
+        with pytest.raises(RuntimeError, match="user closed dialog"):
+            await client.call_tool("ask", {})
+
+
+async def test_session_call_tool_raises_on_incomplete():
+    """ClientSession.call_tool (non-MRTR) raises if server returns IncompleteResult."""
+
+    async def on_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.IncompleteResult:
+        return types.IncompleteResult(request_state="x")
+
+    server = Server("mrtr-test", on_call_tool=on_call_tool, on_list_tools=_mrtr_list_tools)
+
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError, match="Use Client.call_tool"):
+            await client.session.call_tool("stuck", {})

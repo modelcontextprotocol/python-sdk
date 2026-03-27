@@ -76,6 +76,19 @@ class RequestParams(MCPModel):
     for task augmentation of specific request types in their capabilities.
     """
 
+    input_responses: dict[str, Any] | None = None
+    """Responses to input requests from a prior IncompleteResult (SEP-2322 MRTR).
+
+    Keys mirror the server's inputRequests keys; values are the corresponding
+    ElicitResult, CreateMessageResult, or ListRootsResult payloads.
+    """
+
+    request_state: str | None = None
+    """Opaque state echoed from a prior IncompleteResult (SEP-2322 MRTR).
+
+    Clients MUST NOT inspect or modify this value.
+    """
+
     meta: RequestParamsMeta | None = Field(alias="_meta", default=None)
 
 
@@ -1716,6 +1729,44 @@ class ElicitationRequiredErrorData(MCPModel):
     """List of URL mode elicitations that must be completed."""
 
 
+# ─── Multi Round-Trip Requests (SEP-2322) ───────────────────────────────────
+
+InputRequest: TypeAlias = CreateMessageRequest | ElicitRequest | ListRootsRequest
+"""A server-initiated request embedded in an IncompleteResult."""
+
+InputResponse: TypeAlias = CreateMessageResult | CreateMessageResultWithTools | ElicitResult | ListRootsResult
+"""A client's response to an InputRequest, sent on the retry."""
+
+InputRequests: TypeAlias = dict[str, InputRequest]
+"""Keyed map of input requests. Keys are server-assigned and opaque to the client."""
+
+InputResponses: TypeAlias = dict[str, InputResponse]
+"""Keyed map of input responses. Keys mirror the server's InputRequests keys."""
+
+
+class IncompleteResult(Result):
+    """A result indicating the server needs more input before completing (SEP-2322).
+
+    The client MUST retry the original request with ``input_responses`` populated
+    for each key in ``input_requests``, and ``request_state`` echoed verbatim.
+
+    At least one of ``input_requests`` or ``request_state`` must be present.
+    """
+
+    result_type: Literal["incomplete"] = "incomplete"
+    """Discriminator marking this as an incomplete result."""
+
+    input_requests: InputRequests | None = None
+    """Server-initiated requests the client must fulfil before retrying."""
+
+    request_state: str | None = None
+    """Opaque state the client must echo back on retry. Not inspected by the client."""
+
+
+input_request_adapter: TypeAdapter[InputRequest] = TypeAdapter(InputRequest)
+"""Type adapter for validating embedded InputRequest payloads."""
+
+
 ClientResult = (
     EmptyResult
     | CreateMessageResult
@@ -1774,5 +1825,6 @@ ServerResult = (
     | ListTasksResult
     | CancelTaskResult
     | CreateTaskResult
+    | IncompleteResult
 )
 server_result_adapter = TypeAdapter[ServerResult](ServerResult)
