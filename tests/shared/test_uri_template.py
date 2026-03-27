@@ -450,6 +450,11 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("search{?q}", "search?&q=hello&", {"q": "hello"}),
         # Duplicate query keys keep first value
         ("search{?q}", "search?q=first&q=second", {"q": "first"}),
+        # Percent-encoded parameter names are NOT decoded: RFC 6570
+        # expansion never encodes names, so an encoded name cannot be
+        # a legitimate match. Prevents HTTP parameter pollution.
+        ("api://x{?token}", "api://x?%74oken=evil&token=real", {"token": "real"}),
+        ("api://x{?token}", "api://x?%74oken=evil", {}),
         # Level 3: query continuation with literal ? falls back to
         # strict regex (template-order, all-present required)
         ("?a=1{&b}", "?a=1&b=2", {"b": "2"}),

@@ -560,13 +560,18 @@ def _parse_query(query: str) -> dict[str, str]:
     ``+`` as space for HTML form submissions, but RFC 6570 and MCP
     resource URIs follow RFC 3986 where only ``%20`` encodes a space.
 
+    Parameter names are **not** percent-decoded. RFC 6570 expansion
+    never encodes variable names, so a legitimate match will always
+    have the name in literal form. Decoding names would let
+    ``%74oken=evil&token=real`` shadow the real ``token`` parameter
+    via first-wins.
+
     Duplicate keys keep the first value. Pairs without ``=`` are
     treated as empty-valued.
     """
     result: dict[str, str] = {}
     for pair in query.split("&"):
         name, _, value = pair.partition("=")
-        name = unquote(name)
         if name and name not in result:
             result[name] = unquote(value)
     return result
