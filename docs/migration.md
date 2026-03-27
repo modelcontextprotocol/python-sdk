@@ -573,27 +573,17 @@ from mcp.server.mcpserver import ResourceSecurity
 def inspect_file(target: str) -> str: ...
 ```
 
-**Template literals match exactly.** Previously a `.` in your
-template matched any character; now it matches only a literal dot.
-`data://v1.0/{id}` no longer matches `data://v1X0/42`.
+**Template literals and structural delimiters match exactly.** The
+previous matcher built a regex without escaping, so `.` matched any
+character and simple `{var}` swallowed `?`, `#`, `&`, and `,`. Now
+`data://v1.0/{id}` no longer matches `data://v1X0/42`, and
+`api://{id}` no longer matches `api://foo?x=1` — use `api://{id}{?x}`
+or `api://{+id}` if you need to capture a query tail.
 
-**At most one multi-segment variable.** Templates may contain a single
-`{+var}`, `{#var}`, or explode-modified variable (`{/var*}`, etc.).
-Two such variables make matching inherently ambiguous and now raise
-`InvalidUriTemplate` at decoration time. This is unlikely to affect
-existing templates since the previous Level 1 matcher did not support
-these operators at all.
-
-**Query parameters match leniently.** A template like
-`search://{q}{?limit}` now matches `search://foo` (with `limit` absent
-from the extracted params so your function default applies). Previously
-this returned no match. If you relied on all query parameters being
-required, add explicit checks in your handler.
-
-**Malformed templates fail at decoration time.** Unclosed braces,
-duplicate variable names, and unsupported syntax now raise
-`InvalidUriTemplate` when the decorator runs, rather than silently
-misbehaving at match time.
+**Template syntax errors surface at decoration time.** Unclosed
+braces, duplicate variable names, and unsupported syntax raise
+`InvalidUriTemplate` when the decorator runs rather than `re.error`
+on first match.
 
 **Static URIs with Context-only handlers now error.** A non-template
 URI paired with a handler that takes only a `Context` parameter
