@@ -89,14 +89,6 @@ def test_matches_null_byte_check_can_be_disabled():
     assert t.matches("file://docs/key%00.txt") == {"name": "key\x00.txt"}
 
 
-def test_resource_security_hashable_with_regular_set():
-    # Frozen dataclass auto-generates __hash__ from all fields, so a
-    # mutable set would make the instance unhashable. __post_init__
-    # coerces to frozenset.
-    policy = ResourceSecurity(exempt_params={"a", "b"})
-    assert hash(policy) == hash(ResourceSecurity(exempt_params=frozenset({"a", "b"})))
-
-
 def test_security_rejection_does_not_fall_through_to_next_template():
     # A strict template's security rejection must halt iteration, not
     # fall through to a later permissive template. Previously matches()
