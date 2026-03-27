@@ -10,6 +10,7 @@ import multiprocessing
 import socket
 import time
 import traceback
+import unittest
 from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -1799,6 +1800,55 @@ async def test_handle_sse_event_skips_empty_data():
     finally:
         await write_stream.aclose()
         await read_stream.aclose()
+
+
+def test_streamable_http_transport_includes_seeded_session_id_header():
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp", session_id="resume-session-id")
+
+    headers = transport._prepare_headers()
+
+    assert headers["mcp-session-id"] == "resume-session-id"
+
+
+def test_streamable_http_client_resumption_starts_get_stream_once(monkeypatch: pytest.MonkeyPatch):
+    start_count = 0
+
+    async def fake_handle_get_stream(
+        self: StreamableHTTPTransport,  # noqa: ARG001
+        client: httpx.AsyncClient,  # noqa: ARG001
+        read_stream_writer: Any,  # noqa: ARG001
+    ) -> None:
+        nonlocal start_count
+        start_count += 1
+        await anyio.sleep(0)
+
+    async def fake_post_writer(
+        self: StreamableHTTPTransport,  # noqa: ARG001
+        client: httpx.AsyncClient,  # noqa: ARG001
+        write_stream_reader: Any,  # noqa: ARG001
+        read_stream_writer: Any,  # noqa: ARG001
+        write_stream: Any,  # noqa: ARG001
+        start_get_stream: Any,  # noqa: ARG001
+        tg: Any,  # noqa: ARG001
+    ) -> None:
+        # Call twice; the second call should hit the early return guard.
+        start_get_stream()
+        start_get_stream()
+        await anyio.sleep(0)
+
+    monkeypatch.setattr(StreamableHTTPTransport, "handle_get_stream", fake_handle_get_stream)
+    monkeypatch.setattr(StreamableHTTPTransport, "post_writer", fake_post_writer)
+
+    async def exercise_client() -> None:
+        async with streamable_http_client(
+            "http://localhost:8000/mcp",
+            session_id="resume-session-id",
+            terminate_on_close=False,
+        ):
+            await anyio.sleep(0)
+        unittest.TestCase().assertEqual(start_count, 1, f"Expected exactly one GET stream start, got {start_count}")
+
+    anyio.run(exercise_client)
 
 
 @pytest.mark.anyio

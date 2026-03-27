@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import pytest
@@ -307,7 +307,103 @@ async def test_complete_with_prompt_reference(simple_server: Server):
 def test_client_with_url_initializes_streamable_http_transport():
     with patch("mcp.client.client.streamable_http_client") as mock:
         _ = Client("http://localhost:8000/mcp")
-    mock.assert_called_once_with("http://localhost:8000/mcp")
+    mock.assert_called_once_with("http://localhost:8000/mcp", session_id=None, terminate_on_close=True)
+
+
+def test_client_with_url_and_session_id_initializes_streamable_http_transport():
+    with patch("mcp.client.client.streamable_http_client") as mock:
+        _ = Client("http://localhost:8000/mcp", streamable_http_session_id="resume-session-id")
+    mock.assert_called_once_with(
+        "http://localhost:8000/mcp",
+        session_id="resume-session-id",
+        terminate_on_close=True,
+    )
+
+
+def test_client_with_url_and_terminate_on_close_false_initializes_streamable_http_transport():
+    with patch("mcp.client.client.streamable_http_client") as mock:
+        _ = Client("http://localhost:8000/mcp", streamable_http_terminate_on_close=False)
+    mock.assert_called_once_with("http://localhost:8000/mcp", session_id=None, terminate_on_close=False)
+
+
+def test_client_resume_session_builder_initializes_streamable_http_transport():
+    initialize_result = types.InitializeResult(
+        protocol_version="2025-03-26",
+        capabilities=types.ServerCapabilities(),
+        server_info=types.Implementation(name="server", version="1.0"),
+    )
+    with patch("mcp.client.client.streamable_http_client") as mock:
+        _ = Client.resume_session(
+            "http://localhost:8000/mcp",
+            session_id="resume-session-id",
+            initialize_result=initialize_result,
+        )
+    mock.assert_called_once_with(
+        "http://localhost:8000/mcp",
+        session_id="resume-session-id",
+        terminate_on_close=True,
+    )
+
+
+async def test_client_resume_session_skips_initialize():
+    initialize_result = types.InitializeResult(
+        protocol_version="2025-03-26",
+        capabilities=types.ServerCapabilities(),
+        server_info=types.Implementation(name="server", version="1.0"),
+    )
+
+    transport_cm = AsyncMock()
+    transport_cm.__aenter__.return_value = (MagicMock(), MagicMock())
+    transport_cm.__aexit__.return_value = None
+
+    session = MagicMock()
+    session.initialize = AsyncMock()
+    session.resume = MagicMock()
+    session.initialize_result = initialize_result
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = session
+    session_cm.__aexit__.return_value = None
+
+    with (
+        patch("mcp.client.client.streamable_http_client", return_value=transport_cm),
+        patch("mcp.client.client.ClientSession", return_value=session_cm),
+    ):
+        async with Client.resume_session(
+            "http://localhost:8000/mcp",
+            session_id="resume-session-id",
+            initialize_result=initialize_result,
+        ) as client:
+            assert client.initialize_result == initialize_result
+
+    session.initialize.assert_not_awaited()
+    session.resume.assert_called_once_with(initialize_result)
+
+
+async def test_client_streamable_initialize_result_requires_session_id():
+    initialize_result = types.InitializeResult(
+        protocol_version="2025-03-26",
+        capabilities=types.ServerCapabilities(),
+        server_info=types.Implementation(name="server", version="1.0"),
+    )
+
+    transport_cm = AsyncMock()
+    transport_cm.__aenter__.return_value = (MagicMock(), MagicMock())
+    transport_cm.__aexit__.return_value = None
+
+    session_cm = AsyncMock()
+    session_cm.__aenter__.return_value = AsyncMock()
+    session_cm.__aexit__.return_value = None
+
+    with (
+        patch("mcp.client.client.streamable_http_client", return_value=transport_cm),
+        patch("mcp.client.client.ClientSession", return_value=session_cm),
+    ):
+        client = Client(
+            "http://localhost:8000/mcp",
+            streamable_http_initialize_result=initialize_result,
+        )
+        with pytest.raises(RuntimeError, match="requires streamable_http_session_id"):
+            await client.__aenter__()
 
 
 async def test_client_uses_transport_directly(app: MCPServer):
