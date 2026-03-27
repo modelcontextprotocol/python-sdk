@@ -1,9 +1,9 @@
 """Request context for MCP client handlers."""
 
-from mcp.client.session import ClientSession
+from mcp.client import BaseClientSession
 from mcp.shared._context import RequestContext
 
-ClientRequestContext = RequestContext[ClientSession]
+ClientRequestContext = RequestContext[BaseClientSession]
 """Context for handling incoming requests in a client session.
 
 This context is passed to client-side callbacks (sampling, elicitation, list_roots) when the server sends requests
