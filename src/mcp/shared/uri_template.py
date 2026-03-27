@@ -13,9 +13,11 @@ Matching semantics
 ------------------
 
 Matching is not specified by RFC 6570 (§1.4 explicitly defers to regex
-languages). This implementation uses a linear-time two-ended scan that
-never backtracks, so match time is O(n) in URI length regardless of
-template structure.
+languages). This implementation uses a two-ended scan that never
+backtracks: match time is O(n·v) where n is URI length and v is the
+number of template variables. Realistic templates have v < 10, making
+this effectively linear; there is no input that produces
+superpolynomial time.
 
 A template may contain **at most one multi-segment variable** —
 ``{+var}``, ``{#var}``, or an explode-modified variable (``{/var*}``,
@@ -521,7 +523,11 @@ class UriTemplate:
         # vars take the minimum needed (rfind for the preceding literal).
         # This matches regex greedy-first semantics for templates without
         # a greedy var, and minimises the suffix claim when one exists.
-        suffix = _scan_suffix(self._suffix, uri, n)
+        # When there is no greedy var the suffix IS the whole template,
+        # so its first atom must anchor at position 0 rather than
+        # searching via rfind.
+        anchored = self._greedy is None
+        suffix = _scan_suffix(self._suffix, uri, n, anchored=anchored)
         if suffix is None:
             return None
         suffix_result, suffix_start = suffix
@@ -903,13 +909,19 @@ def _partition_greedy(atoms: list[_Atom], template: str) -> tuple[list[_Atom], V
     return atoms[:greedy_idx], greedy.var, atoms[greedy_idx + 1 :]
 
 
-def _scan_suffix(atoms: Sequence[_Atom], uri: str, end: int) -> tuple[dict[str, str | list[str]], int] | None:
+def _scan_suffix(
+    atoms: Sequence[_Atom], uri: str, end: int, *, anchored: bool
+) -> tuple[dict[str, str | list[str]], int] | None:
     """Scan atoms right-to-left from ``end``, returning captures and start position.
 
     Each bounded variable takes the minimum span that lets its
     preceding literal match (found via ``rfind``), which makes the
     *first* variable in template order greedy — identical to Python
     regex semantics for a sequence of greedy groups.
+
+    When ``anchored`` is true the atom sequence is the entire template
+    (no greedy variable), so ``atoms[0]`` must match at URI position 0
+    rather than at its rightmost occurrence.
     """
     result: dict[str, str | list[str]] = {}
     pos = end
@@ -947,6 +959,14 @@ def _scan_suffix(atoms: Sequence[_Atom], uri: str, end: int) -> tuple[dict[str, 
             i -= 1
             continue
 
+        if isinstance(prev, _Cap):
+            # Adjacent capture with no literal anchor: this (later)
+            # var takes nothing, the earlier var takes the span. Skip
+            # the stop-char scan entirely since the result is unused.
+            result[var.name] = ""
+            i -= 1
+            continue
+
         # Earliest valid start: the var cannot extend left past any
         # stop-char, so scan backward to find that boundary.
         earliest = pos
@@ -955,17 +975,21 @@ def _scan_suffix(atoms: Sequence[_Atom], uri: str, end: int) -> tuple[dict[str, 
 
         if prev is None:
             start = earliest
-        elif isinstance(prev, _Lit):
+        elif anchored and i - 1 == 0:
+            # First atom of the whole template: positionally fixed at
+            # 0, not rightmost occurrence. rfind would land inside the
+            # value when the literal repeats there (e.g. "prefix-{id}"
+            # against "prefix-prefix-123").
+            start = len(prev.text)
+            if start < earliest or start > pos:
+                return None
+        else:
             # Rightmost occurrence of the preceding literal whose end
             # falls within the var's valid range.
             idx = uri.rfind(prev.text, 0, pos)
             if idx == -1 or idx + len(prev.text) < earliest:
                 return None
             start = idx + len(prev.text)
-        else:
-            # Adjacent capture with no literal anchor: this (later)
-            # var takes nothing, the earlier var takes the span.
-            start = pos
 
         result[var.name] = unquote(uri[start:pos])
         pos = start

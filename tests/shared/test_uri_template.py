@@ -540,6 +540,32 @@ def test_match_adjacent_vars_disambiguated_by_literal():
 
 
 @pytest.mark.parametrize(
+    ("template", "variables"),
+    [
+        # Leading literal appears inside the value: must anchor at
+        # position 0, not rfind to the rightmost occurrence.
+        ("prefix-{id}", {"id": "prefix-123"}),
+        ("u{s}", {"s": "xu"}),
+        ("_{x}", {"x": "_"}),
+        ("~{v}~", {"v": "~~~"}),
+        # Multi-occurrence with two vars: rfind correctly picks the
+        # rightmost literal BETWEEN vars, first literal anchors at 0.
+        ("L{a}L{b}", {"a": "xLy", "b": "z"}),
+        # Leading literal with stop-char: earliest bound still applies.
+        ("api/{name}", {"name": "api"}),
+    ],
+)
+def test_match_leading_literal_appears_in_value(template: str, variables: dict[str, str]):
+    # Regression: the R->L scan used rfind for the preceding literal,
+    # which lands inside the value when the template's leading literal
+    # is a substring of the expanded value. The first atom must anchor
+    # at position 0, not search.
+    t = UriTemplate.parse(template)
+    uri = t.expand(variables)
+    assert t.match(uri) == variables
+
+
+@pytest.mark.parametrize(
     ("template", "uri", "expected"),
     [
         # {+var} followed by a bounded var: suffix scan reads back to
