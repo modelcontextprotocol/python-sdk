@@ -9,6 +9,7 @@ from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
 from mcp.server.mcpserver.resources.templates import (
     DEFAULT_RESOURCE_SECURITY,
     ResourceSecurity,
+    ResourceSecurityError,
 )
 from mcp.types import Annotations
 
@@ -30,23 +31,27 @@ def test_matches_rejects_encoded_slash_traversal():
     # %2F decodes to / in UriTemplate.match(), giving "../../etc/passwd".
     # ResourceSecurity's traversal check then rejects the '..' components.
     t = _make("file://docs/{name}")
-    assert t.matches("file://docs/..%2F..%2Fetc%2Fpasswd") is None
+    with pytest.raises(ResourceSecurityError, match="'name'"):
+        t.matches("file://docs/..%2F..%2Fetc%2Fpasswd")
 
 
 def test_matches_rejects_path_traversal_by_default():
     t = _make("file://docs/{name}")
-    assert t.matches("file://docs/..") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/..")
 
 
 def test_matches_rejects_path_traversal_in_reserved_var():
     # Even {+path} gets the traversal check — it's semantic, not structural
     t = _make("file://docs/{+path}")
-    assert t.matches("file://docs/../../etc/passwd") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/../../etc/passwd")
 
 
 def test_matches_rejects_absolute_path():
     t = _make("file://docs/{+path}")
-    assert t.matches("file://docs//etc/passwd") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs//etc/passwd")
 
 
 def test_matches_allows_dotdot_as_substring():
@@ -71,9 +76,11 @@ def test_matches_rejects_null_byte_by_default():
     # %00 decodes to \x00 which defeats string comparisons
     # ("..\x00" != "..") and can truncate in C extensions.
     t = _make("file://docs/{name}")
-    assert t.matches("file://docs/key%00.txt") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/key%00.txt")
     # Null byte also defeats the traversal check's component comparison
-    assert t.matches("file://docs/..%00%2Fsecret") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/..%00%2Fsecret")
 
 
 def test_matches_null_byte_check_can_be_disabled():
@@ -82,24 +89,47 @@ def test_matches_null_byte_check_can_be_disabled():
     assert t.matches("file://docs/key%00.txt") == {"name": "key\x00.txt"}
 
 
+def test_security_rejection_does_not_fall_through_to_next_template():
+    # A strict template's security rejection must halt iteration, not
+    # fall through to a later permissive template. Previously matches()
+    # returned None for both "no match" and "security failed", making
+    # registration order security-critical.
+    strict = _make("file://docs/{name}")
+    lax = _make(
+        "file://docs/{+path}",
+        security=ResourceSecurity(exempt_params={"path"}),
+    )
+    uri = "file://docs/..%2Fsecrets"
+    # Strict matches structurally then fails security -> raises.
+    with pytest.raises(ResourceSecurityError) as exc:
+        strict.matches(uri)
+    assert exc.value.param == "name"
+    # If this raised, the resource manager never reaches the lax
+    # template. Verify the lax template WOULD have accepted it.
+    assert lax.matches(uri) == {"path": "../secrets"}
+
+
 def test_matches_explode_checks_each_segment():
     t = _make("api{/parts*}")
     assert t.matches("api/a/b/c") == {"parts": ["a", "b", "c"]}
     # Any segment with traversal rejects the whole match
-    assert t.matches("api/a/../c") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("api/a/../c")
 
 
 def test_matches_encoded_backslash_caught_by_traversal_check():
     # %5C decodes to '\\'. The traversal check normalizes '\\' to '/'
     # and catches the '..' components.
     t = _make("file://docs/{name}")
-    assert t.matches("file://docs/..%5C..%5Csecret") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/..%5C..%5Csecret")
 
 
 def test_matches_encoded_dots_caught_by_traversal_check():
     # %2E%2E decodes to '..' which the traversal check rejects.
     t = _make("file://docs/{name}")
-    assert t.matches("file://docs/%2E%2E") is None
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/%2E%2E")
 
 
 def test_matches_mixed_encoded_and_literal_slash():

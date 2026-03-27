@@ -3,6 +3,7 @@ from .resource_manager import ResourceManager
 from .templates import (
     DEFAULT_RESOURCE_SECURITY,
     ResourceSecurity,
+    ResourceSecurityError,
     ResourceTemplate,
 )
 from .types import (
@@ -25,5 +26,6 @@ __all__ = [
     "ResourceTemplate",
     "ResourceManager",
     "ResourceSecurity",
+    "ResourceSecurityError",
     "DEFAULT_RESOURCE_SECURITY",
 ]

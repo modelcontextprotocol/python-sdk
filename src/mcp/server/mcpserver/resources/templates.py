@@ -54,7 +54,7 @@ class ResourceSecurity:
     exempt_params: Set[str] = field(default_factory=frozenset[str])
     """Parameter names to skip all checks for."""
 
-    def validate(self, params: Mapping[str, str | list[str]]) -> bool:
+    def validate(self, params: Mapping[str, str | list[str]]) -> str | None:
         """Check all parameter values against the configured policy.
 
         Args:
@@ -62,7 +62,8 @@ class ResourceSecurity:
                 explode variables) are checked element-wise.
 
         Returns:
-            ``True`` if all values pass; ``False`` on first violation.
+            The name of the first parameter that fails, or ``None`` if
+            all values pass.
         """
         for name, value in params.items():
             if name in self.exempt_params:
@@ -70,16 +71,30 @@ class ResourceSecurity:
             values = value if isinstance(value, list) else [value]
             for v in values:
                 if self.reject_null_bytes and "\0" in v:
-                    return False
+                    return name
                 if self.reject_path_traversal and contains_path_traversal(v):
-                    return False
+                    return name
                 if self.reject_absolute_paths and is_absolute_path(v):
-                    return False
-        return True
+                    return name
+        return None
 
 
 DEFAULT_RESOURCE_SECURITY = ResourceSecurity()
 """Secure-by-default policy: traversal and absolute paths rejected."""
+
+
+class ResourceSecurityError(ValueError):
+    """Raised when an extracted parameter fails :class:`ResourceSecurity` checks.
+
+    Distinct from a simple ``None`` non-match so that template
+    iteration can stop at the first security rejection rather than
+    falling through to a later, possibly more permissive, template.
+    """
+
+    def __init__(self, template: str, param: str) -> None:
+        super().__init__(f"Parameter {param!r} of template {template!r} failed security validation")
+        self.template = template
+        self.param = param
 
 
 class ResourceTemplate(BaseModel):
@@ -165,13 +180,21 @@ class ResourceTemplate(BaseModel):
 
         Returns:
             Extracted parameters on success, or ``None`` if the URI
-            doesn't match or a parameter fails security validation.
+            doesn't match the template.
+
+        Raises:
+            ResourceSecurityError: If the URI matches but an extracted
+                parameter fails security validation. Raising (rather
+                than returning ``None``) prevents the resource manager
+                from silently falling through to a later, possibly more
+                permissive, template.
         """
         params = self.parsed_template.match(uri)
         if params is None:
             return None
-        if not self.security.validate(params):
-            return None
+        failed = self.security.validate(params)
+        if failed is not None:
+            raise ResourceSecurityError(self.uri_template, failed)
         return params
 
     async def create_resource(
