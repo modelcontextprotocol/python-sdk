@@ -548,14 +548,17 @@ await client.read_resource(str(my_any_url))
 ### Resource templates: matching behavior changes
 
 Resource template matching has been rewritten with RFC 6570 support.
-Four behaviors have changed:
+Several behaviors have changed:
 
 **Path-safety checks applied by default.** Extracted parameter values
-containing `..` as a path component or looking like an absolute path
-(`/etc/passwd`, `C:\Windows`) now cause the template to not match.
-This is checked on the decoded value, so `..%2Fetc` and `%2E%2E` are
-caught too. Note that `..` is only flagged as a standalone path
-component, so values like `v1.0..v2.0` or `HEAD~3..HEAD` are unaffected.
+containing `..` as a path component, a null byte, or looking like an
+absolute path (`/etc/passwd`, `C:\Windows`) now raise
+`ResourceSecurityError` and halt template iteration — a strict
+template's rejection no longer falls through to a later permissive
+template. This is checked on the decoded value, so `..%2Fetc`,
+`%2E%2E`, and `%00` are caught too. Note that `..` is only flagged as
+a standalone path component, so values like `v1.0..v2.0` or
+`HEAD~3..HEAD` are unaffected.
 
 If a parameter legitimately needs to receive absolute paths or
 traversal sequences, exempt it:
@@ -570,9 +573,16 @@ from mcp.server.mcpserver import ResourceSecurity
 def inspect_file(target: str) -> str: ...
 ```
 
-**Template literals are regex-escaped.** Previously a `.` in your
+**Template literals match exactly.** Previously a `.` in your
 template matched any character; now it matches only a literal dot.
 `data://v1.0/{id}` no longer matches `data://v1X0/42`.
+
+**At most one multi-segment variable.** Templates may contain a single
+`{+var}`, `{#var}`, or explode-modified variable (`{/var*}`, etc.).
+Two such variables make matching inherently ambiguous and now raise
+`InvalidUriTemplate` at decoration time. This is unlikely to affect
+existing templates since the previous Level 1 matcher did not support
+these operators at all.
 
 **Query parameters match leniently.** A template like
 `search://{q}{?limit}` now matches `search://foo` (with `limit` absent

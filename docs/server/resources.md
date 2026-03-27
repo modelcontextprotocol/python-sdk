@@ -224,7 +224,11 @@ The configurable checks:
 |-------------------------|---------|-------------------------------------|
 | `reject_path_traversal` | `True`  | Rejects `..` sequences that escape the starting directory |
 | `reject_absolute_paths` | `True`  | Rejects `/foo`, `C:\foo`, UNC paths |
+| `reject_null_bytes`     | `True`  | Rejects values containing `\x00`    |
 | `exempt_params`         | empty   | Parameter names to skip checks for  |
+
+These checks are a heuristic pre-filter; for filesystem access,
+`safe_join` remains the containment boundary.
 
 ## Errors
 
