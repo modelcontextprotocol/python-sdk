@@ -281,14 +281,23 @@ def test_parse_rejects_oversized_template():
         UriTemplate.parse("x" * 101, max_length=100)
 
 
-def test_parse_rejects_too_many_expressions():
-    with pytest.raises(InvalidUriTemplate, match="maximum of"):
-        UriTemplate.parse("{a}" * 11, max_expressions=10)
+def test_parse_rejects_too_many_variables():
+    template = "".join(f"{{v{i}}}" for i in range(11))
+    with pytest.raises(InvalidUriTemplate, match="maximum of 10 variables"):
+        UriTemplate.parse(template, max_variables=10)
+
+
+def test_parse_counts_variables_not_expressions():
+    # A single {v0,v1,...} expression packs many variables under one
+    # brace pair. Counting expressions would miss this.
+    template = "{" + ",".join(f"v{i}" for i in range(11)) + "}"
+    with pytest.raises(InvalidUriTemplate, match="maximum of 10 variables"):
+        UriTemplate.parse(template, max_variables=10)
 
 
 def test_parse_custom_limits_allow_larger():
     template = "".join(f"{{v{i}}}" for i in range(20))
-    tmpl = UriTemplate.parse(template, max_expressions=20)
+    tmpl = UriTemplate.parse(template, max_variables=20)
     assert len(tmpl.variables) == 20
 
 

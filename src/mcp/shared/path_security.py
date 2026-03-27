@@ -15,6 +15,7 @@ The canonical safe pattern::
         return safe_join("/data/docs", path).read_text()
 """
 
+import string
 from pathlib import Path
 
 __all__ = ["PathEscapeError", "contains_path_traversal", "is_absolute_path", "safe_join"]
@@ -99,8 +100,9 @@ def is_absolute_path(value: str) -> bool:
         return False
     if value[0] in ("/", "\\"):
         return True
-    # Windows drive letter: C:, C:\, C:/
-    if len(value) >= 2 and value[1] == ":" and value[0].isalpha():
+    # Windows drive letter: C:, C:\, C:/. ASCII-only so that values
+    # like "Ω:namespace" are not falsely rejected.
+    if len(value) >= 2 and value[1] == ":" and value[0] in string.ascii_letters:
         return True
     return False
 

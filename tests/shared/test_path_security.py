@@ -73,6 +73,9 @@ def test_contains_path_traversal(value: str, expected: bool):
         ("1:foo", False),
         # Colon not in position 1
         ("ab:c", False),
+        # Non-ASCII letter is not a drive letter
+        ("Ω:namespace", False),
+        ("é:foo", False),
     ],
 )
 def test_is_absolute_path(value: str, expected: bool):

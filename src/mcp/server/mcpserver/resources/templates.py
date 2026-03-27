@@ -54,6 +54,11 @@ class ResourceSecurity:
     exempt_params: Set[str] = field(default_factory=frozenset[str])
     """Parameter names to skip all checks for."""
 
+    def __post_init__(self) -> None:
+        # Coerce to frozenset so the dataclass stays hashable even if
+        # callers pass a regular set.
+        object.__setattr__(self, "exempt_params", frozenset(self.exempt_params))
+
     def validate(self, params: Mapping[str, str | list[str]]) -> str | None:
         """Check all parameter values against the configured policy.
 

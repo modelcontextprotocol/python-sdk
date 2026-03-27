@@ -45,8 +45,8 @@ from typing import Literal, TypeAlias, cast
 from urllib.parse import quote, unquote
 
 __all__ = [
-    "DEFAULT_MAX_EXPRESSIONS",
     "DEFAULT_MAX_TEMPLATE_LENGTH",
+    "DEFAULT_MAX_VARIABLES",
     "DEFAULT_MAX_URI_LENGTH",
     "InvalidUriTemplate",
     "Operator",
@@ -63,8 +63,8 @@ _OPERATORS: frozenset[str] = frozenset({"+", "#", ".", "/", ";", "?", "&"})
 # (Percent-encoded varchars are technically allowed but unseen in practice.)
 _VARNAME_RE = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$")
 
-DEFAULT_MAX_TEMPLATE_LENGTH = 1_000_000
-DEFAULT_MAX_EXPRESSIONS = 10_000
+DEFAULT_MAX_TEMPLATE_LENGTH = 8_192
+DEFAULT_MAX_VARIABLES = 256
 DEFAULT_MAX_URI_LENGTH = 65_536
 
 # RFC 3986 reserved characters, kept unencoded by {+var} and {#var}.
@@ -284,12 +284,12 @@ class UriTemplate:
     """
 
     template: str
-    _parts: list[_Part] = field(repr=False, compare=False)
-    _variables: list[Variable] = field(repr=False, compare=False)
-    _prefix: list[_Atom] = field(repr=False, compare=False)
+    _parts: tuple[_Part, ...] = field(repr=False, compare=False)
+    _variables: tuple[Variable, ...] = field(repr=False, compare=False)
+    _prefix: tuple[_Atom, ...] = field(repr=False, compare=False)
     _greedy: Variable | None = field(repr=False, compare=False)
-    _suffix: list[_Atom] = field(repr=False, compare=False)
-    _query_variables: list[Variable] = field(repr=False, compare=False)
+    _suffix: tuple[_Atom, ...] = field(repr=False, compare=False)
+    _query_variables: tuple[Variable, ...] = field(repr=False, compare=False)
 
     @staticmethod
     def is_template(value: str) -> bool:
@@ -319,7 +319,7 @@ class UriTemplate:
         template: str,
         *,
         max_length: int = DEFAULT_MAX_TEMPLATE_LENGTH,
-        max_expressions: int = DEFAULT_MAX_EXPRESSIONS,
+        max_variables: int = DEFAULT_MAX_VARIABLES,
     ) -> UriTemplate:
         """Parse a URI template string.
 
@@ -327,9 +327,11 @@ class UriTemplate:
             template: An RFC 6570 URI template.
             max_length: Maximum permitted length of the template string.
                 Guards against resource exhaustion.
-            max_expressions: Maximum number of ``{...}`` expressions
-                permitted. Guards against pathological inputs that could
-                produce expensive regexes.
+            max_variables: Maximum number of variables permitted across
+                all expressions. Counting variables rather than
+                ``{...}`` expressions closes the gap where a single
+                ``{v0,v1,...,vN}`` expression packs arbitrarily many
+                variables under one expression count.
 
         Raises:
             InvalidUriTemplate: If the template is malformed, exceeds the
@@ -341,7 +343,7 @@ class UriTemplate:
                 template=template,
             )
 
-        parts, variables = _parse(template, max_expressions=max_expressions)
+        parts, variables = _parse(template, max_variables=max_variables)
 
         # Trailing {?...}/{&...} expressions are matched leniently via
         # parse_qs rather than the scan: order-agnostic, partial, ignores
@@ -352,12 +354,12 @@ class UriTemplate:
 
         return cls(
             template=template,
-            _parts=parts,
-            _variables=variables,
-            _prefix=prefix,
+            _parts=tuple(parts),
+            _variables=tuple(variables),
+            _prefix=tuple(prefix),
             _greedy=greedy,
-            _suffix=suffix,
-            _query_variables=query_vars,
+            _suffix=tuple(suffix),
+            _query_variables=tuple(query_vars),
         )
 
     @property
@@ -680,7 +682,7 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
     return parts[:split], query_vars
 
 
-def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Variable]]:
+def _parse(template: str, *, max_variables: int) -> tuple[list[_Part], list[Variable]]:
     """Split a template into an ordered sequence of literals and expressions.
 
     Walks the string, alternating between collecting literal runs and
@@ -694,7 +696,6 @@ def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Va
     """
     parts: list[_Part] = []
     variables: list[Variable] = []
-    expression_count = 0
     i = 0
     n = len(template)
 
@@ -719,17 +720,16 @@ def _parse(template: str, *, max_expressions: int) -> tuple[list[_Part], list[Va
                 position=brace,
             )
 
-        expression_count += 1
-        if expression_count > max_expressions:
-            raise InvalidUriTemplate(
-                f"Template exceeds maximum of {max_expressions} expressions",
-                template=template,
-            )
-
         # Delegate body (between braces, exclusive) to the expression parser.
         expr = _parse_expression(template, template[brace + 1 : end], brace)
         parts.append(expr)
         variables.extend(expr.variables)
+
+        if len(variables) > max_variables:
+            raise InvalidUriTemplate(
+                f"Template exceeds maximum of {max_variables} variables",
+                template=template,
+            )
 
         # Advance past the closing brace.
         i = end + 1
@@ -903,7 +903,7 @@ def _partition_greedy(atoms: list[_Atom], template: str) -> tuple[list[_Atom], V
     return atoms[:greedy_idx], greedy.var, atoms[greedy_idx + 1 :]
 
 
-def _scan_suffix(atoms: list[_Atom], uri: str, end: int) -> tuple[dict[str, str | list[str]], int] | None:
+def _scan_suffix(atoms: Sequence[_Atom], uri: str, end: int) -> tuple[dict[str, str | list[str]], int] | None:
     """Scan atoms right-to-left from ``end``, returning captures and start position.
 
     Each bounded variable takes the minimum span that lets its
@@ -973,7 +973,9 @@ def _scan_suffix(atoms: list[_Atom], uri: str, end: int) -> tuple[dict[str, str 
     return result, pos
 
 
-def _scan_prefix(atoms: list[_Atom], uri: str, start: int, limit: int) -> tuple[dict[str, str | list[str]], int] | None:
+def _scan_prefix(
+    atoms: Sequence[_Atom], uri: str, start: int, limit: int
+) -> tuple[dict[str, str | list[str]], int] | None:
     """Scan atoms left-to-right from ``start``, not exceeding ``limit``.
 
     Each bounded variable takes the minimum span that lets its
