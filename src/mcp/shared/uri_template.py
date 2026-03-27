@@ -169,7 +169,7 @@ class _Cap:
     ifemp: bool = False
 
 
-_Atom: TypeAlias = "_Lit | _Cap"
+_Atom: TypeAlias = _Lit | _Cap
 
 
 def _is_greedy(var: Variable) -> bool:
@@ -286,12 +286,12 @@ class UriTemplate:
     """
 
     template: str
-    _parts: tuple[_Part, ...] = field(repr=False, compare=False)
-    _variables: tuple[Variable, ...] = field(repr=False, compare=False)
-    _prefix: tuple[_Atom, ...] = field(repr=False, compare=False)
+    _parts: list[_Part] = field(repr=False, compare=False)
+    _variables: list[Variable] = field(repr=False, compare=False)
+    _prefix: list[_Atom] = field(repr=False, compare=False)
     _greedy: Variable | None = field(repr=False, compare=False)
-    _suffix: tuple[_Atom, ...] = field(repr=False, compare=False)
-    _query_variables: tuple[Variable, ...] = field(repr=False, compare=False)
+    _suffix: list[_Atom] = field(repr=False, compare=False)
+    _query_variables: list[Variable] = field(repr=False, compare=False)
 
     @staticmethod
     def is_template(value: str) -> bool:
@@ -356,12 +356,12 @@ class UriTemplate:
 
         return cls(
             template=template,
-            _parts=tuple(parts),
-            _variables=tuple(variables),
-            _prefix=tuple(prefix),
+            _parts=parts,
+            _variables=variables,
+            _prefix=prefix,
             _greedy=greedy,
-            _suffix=tuple(suffix),
-            _query_variables=tuple(query_vars),
+            _suffix=suffix,
+            _query_variables=query_vars,
         )
 
     @property
@@ -436,8 +436,8 @@ class UriTemplate:
     def match(self, uri: str, *, max_uri_length: int = DEFAULT_MAX_URI_LENGTH) -> dict[str, str | list[str]] | None:
         """Match a concrete URI against this template and extract variables.
 
-        This is the inverse of :meth:`expand`. The URI is matched against
-        a regex derived from the template and captured values are
+        This is the inverse of :meth:`expand`. The URI is matched via a
+        linear scan of the template and captured values are
         percent-decoded. The round-trip ``match(expand({k: v})) == {k: v}``
         holds when ``v`` does not contain its operator's separator
         unencoded: ``{.ext}`` with ``ext="tar.gz"`` expands to
@@ -446,7 +446,7 @@ class UriTemplate:
         inherent reversal limitation.
 
         Matching is structural at the URI level only: a simple ``{name}``
-        will not match across a literal ``/`` in the URI (the regex stops
+        will not match across a literal ``/`` in the URI (the scan stops
         there), but a percent-encoded ``%2F`` that decodes to ``/`` is
         accepted as part of the value. Path-safety validation belongs at
         a higher layer; see :mod:`mcp.shared.path_security`.
@@ -483,7 +483,7 @@ class UriTemplate:
         Args:
             uri: A concrete URI string.
             max_uri_length: Maximum permitted length of the input URI.
-                Oversized inputs return ``None`` without regex evaluation,
+                Oversized inputs return ``None`` without scanning,
                 guarding against resource exhaustion.
 
         Returns:
@@ -643,7 +643,7 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
     expressions and the preceding path portion contains no literal
     ``?``. If the path has a literal ``?`` (e.g., ``?fixed=1{&page}``),
     the URI's ``?`` split won't align with the template's expression
-    boundary, so strict regex matching is used instead.
+    boundary, so the strict scan is used instead.
 
     Returns:
         A pair ``(path_parts, query_vars)``. If lenient matching does
@@ -671,8 +671,8 @@ def _split_query_tail(parts: list[_Part]) -> tuple[list[_Part], list[Variable]]:
 
     # If the path portion contains a literal ?/# or a {?...}/{#...}
     # expression, lenient matching's partition("#") then partition("?")
-    # would strip content the path regex expects to see. Fall back to
-    # strict regex.
+    # would strip content the path scan expects to see. Fall back to
+    # the strict scan.
     for part in parts[:split]:
         if isinstance(part, str):
             if "?" in part or "#" in part:
@@ -1024,11 +1024,14 @@ def _scan_prefix(
 
         if atom.ifemp:
             # Optional = after ;name. A non-= non-delimiter here means
-            # the name continued (e.g. ;keys vs ;key) — reject.
+            # the name continued (e.g. ;keys vs ;key) — reject, unless
+            # the template's next literal starts right here, in which
+            # case the value is legitimately empty.
             if pos < limit and uri[pos] == "=":
                 pos += 1
             elif pos < limit and uri[pos] not in stops:
-                return None
+                if not (isinstance(nxt, _Lit) and uri.startswith(nxt.text, pos)):
+                    return None
 
         # Latest valid end: the var stops at the first stop-char or
         # the scan limit, whichever comes first.

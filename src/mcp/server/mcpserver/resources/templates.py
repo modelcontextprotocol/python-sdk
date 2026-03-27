@@ -80,7 +80,7 @@ class ResourceSecurity:
 
 
 DEFAULT_RESOURCE_SECURITY = ResourceSecurity()
-"""Secure-by-default policy: traversal and absolute paths rejected."""
+"""Secure-by-default policy: traversal, absolute paths, and null bytes rejected."""
 
 
 class ResourceSecurityError(ValueError):

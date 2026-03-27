@@ -444,15 +444,15 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("search{?q}", "search#frag", {}),
         # Multiple ?/& expressions collected together
         ("api{?v}{&page,limit}", "api?limit=10&v=2", {"v": "2", "limit": "10"}),
-        # Standalone {&var} falls through to strict regex (expands with
-        # & prefix, no ? for lenient matching to split on)
+        # Standalone {&var} falls through to the strict scan (expands
+        # with & prefix, no ? for lenient matching to split on)
         ("api{&page}", "api&page=2", {"page": "2"}),
-        # Literal ? in path portion falls through to strict regex
+        # Literal ? in path portion falls through to the strict scan
         ("api?x{?page}", "api?x?page=2", {"page": "2"}),
         # {?...} expression in path portion also falls through
         ("api{?q}x{?page}", "api?q=1x?page=2", {"q": "1", "page": "2"}),
         # {#...} or literal # in path portion falls through: lenient
-        # matching would strip the fragment before the path regex sees it
+        # matching would strip the fragment before the path scan sees it
         ("page{#section}{?q}", "page#intro?q=x", {"section": "intro", "q": "x"}),
         ("page#lit{?q}", "page#lit?q=x", {"q": "x"}),
         # Empty & segments in query are skipped
@@ -465,7 +465,7 @@ def test_expand_rejects_invalid_value_types(value: object):
         ("api://x{?token}", "api://x?%74oken=evil&token=real", {"token": "real"}),
         ("api://x{?token}", "api://x?%74oken=evil", {}),
         # Level 3: query continuation with literal ? falls back to
-        # strict regex (template-order, all-present required)
+        # the strict scan (template-order, all-present required)
         ("?a=1{&b}", "?a=1&b=2", {"b": "2"}),
         # Explode: path segments as list
         ("/files{/path*}", "/files/a/b/c", {"path": ["a", "b", "c"]}),
@@ -512,8 +512,8 @@ def test_match_no_match(template: str, uri: str):
 
 def test_match_adjacent_vars_with_prefix_names():
     # Two adjacent simple vars where one name is a prefix of the other.
-    # We use positional capture groups, so names only affect the result
-    # dict keys, not the regex. Adjacent unrestricted vars are inherently
+    # Capture positions are ordinal, so names only affect the result
+    # dict keys, not the scan. Adjacent unrestricted vars are inherently
     # ambiguous; greedy * resolution means the first takes everything.
     t = UriTemplate.parse("{var}{vara}")
     assert t.match("ab") == {"var": "ab", "vara": ""}
@@ -652,6 +652,22 @@ def test_match_prefix_ifemp_rejects_name_continuation():
     # the name, so this is not our parameter.
     t = UriTemplate.parse("api{;key}{+rest}")
     assert t.match("api;keys/xyz") is None
+
+
+def test_match_prefix_ifemp_empty_before_non_stop_literal():
+    # Regression: _scan_prefix rejected the empty-value case when the
+    # following template literal starts with a non-stop-char. The
+    # name-continuation guard saw 'X' after ';key' and assumed the
+    # name continued, but 'X' is the template's next literal.
+    t = UriTemplate.parse("api{;key}X{+rest}")
+    # Non-empty round-trips fine:
+    assert t.match(t.expand({"key": "abc", "rest": "/tail"})) == {"key": "abc", "rest": "/tail"}
+    # Empty value (ifemp → bare ;key, then X) must also round-trip:
+    uri = t.expand({"key": "", "rest": "/tail"})
+    assert uri == "api;keyX/tail"
+    assert t.match(uri) == {"key": "", "rest": "/tail"}
+    # But an actual name continuation still rejects:
+    assert t.match("api;keyZX/tail") is None
 
 
 def test_match_large_uri_against_greedy_template():

@@ -552,13 +552,13 @@ Several behaviors have changed:
 
 **Path-safety checks applied by default.** Extracted parameter values
 containing `..` as a path component, a null byte, or looking like an
-absolute path (`/etc/passwd`, `C:\Windows`) now raise
-`ResourceSecurityError` and halt template iteration — a strict
-template's rejection no longer falls through to a later permissive
-template. This is checked on the decoded value, so `..%2Fetc`,
-`%2E%2E`, and `%00` are caught too. Note that `..` is only flagged as
-a standalone path component, so values like `v1.0..v2.0` or
-`HEAD~3..HEAD` are unaffected.
+absolute path (`/etc/passwd`, `C:\Windows`) now cause the read to
+fail — the client receives an "Unknown resource" error and template
+iteration stops, so a strict template's rejection does not fall
+through to a later permissive template. This is checked on the
+decoded value, so `..%2Fetc`, `%2E%2E`, and `%00` are caught too.
+Note that `..` is only flagged as a standalone path component, so
+values like `v1.0..v2.0` or `HEAD~3..HEAD` are unaffected.
 
 If a parameter legitimately needs to receive absolute paths or
 traversal sequences, exempt it:
