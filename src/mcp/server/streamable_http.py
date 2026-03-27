@@ -426,10 +426,10 @@ class StreamableHTTPServerTransport:
                 )
                 await response(scope, request.receive, send)
                 return False
-        # For SSE responses, require both content types
-        elif not (has_json and has_sse):
+        # For SSE responses, require at least one supported content type
+        elif not (has_json or has_sse):
             response = self._create_error_response(
-                "Not Acceptable: Client must accept both application/json and text/event-stream",
+                "Not Acceptable: Client must accept application/json or text/event-stream",
                 HTTPStatus.NOT_ACCEPTABLE,
             )
             await response(scope, request.receive, send)
