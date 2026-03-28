@@ -29,7 +29,7 @@ be instantiated directly by users of the MCP framework.
 """
 
 from enum import Enum
-from typing import Any, TypeVar, overload
+from typing import Any, TypeVar, get_args, overload
 
 import anyio
 import anyio.lowlevel
@@ -61,6 +61,12 @@ ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
 ServerRequestResponder = (
     RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
+)
+
+_KNOWN_CLIENT_REQUEST_METHODS = frozenset(
+    method
+    for request_type in get_args(types.ClientRequest)
+    if isinstance(method := request_type.model_fields["method"].default, str)
 )
 
 
@@ -103,6 +109,11 @@ class ServerSession(
     @property
     def _receive_notification_adapter(self) -> TypeAdapter[types.ClientNotification]:
         return types.client_notification_adapter
+
+    def _get_request_validation_error(self, request: types.JSONRPCRequest) -> types.ErrorData:
+        if request.method not in _KNOWN_CLIENT_REQUEST_METHODS:
+            return types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
+        return super()._get_request_validation_error(request)
 
     @property
     def client_params(self) -> types.InitializeRequestParams | None:
