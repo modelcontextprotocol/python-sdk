@@ -2,6 +2,7 @@
 
 import io
 from io import TextIOWrapper
+from typing import cast
 
 import anyio
 import pytest
@@ -43,6 +44,16 @@ async def test_stdio_server_returns_error_for_raw_invalid_utf8_tool_arguments():
         url_adapter.validate_python(arguments["url"])
         return types.CallToolResult(content=[types.TextContent(type="text", text="ok")])
 
+    ctx = cast(ServerRequestContext, None)
+    list_tools_result = await handle_list_tools(ctx, None)
+    assert list_tools_result.tools[0].name == "fetch"
+
+    valid_tool_call_result = await handle_call_tool(
+        ctx,
+        types.CallToolRequestParams(name="fetch", arguments={"url": "https://example.com"}),
+    )
+    assert valid_tool_call_result.content == [types.TextContent(type="text", text="ok")]
+
     server = Server("test-server", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
 
     raw_stdin = io.BytesIO(
@@ -61,8 +72,7 @@ async def test_stdio_server_returns_error_for_raw_invalid_utf8_tool_arguments():
 
     stdout.flush()
     responses = [
-        jsonrpc_message_adapter.validate_json(line)
-        for line in raw_stdout.getvalue().decode("utf-8").splitlines()
+        jsonrpc_message_adapter.validate_json(line) for line in raw_stdout.getvalue().decode("utf-8").splitlines()
     ]
 
     assert len(responses) == 2
@@ -86,6 +96,8 @@ async def test_stdio_server_stays_alive_when_tool_validation_finishes_after_stdi
         await anyio.sleep(0.1)
         return str(TypeAdapter(AnyHttpUrl).validate_python(url))
 
+    assert await fetch("https://example.com") == "https://example.com/"
+
     raw_stdin = io.BytesIO(
         b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}\n'
         b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
@@ -107,8 +119,7 @@ async def test_stdio_server_stays_alive_when_tool_validation_finishes_after_stdi
 
     stdout.flush()
     responses = [
-        jsonrpc_message_adapter.validate_json(line)
-        for line in raw_stdout.getvalue().decode("utf-8").splitlines()
+        jsonrpc_message_adapter.validate_json(line) for line in raw_stdout.getvalue().decode("utf-8").splitlines()
     ]
 
     assert responses
