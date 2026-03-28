@@ -91,5 +91,9 @@ def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
 def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
     """Should give None if every candidate is absent from PATH."""
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
-    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+
+    def fake_which(cmd: str) -> str | None:
+        return None
+
+    monkeypatch.setattr(shutil, "which", fake_which)
     assert _get_npx_command() is None
