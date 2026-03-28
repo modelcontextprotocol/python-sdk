@@ -302,9 +302,7 @@ async def test_stateless_termination_logs_debug_not_info(caplog: pytest.LogCaptu
             await manager.handle_request(scope, mock_receive, mock_send)
 
     streamable_http_messages = [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == "mcp.server.streamable_http"
+        record.getMessage() for record in caplog.records if record.name == "mcp.server.streamable_http"
     ]
 
     assert "Stateless request completed, cleaning up transport" in streamable_http_messages
