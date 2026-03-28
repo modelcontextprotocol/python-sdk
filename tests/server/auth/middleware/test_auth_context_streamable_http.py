@@ -1,10 +1,15 @@
 """Regression tests for auth context in StreamableHTTP servers."""
 
+from __future__ import annotations
+
 import multiprocessing
+import queue
 import socket
 import time
 from collections.abc import Generator
+from multiprocessing.queues import Queue
 
+import anyio
 import httpx
 import pytest
 import uvicorn
@@ -58,11 +63,19 @@ class _MutableBearerAuth(httpx.Auth):
         yield request
 
 
-def _create_stateful_auth_app() -> Starlette:
+def _create_stateful_auth_app(progress_tokens: Queue[str] | None = None) -> Starlette:
+    async def _handle_progress(ctx: ServerRequestContext, params: object) -> None:
+        if progress_tokens is None:
+            return
+
+        access = get_access_token()
+        progress_tokens.put(access.token if access else "<none>")
+
     server = Server(
         "auth-test-server",
         on_call_tool=_handle_whoami,
         on_list_tools=_handle_list_tools,
+        on_progress=_handle_progress,
     )
     session_manager = StreamableHTTPSessionManager(app=server, stateless=False)
     return Starlette(
@@ -75,9 +88,12 @@ def _create_stateful_auth_app() -> Starlette:
     )
 
 
-def run_stateful_auth_server(port: int) -> None:  # pragma: no cover
+def run_stateful_auth_server(
+    port: int,
+    progress_tokens: Queue[str] | None = None,
+) -> None:  # pragma: no cover
     config = uvicorn.Config(
-        app=_create_stateful_auth_app(),
+        app=_create_stateful_auth_app(progress_tokens),
         host="127.0.0.1",
         port=port,
         log_level="error",
@@ -94,34 +110,45 @@ def stateful_auth_server_port() -> int:
 
 
 @pytest.fixture
-def stateful_auth_server(stateful_auth_server_port: int) -> Generator[str, None, None]:
+def stateful_auth_server(
+    stateful_auth_server_port: int,
+) -> Generator[tuple[str, Queue[str]], None, None]:
+    progress_tokens: Queue[str] = multiprocessing.Queue()
     proc = multiprocessing.Process(
         target=run_stateful_auth_server,
-        kwargs={"port": stateful_auth_server_port},
+        kwargs={
+            "port": stateful_auth_server_port,
+            "progress_tokens": progress_tokens,
+        },
         daemon=True,
     )
     proc.start()
     wait_for_server(stateful_auth_server_port)
 
     try:
-        yield f"http://127.0.0.1:{stateful_auth_server_port}/mcp"
+        yield f"http://127.0.0.1:{stateful_auth_server_port}/mcp", progress_tokens
     finally:
         proc.terminate()
         proc.join(timeout=2)
         if proc.is_alive():  # pragma: no cover
             proc.kill()
             proc.join(timeout=1)
+        progress_tokens.close()
+        progress_tokens.join_thread()
 
 
 @pytest.mark.anyio
-async def test_get_access_token_reflects_current_request_in_stateful_session(stateful_auth_server: str) -> None:
+async def test_get_access_token_reflects_current_request_in_stateful_session(
+    stateful_auth_server: tuple[str, Queue[str]],
+) -> None:
+    server_url, _ = stateful_auth_server
     auth = _MutableBearerAuth("token-A")
     async with httpx.AsyncClient(
         auth=auth,
         timeout=httpx.Timeout(30, read=30),
         follow_redirects=True,
     ) as http_client:
-        async with streamable_http_client(stateful_auth_server, http_client=http_client) as (
+        async with streamable_http_client(server_url, http_client=http_client) as (
             read_stream,
             write_stream,
         ):
@@ -139,3 +166,33 @@ async def test_get_access_token_reflects_current_request_in_stateful_session(sta
                 assert len(second_response.content) == 1
                 assert isinstance(second_response.content[0], TextContent)
                 assert second_response.content[0].text == "token-B"
+
+
+@pytest.mark.anyio
+async def test_get_access_token_reflects_current_notification_in_stateful_session(
+    stateful_auth_server: tuple[str, Queue[str]],
+) -> None:
+    server_url, progress_tokens = stateful_auth_server
+    auth = _MutableBearerAuth("token-A")
+    async with httpx.AsyncClient(
+        auth=auth,
+        timeout=httpx.Timeout(30, read=30),
+        follow_redirects=True,
+    ) as http_client:
+        async with streamable_http_client(server_url, http_client=http_client) as (
+            read_stream,
+            write_stream,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+
+                auth.token = "token-B"
+                await session.send_progress_notification(progress_token="progress-1", progress=1)
+
+                with anyio.fail_after(5):
+                    while True:
+                        try:
+                            assert progress_tokens.get_nowait() == "token-B"
+                            break
+                        except queue.Empty:
+                            await anyio.sleep(0.01)

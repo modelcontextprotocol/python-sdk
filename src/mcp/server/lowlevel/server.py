@@ -66,8 +66,8 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.session import NotificationWithMetadata, RequestResponder
 
 logger = logging.getLogger(__name__)
 
@@ -424,7 +424,9 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_message(
         self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception,
+        message: RequestResponder[types.ClientRequest, types.ServerResult]
+        | NotificationWithMetadata[types.ClientNotification]
+        | Exception,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
@@ -436,6 +438,13 @@ class Server(Generic[LifespanResultT]):
                         await self._handle_request(
                             message, responder.request, session, lifespan_context, raise_exceptions
                         )
+                case NotificationWithMetadata() as notification:
+                    await self._handle_notification(
+                        notification.notification,
+                        session,
+                        lifespan_context,
+                        notification.message_metadata,
+                    )
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
                     if raise_exceptions:
@@ -532,24 +541,31 @@ class Server(Generic[LifespanResultT]):
         notify: types.ClientNotification,
         session: ServerSession,
         lifespan_context: LifespanResultT,
+        message_metadata: MessageMetadata = None,
     ) -> None:
         if handler := self._notification_handlers.get(notify.method):
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                ctx = ServerRequestContext(
-                    session=session,
-                    lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=None,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
-                )
-                await handler(ctx, notify.params)
+                request_data = None
+                if isinstance(message_metadata, ServerMessageMetadata):
+                    request_data = message_metadata.request_context
+
+                with _bind_request_auth_context(request_data):
+                    client_capabilities = session.client_params.capabilities if session.client_params else None
+                    task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                    ctx = ServerRequestContext(
+                        session=session,
+                        lifespan_context=lifespan_context,
+                        experimental=Experimental(
+                            task_metadata=None,
+                            _client_capabilities=client_capabilities,
+                            _session=session,
+                            _task_support=task_support,
+                        ),
+                        request=request_data,
+                    )
+                    await handler(ctx, notify.params)
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 

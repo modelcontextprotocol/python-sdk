@@ -11,7 +11,7 @@ from mcp import types
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import MessageMetadata, SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 from mcp.types._types import RequestParamsMeta
@@ -461,6 +461,7 @@ class ClientSession(
     async def _handle_incoming(
         self,
         req: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
+        message_metadata: MessageMetadata = None,
     ) -> None:
         """Handle incoming messages by forwarding to the message handler."""
         await self._message_handler(req)
