@@ -397,9 +397,27 @@ class StreamableHTTPServerTransport:
         - */* matches any media type
         - application/* matches any application/ subtype
         - text/* matches any text/ subtype
+        - media types with q=0 are treated as unacceptable
         """
         accept_header = request.headers.get("accept", "")
-        accept_types = [media_type.strip().split(";")[0].strip().lower() for media_type in accept_header.split(",")]
+        accept_types: list[str] = []
+        for media_range in accept_header.split(","):
+            parts = [part.strip().lower() for part in media_range.split(";")]
+            media_type = parts[0]
+            if not media_type:
+                continue
+
+            quality = 1.0
+            for param in parts[1:]:
+                if param.startswith("q="):
+                    try:
+                        quality = float(param[2:])
+                    except ValueError:
+                        pass
+                    break
+
+            if quality > 0:
+                accept_types.append(media_type)
 
         has_wildcard = "*/*" in accept_types
         has_json = has_wildcard or any(t in (CONTENT_TYPE_JSON, "application/*") for t in accept_types)

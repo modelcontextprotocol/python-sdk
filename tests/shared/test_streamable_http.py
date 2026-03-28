@@ -613,6 +613,8 @@ def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accep
     [
         ("application/json", "application/json"),
         ("text/event-stream", "text/event-stream"),
+        ("application/json;q=0.9, text/event-stream;q=0", "application/json"),
+        ("text/event-stream;q=0.9, application/json;q=0", "text/event-stream"),
     ],
 )
 def test_accept_header_single_media_type_negotiates_response(
@@ -659,6 +661,7 @@ def test_accept_header_single_media_type_negotiates_response(
         "text/html",
         "text/plain",
         "application/xml",
+        "application/json;q=0, text/event-stream;q=0",
     ],
 )
 def test_accept_header_incompatible(basic_server: None, basic_server_url: str, accept_header: str):
@@ -933,14 +936,22 @@ def test_json_response_missing_accept_header(json_response_server: None, json_se
     assert "Not Acceptable" in response.text
 
 
-def test_json_response_incorrect_accept_header(json_response_server: None, json_server_url: str):
+@pytest.mark.parametrize(
+    "accept_header",
+    [
+        "text/event-stream",
+        "application/json;q=0, text/event-stream;q=1",
+    ],
+)
+def test_json_response_incorrect_accept_header(
+    json_response_server: None, json_server_url: str, accept_header: str
+):
     """Test that json_response servers reject requests with incorrect Accept header."""
     mcp_url = f"{json_server_url}/mcp"
-    # Test with only text/event-stream (wrong for JSON server)
     response = requests.post(
         mcp_url,
         headers={
-            "Accept": "text/event-stream",
+            "Accept": accept_header,
             "Content-Type": "application/json",
         },
         json=INIT_REQUEST,
