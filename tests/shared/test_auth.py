@@ -1,6 +1,9 @@
 """Tests for OAuth 2.0 shared code."""
 
-from mcp.shared.auth import OAuthMetadata
+import pytest
+from pydantic import AnyUrl
+
+from mcp.shared.auth import InvalidScopeError, OAuthClientMetadata, OAuthMetadata
 
 
 def test_oauth():
@@ -58,3 +61,43 @@ def test_oauth_with_jarm():
             "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
         }
     )
+
+
+def test_validate_scope_none_required_scopes_accepts_all():
+    """When client has no scope restrictions (scope=None), all requested scopes should be accepted."""
+    client = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        scope=None,
+    )
+    result = client.validate_scope("read write admin")
+    assert result == ["read", "write", "admin"]
+
+
+def test_validate_scope_none_requested_scope_returns_none():
+    """When no scope is requested, validate_scope should return None."""
+    client = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        scope="read write",
+    )
+    result = client.validate_scope(None)
+    assert result is None
+
+
+def test_validate_scope_rejects_unauthorized_scope():
+    """When client has specific allowed scopes, unauthorized scopes should be rejected."""
+    client = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        scope="read",
+    )
+    with pytest.raises(InvalidScopeError, match="write"):
+        client.validate_scope("read write")
+
+
+def test_validate_scope_accepts_authorized_scope():
+    """When client has specific allowed scopes, authorized scopes should be accepted."""
+    client = OAuthClientMetadata(
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        scope="read write",
+    )
+    result = client.validate_scope("read write")
+    assert result == ["read", "write"]

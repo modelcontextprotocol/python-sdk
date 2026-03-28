@@ -71,11 +71,14 @@ class OAuthClientMetadata(BaseModel):
         if requested_scope is None:
             return None
         requested_scopes = requested_scope.split(" ")
-        allowed_scopes = [] if self.scope is None else self.scope.split(" ")
+        if self.scope is None:
+            # No scope restrictions registered; all requested scopes are allowed
+            return requested_scopes
+        allowed_scopes = self.scope.split(" ")
         for scope in requested_scopes:
-            if scope not in allowed_scopes:  # pragma: no branch
+            if scope not in allowed_scopes:
                 raise InvalidScopeError(f"Client was not registered with scope {scope}")
-        return requested_scopes  # pragma: no cover
+        return requested_scopes
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
