@@ -1,10 +1,13 @@
 """Regression tests for auth context in StreamableHTTP servers."""
 
+import multiprocessing
+import socket
 import time
 from collections.abc import Generator
 
 import httpx
 import pytest
+import uvicorn
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -25,7 +28,7 @@ from mcp.types import (
     TextContent,
     Tool,
 )
-from tests.test_helpers import run_uvicorn_in_thread
+from tests.test_helpers import wait_for_server
 
 
 class _EchoTokenVerifier:
@@ -55,15 +58,14 @@ class _MutableBearerAuth(httpx.Auth):
         yield request
 
 
-@pytest.fixture
-def stateful_auth_server() -> Generator[str, None, None]:
+def _create_stateful_auth_app() -> Starlette:
     server = Server(
         "auth-test-server",
         on_call_tool=_handle_whoami,
         on_list_tools=_handle_list_tools,
     )
     session_manager = StreamableHTTPSessionManager(app=server, stateless=False)
-    app = Starlette(
+    return Starlette(
         routes=[Mount("/mcp", app=session_manager.handle_request)],
         middleware=[
             Middleware(AuthenticationMiddleware, backend=BearerAuthBackend(_EchoTokenVerifier())),
@@ -72,8 +74,43 @@ def stateful_auth_server() -> Generator[str, None, None]:
         lifespan=lambda app: session_manager.run(),
     )
 
-    with run_uvicorn_in_thread(app, host="127.0.0.1", log_level="error") as base_url:
-        yield f"{base_url}/mcp"
+
+def run_stateful_auth_server(port: int) -> None:  # pragma: no cover
+    config = uvicorn.Config(
+        app=_create_stateful_auth_app(),
+        host="127.0.0.1",
+        port=port,
+        log_level="error",
+        access_log=False,
+    )
+    uvicorn.Server(config).run()
+
+
+@pytest.fixture
+def stateful_auth_server_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def stateful_auth_server(stateful_auth_server_port: int) -> Generator[str, None, None]:
+    proc = multiprocessing.Process(
+        target=run_stateful_auth_server,
+        kwargs={"port": stateful_auth_server_port},
+        daemon=True,
+    )
+    proc.start()
+    wait_for_server(stateful_auth_server_port)
+
+    try:
+        yield f"http://127.0.0.1:{stateful_auth_server_port}/mcp"
+    finally:
+        proc.terminate()
+        proc.join(timeout=2)
+        if proc.is_alive():  # pragma: no cover
+            proc.kill()
+            proc.join(timeout=1)
 
 
 @pytest.mark.anyio
