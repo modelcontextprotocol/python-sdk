@@ -72,15 +72,18 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, headers: dict[str, str] | None = None) -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            headers: Optional extra headers included with every request.
+                User-supplied headers take precedence over built-in MCP defaults.
         """
         self.url = url
         self.session_id: str | None = None
         self.protocol_version: str | None = None
+        self._user_headers: dict[str, str] = headers or {}
 
     def _prepare_headers(self) -> dict[str, str]:
         """Build MCP-specific request headers.
@@ -92,6 +95,8 @@ class StreamableHTTPTransport:
             "accept": "application/json, text/event-stream",
             "content-type": "application/json",
         }
+        # User-supplied headers override MCP defaults (e.g. charset in Content-Type)
+        headers.update(self._user_headers)
         # Add session headers if available
         if self.session_id:
             headers[MCP_SESSION_ID] = self.session_id
@@ -511,6 +516,7 @@ async def streamable_http_client(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
+    headers: dict[str, str] | None = None,
     terminate_on_close: bool = True,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
@@ -520,6 +526,8 @@ async def streamable_http_client(
         http_client: Optional pre-configured httpx.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+        headers: Optional extra headers for every request (e.g. Content-Type with charset).
+            These override the built-in MCP defaults.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:
@@ -538,7 +546,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    transport = StreamableHTTPTransport(url, headers=headers)
 
     logger.debug(f"Connecting to StreamableHTTP endpoint: {url}")
 
