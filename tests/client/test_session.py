@@ -789,7 +789,7 @@ async def test_custom_message_handler_can_suppress_exceptions():
     async def suppressing_handler(
         message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        if isinstance(message, Exception):
+        if isinstance(message, Exception):  # pragma: no branch
             suppressed_exceptions.append(message)
             # Intentionally NOT re-raising — old silent behavior
 
