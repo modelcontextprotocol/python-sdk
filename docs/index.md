@@ -64,4 +64,4 @@ npx -y @modelcontextprotocol/inspector
 
 ## API Reference
 
-Full API documentation is available in the [API Reference](api.md).
+Full API documentation is available in the [API Reference](api/mcp/index.md).

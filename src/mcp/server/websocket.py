@@ -10,7 +10,7 @@ from mcp import types
 from mcp.shared.message import SessionMessage
 
 
-@asynccontextmanager  # pragma: no cover
+@asynccontextmanager
 async def websocket_server(scope: Scope, receive: Receive, send: Send):
     """WebSocket server transport for MCP. This is an ASGI application, suitable for use
     with a framework like Starlette and a server like Hypercorn.
@@ -34,13 +34,13 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
                 async for msg in websocket.iter_text():
                     try:
                         client_message = types.jsonrpc_message_adapter.validate_json(msg, by_name=False)
-                    except ValidationError as exc:
+                    except ValidationError as exc:  # pragma: no cover
                         await read_stream_writer.send(exc)
                         continue
 
                     session_message = SessionMessage(client_message)
                     await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await websocket.close()
 
     async def ws_writer():
@@ -49,7 +49,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
                 async for session_message in write_stream_reader:
                     obj = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await websocket.send_text(obj)
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await websocket.close()
 
     async with anyio.create_task_group() as tg:
