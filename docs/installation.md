@@ -24,8 +24,10 @@ The following dependencies are automatically installed:
 - [`pydantic-settings`](https://pypi.org/project/pydantic-settings/): Settings management used in MCPServer.
 - [`uvicorn`](https://pypi.org/project/uvicorn/): ASGI server used to run the HTTP transport endpoints.
 - [`jsonschema`](https://pypi.org/project/jsonschema/): JSON schema validation.
-- [`pywin32`](https://pypi.org/project/pywin32/): Windows specific dependencies for the CLI tools.
 
 This package has the following optional groups:
 
 - `cli`: Installs `typer` and `python-dotenv` for the MCP CLI tools.
+- `stdio`: Installs [`pywin32`](https://pypi.org/project/pywin32/) on Windows for Job Object based subprocess cleanup in `mcp.client.stdio`.
+
+Server-only Windows installs can use the base `mcp` package (or `mcp[cli]`) without pulling in `pywin32`. Add the `stdio` extra only if you want the additional Windows stdio cleanup integration.
