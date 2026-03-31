@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import contextvars
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import anyio
@@ -323,24 +325,29 @@ async def test_client_uses_transport_directly(app: MCPServer):
         )
 
 
+_TEST_CONTEXTVAR = contextvars.ContextVar("test_var", default="initial")
+
+
+@contextmanager
+def _set_test_contextvar(value: str) -> Iterator[None]:
+    token = _TEST_CONTEXTVAR.set(value)
+    try:
+        yield
+    finally:
+        _TEST_CONTEXTVAR.reset(token)
+
+
 async def test_context_propagation():
     """Sender's contextvars.Context is propagated to the server handler."""
-    trace_id = contextvars.ContextVar[str]("trace_id", default="unset")
-    captured: list[str] = []
-
     server = MCPServer("test")
 
     @server.tool()
-    def check_context() -> str:
-        """Return the trace_id contextvar value."""
-        value = trace_id.get()
-        captured.append(value)
-        return value
-
-    trace_id.set("test-trace-123")
+    async def check_context() -> str:
+        """Return the contextvar value visible to the handler."""
+        return _TEST_CONTEXTVAR.get()
 
     async with Client(server) as client:
-        result = await client.call_tool("check_context", {})
+        with _set_test_contextvar("client_value"):
+            result = await client.call_tool("check_context", {})
 
-    assert captured == ["test-trace-123"]
-    assert result.content[0].text == "test-trace-123"  # type: ignore[union-attr]
+    assert result.content[0].text == "client_value"  # type: ignore[union-attr]
