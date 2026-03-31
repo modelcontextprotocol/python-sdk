@@ -45,6 +45,7 @@ from importlib.metadata import version as importlib_version
 from typing import Any, Generic, cast
 
 import anyio
+from opentelemetry.trace import StatusCode
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -516,8 +517,6 @@ class Server(Generic[LifespanResultT]):
                 response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
 
             if isinstance(response, types.ErrorData) and span is not None:
-                from opentelemetry.trace import StatusCode
-
                 span.set_status(StatusCode.ERROR, response.message)
 
             try:
