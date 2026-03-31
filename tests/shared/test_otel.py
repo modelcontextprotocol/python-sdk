@@ -26,10 +26,10 @@ async def test_client_and_server_spans(capfire: CaptureLogfire):
     spans = capfire.exporter.exported_spans_as_dict()
     span_names = {s["name"] for s in spans}
 
-    assert "MCP tools/call greet" in span_names
+    assert "MCP send tools/call greet" in span_names
     assert "MCP handle tools/call greet" in span_names
 
-    client_span = next(s for s in spans if s["name"] == "MCP tools/call greet")
+    client_span = next(s for s in spans if s["name"] == "MCP send tools/call greet")
     server_span = next(s for s in spans if s["name"] == "MCP handle tools/call greet")
 
     assert client_span["attributes"]["mcp.method.name"] == "tools/call"

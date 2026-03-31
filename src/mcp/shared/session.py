@@ -272,7 +272,7 @@ class BaseSession(
             jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
 
             target = request_data.get("params", {}).get("name")
-            span_name = f"MCP {request.method} {target}" if target else f"MCP {request.method}"
+            span_name = f"MCP send {request.method} {target}" if target else f"MCP send {request.method}"
 
             with otel_span(
                 span_name,
