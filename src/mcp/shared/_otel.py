@@ -17,13 +17,12 @@ _tracer = get_tracer("mcp-python-sdk")
 def otel_span(
     name: str,
     *,
-    kind: str = "INTERNAL",
+    kind: SpanKind,
     attributes: dict[str, Any] | None = None,
     context: Context | None = None,
 ) -> Iterator[Any]:
     """Create an OTel span."""
-    span_kind = getattr(SpanKind, kind, SpanKind.INTERNAL)
-    with _tracer.start_as_current_span(name, kind=span_kind, attributes=attributes, context=context) as span:
+    with _tracer.start_as_current_span(name, kind=kind, attributes=attributes, context=context) as span:
         yield span
 
 

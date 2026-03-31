@@ -9,6 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
+from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
@@ -274,7 +275,7 @@ class BaseSession(
 
             with otel_span(
                 span_name,
-                kind="CLIENT",
+                kind=SpanKind.CLIENT,
                 attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
             ):
                 # Inject W3C trace context into _meta (SEP-414).

@@ -45,7 +45,7 @@ from importlib.metadata import version as importlib_version
 from typing import Any, Generic, cast
 
 import anyio
-from opentelemetry.trace import StatusCode
+from opentelemetry.trace import SpanKind, StatusCode
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -457,7 +457,7 @@ class Server(Generic[LifespanResultT]):
 
         with otel_span(
             span_name,
-            kind="SERVER",
+            kind=SpanKind.SERVER,
             attributes={"mcp.method.name": req.method, "jsonrpc.request.id": message.request_id},
             context=parent_context,
         ) as span:
