@@ -350,4 +350,6 @@ async def test_context_propagation():
         with _set_test_contextvar("client_value"):
             result = await client.call_tool("check_context", {})
 
-    assert result.content[0].text == "client_value"  # type: ignore[union-attr]
+    assert result.content[0].text == "client_value", (  # type: ignore[union-attr]
+        "Server handler did not see the sender's contextvars.Context"
+    )
