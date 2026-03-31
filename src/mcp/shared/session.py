@@ -4,6 +4,7 @@ import contextvars
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -53,6 +54,14 @@ class ProgressFnT(Protocol):
     async def __call__(
         self, progress: float, total: float | None, message: str | None
     ) -> None: ...  # pragma: no branch
+
+
+@dataclass
+class NotificationWithMetadata(Generic[ReceiveNotificationT]):
+    """A validated notification paired with its transport metadata."""
+
+    notification: ReceiveNotificationT
+    message_metadata: MessageMetadata = None
 
 
 class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
@@ -401,7 +410,7 @@ class BaseSession(
                                         except Exception:
                                             logging.exception("Progress callback raised an exception")
                                 await self._received_notification(notification)
-                                await self._handle_incoming(notification)
+                                await self._handle_incoming(notification, message.metadata)
                         except Exception:
                             # For other validation errors, log and continue
                             logging.warning(  # pragma: no cover
@@ -527,6 +536,8 @@ class BaseSession(
         """Sends a progress notification for a request that is currently being processed."""
 
     async def _handle_incoming(
-        self, req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception
+        self,
+        req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception,
+        message_metadata: MessageMetadata = None,
     ) -> None:
         """A generic handler for incoming messages. Overridden by subclasses."""

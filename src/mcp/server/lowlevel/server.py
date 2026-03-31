@@ -39,10 +39,10 @@ from __future__ import annotations
 import contextvars
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager, contextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
 from starlette.applications import Starlette
@@ -52,8 +52,8 @@ from starlette.routing import Mount, Route
 from typing_extensions import TypeVar
 
 from mcp import types
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAuthMiddleware
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware, auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser, BearerAuthBackend, RequireAuthMiddleware
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
@@ -67,12 +67,29 @@ from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, Streamable
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
+from mcp.shared.session import NotificationWithMetadata, RequestResponder
 
 logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
+
+
+@contextmanager
+def _bind_request_auth_context(request_context: Any) -> Iterator[None]:
+    """Rebind auth context from the current transport request while handling a message."""
+    authenticated_user = None
+    scope = getattr(request_context, "scope", None)
+    if isinstance(scope, Mapping):
+        scope_user = cast(Mapping[str, object], scope).get("user")
+        if isinstance(scope_user, AuthenticatedUser):
+            authenticated_user = scope_user
+
+    token = auth_context_var.set(authenticated_user)
+    try:
+        yield
+    finally:
+        auth_context_var.reset(token)
 
 
 class NotificationOptions:
@@ -414,7 +431,9 @@ class Server(Generic[LifespanResultT]):
 
     async def _handle_message(
         self,
-        message: RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception,
+        message: RequestResponder[types.ClientRequest, types.ServerResult]
+        | NotificationWithMetadata[types.ClientNotification]
+        | Exception,
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
@@ -426,6 +445,13 @@ class Server(Generic[LifespanResultT]):
                         await self._handle_request(
                             message, responder.request, session, lifespan_context, raise_exceptions
                         )
+                case NotificationWithMetadata() as notification:
+                    await self._handle_notification(
+                        notification.notification,
+                        session,
+                        lifespan_context,
+                        notification.message_metadata,
+                    )
                 case Exception():
                     logger.error(f"Received exception from stream: {message}")
                     if raise_exceptions:
@@ -459,28 +485,32 @@ class Server(Generic[LifespanResultT]):
                     close_sse_stream_cb = message.message_metadata.close_sse_stream
                     close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
 
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                # Get task metadata from request params if present
-                task_metadata = None
-                if hasattr(req, "params") and req.params is not None:
-                    task_metadata = getattr(req.params, "task", None)
-                ctx = ServerRequestContext(
-                    request_id=message.request_id,
-                    meta=message.request_meta,
-                    session=session,
-                    lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=task_metadata,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
-                    request=request_data,
-                    close_sse_stream=close_sse_stream_cb,
-                    close_standalone_sse_stream=close_standalone_sse_stream_cb,
-                )
-                response = await handler(ctx, req.params)
+                # Stateful HTTP sessions process later requests on tasks that were
+                # created during session setup, so ContextVar snapshots can lag
+                # behind the current request unless we rebind them here.
+                with _bind_request_auth_context(request_data):
+                    client_capabilities = session.client_params.capabilities if session.client_params else None
+                    task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                    # Get task metadata from request params if present
+                    task_metadata = None
+                    if hasattr(req, "params") and req.params is not None:
+                        task_metadata = getattr(req.params, "task", None)
+                    ctx = ServerRequestContext(
+                        request_id=message.request_id,
+                        meta=message.request_meta,
+                        session=session,
+                        lifespan_context=lifespan_context,
+                        experimental=Experimental(
+                            task_metadata=task_metadata,
+                            _client_capabilities=client_capabilities,
+                            _session=session,
+                            _task_support=task_support,
+                        ),
+                        request=request_data,
+                        close_sse_stream=close_sse_stream_cb,
+                        close_standalone_sse_stream=close_standalone_sse_stream_cb,
+                    )
+                    response = await handler(ctx, req.params)
             except MCPError as err:
                 response = err.error
             except anyio.get_cancelled_exc_class():
@@ -518,24 +548,31 @@ class Server(Generic[LifespanResultT]):
         notify: types.ClientNotification,
         session: ServerSession,
         lifespan_context: LifespanResultT,
+        message_metadata: MessageMetadata = None,
     ) -> None:
         if handler := self._notification_handlers.get(notify.method):
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                ctx = ServerRequestContext(
-                    session=session,
-                    lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=None,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
-                )
-                await handler(ctx, notify.params)
+                request_data = None
+                if isinstance(message_metadata, ServerMessageMetadata):
+                    request_data = message_metadata.request_context
+
+                with _bind_request_auth_context(request_data):
+                    client_capabilities = session.client_params.capabilities if session.client_params else None
+                    task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                    ctx = ServerRequestContext(
+                        session=session,
+                        lifespan_context=lifespan_context,
+                        experimental=Experimental(
+                            task_metadata=None,
+                            _client_capabilities=client_capabilities,
+                            _session=session,
+                            _task_support=task_support,
+                        ),
+                        request=request_data,
+                    )
+                    await handler(ctx, notify.params)
             except Exception:  # pragma: no cover
                 logger.exception("Uncaught exception in notification handler")
 

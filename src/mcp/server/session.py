@@ -44,9 +44,10 @@ from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
-from mcp.shared.message import ServerMessageMetadata, SessionMessage
+from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.session import (
     BaseSession,
+    NotificationWithMetadata,
     RequestResponder,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
@@ -61,7 +62,9 @@ class InitializationState(Enum):
 ServerSessionT = TypeVar("ServerSessionT", bound="ServerSession")
 
 ServerRequestResponder = (
-    RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception
+    RequestResponder[types.ClientRequest, types.ServerResult]
+    | NotificationWithMetadata[types.ClientNotification]
+    | Exception
 )
 
 
@@ -684,7 +687,15 @@ class ServerSession(
         """
         await self._write_stream.send(message)
 
-    async def _handle_incoming(self, req: ServerRequestResponder) -> None:
+    async def _handle_incoming(
+        self,
+        req: RequestResponder[types.ClientRequest, types.ServerResult] | types.ClientNotification | Exception,
+        message_metadata: MessageMetadata = None,
+    ) -> None:
+        if isinstance(req, types.ClientNotification):
+            await self._incoming_message_stream_writer.send(NotificationWithMetadata(req, message_metadata))
+            return
+
         await self._incoming_message_stream_writer.send(req)
 
     @property
