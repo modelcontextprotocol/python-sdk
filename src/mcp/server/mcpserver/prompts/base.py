@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import functools
 import inspect
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
+import anyio.to_thread
 import pydantic_core
 from pydantic import BaseModel, Field, TypeAdapter, validate_call
 
@@ -155,10 +157,10 @@ class Prompt(BaseModel):
             # Add context to arguments if needed
             call_args = inject_context(self.fn, arguments or {}, context, self.context_kwarg)
 
-            # Call function and check if result is a coroutine
-            result = self.fn(**call_args)
-            if inspect.iscoroutine(result):
-                result = await result
+            if inspect.iscoroutinefunction(self.fn):
+                result = await self.fn(**call_args)
+            else:
+                result = await anyio.to_thread.run_sync(functools.partial(self.fn, **call_args))
 
             # Validate messages
             if not isinstance(result, list | tuple):

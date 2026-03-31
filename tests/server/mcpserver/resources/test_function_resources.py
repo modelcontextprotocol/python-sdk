@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 from pydantic import BaseModel
 
@@ -190,3 +192,21 @@ class TestFunctionResourceMetadata:
         )
 
         assert resource.meta is None
+
+
+@pytest.mark.anyio
+async def test_sync_fn_runs_in_worker_thread():
+    """Sync resource functions must run in a worker thread, not the event loop."""
+
+    main_thread = threading.get_ident()
+    fn_thread: list[int] = []
+
+    def blocking_fn() -> str:
+        fn_thread.append(threading.get_ident())
+        return "data"
+
+    resource = FunctionResource(uri="resource://test", name="test", fn=blocking_fn)
+    result = await resource.read()
+
+    assert result == "data"
+    assert fn_thread[0] != main_thread
