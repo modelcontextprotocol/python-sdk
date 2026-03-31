@@ -1,5 +1,7 @@
 import threading
 
+import anyio
+import anyio.from_thread
 import pytest
 from pydantic import BaseModel
 
@@ -210,3 +212,33 @@ async def test_sync_fn_runs_in_worker_thread():
 
     assert result == "data"
     assert fn_thread[0] != main_thread
+
+
+@pytest.mark.anyio
+async def test_sync_fn_does_not_block_event_loop():
+    """A blocking sync resource function must not stall the event loop.
+
+    On regression (sync runs inline), anyio.from_thread.run_sync raises
+    RuntimeError because there is no worker-thread context, failing fast.
+    """
+    handler_entered = anyio.Event()
+    release = threading.Event()
+
+    def blocking_fn() -> str:
+        anyio.from_thread.run_sync(handler_entered.set)
+        release.wait()
+        return "done"
+
+    resource = FunctionResource(uri="resource://test", name="test", fn=blocking_fn)
+    result: list[str | bytes] = []
+
+    async def run() -> None:
+        result.append(await resource.read())
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(run)
+            await handler_entered.wait()
+            release.set()
+
+    assert result == ["done"]
