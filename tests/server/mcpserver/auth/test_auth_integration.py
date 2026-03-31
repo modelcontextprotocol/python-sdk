@@ -1607,37 +1607,3 @@ class TestAuthorizeEndpointErrors:
         # State should be preserved
         assert "state" in query_params
         assert query_params["state"][0] == "test_state"
-
-    @pytest.mark.anyio
-    async def test_authorize_invalid_scope(
-        self, test_client: httpx.AsyncClient, registered_client: dict[str, Any], pkce_challenge: dict[str, str]
-    ):
-        """Test authorization endpoint with invalid scope.
-
-        Invalid scope should redirect with invalid_scope error.
-        """
-
-        response = await test_client.get(
-            "/authorize",
-            params={
-                "response_type": "code",
-                "client_id": registered_client["client_id"],
-                "redirect_uri": "https://client.example.com/callback",
-                "code_challenge": pkce_challenge["code_challenge"],
-                "code_challenge_method": "S256",
-                "scope": "invalid_scope_that_does_not_exist",
-                "state": "test_state",
-            },
-        )
-
-        # Should redirect with error parameters
-        assert response.status_code == 302
-        redirect_url = response.headers["location"]
-        parsed_url = urlparse(redirect_url)
-        query_params = parse_qs(parsed_url.query)
-
-        assert "error" in query_params
-        assert query_params["error"][0] == "invalid_scope"
-        # State should be preserved
-        assert "state" in query_params
-        assert query_params["state"][0] == "test_state"

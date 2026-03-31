@@ -1,6 +1,6 @@
 """Tests for OAuth 2.0 shared code."""
 
-from mcp.shared.auth import OAuthMetadata
+from mcp.shared.auth import OAuthClientMetadata, OAuthMetadata
 
 
 def test_oauth():
@@ -58,3 +58,13 @@ def test_oauth_with_jarm():
             "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
         }
     )
+
+
+def test_validate_scope_none_returns_none():
+    client = OAuthClientMetadata.model_validate({"redirect_uris": ["https://example.com/cb"]})
+    assert client.validate_scope(None) is None
+
+
+def test_validate_scope_splits_requested():
+    client = OAuthClientMetadata.model_validate({"redirect_uris": ["https://example.com/cb"]})
+    assert client.validate_scope("read write admin") == ["read", "write", "admin"]
