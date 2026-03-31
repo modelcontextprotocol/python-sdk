@@ -6,6 +6,8 @@ from contextlib import AsyncExitStack
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Any
 
+import httpx
+
 from mcp.client._memory import InMemoryTransport
 from mcp.client._transport import Transport
 from mcp.client.session import ClientSession, ElicitationFnT, ListRootsFnT, LoggingFnT, MessageHandlerFnT, SamplingFnT
@@ -95,6 +97,12 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    auth: httpx.Auth | None = None
+    """Optional HTTP authentication provider (e.g., `BearerAuth` or `OAuthClientProvider`).
+
+    Only used when `server` is a URL string. Ignored for in-memory and custom transports.
+    """
+
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
@@ -103,7 +111,7 @@ class Client:
         if isinstance(self.server, Server | MCPServer):
             self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
         elif isinstance(self.server, str):
-            self._transport = streamable_http_client(self.server)
+            self._transport = streamable_http_client(self.server, auth=self.auth)
         else:
             self._transport = self.server
 
