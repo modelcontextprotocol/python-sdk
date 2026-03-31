@@ -4,14 +4,14 @@ A simple MCP server that exposes sample text files as resources.
 
 ## Usage
 
-Start the server using either stdio (default) or SSE transport:
+Start the server using either stdio (default) or Streamable HTTP transport:
 
 ```bash
 # Using stdio transport (default)
 uv run mcp-simple-resource
 
-# Using SSE transport on custom port
-uv run mcp-simple-resource --transport sse --port 8000
+# Using Streamable HTTP transport on custom port
+uv run mcp-simple-resource --transport streamable-http --port 8000
 ```
 
 The server exposes some basic text file resources that can be read by clients.

@@ -7,7 +7,6 @@ A stateless MCP server example demonstrating the StreamableHttp transport withou
 - Uses the StreamableHTTP transport in stateless mode (mcp_session_id=None)
 - Each request creates a new ephemeral connection
 - No session state maintained between requests
-- Task lifecycle scoped to individual requests
 - Suitable for deployment in multi-node environments
 
 ## Usage

@@ -4,14 +4,14 @@ A simple MCP server demonstrating pagination for tools, resources, and prompts u
 
 ## Usage
 
-Start the server using either stdio (default) or SSE transport:
+Start the server using either stdio (default) or Streamable HTTP transport:
 
 ```bash
 # Using stdio transport (default)
 uv run mcp-simple-pagination
 
-# Using SSE transport on custom port
-uv run mcp-simple-pagination --transport sse --port 8000
+# Using Streamable HTTP transport on custom port
+uv run mcp-simple-pagination --transport streamable-http --port 8000
 ```
 
 The server exposes:
