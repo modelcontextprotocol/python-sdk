@@ -55,11 +55,10 @@ class FunctionResource(Resource):
     async def read(self) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
-            # Call the function first to see if it returns a coroutine
-            result = self.fn()
-            # If it's a coroutine, await it
-            if inspect.iscoroutine(result):
-                result = await result
+            if inspect.iscoroutinefunction(self.fn):
+                result = await self.fn()
+            else:
+                result = await anyio.to_thread.run_sync(self.fn)
 
             if isinstance(result, Resource):  # pragma: no cover
                 return await result.read()
