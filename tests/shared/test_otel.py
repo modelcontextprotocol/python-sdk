@@ -9,6 +9,7 @@ from mcp.server.mcpserver import MCPServer
 pytestmark = pytest.mark.anyio
 
 
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 async def test_client_and_server_spans(capfire: CaptureLogfire):
     """Verify that calling a tool produces client and server spans with correct attributes."""
     server = MCPServer("test")
