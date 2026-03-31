@@ -15,19 +15,21 @@ T_co = TypeVar("T_co", covariant=True)
 T_contra = TypeVar("T_contra", contravariant=True)
 
 
-class ReadStream(Protocol[T_co]):
+# coverage branch tracking reports missing arcs on Protocol stub methods
+# (def -> exit) because they are never called at runtime.
+class ReadStream(Protocol[T_co]):  # pragma: no branch
     """Protocol for reading items from a stream.
 
     Consumers that need the sender's context should use
     ``getattr(stream, 'last_context', None)``.
     """
 
-    async def receive(self) -> T_co: ...
-    async def aclose(self) -> None: ...
-    def __aiter__(self) -> ReadStream[T_co]: ...
-    async def __anext__(self) -> T_co: ...
-    async def __aenter__(self) -> Self: ...
-    async def __aexit__(
+    async def receive(self) -> T_co: ...  # pragma: no branch
+    async def aclose(self) -> None: ...  # pragma: no branch
+    def __aiter__(self) -> ReadStream[T_co]: ...  # pragma: no branch
+    async def __anext__(self) -> T_co: ...  # pragma: no branch
+    async def __aenter__(self) -> Self: ...  # pragma: no branch
+    async def __aexit__(  # pragma: no branch
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
@@ -35,13 +37,13 @@ class ReadStream(Protocol[T_co]):
     ) -> bool | None: ...
 
 
-class WriteStream(Protocol[T_contra]):
+class WriteStream(Protocol[T_contra]):  # pragma: no branch
     """Protocol for writing items to a stream."""
 
-    async def send(self, item: T_contra, /) -> None: ...
-    async def aclose(self) -> None: ...
-    async def __aenter__(self) -> Self: ...
-    async def __aexit__(
+    async def send(self, item: T_contra, /) -> None: ...  # pragma: no branch
+    async def aclose(self) -> None: ...  # pragma: no branch
+    async def __aenter__(self) -> Self: ...  # pragma: no branch
+    async def __aexit__(  # pragma: no branch
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
