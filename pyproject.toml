@@ -46,6 +46,7 @@ dependencies = [
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
+otel = ["opentelemetry-api>=1.28.0"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
@@ -57,7 +58,7 @@ required-version = ">=0.9.5"
 [dependency-groups]
 dev = [
     # We add mcp[cli,ws] so `uv sync` considers the extras.
-    "mcp[cli,ws]",
+    "mcp[cli,ws,otel]",
     "pyright>=1.1.400",
     "pytest>=8.3.4",
     "ruff>=0.8.5",
