@@ -459,7 +459,7 @@ class Server(Generic[LifespanResultT]):
             kind="SERVER",
             attributes={"mcp.method.name": req.method, "jsonrpc.request.id": message.request_id},
             context=parent_context,
-        ):
+        ) as span:
             if handler := self._request_handlers.get(req.method):
                 logger.debug("Dispatching request of type %s", type(req).__name__)
 
@@ -514,6 +514,11 @@ class Server(Generic[LifespanResultT]):
                     response = types.ErrorData(code=0, message=str(err))
             else:  # pragma: no cover
                 response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
+
+            if isinstance(response, types.ErrorData) and span is not None:
+                from opentelemetry.trace import StatusCode
+
+                span.set_status(StatusCode.ERROR, response.message)
 
             try:
                 await message.respond(response)
