@@ -613,8 +613,7 @@ def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accep
     "accept_header",
     [
         "text/html",
-        "application/*",
-        "text/*",
+        "image/png",
     ],
 )
 def test_accept_header_incompatible(basic_server: None, basic_server_url: str, accept_header: str):
@@ -629,6 +628,28 @@ def test_accept_header_incompatible(basic_server: None, basic_server_url: str, a
     )
     assert response.status_code == 406
     assert "Not Acceptable" in response.text
+
+
+@pytest.mark.parametrize(
+    "accept_header",
+    [
+        "text/event-stream",
+        "application/json",
+        "application/*",
+        "text/*",
+    ],
+)
+def test_accept_header_single_type(basic_server: None, basic_server_url: str, accept_header: str):
+    """Test that a single supported Accept type is sufficient for SSE mode."""
+    response = requests.post(
+        f"{basic_server_url}/mcp",
+        headers={
+            "Accept": accept_header,
+            "Content-Type": "application/json",
+        },
+        json=INIT_REQUEST,
+    )
+    assert response.status_code == 200
 
 
 def test_content_type_validation(basic_server: None, basic_server_url: str):

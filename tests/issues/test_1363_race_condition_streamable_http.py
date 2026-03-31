@@ -137,7 +137,7 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
 
         # Suppress WARNING logs (expected validation errors) and capture ERROR logs
         with caplog.at_level(logging.ERROR):
-            # Test with missing text/event-stream in Accept header
+            # Test with only application/json in Accept header (valid — single supported type)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
@@ -145,14 +145,14 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
                     "/",
                     json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                     headers={
-                        "Accept": "application/json",  # Missing text/event-stream
+                        "Accept": "application/json",
                         "Content-Type": "application/json",
                     },
                 )
-                # Should get 406 Not Acceptable due to missing text/event-stream
-                assert response.status_code == 406
+                # Single supported Accept type is sufficient
+                assert response.status_code == 200
 
-            # Test with missing application/json in Accept header
+            # Test with only text/event-stream in Accept header (valid — single supported type)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://testserver", timeout=5.0
             ) as client:
@@ -160,12 +160,12 @@ async def test_race_condition_invalid_accept_headers(caplog: pytest.LogCaptureFi
                     "/",
                     json={"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
                     headers={
-                        "Accept": "text/event-stream",  # Missing application/json
+                        "Accept": "text/event-stream",
                         "Content-Type": "application/json",
                     },
                 )
-                # Should get 406 Not Acceptable due to missing application/json
-                assert response.status_code == 406
+                # Single supported Accept type is sufficient
+                assert response.status_code == 200
 
             # Test with completely invalid Accept header
             async with httpx.AsyncClient(
