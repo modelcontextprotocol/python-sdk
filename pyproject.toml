@@ -223,7 +223,6 @@ exclude_also = [
     "pragma: lax no cover",
     "@overload",
     "raise NotImplementedError",
-    "^\\s*\\.\\.\\.\\s*$",
 ]
 
 # https://coverage.readthedocs.io/en/latest/config.html#paths
