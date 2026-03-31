@@ -219,7 +219,7 @@ skip_covered = true
 show_missing = true
 ignore_errors = true
 precision = 2
-exclude_lines = [
+exclude_also = [
     "pragma: no cover",
     "pragma: lax no cover",
     "if TYPE_CHECKING:",
