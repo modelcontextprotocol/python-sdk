@@ -65,6 +65,15 @@ class TestServer:
         assert len(mcp.icons) == 1
         assert mcp.icons[0].src == "https://example.com/icon.png"
 
+    def test_dependencies(self):
+        """Dependencies list is read by `mcp install` / `mcp dev` CLI commands."""
+        mcp = MCPServer("test", dependencies=["pandas", "numpy"])
+        assert mcp.dependencies == ["pandas", "numpy"]
+        assert mcp.settings.dependencies == ["pandas", "numpy"]
+
+        mcp_no_deps = MCPServer("test")
+        assert mcp_no_deps.dependencies == []
+
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
