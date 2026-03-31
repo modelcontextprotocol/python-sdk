@@ -103,26 +103,17 @@ class ContextReceiveStream(Generic[T]):
         return None
 
 
-def _create_context_streams(
-    max_buffer_size: float = 0,
-) -> tuple[ContextSendStream[Any], ContextReceiveStream[Any]]:
-    raw_send: MemoryObjectSendStream[Any]
-    raw_receive: MemoryObjectReceiveStream[Any]
-    raw_send, raw_receive = anyio.create_memory_object_stream(max_buffer_size)
-    return ContextSendStream(raw_send), ContextReceiveStream(raw_receive)
+class create_context_streams(
+    tuple[ContextSendStream[T], ContextReceiveStream[T]],
+):
+    """Create context-aware memory object streams.
 
-
-class _CreateContextStreams:
-    """Callable that supports ``create_context_streams[T](n)`` bracket syntax.
-
-    Matches anyio's ``create_memory_object_stream`` API style.
+    Supports ``create_context_streams[T](n)`` bracket syntax,
+    matching anyio's ``create_memory_object_stream`` API style.
     """
 
-    def __getitem__(self, _item: Any) -> _CreateContextStreams:
-        return self
-
-    def __call__(self, max_buffer_size: float = 0) -> tuple[ContextSendStream[Any], ContextReceiveStream[Any]]:
-        return _create_context_streams(max_buffer_size)
-
-
-create_context_streams = _CreateContextStreams()
+    def __new__(cls, max_buffer_size: float = 0) -> tuple[ContextSendStream[T], ContextReceiveStream[T]]:  # type: ignore[type-var]
+        raw_send: MemoryObjectSendStream[Any]
+        raw_receive: MemoryObjectReceiveStream[Any]
+        raw_send, raw_receive = anyio.create_memory_object_stream(max_buffer_size)
+        return (ContextSendStream(raw_send), ContextReceiveStream(raw_receive))
