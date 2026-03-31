@@ -19,6 +19,11 @@ if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
     from mcp.server.mcpserver.context import Context
 
+# Regex used for each URI template parameter segment.
+# Decoded values must still satisfy this constraint to prevent
+# encoded path-separator injection (e.g. ``%2F`` → ``/``).
+_SEGMENT_RE = re.compile(r"[^/]+")
+
 
 class ResourceTemplate(BaseModel):
     """A template for dynamically creating resources."""
@@ -86,13 +91,28 @@ class ResourceTemplate(BaseModel):
         """Check if URI matches template and extract parameters.
 
         Extracted parameters are URL-decoded to handle percent-encoded characters.
+        After decoding, each value is re-validated to ensure it does not contain
+        a ``/`` character, which would indicate an encoded path separator bypass
+        (e.g. ``%2F``).  Rejecting such values prevents path-traversal attacks
+        where an attacker could send ``..%2F..%2Fetc%2Fpasswd`` to escape the
+        intended path segment.
         """
         # Convert template to regex pattern
         pattern = self.uri_template.replace("{", "(?P<").replace("}", ">[^/]+)")
         match = re.match(f"^{pattern}$", uri)
         if match:
             # URL-decode all extracted parameter values
-            return {key: unquote(value) for key, value in match.groupdict().items()}
+            decoded = {key: unquote(value) for key, value in match.groupdict().items()}
+
+            # Reject any decoded value that would not have matched the
+            # original ``[^/]+`` segment constraint.  This blocks encoded
+            # slash injection (``%2F`` → ``/``) which could allow path
+            # traversal when the parameter is used in file-system operations.
+            for value in decoded.values():
+                if not _SEGMENT_RE.fullmatch(value):
+                    return None
+
+            return decoded
         return None
 
     async def create_resource(
