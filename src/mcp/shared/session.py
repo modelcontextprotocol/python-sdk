@@ -9,9 +9,11 @@ from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
+from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
+from mcp.shared._otel import inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
@@ -268,24 +270,36 @@ class BaseSession(
             self._progress_callbacks[request_id] = progress_callback
 
         try:
-            jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
-            await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
+            target = request_data.get("params", {}).get("name")
+            span_name = f"MCP send {request.method} {target}" if target else f"MCP send {request.method}"
 
-            # request read timeout takes precedence over session read timeout
-            timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
+            with otel_span(
+                span_name,
+                kind=SpanKind.CLIENT,
+                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
+            ):
+                # Inject W3C trace context into _meta (SEP-414).
+                meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})
+                inject_trace_context(meta)
 
-            try:
-                with anyio.fail_after(timeout):
-                    response_or_error = await response_stream_reader.receive()
-            except TimeoutError:
-                class_name = request.__class__.__name__
-                message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
-                raise MCPError(code=REQUEST_TIMEOUT, message=message)
+                jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
+                await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
-            if isinstance(response_or_error, JSONRPCError):
-                raise MCPError.from_jsonrpc_error(response_or_error)
-            else:
-                return result_type.model_validate(response_or_error.result, by_name=False)
+                # request read timeout takes precedence over session read timeout
+                timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
+
+                try:
+                    with anyio.fail_after(timeout):
+                        response_or_error = await response_stream_reader.receive()
+                except TimeoutError:
+                    class_name = request.__class__.__name__
+                    message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
+                    raise MCPError(code=REQUEST_TIMEOUT, message=message)
+
+                if isinstance(response_or_error, JSONRPCError):
+                    raise MCPError.from_jsonrpc_error(response_or_error)
+                else:
+                    return result_type.model_validate(response_or_error.result, by_name=False)
 
         finally:
             self._response_streams.pop(request_id, None)
