@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from logfire.testing import CaptureLogfire
 
-logfire_testing = pytest.importorskip("logfire.testing")
-CaptureLogfire = logfire_testing.CaptureLogfire
-
-from mcp.client.client import Client  # noqa: E402
-from mcp.server.mcpserver import MCPServer  # noqa: E402
+from mcp.client.client import Client
+from mcp.server.mcpserver import MCPServer
 
 pytestmark = pytest.mark.anyio
 
