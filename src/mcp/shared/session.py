@@ -278,11 +278,8 @@ class BaseSession(
                 attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
             ):
                 # Inject W3C trace context into _meta (SEP-414).
-                if "params" not in request_data:
-                    request_data["params"] = {}
-                if "_meta" not in request_data["params"]:
-                    request_data["params"]["_meta"] = {}
-                inject_trace_context(request_data["params"]["_meta"])
+                meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})
+                inject_trace_context(meta)
 
                 jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
                 await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))

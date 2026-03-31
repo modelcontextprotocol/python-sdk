@@ -27,11 +27,11 @@ def otel_span(
         yield span
 
 
-def inject_trace_context(meta: Any) -> None:
+def inject_trace_context(meta: dict[str, Any]) -> None:
     """Inject W3C trace context (traceparent/tracestate) into a ``_meta`` dict."""
     inject(meta)
 
 
-def extract_trace_context(meta: Any) -> Context:
+def extract_trace_context(meta: dict[str, Any]) -> Context:
     """Extract W3C trace context from a ``_meta`` dict."""
     return extract(meta)

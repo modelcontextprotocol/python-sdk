@@ -42,7 +42,7 @@ import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
 from starlette.applications import Starlette
@@ -451,8 +451,8 @@ class Server(Generic[LifespanResultT]):
         span_name = f"MCP handle {req.method} {target}" if target else f"MCP handle {req.method}"
 
         # Extract W3C trace context from _meta (SEP-414).
-        meta = getattr(req.params, "meta", None) if req.params else None
-        parent_context = extract_trace_context(meta) if isinstance(meta, dict) else None
+        meta = cast(dict[str, Any] | None, getattr(req.params, "meta", None)) if req.params else None
+        parent_context = extract_trace_context(meta) if meta is not None else None
 
         with otel_span(
             span_name,
