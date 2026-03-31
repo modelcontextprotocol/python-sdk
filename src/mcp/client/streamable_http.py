@@ -72,13 +72,17 @@ class RequestContext:
 class StreamableHTTPTransport:
     """StreamableHTTP client transport implementation."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, content_type: str = "application/json") -> None:
         """Initialize the StreamableHTTP transport.
 
         Args:
             url: The endpoint URL.
+            content_type: The Content-Type header value for POST requests.
+                Defaults to "application/json". Can be overridden to include
+                custom charsets (e.g. "application/json; charset=utf-8").
         """
         self.url = url
+        self.content_type = content_type
         self.session_id: str | None = None
         self.protocol_version: str | None = None
 
@@ -90,7 +94,7 @@ class StreamableHTTPTransport:
         """
         headers: dict[str, str] = {
             "accept": "application/json, text/event-stream",
-            "content-type": "application/json",
+            "content-type": self.content_type,
         }
         # Add session headers if available
         if self.session_id:
@@ -515,6 +519,7 @@ async def streamable_http_client(
     *,
     http_client: httpx.AsyncClient | None = None,
     terminate_on_close: bool = True,
+    content_type: str = "application/json",
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
 
@@ -524,6 +529,9 @@ async def streamable_http_client(
             client with recommended MCP timeouts will be created. To configure headers,
             authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
+        content_type: The Content-Type header value for POST requests.
+            Defaults to "application/json". Can be overridden to include custom charsets
+            (e.g. "application/json; charset=utf-8").
 
     Yields:
         Tuple containing:
@@ -544,7 +552,7 @@ async def streamable_http_client(
         # Create default client with recommended MCP timeouts
         client = create_mcp_http_client()
 
-    transport = StreamableHTTPTransport(url)
+    transport = StreamableHTTPTransport(url, content_type=content_type)
 
     async with anyio.create_task_group() as tg:
         try:
