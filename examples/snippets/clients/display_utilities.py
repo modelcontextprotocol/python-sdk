@@ -17,7 +17,7 @@ server_params = StdioServerParameters(
 )
 
 
-async def display_tools(session: ClientSession):
+async def display_tools(session: ClientSession) -> None:
     """Display available tools with human-readable names"""
     tools_response = await session.list_tools()
 
@@ -29,7 +29,7 @@ async def display_tools(session: ClientSession):
             print(f"   {tool.description}")
 
 
-async def display_resources(session: ClientSession):
+async def display_resources(session: ClientSession) -> None:
     """Display available resources with human-readable names"""
     resources_response = await session.list_resources()
 
@@ -43,7 +43,7 @@ async def display_resources(session: ClientSession):
         print(f"Resource Template: {display_name}")
 
 
-async def run():
+async def run() -> None:
     """Run the display utilities example."""
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -57,7 +57,7 @@ async def run():
             await display_resources(session)
 
 
-def main():
+def main() -> None:
     """Entry point for the display utilities client."""
     asyncio.run(run())
 

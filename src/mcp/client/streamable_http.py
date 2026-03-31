@@ -467,7 +467,7 @@ class StreamableHTTPTransport:
                         read_stream_writer=read_stream_writer,
                     )
 
-                    async def handle_request_async():
+                    async def handle_request_async() -> None:
                         if is_resumption:
                             await self._handle_resumption_request(ctx)
                         else:

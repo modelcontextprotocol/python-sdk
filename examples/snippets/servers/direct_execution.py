@@ -18,7 +18,7 @@ def hello(name: str = "World") -> str:
     return f"Hello, {name}!"
 
 
-def main():
+def main() -> None:
     """Entry point for the direct execution server."""
     mcp.run()
 

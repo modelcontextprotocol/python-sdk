@@ -75,7 +75,7 @@ server = Server(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the low-level server using stdio transport."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(

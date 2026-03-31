@@ -134,7 +134,7 @@ def create_authorization_server(server_settings: AuthServerSettings, auth_settin
     return Starlette(routes=routes)
 
 
-async def run_server(server_settings: AuthServerSettings, auth_settings: SimpleAuthSettings):
+async def run_server(server_settings: AuthServerSettings, auth_settings: SimpleAuthSettings) -> None:
     """Run the Authorization Server."""
     auth_server = create_authorization_server(server_settings, auth_settings)
 

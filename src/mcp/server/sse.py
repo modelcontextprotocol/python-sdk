@@ -37,6 +37,7 @@ See SseServerTransport class documentation for more details.
 """
 
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
@@ -116,7 +117,11 @@ class SseServerTransport:
         logger.debug(f"SseServerTransport initialized with endpoint: {endpoint}")
 
     @asynccontextmanager
-    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):  # pragma: no cover
+    async def connect_sse(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> AsyncGenerator[
+        tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]], None
+    ]:  # pragma: no cover
         if scope["type"] != "http":
             logger.error("connect_sse received non-HTTP request")
             raise ValueError("connect_sse can only handle HTTP requests")
@@ -154,7 +159,7 @@ class SseServerTransport:
 
         sse_stream_writer, sse_stream_reader = anyio.create_memory_object_stream[dict[str, Any]](0)
 
-        async def sse_writer():
+        async def sse_writer() -> None:
             logger.debug("Starting SSE writer")
             async with sse_stream_writer, write_stream_reader:
                 await sse_stream_writer.send({"event": "endpoint", "data": client_post_uri_data})
@@ -171,7 +176,7 @@ class SseServerTransport:
 
         async with anyio.create_task_group() as tg:
 
-            async def response_wrapper(scope: Scope, receive: Receive, send: Send):
+            async def response_wrapper(scope: Scope, receive: Receive, send: Send) -> None:
                 """The EventSourceResponse returning signals a client close / disconnect.
                 In this case we close our side of the streams to signal the client that
                 the connection has been closed.

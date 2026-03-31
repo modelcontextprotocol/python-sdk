@@ -435,7 +435,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         else:
             return await super()._perform_authorization()
 
-    def _add_client_authentication_jwt(self, *, token_data: dict[str, Any]):  # pragma: no cover
+    def _add_client_authentication_jwt(self, *, token_data: dict[str, Any]) -> None:  # pragma: no cover
         """Add JWT assertion for client authentication to token endpoint parameters."""
         if not self.jwt_parameters:
             raise OAuthTokenError("Missing JWT parameters for private_key_jwt flow")

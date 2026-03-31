@@ -39,7 +39,7 @@ app = typer.Typer(
 )
 
 
-def _get_npx_command():
+def _get_npx_command() -> str | None:
     """Get the correct npx command for the current platform."""
     if sys.platform == "win32":
         # Try both npx.cmd and npx.exe on Windows
@@ -116,7 +116,7 @@ def _parse_file_path(file_spec: str) -> tuple[Path, str | None]:
     return file_path, server_object
 
 
-def _import_server(file: Path, server_object: str | None = None):  # pragma: no cover
+def _import_server(file: Path, server_object: str | None = None) -> Any:  # pragma: no cover
     """Import an MCP server from a file.
 
     Args:
@@ -140,7 +140,7 @@ def _import_server(file: Path, server_object: str | None = None):  # pragma: no 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    def _check_server_object(server_object: Any, object_name: str):
+    def _check_server_object(server_object: Any, object_name: str) -> bool:
         """Helper function to check that the server object is supported
 
         Args:

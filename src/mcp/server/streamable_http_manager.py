@@ -162,7 +162,7 @@ class StreamableHTTPSessionManager:
         )
 
         # Start server in a new task
-        async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
+        async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
             async with http_transport.connect() as streams:
                 read_stream, write_stream = streams
                 task_status.started()

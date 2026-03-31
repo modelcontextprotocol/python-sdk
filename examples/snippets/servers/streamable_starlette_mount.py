@@ -3,6 +3,7 @@ uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """
 
 import contextlib
+from collections.abc import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -31,7 +32,7 @@ def add_two(n: int) -> int:
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
-async def lifespan(app: Starlette):
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(echo_mcp.session_manager.run())
         await stack.enter_async_context(math_mcp.session_manager.run())

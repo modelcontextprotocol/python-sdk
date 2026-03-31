@@ -369,7 +369,7 @@ class Server(Generic[LifespanResultT]):
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
         stateless: bool = False,
-    ):
+    ) -> None:
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
             session = await stack.enter_async_context(
@@ -418,7 +418,7 @@ class Server(Generic[LifespanResultT]):
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool = False,
-    ):
+    ) -> None:
         with warnings.catch_warnings(record=True) as w:
             match message:
                 case RequestResponder() as responder:
@@ -443,7 +443,7 @@ class Server(Generic[LifespanResultT]):
         session: ServerSession,
         lifespan_context: LifespanResultT,
         raise_exceptions: bool,
-    ):
+    ) -> None:
         logger.info("Processing request of type %s", type(req).__name__)
 
         if handler := self._request_handlers.get(req.method):
