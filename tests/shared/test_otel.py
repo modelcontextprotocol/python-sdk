@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from logfire.testing import CaptureLogfire
 
+from mcp import types
 from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
 
@@ -24,7 +25,8 @@ async def test_client_and_server_spans(capfire: CaptureLogfire):
     async with Client(server) as client:
         result = await client.call_tool("greet", {"name": "World"})
 
-    assert result.content[0].text == "Hello, World!"  # type: ignore[union-attr]
+    assert isinstance(result.content[0], types.TextContent)
+    assert result.content[0].text == "Hello, World!"
 
     spans = capfire.exporter.exported_spans_as_dict()
     span_names = {s["name"] for s in spans}
