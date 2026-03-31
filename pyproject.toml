@@ -219,13 +219,10 @@ skip_covered = true
 show_missing = true
 ignore_errors = true
 precision = 2
-exclude_lines = [
-    "pragma: no cover",
+exclude_also = [
     "pragma: lax no cover",
-    "if TYPE_CHECKING:",
     "@overload",
     "raise NotImplementedError",
-    "^\\s*\\.\\.\\.\\s*$",
 ]
 
 # https://coverage.readthedocs.io/en/latest/config.html#paths
