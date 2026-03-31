@@ -6,7 +6,153 @@ from pydantic import BaseModel
 
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.resources import FunctionResource, ResourceTemplate
+from mcp.server.mcpserver.resources.templates import (
+    DEFAULT_RESOURCE_SECURITY,
+    ResourceSecurity,
+    ResourceSecurityError,
+)
 from mcp.types import Annotations
+
+
+def _make(uri_template: str, security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY) -> ResourceTemplate:
+    def handler(**kwargs: Any) -> str:
+        raise NotImplementedError  # these tests only exercise matches()
+
+    return ResourceTemplate.from_function(fn=handler, uri_template=uri_template, security=security)
+
+
+def test_matches_rfc6570_reserved_expansion():
+    # {+path} allows / — the feature the old regex implementation couldn't support
+    t = _make("file://docs/{+path}")
+    assert t.matches("file://docs/src/main.py") == {"path": "src/main.py"}
+
+
+def test_matches_rejects_encoded_slash_traversal():
+    # %2F decodes to / in UriTemplate.match(), giving "../../etc/passwd".
+    # ResourceSecurity's traversal check then rejects the '..' components.
+    t = _make("file://docs/{name}")
+    with pytest.raises(ResourceSecurityError, match="'name'"):
+        t.matches("file://docs/..%2F..%2Fetc%2Fpasswd")
+
+
+def test_matches_rejects_path_traversal_by_default():
+    t = _make("file://docs/{name}")
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/..")
+
+
+def test_matches_rejects_path_traversal_in_reserved_var():
+    # Even {+path} gets the traversal check — it's semantic, not structural
+    t = _make("file://docs/{+path}")
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/../../etc/passwd")
+
+
+def test_matches_rejects_absolute_path():
+    t = _make("file://docs/{+path}")
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs//etc/passwd")
+
+
+def test_matches_allows_dotdot_as_substring():
+    # .. is only dangerous as a path component
+    t = _make("git://refs/{range}")
+    assert t.matches("git://refs/v1.0..v2.0") == {"range": "v1.0..v2.0"}
+
+
+def test_matches_exempt_params_skip_security():
+    policy = ResourceSecurity(exempt_params={"range"})
+    t = _make("git://diff/{+range}", security=policy)
+    assert t.matches("git://diff/../foo") == {"range": "../foo"}
+
+
+def test_matches_disabled_policy_allows_traversal():
+    policy = ResourceSecurity(reject_path_traversal=False, reject_absolute_paths=False)
+    t = _make("file://docs/{name}", security=policy)
+    assert t.matches("file://docs/..") == {"name": ".."}
+
+
+def test_matches_rejects_null_byte_by_default():
+    # %00 decodes to \x00 which defeats string comparisons
+    # ("..\x00" != "..") and can truncate in C extensions.
+    t = _make("file://docs/{name}")
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/key%00.txt")
+    # Null byte also defeats the traversal check's component comparison
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/..%00%2Fsecret")
+
+
+def test_matches_null_byte_check_can_be_disabled():
+    policy = ResourceSecurity(reject_null_bytes=False)
+    t = _make("file://docs/{name}", security=policy)
+    assert t.matches("file://docs/key%00.txt") == {"name": "key\x00.txt"}
+
+
+def test_security_rejection_does_not_fall_through_to_next_template():
+    # A strict template's security rejection must halt iteration, not
+    # fall through to a later permissive template. Previously matches()
+    # returned None for both "no match" and "security failed", making
+    # registration order security-critical.
+    strict = _make("file://docs/{name}")
+    lax = _make(
+        "file://docs/{+path}",
+        security=ResourceSecurity(exempt_params={"path"}),
+    )
+    uri = "file://docs/..%2Fsecrets"
+    # Strict matches structurally then fails security -> raises.
+    with pytest.raises(ResourceSecurityError) as exc:
+        strict.matches(uri)
+    assert exc.value.param == "name"
+    # If this raised, the resource manager never reaches the lax
+    # template. Verify the lax template WOULD have accepted it.
+    assert lax.matches(uri) == {"path": "../secrets"}
+
+
+def test_matches_explode_checks_each_segment():
+    t = _make("api{/parts*}")
+    assert t.matches("api/a/b/c") == {"parts": ["a", "b", "c"]}
+    # Any segment with traversal rejects the whole match
+    with pytest.raises(ResourceSecurityError):
+        t.matches("api/a/../c")
+
+
+def test_matches_encoded_backslash_caught_by_traversal_check():
+    # %5C decodes to '\\'. The traversal check normalizes '\\' to '/'
+    # and catches the '..' components.
+    t = _make("file://docs/{name}")
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/..%5C..%5Csecret")
+
+
+def test_matches_encoded_dots_caught_by_traversal_check():
+    # %2E%2E decodes to '..' which the traversal check rejects.
+    t = _make("file://docs/{name}")
+    with pytest.raises(ResourceSecurityError):
+        t.matches("file://docs/%2E%2E")
+
+
+def test_matches_mixed_encoded_and_literal_slash():
+    # The literal '/' stops the simple-var regex, so the URI doesn't
+    # match the template at all.
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/..%2F../etc") is None
+
+
+def test_matches_encoded_slash_without_traversal_allowed():
+    # %2F decoding to '/' is fine when there's no traversal involved.
+    # UriTemplate accepts it; ResourceSecurity only blocks '..' and
+    # absolute paths. Handlers that need single-segment should use
+    # safe_join or validate explicitly.
+    t = _make("file://docs/{name}")
+    assert t.matches("file://docs/sub%2Ffile.txt") == {"name": "sub/file.txt"}
+
+
+def test_matches_escapes_template_literals():
+    # Regression: old impl treated . as regex wildcard
+    t = _make("data://v1.0/{id}")
+    assert t.matches("data://v1.0/42") == {"id": "42"}
+    assert t.matches("data://v1X0/42") is None
 
 
 class TestResourceTemplate:

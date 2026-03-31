@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import inspect
 import json
-import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
@@ -33,7 +32,13 @@ from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
-from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
+from mcp.server.mcpserver.resources import (
+    DEFAULT_RESOURCE_SECURITY,
+    FunctionResource,
+    Resource,
+    ResourceManager,
+    ResourceSecurity,
+)
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
@@ -43,6 +48,7 @@ from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import UriTemplate
 from mcp.types import (
     Annotations,
     BlobResourceContents,
@@ -148,7 +154,9 @@ class MCPServer(Generic[LifespanResultT]):
         dependencies: list[str] | None = None,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
+        resource_security: ResourceSecurity = DEFAULT_RESOURCE_SECURITY,
     ):
+        self._resource_security = resource_security
         self.settings = Settings(
             debug=debug,
             log_level=log_level,
@@ -632,6 +640,7 @@ class MCPServer(Generic[LifespanResultT]):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        security: ResourceSecurity | None = None,
     ) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a function as a resource.
 
@@ -641,8 +650,9 @@ class MCPServer(Generic[LifespanResultT]):
         - bytes for binary content
         - other types will be converted to JSON
 
-        If the URI contains parameters (e.g. "resource://{param}") or the function
-        has parameters, it will be registered as a template resource.
+        If the URI contains parameters (e.g. "resource://{param}"), it is
+        registered as a template resource. Otherwise it is registered as a
+        static resource; function parameters on a static URI raise an error.
 
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
@@ -653,6 +663,9 @@ class MCPServer(Generic[LifespanResultT]):
             icons: Optional list of icons for the resource
             annotations: Optional annotations for the resource
             meta: Optional metadata dictionary for the resource
+            security: Path-safety policy for extracted template parameters.
+                Defaults to the server's ``resource_security`` setting.
+                Only applies to template resources.
 
         Example:
             ```python
@@ -674,6 +687,13 @@ class MCPServer(Generic[LifespanResultT]):
                 data = await fetch_weather(city)
                 return f"Weather for {city}: {data}"
             ```
+
+        Raises:
+            InvalidUriTemplate: If ``uri`` is not a valid RFC 6570 template.
+            ValueError: If URI template parameters don't match the
+                function's parameters.
+            TypeError: If the decorator is applied without being called
+                (``@resource`` instead of ``@resource("uri")``).
         """
         # Check if user passed function directly instead of calling decorator
         if callable(uri):
@@ -682,22 +702,20 @@ class MCPServer(Generic[LifespanResultT]):
                 "Did you forget to call it? Use @resource('uri') instead of @resource"
             )
 
+        # Parse once, early — surfaces malformed-template errors at
+        # decoration time with a clear position, and gives us correct
+        # variable names for all RFC 6570 operators.
+        parsed = UriTemplate.parse(uri)
+        uri_params = set(parsed.variable_names)
+
         def decorator(fn: _CallableT) -> _CallableT:
-            # Check if this should be a template
             sig = inspect.signature(fn)
-            has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(sig.parameters)
+            context_param = find_context_parameter(fn)
+            func_params = {p for p in sig.parameters.keys() if p != context_param}
 
-            if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
-                # Validate that URI params match function params (excluding context)
-                uri_params = set(re.findall(r"{(\w+)}", uri))
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
-
+            # Template/static is decided purely by the URI: variables
+            # present means template, none means static.
+            if uri_params:
                 if uri_params != func_params:
                     raise ValueError(
                         f"Mismatch between URI parameters {uri_params} and function parameters {func_params}"
@@ -713,9 +731,24 @@ class MCPServer(Generic[LifespanResultT]):
                     mime_type=mime_type,
                     icons=icons,
                     annotations=annotations,
+                    security=security if security is not None else self._resource_security,
                     meta=meta,
                 )
             else:
+                if func_params:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares parameters {func_params}. Add matching "
+                        f"{{...}} variables to the URI or remove the parameters."
+                    )
+                if context_param is not None:
+                    raise ValueError(
+                        f"Resource {uri!r} has no URI template variables, but the "
+                        f"handler declares a Context parameter. Context injection "
+                        f"for static resources is not yet supported but is planned. "
+                        f"For now, add a template variable to the URI or remove the "
+                        f"Context parameter."
+                    )
                 # Register as regular resource
                 resource = FunctionResource.from_function(
                     fn=fn,

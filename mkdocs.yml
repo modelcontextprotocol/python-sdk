@@ -16,6 +16,8 @@ nav:
   - Migration Guide: migration.md
   - Documentation:
       - Concepts: concepts.md
+      - Server:
+          - Resources: server/resources.md
       - Low-Level Server: low-level-server.md
       - Authorization: authorization.md
       - Testing: testing.md

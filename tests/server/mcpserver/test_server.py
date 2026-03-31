@@ -12,13 +12,14 @@ from starlette.routing import Mount, Route
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import Context, MCPServer, ResourceSecurity
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.uri_template import InvalidUriTemplate
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
@@ -801,7 +802,7 @@ class TestServerResourceTemplates:
         parameters don't match"""
         mcp = MCPServer()
 
-        with pytest.raises(ValueError, match="Mismatch between URI parameters"):
+        with pytest.raises(ValueError, match="has no URI template variables"):
 
             @mcp.resource("resource://data")
             def get_data_fn(param: str) -> str:  # pragma: no cover
@@ -1426,6 +1427,130 @@ class TestServerPrompts:
         async with Client(mcp) as client:
             with pytest.raises(MCPError, match="Missing required arguments"):
                 await client.get_prompt("prompt_fn")
+
+
+async def test_resource_decorator_rfc6570_reserved_expansion():
+    # Regression: old regex-based param extraction couldn't see `path`
+    # in `{+path}` and failed with a confusing mismatch error.
+    mcp = MCPServer()
+
+    @mcp.resource("file://docs/{+path}")
+    def read_doc(path: str) -> str:
+        raise NotImplementedError
+
+    templates = await mcp.list_resource_templates()
+    assert [t.uri_template for t in templates] == ["file://docs/{+path}"]
+
+
+async def test_resource_decorator_rejects_malformed_template():
+    mcp = MCPServer()
+    with pytest.raises(InvalidUriTemplate, match="Unclosed expression"):
+        mcp.resource("file://{name")
+
+
+async def test_resource_optional_query_params_use_function_defaults():
+    """Omitted {?...} query params should fall through to the
+    handler's Python defaults. Partial and reordered params work."""
+    mcp = MCPServer()
+
+    @mcp.resource("logs://{service}{?since,level}")
+    def tail_logs(service: str, since: str = "1h", level: str = "info") -> str:
+        return f"{service}|{since}|{level}"
+
+    async with Client(mcp) as client:
+        # No query → all defaults
+        r = await client.read_resource("logs://api")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|1h|info"
+
+        # Partial query → one default
+        r = await client.read_resource("logs://api?since=15m")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|15m|info"
+
+        # Reordered, both present
+        r = await client.read_resource("logs://api?level=error&since=5m")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|5m|error"
+
+        # Extra param ignored
+        r = await client.read_resource("logs://api?since=2h&utm=x")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "api|2h|info"
+
+
+async def test_resource_security_default_rejects_traversal():
+    mcp = MCPServer()
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:
+        return f"item:{name}"
+
+    async with Client(mcp) as client:
+        # Safe value passes through to the handler
+        r = await client.read_resource("data://items/widget")
+        assert isinstance(r.contents[0], TextResourceContents)
+        assert r.contents[0].text == "item:widget"
+
+        # ".." as a path component is rejected by default policy
+        with pytest.raises(MCPError, match="Unknown resource"):
+            await client.read_resource("data://items/..")
+
+
+async def test_resource_security_per_resource_override():
+    mcp = MCPServer()
+
+    @mcp.resource(
+        "git://diff/{+range}",
+        security=ResourceSecurity(exempt_params={"range"}),
+    )
+    def git_diff(range: str) -> str:
+        return f"diff:{range}"
+
+    async with Client(mcp) as client:
+        # "../foo" would be rejected by default, but "range" is exempt
+        result = await client.read_resource("git://diff/../foo")
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "diff:../foo"
+
+
+async def test_resource_security_server_wide_override():
+    mcp = MCPServer(resource_security=ResourceSecurity(reject_path_traversal=False))
+
+    @mcp.resource("data://items/{name}")
+    def get_item(name: str) -> str:
+        return f"item:{name}"
+
+    async with Client(mcp) as client:
+        # Server-wide policy disabled traversal check; ".." now allowed
+        result = await client.read_resource("data://items/..")
+        assert isinstance(result.contents[0], TextResourceContents)
+        assert result.contents[0].text == "item:.."
+
+
+async def test_static_resource_with_context_param_errors():
+    """A non-template URI with a Context-only handler should error
+    at decoration time with a clear message, not silently register
+    an unreachable resource."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match="Context injection for static resources is not yet supported"):
+
+        @mcp.resource("weather://current")
+        def current_weather(ctx: Context) -> str:
+            raise NotImplementedError
+
+
+async def test_static_resource_with_extra_params_errors():
+    """A non-template URI with non-Context params should error at
+    decoration time."""
+    mcp = MCPServer()
+
+    with pytest.raises(ValueError, match="has no URI template variables"):
+
+        @mcp.resource("data://fixed")
+        def get_data(name: str) -> str:
+            raise NotImplementedError
 
 
 async def test_completion_decorator() -> None:

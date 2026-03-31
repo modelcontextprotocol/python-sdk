@@ -545,6 +545,57 @@ await client.read_resource("test://resource")
 await client.read_resource(str(my_any_url))
 ```
 
+### Resource templates: matching behavior changes
+
+Resource template matching has been rewritten with RFC 6570 support.
+Several behaviors have changed:
+
+**Path-safety checks applied by default.** Extracted parameter values
+containing `..` as a path component, a null byte, or looking like an
+absolute path (`/etc/passwd`, `C:\Windows`) now cause the read to
+fail — the client receives an "Unknown resource" error and template
+iteration stops, so a strict template's rejection does not fall
+through to a later permissive template. This is checked on the
+decoded value, so `..%2Fetc`, `%2E%2E`, and `%00` are caught too.
+Note that `..` is only flagged as a standalone path component, so
+values like `v1.0..v2.0` or `HEAD~3..HEAD` are unaffected.
+
+If a parameter legitimately needs to receive absolute paths or
+traversal sequences, exempt it:
+
+```python
+from mcp.server.mcpserver import ResourceSecurity
+
+@mcp.resource(
+    "inspect://file/{+target}",
+    security=ResourceSecurity(exempt_params={"target"}),
+)
+def inspect_file(target: str) -> str: ...
+```
+
+**Template literals and structural delimiters match exactly.** The
+previous matcher built a regex without escaping, so `.` matched any
+character and simple `{var}` swallowed `?`, `#`, `&`, and `,`. Now
+`data://v1.0/{id}` no longer matches `data://v1X0/42`, and
+`api://{id}` no longer matches `api://foo?x=1` — use `api://{id}{?x}`
+or `api://{+id}` if you need to capture a query tail.
+
+**Template syntax errors surface at decoration time.** Unclosed
+braces, duplicate variable names, and unsupported syntax raise
+`InvalidUriTemplate` when the decorator runs rather than `re.error`
+on first match.
+
+**Static URIs with Context-only handlers now error.** A non-template
+URI paired with a handler that takes only a `Context` parameter
+previously registered but was silently unreachable (the resource
+could never be read). This now raises `ValueError` at decoration time.
+Context injection for static resources is planned; until then, use a
+template with at least one variable or access context through other
+means.
+
+See [Resources](server/resources.md) for the full template syntax,
+security configuration, and filesystem safety utilities.
+
 ### Lowlevel `Server`: constructor parameters are now keyword-only
 
 All parameters after `name` are now keyword-only. If you were passing `version` or other parameters positionally, use keyword arguments instead:
