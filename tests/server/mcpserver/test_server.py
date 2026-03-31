@@ -266,7 +266,8 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            # Unexpected exceptions don't leak internal details to client
+            assert "error_tool_fn" in content.text
             assert result.is_error is True
 
     async def test_tool_error_handling(self):
@@ -277,7 +278,7 @@ class TestServerTools:
             assert len(result.content) == 1
             content = result.content[0]
             assert isinstance(content, TextContent)
-            assert "Test error" in content.text
+            assert "error_tool_fn" in content.text
             assert result.is_error is True
 
     async def test_tool_error_details(self):
@@ -289,7 +290,7 @@ class TestServerTools:
             content = result.content[0]
             assert isinstance(content, TextContent)
             assert isinstance(content.text, str)
-            assert "Test error" in content.text
+            assert "error_tool_fn" in content.text
             assert result.is_error is True
 
     async def test_tool_return_value_conversion(self):

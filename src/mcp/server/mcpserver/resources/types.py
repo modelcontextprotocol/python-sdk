@@ -13,7 +13,9 @@ import pydantic
 import pydantic_core
 from pydantic import Field, ValidationInfo, validate_call
 
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources.base import Resource
+from mcp.shared.exceptions import MCPError
 from mcp.types import Annotations, Icon
 
 
@@ -69,6 +71,8 @@ class FunctionResource(Resource):
                 return result
             else:
                 return pydantic_core.to_json(result, fallback=str, indent=2).decode()
+        except (ResourceError, MCPError):
+            raise
         except Exception as e:
             raise ValueError(f"Error reading resource {self.uri}: {e}")
 

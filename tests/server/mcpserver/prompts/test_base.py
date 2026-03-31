@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 
 from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import PromptError
 from mcp.server.mcpserver.prompts.base import AssistantMessage, Message, Prompt, UserMessage
 from mcp.types import EmbeddedResource, TextContent, TextResourceContents
 
@@ -44,7 +45,7 @@ class TestRenderPrompt:
             return f"Hello, {name}! You're {age} years old."
 
         prompt = Prompt.from_function(fn)
-        with pytest.raises(ValueError):
+        with pytest.raises(PromptError):
             await prompt.render({"age": 40}, Context())
 
     @pytest.mark.anyio

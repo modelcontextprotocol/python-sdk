@@ -31,7 +31,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import PromptError, ResourceError, ToolError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -44,6 +44,8 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
@@ -309,8 +311,14 @@ class MCPServer(Generic[LifespanResultT]):
             result = await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
-        except Exception as e:
+        except ToolError as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
+        except Exception:
+            logger.exception(f"Unhandled error in tool {params.name}")
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Internal error executing tool {params.name}")],
+                is_error=True,
+            )
         if isinstance(result, CallToolResult):
             return result
         if isinstance(result, tuple) and len(result) == 2:
@@ -338,7 +346,16 @@ class MCPServer(Generic[LifespanResultT]):
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
         context = Context(request_context=ctx, mcp_server=self)
-        results = await self.read_resource(params.uri, context)
+        try:
+            results = await self.read_resource(params.uri, context)
+        except MCPError:
+            raise
+        except ResourceError as e:
+            raise MCPError(code=INVALID_PARAMS, message=str(e))
+        except Exception:
+            logger.exception(f"Unhandled error reading resource {params.uri}")
+            raise MCPError(code=INTERNAL_ERROR, message=f"Internal error reading resource {params.uri}")
+
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -375,7 +392,15 @@ class MCPServer(Generic[LifespanResultT]):
         self, ctx: ServerRequestContext[LifespanResultT], params: GetPromptRequestParams
     ) -> GetPromptResult:
         context = Context(request_context=ctx, mcp_server=self)
-        return await self.get_prompt(params.name, params.arguments, context)
+        try:
+            return await self.get_prompt(params.name, params.arguments, context)
+        except MCPError:
+            raise
+        except PromptError as e:
+            raise MCPError(code=INVALID_PARAMS, message=str(e))
+        except Exception:
+            logger.exception(f"Unhandled error in prompt {params.name}")
+            raise MCPError(code=INTERNAL_ERROR, message=f"Internal error getting prompt {params.name}")
 
     async def list_tools(self) -> list[MCPTool]:
         """List all available tools."""
@@ -450,9 +475,10 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
+        except (ResourceError, MCPError):
+            raise
         except Exception as exc:
-            logger.exception(f"Error getting resource {uri}")
-            # If an exception happens when reading the resource, we should not leak the exception to the client.
+            logger.exception(f"Error reading resource {uri}")
             raise ResourceError(f"Error reading resource {uri}") from exc
 
     def add_tool(
@@ -1096,7 +1122,7 @@ class MCPServer(Generic[LifespanResultT]):
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:
-                raise ValueError(f"Unknown prompt: {name}")
+                raise PromptError(f"Unknown prompt: {name}")
 
             messages = await prompt.render(arguments, context)
 
@@ -1104,6 +1130,8 @@ class MCPServer(Generic[LifespanResultT]):
                 description=prompt.description,
                 messages=pydantic_core.to_jsonable_python(messages),
             )
+        except (PromptError, MCPError):
+            raise
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
-            raise ValueError(str(e))
+            raise PromptError(f"Error getting prompt {name}") from e
