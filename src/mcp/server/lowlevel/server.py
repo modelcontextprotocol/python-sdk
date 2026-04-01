@@ -36,15 +36,16 @@ handler callables by method string.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
-from typing import Any, Generic
+from typing import Any, Generic, cast
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from opentelemetry.trace import SpanKind, StatusCode
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -65,6 +66,8 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
@@ -355,8 +358,8 @@ class Server(Generic[LifespanResultT]):
 
     async def run(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         initialization_options: InitializationOptions,
         # When False, exceptions are returned as messages to the client.
         # When True, exceptions are raised, which will cause the server to shut down
@@ -391,7 +394,13 @@ class Server(Generic[LifespanResultT]):
                     async for message in session.incoming_messages:
                         logger.debug("Received message: %s", message)
 
-                        tg.start_soon(
+                        if isinstance(message, RequestResponder) and message.context is not None:
+                            context = message.context
+                        else:
+                            context = contextvars.copy_context()
+
+                        context.run(
+                            tg.start_soon,
                             self._handle_message,
                             message,
                             session,
@@ -439,72 +448,90 @@ class Server(Generic[LifespanResultT]):
     ):
         logger.info("Processing request of type %s", type(req).__name__)
 
-        if handler := self._request_handlers.get(req.method):
-            logger.debug("Dispatching request of type %s", type(req).__name__)
+        target = getattr(req.params, "name", None) if req.params else None
+        span_name = f"MCP handle {req.method} {target}" if target else f"MCP handle {req.method}"
+
+        # Extract W3C trace context from _meta (SEP-414).
+        meta = cast(dict[str, Any] | None, getattr(req.params, "meta", None)) if req.params else None
+        parent_context = extract_trace_context(meta) if meta is not None else None
+
+        with otel_span(
+            span_name,
+            kind=SpanKind.SERVER,
+            attributes={"mcp.method.name": req.method, "jsonrpc.request.id": message.request_id},
+            context=parent_context,
+        ) as span:
+            if handler := self._request_handlers.get(req.method):
+                logger.debug("Dispatching request of type %s", type(req).__name__)
+
+                try:
+                    # Extract request context and close_sse_stream from message metadata
+                    request_data = None
+                    close_sse_stream_cb = None
+                    close_standalone_sse_stream_cb = None
+                    if message.message_metadata is not None and isinstance(
+                        message.message_metadata, ServerMessageMetadata
+                    ):
+                        request_data = message.message_metadata.request_context
+                        close_sse_stream_cb = message.message_metadata.close_sse_stream
+                        close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
+
+                    client_capabilities = session.client_params.capabilities if session.client_params else None
+                    task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
+                    # Get task metadata from request params if present
+                    task_metadata = None
+                    if hasattr(req, "params") and req.params is not None:  # pragma: no branch
+                        task_metadata = getattr(req.params, "task", None)
+                    ctx = ServerRequestContext(
+                        request_id=message.request_id,
+                        meta=message.request_meta,
+                        session=session,
+                        lifespan_context=lifespan_context,
+                        experimental=Experimental(
+                            task_metadata=task_metadata,
+                            _client_capabilities=client_capabilities,
+                            _session=session,
+                            _task_support=task_support,
+                        ),
+                        request=request_data,
+                        close_sse_stream=close_sse_stream_cb,
+                        close_standalone_sse_stream=close_standalone_sse_stream_cb,
+                    )
+                    response = await handler(ctx, req.params)
+                except MCPError as err:
+                    response = err.error
+                except anyio.get_cancelled_exc_class():
+                    if message.cancelled:
+                        # Client sent CancelledNotification; responder.cancel() already
+                        # sent an error response, so skip the duplicate.
+                        logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
+                        return
+                    # Transport-close cancellation from the TG in run(); re-raise so the
+                    # TG swallows its own cancellation.
+                    raise
+                except Exception as err:
+                    if raise_exceptions:  # pragma: no cover
+                        raise err
+                    response = types.ErrorData(code=0, message=str(err))
+            else:  # pragma: no cover
+                response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
+
+            if isinstance(response, types.ErrorData) and span is not None:
+                span.set_status(StatusCode.ERROR, response.message)
 
             try:
-                # Extract request context and close_sse_stream from message metadata
-                request_data = None
-                close_sse_stream_cb = None
-                close_standalone_sse_stream_cb = None
-                if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):
-                    request_data = message.message_metadata.request_context
-                    close_sse_stream_cb = message.message_metadata.close_sse_stream
-                    close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
+                await message.respond(response)
+            except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+                # Transport closed between handler unblocking and respond. Happens
+                # when _receive_loop's finally wakes a handler blocked on
+                # send_request: the handler runs to respond() before run()'s TG
+                # cancel fires, but after the write stream closed. Closed if our
+                # end closed (_receive_loop's async-with exit); Broken if the peer
+                # end closed first (streamable_http terminate()).
+                logger.debug("Response for %s dropped - transport closed", message.request_id)
+                return
 
-                client_capabilities = session.client_params.capabilities if session.client_params else None
-                task_support = self._experimental_handlers.task_support if self._experimental_handlers else None
-                # Get task metadata from request params if present
-                task_metadata = None
-                if hasattr(req, "params") and req.params is not None:
-                    task_metadata = getattr(req.params, "task", None)
-                ctx = ServerRequestContext(
-                    request_id=message.request_id,
-                    meta=message.request_meta,
-                    session=session,
-                    lifespan_context=lifespan_context,
-                    experimental=Experimental(
-                        task_metadata=task_metadata,
-                        _client_capabilities=client_capabilities,
-                        _session=session,
-                        _task_support=task_support,
-                    ),
-                    request=request_data,
-                    close_sse_stream=close_sse_stream_cb,
-                    close_standalone_sse_stream=close_standalone_sse_stream_cb,
-                )
-                response = await handler(ctx, req.params)
-            except MCPError as err:
-                response = err.error
-            except anyio.get_cancelled_exc_class():
-                if message.cancelled:
-                    # Client sent CancelledNotification; responder.cancel() already
-                    # sent an error response, so skip the duplicate.
-                    logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
-                    return
-                # Transport-close cancellation from the TG in run(); re-raise so the
-                # TG swallows its own cancellation.
-                raise
-            except Exception as err:
-                if raise_exceptions:  # pragma: no cover
-                    raise err
-                response = types.ErrorData(code=0, message=str(err))
-        else:  # pragma: no cover
-            response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
-
-        try:
-            await message.respond(response)
-        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
-            # Transport closed between handler unblocking and respond. Happens
-            # when _receive_loop's finally wakes a handler blocked on
-            # send_request: the handler runs to respond() before run()'s TG
-            # cancel fires, but after the write stream closed. Closed if our
-            # end closed (_receive_loop's async-with exit); Broken if the peer
-            # end closed first (streamable_http terminate()).
-            logger.debug("Response for %s dropped - transport closed", message.request_id)
-            return
-
-        logger.debug("Response sent")
+            logger.debug("Response sent")
 
     async def _handle_notification(
         self,

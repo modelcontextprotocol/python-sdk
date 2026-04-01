@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import inspect
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
+import anyio.to_thread
 from pydantic import BaseModel, Field, validate_call
 
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
@@ -110,10 +112,10 @@ class ResourceTemplate(BaseModel):
             # Add context to params if needed
             params = inject_context(self.fn, params, context, self.context_kwarg)
 
-            # Call function and check if result is a coroutine
-            result = self.fn(**params)
-            if inspect.iscoroutine(result):
-                result = await result
+            if inspect.iscoroutinefunction(self.fn):
+                result = await self.fn(**params)
+            else:
+                result = await anyio.to_thread.run_sync(functools.partial(self.fn, **params))
 
             return FunctionResource(
                 uri=uri,  # type: ignore

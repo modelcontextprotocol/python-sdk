@@ -33,13 +33,14 @@ from typing import Any, TypeVar, overload
 
 import anyio
 import anyio.lowlevel
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from anyio.streams.memory import MemoryObjectReceiveStream
 from pydantic import AnyUrl, TypeAdapter
 
 from mcp import types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
+from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY
@@ -79,8 +80,8 @@ class ServerSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
     ) -> None:
