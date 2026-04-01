@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextvars
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import patch
 
 import anyio
@@ -320,3 +323,33 @@ async def test_client_uses_transport_directly(app: MCPServer):
                 structured_content={"result": "Hello, Transport!"},
             )
         )
+
+
+_TEST_CONTEXTVAR = contextvars.ContextVar("test_var", default="initial")
+
+
+@contextmanager
+def _set_test_contextvar(value: str) -> Iterator[None]:
+    token = _TEST_CONTEXTVAR.set(value)
+    try:
+        yield
+    finally:
+        _TEST_CONTEXTVAR.reset(token)
+
+
+async def test_context_propagation():
+    """Sender's contextvars.Context is propagated to the server handler."""
+    server = MCPServer("test")
+
+    @server.tool()
+    async def check_context() -> str:
+        """Return the contextvar value visible to the handler."""
+        return _TEST_CONTEXTVAR.get()
+
+    async with Client(server) as client:
+        with _set_test_contextvar("client_value"):
+            result = await client.call_tool("check_context", {})
+
+    assert result.content[0].text == "client_value", (  # type: ignore[union-attr]
+        "Server handler did not see the sender's contextvars.Context"
+    )

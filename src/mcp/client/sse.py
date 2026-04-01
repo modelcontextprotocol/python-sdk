@@ -7,11 +7,11 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import anyio
 import httpx
 from anyio.abc import TaskStatus
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import aconnect_sse
 from httpx_sse._exceptions import SSEError
 
 from mcp import types
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
@@ -51,12 +51,6 @@ async def sse_client(
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
     """
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
-
-    write_stream: MemoryObjectSendStream[SessionMessage]
-    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
-
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
     async with httpx_client_factory(
         headers=headers, auth=auth, timeout=httpx.Timeout(timeout, read=sse_read_timeout)
@@ -65,8 +59,8 @@ async def sse_client(
             event_source.response.raise_for_status()
             logger.debug("SSE connection established")
 
-            read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-            write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+            read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+            write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
             async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
                 try:
@@ -124,7 +118,8 @@ async def sse_client(
             async def post_writer(endpoint_url: str):
                 try:
                     async with write_stream_reader, write_stream:
-                        async for session_message in write_stream_reader:
+
+                        async def _send_message(session_message: SessionMessage) -> None:
                             logger.debug(f"Sending client message: {session_message}")
                             response = await client.post(
                                 endpoint_url,
@@ -136,6 +131,14 @@ async def sse_client(
                             )
                             response.raise_for_status()
                             logger.debug(f"Client message sent successfully: {response.status_code}")
+
+                        async for session_message in write_stream_reader:
+                            sender_ctx = write_stream_reader.last_context
+                            if sender_ctx is not None:
+                                async with anyio.create_task_group() as tg:
+                                    sender_ctx.run(tg.start_soon, _send_message, session_message)
+                            else:
+                                await _send_message(session_message)  # pragma: no cover
                 except Exception:  # pragma: lax no cover
                     logger.exception("Error in post_writer")
 
