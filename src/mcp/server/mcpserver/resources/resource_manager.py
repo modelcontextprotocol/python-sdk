@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import AnyUrl
 
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.server.mcpserver.resources.templates import ResourceTemplate
 from mcp.server.mcpserver.utilities.logging import get_logger
@@ -53,6 +54,20 @@ class ResourceManager:
         self._resources[str(resource.uri)] = resource
         return resource
 
+    def remove_resource(self, uri: AnyUrl | str) -> None:
+        """Remove a resource by URI.
+
+        Args:
+            uri: The URI of the resource to remove
+
+        Raises:
+            ResourceError: If the resource does not exist
+        """
+        uri_str = str(uri)
+        if uri_str not in self._resources:
+            raise ResourceError(f"Unknown resource: {uri}")
+        del self._resources[uri_str]
+
     def add_template(
         self,
         fn: Callable[..., Any],
@@ -79,6 +94,19 @@ class ResourceManager:
         )
         self._templates[template.uri_template] = template
         return template
+
+    def remove_template(self, uri_template: str) -> None:
+        """Remove a resource template by URI template.
+
+        Args:
+            uri_template: The URI template string to remove
+
+        Raises:
+            ResourceError: If the template does not exist
+        """
+        if uri_template not in self._templates:
+            raise ResourceError(f"Unknown resource template: {uri_template}")
+        del self._templates[uri_template]
 
     async def get_resource(self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]) -> Resource:
         """Get resource by URI, checking concrete resources first, then templates."""
