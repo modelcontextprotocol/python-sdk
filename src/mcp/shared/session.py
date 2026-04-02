@@ -5,7 +5,7 @@ import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, cast
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
@@ -13,7 +13,7 @@ from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._otel import build_client_span_attributes, inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
@@ -236,6 +236,13 @@ class BaseSession(
         self._task_group.cancel_scope.cancel()
         return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
 
+    def _get_transport_session_id(self) -> str | None:
+        """Return the transport session ID when the write stream exposes it."""
+        get_session_id = getattr(self._write_stream, "get_session_id", None)
+        if callable(get_session_id):
+            return cast("str | None", get_session_id())
+        return None
+
     async def send_request(
         self,
         request: SendRequestT,
@@ -276,7 +283,12 @@ class BaseSession(
             with otel_span(
                 span_name,
                 kind=SpanKind.CLIENT,
-                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
+                attributes=build_client_span_attributes(
+                    method=request.method,
+                    request_id=request_id,
+                    params=request_data.get("params"),
+                    session_id=self._get_transport_session_id(),
+                ),
             ):
                 # Inject W3C trace context into _meta (SEP-414).
                 meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})

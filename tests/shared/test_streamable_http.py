@@ -23,6 +23,7 @@ import pytest
 import requests
 import uvicorn
 from httpx_sse import ServerSentEvent
+from logfire.testing import CaptureLogfire
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
@@ -1079,6 +1080,26 @@ async def test_streamable_http_client_resource_read(initialized_client_session: 
     assert response.contents[0].uri == "foobar://test-resource"
     assert isinstance(response.contents[0], TextResourceContents)
     assert response.contents[0].text == "Read test-resource"
+
+
+@pytest.mark.anyio
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+async def test_streamable_http_resource_read_spans_include_session_id(
+    capfire: CaptureLogfire, basic_server: None, basic_server_url: str
+):
+    """Verify streamable HTTP spans include the negotiated MCP session ID."""
+    async with streamable_http_client(f"{basic_server_url}/mcp") as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            response = await session.read_resource(uri="foobar://test-resource")
+
+    assert response.contents[0].uri == "foobar://test-resource"
+
+    spans = capfire.exporter.exported_spans_as_dict()
+    client_span = next(s for s in spans if s["name"] == "MCP send resources/read")
+
+    assert client_span["attributes"]["mcp.session.id"]
+    assert client_span["attributes"]["mcp.resource.uri"] == "foobar://test-resource"
 
 
 @pytest.mark.anyio
