@@ -7,7 +7,6 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from types import TracebackType
 
 import anyio
 import httpx
@@ -18,7 +17,6 @@ from pydantic import ValidationError
 from mcp.client._transport import TransportStreams
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared._stream_protocols import WriteStream
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
     INTERNAL_ERROR,
@@ -514,35 +512,6 @@ class StreamableHTTPTransport:
         return self.session_id  # pragma: no cover
 
 
-class _SessionAwareWriteStream:
-    """Write-stream wrapper that exposes the transport session ID."""
-
-    def __init__(self, inner: WriteStream[SessionMessage], transport: StreamableHTTPTransport) -> None:
-        self._inner = inner
-        self._transport = transport
-
-    async def send(self, item: SessionMessage) -> None:
-        await self._inner.send(item)
-
-    async def aclose(self) -> None:
-        await self._inner.aclose()
-
-    def get_session_id(self) -> str | None:
-        return self._transport.session_id
-
-    async def __aenter__(self) -> _SessionAwareWriteStream:
-        await self._inner.__aenter__()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> bool | None:
-        return await self._inner.__aexit__(exc_type, exc_val, exc_tb)
-
-
 # TODO(Marcelo): I've dropped the `get_session_id` callback because it breaks the Transport protocol. Is that needed?
 # It's a completely wrong abstraction, so removal is a good idea. But if we need the client to find the session ID,
 # we should think about a better way to do it. I believe we can achieve it with other means.
@@ -612,7 +581,7 @@ async def streamable_http_client(
             )
 
             try:
-                yield read_stream, _SessionAwareWriteStream(write_stream, transport)
+                yield read_stream, write_stream
             finally:
                 if transport.session_id and terminate_on_close:
                     await transport.terminate_session(client)

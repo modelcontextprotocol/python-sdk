@@ -42,7 +42,6 @@ def build_client_span_attributes(
     method: str,
     request_id: str | int,
     params: dict[str, Any] | None = None,
-    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Build OTel attributes for an MCP client request span."""
     attributes: dict[str, Any] = {
@@ -54,9 +53,6 @@ def build_client_span_attributes(
 
     if params is not None and (resource_uri := params.get("uri")) is not None:
         attributes["mcp.resource.uri"] = resource_uri
-
-    if session_id is not None:
-        attributes["mcp.session.id"] = session_id
 
     return attributes
 

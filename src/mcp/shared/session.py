@@ -5,7 +5,7 @@ import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar, cast
+from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
 from anyio.streams.memory import MemoryObjectSendStream
@@ -236,13 +236,6 @@ class BaseSession(
         self._task_group.cancel_scope.cancel()
         return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
 
-    def _get_transport_session_id(self) -> str | None:
-        """Return the transport session ID when the write stream exposes it."""
-        get_session_id = getattr(self._write_stream, "get_session_id", None)
-        if callable(get_session_id):
-            return cast("str | None", get_session_id())
-        return None
-
     async def send_request(
         self,
         request: SendRequestT,
@@ -287,7 +280,6 @@ class BaseSession(
                     method=request.method,
                     request_id=request_id,
                     params=request_data.get("params"),
-                    session_id=self._get_transport_session_id(),
                 ),
             ):
                 # Inject W3C trace context into _meta (SEP-414).
