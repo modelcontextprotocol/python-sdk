@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import contextvars
 from types import TracebackType
 
 import anyio
 import pytest
 
-from mcp.proxy import mcp_proxy
+from mcp.proxy import _forward_message, mcp_proxy
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCRequest
 
@@ -87,6 +89,49 @@ class TrackingWriteStream:
         return None
 
 
+class ReadStreamWithContext:
+    def __init__(self, context: contextvars.Context) -> None:
+        self.last_context = context
+
+    async def receive(self) -> SessionMessage | Exception:
+        raise NotImplementedError
+
+    async def aclose(self) -> None:
+        return None
+
+    def __aiter__(self) -> ReadStreamWithContext:
+        return self
+
+    async def __anext__(self) -> SessionMessage | Exception:
+        raise StopAsyncIteration
+
+    async def __aenter__(self) -> ReadStreamWithContext:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        return None
+
+
+def assert_contains_exception(exc: BaseException, expected_type: type[Exception], expected_message: str) -> None:
+    nested_exceptions = getattr(exc, "exceptions", None)
+    if nested_exceptions is not None:
+        for nested in nested_exceptions:
+            try:
+                assert_contains_exception(nested, expected_type, expected_message)
+                return
+            except AssertionError:
+                continue
+        raise AssertionError(f"Did not find {expected_type.__name__} containing {expected_message!r} in {exc!r}")
+
+    assert isinstance(exc, expected_type)
+    assert expected_message in str(exc)
+
+
 @pytest.mark.anyio
 async def test_proxy_forwards_messages_bidirectionally() -> None:
     client_read_send, client_read = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -113,7 +158,7 @@ async def test_proxy_forwards_messages_bidirectionally() -> None:
 
 
 @pytest.mark.anyio
-async def test_proxy_calls_sync_error_handler_and_continues() -> None:
+async def test_proxy_calls_sync_error_handler_before_raising_transport_exception() -> None:
     errors: list[Exception] = []
     handled = anyio.Event()
 
@@ -136,19 +181,19 @@ async def test_proxy_calls_sync_error_handler_and_continues() -> None:
         server_write,
         server_write_read,
     ):
-        async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
-            await client_read_send.send(ValueError("boom"))
-            await handled.wait()
-            await client_read_send.send(make_message("after-error", "client/method"))
+        with pytest.raises(Exception) as exc_info:
+            async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
+                await client_read_send.send(ValueError("boom"))
+                await handled.wait()
 
-            assert len(errors) == 1
-            assert isinstance(errors[0], ValueError)
-            assert str(errors[0]) == "boom"
-            assert_request(await server_write_read.receive(), "after-error", "client/method")
+        assert_contains_exception(exc_info.value, ValueError, "boom")
+        assert len(errors) == 1
+        assert isinstance(errors[0], ValueError)
+        assert str(errors[0]) == "boom"
 
 
 @pytest.mark.anyio
-async def test_proxy_calls_async_error_handler() -> None:
+async def test_proxy_calls_async_error_handler_before_raising_transport_exception() -> None:
     errors: list[Exception] = []
     handled = anyio.Event()
 
@@ -171,17 +216,19 @@ async def test_proxy_calls_async_error_handler() -> None:
         server_write,
         _server_write_read,
     ):
-        async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
-            await client_read_send.send(ValueError("async-boom"))
-            await handled.wait()
+        with pytest.raises(Exception) as exc_info:
+            async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
+                await client_read_send.send(ValueError("async-boom"))
+                await handled.wait()
 
+    assert_contains_exception(exc_info.value, ValueError, "async-boom")
     assert len(errors) == 1
     assert isinstance(errors[0], ValueError)
     assert str(errors[0]) == "async-boom"
 
 
 @pytest.mark.anyio
-async def test_proxy_ignores_sync_error_handler_failures() -> None:
+async def test_proxy_ignores_sync_error_handler_failures_and_raises_transport_exception() -> None:
     def on_error(error: Exception) -> None:
         raise RuntimeError(f"handler failed for {error}")
 
@@ -200,14 +247,16 @@ async def test_proxy_ignores_sync_error_handler_failures() -> None:
         server_write,
         server_write_read,
     ):
-        async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
-            await client_read_send.send(ValueError("boom"))
-            await client_read_send.send(make_message("after-sync-handler-error", "client/method"))
-            assert_request(await server_write_read.receive(), "after-sync-handler-error", "client/method")
+        with pytest.raises(Exception) as exc_info:
+            async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
+                await client_read_send.send(ValueError("boom"))
+                await anyio.sleep(0.05)
+
+        assert_contains_exception(exc_info.value, ValueError, "boom")
 
 
 @pytest.mark.anyio
-async def test_proxy_ignores_async_error_handler_failures() -> None:
+async def test_proxy_ignores_async_error_handler_failures_and_raises_transport_exception() -> None:
     async def on_error(error: Exception) -> None:
         raise RuntimeError(f"handler failed for {error}")
 
@@ -226,14 +275,16 @@ async def test_proxy_ignores_async_error_handler_failures() -> None:
         server_write,
         server_write_read,
     ):
-        async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
-            await client_read_send.send(ValueError("boom"))
-            await client_read_send.send(make_message("after-async-handler-error", "client/method"))
-            assert_request(await server_write_read.receive(), "after-async-handler-error", "client/method")
+        with pytest.raises(Exception) as exc_info:
+            async with mcp_proxy((client_read, client_write), (server_read, server_write), on_error=on_error):
+                await client_read_send.send(ValueError("boom"))
+                await anyio.sleep(0.05)
+
+        assert_contains_exception(exc_info.value, ValueError, "boom")
 
 
 @pytest.mark.anyio
-async def test_proxy_continues_without_error_handler() -> None:
+async def test_proxy_raises_transport_exception_without_error_handler() -> None:
     client_read_send, client_read = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     client_write, _client_write_read = anyio.create_memory_object_stream[SessionMessage](1)
     server_read_send, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](1)
@@ -249,10 +300,12 @@ async def test_proxy_continues_without_error_handler() -> None:
         server_write,
         server_write_read,
     ):
-        async with mcp_proxy((client_read, client_write), (server_read, server_write)):
-            await client_read_send.send(ValueError("boom"))
-            await client_read_send.send(make_message("after-no-handler", "client/method"))
-            assert_request(await server_write_read.receive(), "after-no-handler", "client/method")
+        with pytest.raises(Exception) as exc_info:
+            async with mcp_proxy((client_read, client_write), (server_read, server_write)):
+                await client_read_send.send(ValueError("boom"))
+                await anyio.sleep(0.05)
+
+        assert_contains_exception(exc_info.value, ValueError, "boom")
 
 
 @pytest.mark.anyio
@@ -296,3 +349,38 @@ async def test_proxy_handles_closed_resource_error_from_source_stream() -> None:
         await server_write.closed.wait()
 
     assert server_write.items == []
+
+
+@pytest.mark.anyio
+async def test_proxy_preserves_sender_context_for_context_aware_streams() -> None:
+    request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id")
+    server_write, server_receive = create_context_streams[SessionMessage | Exception](1)
+
+    request_id_var.set("proxy-request-123")
+    sender_context = contextvars.copy_context()
+
+    async with server_write, server_receive:
+        await _forward_message(
+            make_message("client", "client/method"),
+            server_write,
+            ReadStreamWithContext(sender_context),
+        )
+        received = await server_receive.receive()
+
+    assert isinstance(received, SessionMessage)
+    assert server_receive.last_context is not None
+    assert server_receive.last_context.get(request_id_var) == "proxy-request-123"
+
+
+@pytest.mark.anyio
+async def test_proxy_raises_transport_exceptions() -> None:
+    client_send, client_read = create_context_streams[SessionMessage | Exception](1)
+    plain_write_send, plain_write_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async with client_send, client_read, plain_write_send, plain_write_receive:
+        with pytest.raises(Exception) as exc_info:
+            async with mcp_proxy((client_read, plain_write_send), (StaticReadStream(), TrackingWriteStream())):
+                await client_send.send(ValueError("transport boom"))
+                await anyio.sleep(0.05)
+
+        assert_contains_exception(exc_info.value, ValueError, "transport boom")

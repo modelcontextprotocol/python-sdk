@@ -36,6 +36,9 @@ class ContextSendStream(Generic[T]):
     async def send(self, item: T) -> None:
         await self._inner.send((contextvars.copy_context(), item))
 
+    async def send_with_context(self, context: contextvars.Context, item: T) -> None:
+        await self._inner.send((context, item))
+
     def close(self) -> None:
         self._inner.close()
 

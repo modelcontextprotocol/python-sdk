@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import contextvars
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import cast
+from typing import Any, Protocol, cast
 
 import anyio
 from anyio import to_thread
@@ -16,6 +17,10 @@ from mcp.shared.message import SessionMessage
 
 MessageStream = tuple[ReadStream[SessionMessage | Exception], WriteStream[SessionMessage]]
 ErrorHandler = Callable[[Exception], None | Awaitable[None]]
+
+
+class ContextualWriteStream(Protocol):
+    async def send_with_context(self, context: contextvars.Context, item: SessionMessage | Exception) -> None: ...
 
 
 @asynccontextmanager
@@ -49,14 +54,36 @@ async def _forward_messages(
                 async for item in read_stream:
                     if isinstance(item, Exception):
                         await _run_error_handler(item, on_error)
-                        continue
+                        raise item
 
                     try:
-                        await write_stream.send(item)
+                        await _forward_message(item, write_stream, read_stream)
                     except anyio.ClosedResourceError:
                         break
     except anyio.ClosedResourceError:
         return
+
+
+async def _forward_message(
+    item: SessionMessage,
+    write_stream: WriteStream[SessionMessage],
+    read_stream: ReadStream[SessionMessage | Exception],
+) -> None:
+    sender_context: contextvars.Context | None = getattr(read_stream, "last_context", None)
+    context_write_stream = cast(ContextualWriteStream | None, _get_contextual_write_stream(write_stream))
+
+    if sender_context is not None and context_write_stream is not None:
+        await context_write_stream.send_with_context(sender_context, item)
+        return
+
+    await write_stream.send(item)
+
+
+def _get_contextual_write_stream(write_stream: WriteStream[SessionMessage]) -> Any:
+    send_with_context = getattr(write_stream, "send_with_context", None)
+    if callable(send_with_context):
+        return write_stream
+    return None
 
 
 async def _run_error_handler(error: Exception, on_error: ErrorHandler | None) -> None:

@@ -17,6 +17,7 @@ nav:
   - Documentation:
       - Concepts: concepts.md
       - Low-Level Server: low-level-server.md
+      - Proxying Transports: proxying.md
       - Authorization: authorization.md
       - Testing: testing.md
   - Experimental:
