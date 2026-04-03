@@ -6,7 +6,7 @@ from types import TracebackType
 import anyio
 import pytest
 
-from mcp.proxy import _forward_message, mcp_proxy
+from mcp.proxy import _forward_message, _forward_messages, mcp_proxy
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCRequest
@@ -117,6 +117,12 @@ class ReadStreamWithContext:
         return None
 
 
+class NestedException(Exception):
+    def __init__(self, *exceptions: BaseException) -> None:
+        super().__init__("nested")
+        self.exceptions = exceptions
+
+
 def assert_contains_exception(exc: BaseException, expected_type: type[Exception], expected_message: str) -> None:
     nested_exceptions = getattr(exc, "exceptions", None)
     if nested_exceptions is not None:
@@ -130,6 +136,42 @@ def assert_contains_exception(exc: BaseException, expected_type: type[Exception]
 
     assert isinstance(exc, expected_type)
     assert expected_message in str(exc)
+
+
+@pytest.mark.anyio
+async def test_static_read_stream_receive_raises_end_of_stream_when_exhausted() -> None:
+    stream = StaticReadStream()
+
+    with pytest.raises(anyio.EndOfStream):
+        await stream.receive()
+
+
+@pytest.mark.anyio
+async def test_tracking_write_stream_send_raises_configured_error() -> None:
+    stream = TrackingWriteStream(RuntimeError("write boom"))
+
+    with pytest.raises(RuntimeError, match="write boom"):
+        await stream.send(make_message("client", "client/method"))
+
+
+@pytest.mark.anyio
+async def test_read_stream_with_context_support_methods() -> None:
+    stream = ReadStreamWithContext(contextvars.copy_context())
+
+    assert stream.__aiter__() is stream
+    assert await stream.__aenter__() is stream
+    assert await stream.aclose() is None
+    assert await stream.__aexit__(None, None, None) is None
+
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
+
+
+def test_assert_contains_exception_reports_missing_nested_exception() -> None:
+    exc = NestedException(ValueError("boom"))
+
+    with pytest.raises(AssertionError, match="Did not find RuntimeError containing 'missing'"):
+        assert_contains_exception(exc, RuntimeError, "missing")
 
 
 @pytest.mark.anyio
@@ -322,6 +364,15 @@ async def test_proxy_stops_forwarding_when_target_stream_is_closed() -> None:
     assert server_write.items == []
     assert server_write.closed.is_set()
     assert client_write.closed.is_set()
+
+
+@pytest.mark.anyio
+async def test_forward_messages_stops_on_closed_target_stream() -> None:
+    await _forward_messages(
+        StaticReadStream(make_message("client", "client/method")),
+        TrackingWriteStream(anyio.ClosedResourceError()),
+        on_error=None,
+    )
 
 
 @pytest.mark.anyio
