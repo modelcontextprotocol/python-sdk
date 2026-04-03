@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from functools import partial
+from typing import cast
 
 import anyio
+from anyio import to_thread
 
+from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.message import SessionMessage
 
@@ -19,6 +22,7 @@ ErrorHandler = Callable[[Exception], None | Awaitable[None]]
 async def mcp_proxy(
     transport_to_client: MessageStream,
     transport_to_server: MessageStream,
+    *,
     on_error: ErrorHandler | None = None,
 ) -> AsyncGenerator[None]:
     """Proxy messages bidirectionally between two MCP transports."""
@@ -60,8 +64,9 @@ async def _run_error_handler(error: Exception, on_error: ErrorHandler | None) ->
         return
 
     try:
-        result = on_error(error)
-        if inspect.isawaitable(result):
-            await result
+        if is_async_callable(on_error):
+            await cast(Awaitable[None], on_error(error))
+        else:
+            await to_thread.run_sync(partial(on_error, error))
     except Exception:
         return
