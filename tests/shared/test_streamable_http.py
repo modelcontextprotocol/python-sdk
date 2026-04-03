@@ -23,6 +23,7 @@ import pytest
 import requests
 import uvicorn
 from httpx_sse import ServerSentEvent
+from logfire.testing import CaptureLogfire
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount
@@ -1079,6 +1080,32 @@ async def test_streamable_http_client_resource_read(initialized_client_session: 
     assert response.contents[0].uri == "foobar://test-resource"
     assert isinstance(response.contents[0], TextResourceContents)
     assert response.contents[0].text == "Read test-resource"
+
+
+@pytest.mark.anyio
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+async def test_streamable_http_server_span_includes_session_id(capfire: CaptureLogfire):
+    """Verify streamable HTTP server spans include the negotiated MCP session ID."""
+    app = _create_server()
+    mcp_app = app.streamable_http_app(host="testserver")
+
+    async with (
+        mcp_app.router.lifespan_context(mcp_app),
+        httpx.ASGITransport(mcp_app) as transport,
+        httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client,
+        streamable_http_client("http://testserver/mcp", http_client=http_client) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+        response = await session.read_resource(uri="foobar://test-resource")
+
+    assert response.contents[0].uri == "foobar://test-resource"
+
+    spans = capfire.exporter.exported_spans_as_dict()
+    server_span = next(s for s in spans if s["name"] == "MCP handle resources/read")
+
+    assert server_span["attributes"]["mcp.session.id"]
+    assert server_span["attributes"]["mcp.resource.uri"] == "foobar://test-resource"
 
 
 @pytest.mark.anyio
