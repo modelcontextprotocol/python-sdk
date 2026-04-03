@@ -63,7 +63,7 @@ from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
-from mcp.server.streamable_http import EventStore
+from mcp.server.streamable_http import MCP_SESSION_ID_HEADER, EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._otel import build_server_span_attributes, extract_trace_context, otel_span
@@ -73,7 +73,6 @@ from mcp.shared.message import ServerMessageMetadata, SessionMessage
 from mcp.shared.session import RequestResponder
 
 logger = logging.getLogger(__name__)
-MCP_SESSION_ID_HEADER = "mcp-session-id"
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 

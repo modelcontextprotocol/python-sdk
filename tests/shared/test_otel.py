@@ -78,3 +78,49 @@ async def test_resource_read_spans_include_resource_uri(capfire: CaptureLogfire)
     assert server_span["attributes"]["rpc.method"] == "resources/read"
     assert server_span["attributes"]["mcp.method.name"] == "resources/read"
     assert server_span["attributes"]["mcp.resource.uri"] == "test://resource"
+
+    # Server span should be in the same trace as the client span (context propagation).
+    assert server_span["context"]["trace_id"] == client_span["context"]["trace_id"]
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+async def test_completion_spans_include_resource_template_uri(capfire: CaptureLogfire):
+    """Verify completion spans include the referenced resource template URI."""
+    server = MCPServer("test")
+
+    @server.completion()
+    async def handle_completion(
+        ref: types.ResourceTemplateReference | types.PromptReference,
+        argument: types.CompletionArgument,
+        context: types.CompletionContext | None,
+    ) -> types.Completion:
+        assert isinstance(ref, types.ResourceTemplateReference)
+        assert argument.name == "path"
+        assert argument.value == "rea"
+        assert context is None
+        return types.Completion(values=["README.md"])
+
+    async with Client(server) as client:
+        result = await client.complete(
+            ref=types.ResourceTemplateReference(type="ref/resource", uri="repo://files/{path}"),
+            argument={"name": "path", "value": "rea"},
+        )
+
+    assert result.completion.values == ["README.md"]
+
+    spans = capfire.exporter.exported_spans_as_dict()
+
+    client_span = next(s for s in spans if s["name"] == "MCP send completion/complete")
+    server_span = next(s for s in spans if s["name"] == "MCP handle completion/complete")
+
+    assert client_span["attributes"]["rpc.system"] == "mcp"
+    assert client_span["attributes"]["rpc.method"] == "completion/complete"
+    assert client_span["attributes"]["mcp.method.name"] == "completion/complete"
+    assert client_span["attributes"]["mcp.resource.uri"] == "repo://files/{path}"
+
+    assert server_span["attributes"]["rpc.system"] == "mcp"
+    assert server_span["attributes"]["rpc.service"] == "test"
+    assert server_span["attributes"]["rpc.method"] == "completion/complete"
+    assert server_span["attributes"]["mcp.method.name"] == "completion/complete"
+    assert server_span["attributes"]["mcp.resource.uri"] == "repo://files/{path}"
+    assert server_span["context"]["trace_id"] == client_span["context"]["trace_id"]

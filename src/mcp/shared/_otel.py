@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 
 from opentelemetry.context import Context
 from opentelemetry.propagate import extract, inject
@@ -51,7 +51,16 @@ def build_client_span_attributes(
         "jsonrpc.request.id": request_id,
     }
 
-    if params is not None and (resource_uri := params.get("uri")) is not None:
+    resource_uri = None
+    if params is not None:
+        resource_uri = params.get("uri")
+        if resource_uri is None:
+            ref = params.get("ref")
+            if isinstance(ref, dict):
+                typed_ref = cast(dict[str, Any], ref)
+                resource_uri = typed_ref.get("uri")
+
+    if resource_uri is not None:
         attributes["mcp.resource.uri"] = resource_uri
 
     return attributes
@@ -75,6 +84,9 @@ def build_server_span_attributes(
     }
 
     resource_uri = getattr(params, "uri", None)
+    if resource_uri is None:
+        ref = getattr(params, "ref", None)
+        resource_uri = getattr(ref, "uri", None)
     if resource_uri is not None:
         attributes["mcp.resource.uri"] = str(resource_uri)
 
