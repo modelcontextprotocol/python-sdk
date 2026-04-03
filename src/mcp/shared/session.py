@@ -13,7 +13,7 @@ from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
-from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._otel import build_client_span_attributes, inject_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
@@ -272,19 +272,15 @@ class BaseSession(
         try:
             target = request_data.get("params", {}).get("name")
             span_name = f"MCP send {request.method} {target}" if target else f"MCP send {request.method}"
-            span_attributes: dict[str, Any] = {
-                "rpc.system": "mcp",
-                "rpc.method": request.method,
-                "mcp.method.name": request.method,
-                "jsonrpc.request.id": request_id,
-            }
-            if (resource_uri := request_data.get("params", {}).get("uri")) is not None:
-                span_attributes["mcp.resource.uri"] = resource_uri
 
             with otel_span(
                 span_name,
                 kind=SpanKind.CLIENT,
-                attributes=span_attributes,
+                attributes=build_client_span_attributes(
+                    method=request.method,
+                    request_id=request_id,
+                    params=request_data.get("params"),
+                ),
             ):
                 # Inject W3C trace context into _meta (SEP-414).
                 meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})

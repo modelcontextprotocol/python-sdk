@@ -66,7 +66,7 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._otel import build_server_span_attributes, extract_trace_context, otel_span
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -455,32 +455,28 @@ class Server(Generic[LifespanResultT]):
         # Extract W3C trace context from _meta (SEP-414).
         meta = cast(dict[str, Any] | None, getattr(req.params, "meta", None)) if req.params else None
         parent_context = extract_trace_context(meta) if meta is not None else None
-        request_data = None
+        server_message_metadata = (
+            message.message_metadata if isinstance(message.message_metadata, ServerMessageMetadata) else None
+        )
+        request_data = server_message_metadata.request_context if server_message_metadata is not None else None
         close_sse_stream_cb = None
         close_standalone_sse_stream_cb = None
-        if message.message_metadata is not None and isinstance(message.message_metadata, ServerMessageMetadata):
-            request_data = message.message_metadata.request_context
-            close_sse_stream_cb = message.message_metadata.close_sse_stream
-            close_standalone_sse_stream_cb = message.message_metadata.close_standalone_sse_stream
+        if server_message_metadata is not None:
+            close_sse_stream_cb = server_message_metadata.close_sse_stream
+            close_standalone_sse_stream_cb = server_message_metadata.close_standalone_sse_stream
         request_headers = getattr(request_data, "headers", None)
         session_id = request_headers.get(MCP_SESSION_ID_HEADER) if request_headers is not None else None
-        span_attributes: dict[str, Any] = {
-            "rpc.system": "mcp",
-            "rpc.service": self.name,
-            "rpc.method": req.method,
-            "mcp.method.name": req.method,
-            "jsonrpc.request.id": message.request_id,
-        }
-        resource_uri = getattr(req.params, "uri", None)
-        if resource_uri is not None:
-            span_attributes["mcp.resource.uri"] = str(resource_uri)
-        if session_id is not None:
-            span_attributes["mcp.session.id"] = session_id
 
         with otel_span(
             span_name,
             kind=SpanKind.SERVER,
-            attributes=span_attributes,
+            attributes=build_server_span_attributes(
+                service_name=self.name,
+                method=req.method,
+                request_id=message.request_id,
+                params=req.params,
+                session_id=session_id,
+            ),
             context=parent_context,
         ) as span:
             if handler := self._request_handlers.get(req.method):
