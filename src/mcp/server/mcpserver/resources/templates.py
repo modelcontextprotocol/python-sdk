@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-import inspect
 import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -15,6 +14,7 @@ from pydantic import BaseModel, Field, validate_call
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.shared._callable_inspection import is_async_callable
 from mcp.types import Annotations, Icon
 
 if TYPE_CHECKING:
@@ -112,8 +112,9 @@ class ResourceTemplate(BaseModel):
             # Add context to params if needed
             params = inject_context(self.fn, params, context, self.context_kwarg)
 
-            if inspect.iscoroutinefunction(self.fn):
-                result = await self.fn(**params)
+            fn = self.fn
+            if is_async_callable(fn):
+                result = await fn(**params)
             else:
                 result = await anyio.to_thread.run_sync(functools.partial(self.fn, **params))
 
