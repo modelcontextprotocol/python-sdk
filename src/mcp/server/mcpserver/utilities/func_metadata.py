@@ -22,6 +22,7 @@ from typing_inspection.introspection import (
 )
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
+from mcp.server.mcpserver.utilities.docstring_parser import parse_docstring_params
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult, ContentBlock, TextContent
@@ -215,6 +216,7 @@ def func_metadata(
         # model_rebuild right before using it 🤷
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
+    docstring_params = parse_docstring_params(func.__doc__)
     dynamic_pydantic_model_params: dict[str, Any] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
@@ -226,6 +228,11 @@ def func_metadata(
         field_name = param.name
         field_kwargs: dict[str, Any] = {}
         field_metadata: list[Any] = []
+
+        # Add description from docstring if available and not already
+        # provided via Annotated[..., Field(description=...)]
+        if param.name in docstring_params and not _has_field_description(annotation):
+            field_kwargs["description"] = docstring_params[param.name]
 
         if param.annotation is inspect.Parameter.empty:
             field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
@@ -487,6 +494,20 @@ def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
     DictModel.__qualname__ = f"{func_name}DictOutput"
 
     return DictModel
+
+
+def _has_field_description(annotation: Any) -> bool:
+    """Check if an annotation already has a Field with a description.
+
+    This avoids overwriting explicit Field(description=...) with
+    a docstring-derived description.
+    """
+    if get_origin(annotation) is not Annotated:
+        return False
+    for arg in get_args(annotation):
+        if isinstance(arg, FieldInfo) and arg.description is not None:
+            return True
+    return False
 
 
 def _convert_to_content(result: Any) -> Sequence[ContentBlock]:
