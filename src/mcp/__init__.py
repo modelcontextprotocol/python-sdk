@@ -2,6 +2,7 @@ from .client.client import Client
 from .client.session import ClientSession
 from .client.session_group import ClientSessionGroup
 from .client.stdio import StdioServerParameters, stdio_client
+from .proxy import mcp_proxy
 from .server.session import ServerSession
 from .server.stdio import stdio_server
 from .shared.exceptions import MCPError, UrlElicitationRequiredError
@@ -97,6 +98,7 @@ __all__ = [
     "LoggingLevel",
     "LoggingMessageNotification",
     "MCPError",
+    "mcp_proxy",
     "Notification",
     "PingRequest",
     "ProgressNotification",
