@@ -1,7 +1,7 @@
 """Callable inspection utilities.
 
 Adapted from Starlette's `is_async_callable` implementation.
-https://github.com/encode/starlette/blob/master/starlette/_utils.py
+https://github.com/encode/starlette/blob/main/starlette/_utils.py
 """
 
 from __future__ import annotations
