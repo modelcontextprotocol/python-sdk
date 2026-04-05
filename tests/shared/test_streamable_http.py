@@ -1497,7 +1497,7 @@ async def _handle_context_call_tool(  # pragma: no cover
     if name == "echo_headers":
         headers_info: dict[str, Any] = {}
         if ctx.request and isinstance(ctx.request, Request):
-            headers_info = dict(ctx.request.headers)
+            headers_info = dict(ctx.request.headers)  # pyright: ignore[reportUnknownMemberType]
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(headers_info))])
 
     elif name == "echo_context":
@@ -1508,10 +1508,9 @@ async def _handle_context_call_tool(  # pragma: no cover
             "path": None,
         }
         if ctx.request and isinstance(ctx.request, Request):
-            request = ctx.request
-            context_data["headers"] = dict(request.headers)
-            context_data["method"] = request.method
-            context_data["path"] = request.url.path
+            context_data["headers"] = dict(ctx.request.headers)  # pyright: ignore[reportUnknownMemberType]
+            context_data["method"] = ctx.request.method  # pyright: ignore[reportUnknownMemberType]
+            context_data["path"] = ctx.request.url.path  # pyright: ignore[reportUnknownMemberType]
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(context_data))])
 
     return CallToolResult(content=[TextContent(type="text", text=f"Unknown tool: {name}")])

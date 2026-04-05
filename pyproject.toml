@@ -72,7 +72,7 @@ dev = [
     "coverage[toml]>=7.10.7,<=7.13",
     "pillow>=12.0",
     "strict-no-cover",
-    "logfire>=3.0.0",
+    "logfire>=3.20.0",
 ]
 docs = [
     "mkdocs>=1.6.1",

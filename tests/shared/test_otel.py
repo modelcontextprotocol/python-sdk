@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, cast
 
 import pytest
 from logfire.testing import CaptureLogfire
+from opentelemetry.sdk.metrics._internal.point import MetricsData
 
 from mcp import types
 from mcp.client.client import Client
@@ -13,6 +15,14 @@ from mcp.server.mcpserver import MCPServer
 from mcp.shared.exceptions import MCPError
 
 pytestmark = pytest.mark.anyio
+
+
+def _get_mcp_metrics(capfire: CaptureLogfire) -> dict[str, Any]:
+    """Return collected metrics whose name starts with 'mcp.', keyed by name."""
+    exported = json.loads(cast(MetricsData, capfire.metrics_reader.get_metrics_data()).to_json())
+    [resource_metric] = exported["resource_metrics"]
+    all_metrics = [metric for scope_metric in resource_metric["scope_metrics"] for metric in scope_metric["metrics"]]
+    return {m["name"]: m for m in all_metrics if m["name"].startswith("mcp.")}
 
 
 # Logfire warns about propagated trace context by default (distributed_tracing=None).
@@ -48,7 +58,7 @@ async def test_client_and_server_instrumentation(capfire: CaptureLogfire):
     # Server span should be in the same trace as the client span (context propagation).
     assert server_span["context"]["trace_id"] == client_span["context"]["trace_id"]
 
-    metrics = {m["name"]: m for m in capfire.get_collected_metrics() if m["name"].startswith("mcp.")}
+    metrics = _get_mcp_metrics(capfire)
 
     assert "mcp.server.operation.duration" in metrics
     assert "mcp.server.session.duration" in metrics
@@ -92,7 +102,7 @@ async def test_server_operation_error_metrics(capfire: CaptureLogfire):
         with pytest.raises(MCPError):
             await client.call_tool("boom", {})
 
-    metrics = {m["name"]: m for m in capfire.get_collected_metrics() if m["name"].startswith("mcp.")}
+    metrics = _get_mcp_metrics(capfire)
     op_points = metrics["mcp.server.operation.duration"]["data"]["data_points"]
     error_point = next(p for p in op_points if p["attributes"]["mcp.method.name"] == "tools/call")
     assert error_point["attributes"]["error.type"] == str(types.INVALID_PARAMS)
@@ -116,7 +126,7 @@ async def test_server_session_error_metrics(capfire: CaptureLogfire):
         async with Client(server, raise_exceptions=True) as client:
             await client.call_tool("boom", {})
 
-    metrics = {m["name"]: m for m in capfire.get_collected_metrics() if m["name"].startswith("mcp.")}
+    metrics = _get_mcp_metrics(capfire)
     session_points = metrics["mcp.server.session.duration"]["data"]["data_points"]
     error_session_points = [p for p in session_points if "error.type" in p["attributes"]]
     assert len(error_session_points) >= 1
