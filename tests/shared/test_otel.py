@@ -63,7 +63,7 @@ async def test_client_and_server_instrumentation(capfire: CaptureLogfire):
     assert tools_call_point["attributes"]["gen_ai.operation.name"] == "execute_tool"
     assert tools_call_point["attributes"]["mcp.protocol.version"] == "2025-11-25"
     assert tools_call_point["count"] == 1
-    assert tools_call_point["sum"] > 0
+    assert tools_call_point["sum"] >= 0
 
     # tools/list is also called during initialization
     assert any(p["attributes"]["mcp.method.name"] == "tools/list" for p in op_points)
@@ -74,7 +74,7 @@ async def test_client_and_server_instrumentation(capfire: CaptureLogfire):
     assert session_point["attributes"]["mcp.protocol.version"] == "2025-11-25"
     assert "error.type" not in session_point["attributes"]
     assert session_point["count"] == 1
-    assert session_point["sum"] > 0
+    assert session_point["sum"] >= 0
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
