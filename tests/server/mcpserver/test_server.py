@@ -1078,6 +1078,70 @@ class TestContextInjection:
                 mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
                 mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
 
+    async def test_context_logging_any_data(self):
+        """Test that context logging methods accept any JSON-serializable data per MCP spec."""
+        mcp = MCPServer()
+
+        async def logging_any_tool(ctx: Context) -> str:
+            await ctx.info({"event": "user_login", "user_id": 42})
+            await ctx.debug(["step1", "step2", "step3"])
+            await ctx.warning(12345)
+            await ctx.error({"code": 500, "details": {"reason": "timeout"}})
+            return "done"
+
+        mcp.add_tool(logging_any_tool)
+
+        with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
+            async with Client(mcp) as client:
+                result = await client.call_tool("logging_any_tool", {})
+                assert len(result.content) == 1
+                content = result.content[0]
+                assert isinstance(content, TextContent)
+                assert content.text == "done"
+
+                assert mock_log.call_count == 4
+                mock_log.assert_any_call(
+                    level="info",
+                    data={"event": "user_login", "user_id": 42},
+                    logger=None,
+                    related_request_id="1",
+                )
+                mock_log.assert_any_call(
+                    level="debug",
+                    data=["step1", "step2", "step3"],
+                    logger=None,
+                    related_request_id="1",
+                )
+                mock_log.assert_any_call(
+                    level="warning", data=12345, logger=None, related_request_id="1"
+                )
+                mock_log.assert_any_call(
+                    level="error",
+                    data={"code": 500, "details": {"reason": "timeout"}},
+                    logger=None,
+                    related_request_id="1",
+                )
+
+    async def test_context_logging_dict_with_extra(self):
+        """Test that dict data is merged with extra fields."""
+        mcp = MCPServer()
+
+        async def logging_extra_tool(ctx: Context) -> str:
+            await ctx.info({"event": "request"}, extra={"trace_id": "abc123"})
+            return "done"
+
+        mcp.add_tool(logging_extra_tool)
+
+        with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
+            async with Client(mcp) as client:
+                await client.call_tool("logging_extra_tool", {})
+                mock_log.assert_any_call(
+                    level="info",
+                    data={"event": "request", "trace_id": "abc123"},
+                    logger=None,
+                    related_request_id="1",
+                )
+
     async def test_optional_context(self):
         """Test that context is optional."""
         mcp = MCPServer()
