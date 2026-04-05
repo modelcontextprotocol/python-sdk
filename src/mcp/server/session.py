@@ -107,7 +107,7 @@ class ServerSession(
     async def __aexit__(
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any
     ) -> bool | None:
-        if self._session_start_time is not None:
+        if self._session_start_time is not None:  # pragma: no branch
             duration = time.monotonic() - self._session_start_time
             mcp_protocol_version: str | None = (
                 str(self._client_params.protocol_version) if self._client_params else None

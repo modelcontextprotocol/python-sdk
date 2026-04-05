@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from logfire.testing import CaptureLogfire
 
 from mcp import types
 from mcp.client.client import Client
+from mcp.server.context import ServerRequestContext
+from mcp.server.lowlevel.server import Server
 from mcp.server.mcpserver import MCPServer
+from mcp.shared.exceptions import MCPError
 
 pytestmark = pytest.mark.anyio
 
@@ -67,5 +72,53 @@ async def test_client_and_server_instrumentation(capfire: CaptureLogfire):
     assert session_metric["unit"] == "s"
     [session_point] = session_metric["data"]["data_points"]
     assert session_point["attributes"]["mcp.protocol.version"] == "2025-11-25"
+    assert "error.type" not in session_point["attributes"]
     assert session_point["count"] == 1
     assert session_point["sum"] > 0
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+async def test_server_operation_error_metrics(capfire: CaptureLogfire):
+    """Verify that error.type and rpc.response.status_code are set when a handler raises MCPError."""
+
+    async def handle_call_tool(
+        ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+    ) -> types.CallToolResult:
+        raise MCPError(types.INVALID_PARAMS, "bad params")
+
+    server = Server("test", on_call_tool=handle_call_tool)
+
+    async with Client(server) as client:
+        with pytest.raises(MCPError):
+            await client.call_tool("boom", {})
+
+    metrics = {m["name"]: m for m in capfire.get_collected_metrics() if m["name"].startswith("mcp.")}
+    op_points = metrics["mcp.server.operation.duration"]["data"]["data_points"]
+    error_point = next(p for p in op_points if p["attributes"]["mcp.method.name"] == "tools/call")
+    assert error_point["attributes"]["error.type"] == str(types.INVALID_PARAMS)
+    assert error_point["attributes"]["rpc.response.status_code"] == str(types.INVALID_PARAMS)
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+async def test_server_session_error_metrics(capfire: CaptureLogfire):
+    """Verify that error.type is set on session duration when the session exits with an exception."""
+
+    async def handle_call_tool(
+        ctx: ServerRequestContext[Any], params: types.CallToolRequestParams
+    ) -> types.CallToolResult:
+        raise RuntimeError("unexpected crash")
+
+    server = Server("test", on_call_tool=handle_call_tool)
+
+    # raise_exceptions=True lets the RuntimeError escape the handler and crash the session,
+    # simulating what happens in production when an unhandled exception exits the session block.
+    with pytest.raises(Exception):
+        async with Client(server, raise_exceptions=True) as client:
+            await client.call_tool("boom", {})
+
+    metrics = {m["name"]: m for m in capfire.get_collected_metrics() if m["name"].startswith("mcp.")}
+    session_points = metrics["mcp.server.session.duration"]["data"]["data_points"]
+    error_session_points = [p for p in session_points if "error.type" in p["attributes"]]
+    assert len(error_session_points) >= 1
+    # anyio wraps task group exceptions in ExceptionGroup
+    assert error_session_points[0]["attributes"]["error.type"] in ("RuntimeError", "ExceptionGroup")

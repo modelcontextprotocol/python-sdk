@@ -540,8 +540,8 @@ class Server(Generic[LifespanResultT]):
                 except Exception as err:
                     error_type = type(err).__name__
                     if raise_exceptions:  # pragma: no cover
-                        _record_duration(error_type=error_type)
-                        raise err
+                        _record_duration(error_type=error_type)  # pragma: no cover
+                        raise err  # pragma: no cover
                     response = types.ErrorData(code=0, message=str(err))
             else:  # pragma: no cover
                 rpc_response_status_code = str(types.METHOD_NOT_FOUND)
@@ -553,9 +553,9 @@ class Server(Generic[LifespanResultT]):
                     span.set_status(StatusCode.ERROR, response.message)
                 # Only set error_type/rpc_response_status_code from response code if not
                 # already set by an exception.
-                if error_type is None:
-                    rpc_response_status_code = str(response.code)
-                    error_type = rpc_response_status_code
+                if error_type is None:  # pragma: no cover
+                    rpc_response_status_code = str(response.code)  # pragma: no cover
+                    error_type = rpc_response_status_code  # pragma: no cover
 
             try:
                 await message.respond(response)
