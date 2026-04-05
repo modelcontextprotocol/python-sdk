@@ -456,7 +456,9 @@ class Server(Generic[LifespanResultT]):
         meta = cast(dict[str, Any] | None, getattr(req.params, "meta", None)) if req.params else None
         parent_context = extract_trace_context(meta) if meta is not None else None
 
-        mcp_protocol_version: str | None = session.client_params.protocol_version if session.client_params else None
+        mcp_protocol_version: str | None = (
+            str(session.client_params.protocol_version) if session.client_params else None
+        )
 
         start_time = time.monotonic()
 
