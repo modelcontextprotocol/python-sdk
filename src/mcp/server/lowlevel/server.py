@@ -539,9 +539,9 @@ class Server(Generic[LifespanResultT]):
                     raise
                 except Exception as err:
                     error_type = type(err).__name__
-                    if raise_exceptions:  # pragma: no cover
-                        _record_duration(error_type=error_type)  # pragma: no cover
-                        raise err  # pragma: no cover
+                    if raise_exceptions:
+                        _record_duration(error_type=error_type)
+                        raise err
                     response = types.ErrorData(code=0, message=str(err))
             else:  # pragma: no cover
                 rpc_response_status_code = str(types.METHOD_NOT_FOUND)
