@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import time
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
@@ -66,7 +67,7 @@ from mcp.server.session import ServerSession
 from mcp.server.streamable_http import EventStore
 from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.shared._otel import extract_trace_context, otel_span
+from mcp.shared._otel import extract_trace_context, otel_span, record_server_operation_duration
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
@@ -455,12 +456,34 @@ class Server(Generic[LifespanResultT]):
         meta = cast(dict[str, Any] | None, getattr(req.params, "meta", None)) if req.params else None
         parent_context = extract_trace_context(meta) if meta is not None else None
 
+        mcp_protocol_version: str | None = session.client_params.protocol_version if session.client_params else None
+
+        start_time = time.monotonic()
+
+        def _record_duration(
+            *,
+            error_type: str | None = None,
+            rpc_response_status_code: str | None = None,
+        ) -> None:
+            record_server_operation_duration(
+                time.monotonic() - start_time,
+                req.method,
+                error_type=error_type,
+                rpc_response_status_code=rpc_response_status_code,
+                tool_name=target if req.method == "tools/call" else None,
+                prompt_name=target if req.method == "prompts/get" else None,
+                mcp_protocol_version=mcp_protocol_version,
+            )
+
         with otel_span(
             span_name,
             kind=SpanKind.SERVER,
             attributes={"mcp.method.name": req.method, "jsonrpc.request.id": message.request_id},
             context=parent_context,
         ) as span:
+            error_type: str | None = None
+            rpc_response_status_code: str | None = None
+
             if handler := self._request_handlers.get(req.method):
                 logger.debug("Dispatching request of type %s", type(req).__name__)
 
@@ -499,25 +522,38 @@ class Server(Generic[LifespanResultT]):
                     )
                     response = await handler(ctx, req.params)
                 except MCPError as err:
+                    rpc_response_status_code = str(err.error.code)
+                    error_type = rpc_response_status_code
                     response = err.error
                 except anyio.get_cancelled_exc_class():
                     if message.cancelled:
                         # Client sent CancelledNotification; responder.cancel() already
                         # sent an error response, so skip the duplicate.
                         logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
+                        _record_duration(error_type="cancelled")
                         return
                     # Transport-close cancellation from the TG in run(); re-raise so the
                     # TG swallows its own cancellation.
                     raise
                 except Exception as err:
+                    error_type = type(err).__name__
                     if raise_exceptions:  # pragma: no cover
+                        _record_duration(error_type=error_type)
                         raise err
                     response = types.ErrorData(code=0, message=str(err))
             else:  # pragma: no cover
+                rpc_response_status_code = str(types.METHOD_NOT_FOUND)
+                error_type = rpc_response_status_code
                 response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
 
-            if isinstance(response, types.ErrorData) and span is not None:
-                span.set_status(StatusCode.ERROR, response.message)
+            if isinstance(response, types.ErrorData):
+                if span is not None:
+                    span.set_status(StatusCode.ERROR, response.message)
+                # Only set error_type/rpc_response_status_code from response code if not
+                # already set by an exception.
+                if error_type is None:
+                    rpc_response_status_code = str(response.code)
+                    error_type = rpc_response_status_code
 
             try:
                 await message.respond(response)
@@ -529,9 +565,12 @@ class Server(Generic[LifespanResultT]):
                 # end closed (_receive_loop's async-with exit); Broken if the peer
                 # end closed first (streamable_http terminate()).
                 logger.debug("Response for %s dropped - transport closed", message.request_id)
+                _record_duration(error_type=error_type, rpc_response_status_code=rpc_response_status_code)
                 return
 
             logger.debug("Response sent")
+
+        _record_duration(error_type=error_type, rpc_response_status_code=rpc_response_status_code)
 
     async def _handle_notification(
         self,

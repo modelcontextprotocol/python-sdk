@@ -40,6 +40,9 @@ from mcp import types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
 from mcp.server.models import InitializationOptions
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
+import time
+
+from mcp.shared._otel import record_server_session_duration
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import StatelessModeNotSupported
 from mcp.shared.experimental.tasks.capabilities import check_tasks_capability
@@ -96,6 +99,27 @@ class ServerSession(
             ServerRequestResponder
         ](0)
         self._exit_stack.push_async_callback(lambda: self._incoming_message_stream_reader.aclose())
+        self._session_start_time: float | None = None
+
+    async def __aenter__(self) -> "ServerSession":
+        self._session_start_time = time.monotonic()
+        return await super().__aenter__()
+
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> bool | None:
+        if self._session_start_time is not None:
+            duration = time.monotonic() - self._session_start_time
+            mcp_protocol_version: str | None = (
+                self._client_params.protocol_version if self._client_params else None
+            )
+            # Cancellation exceptions indicate transport close, not a session error.
+            is_cancellation = exc_val is not None and isinstance(exc_val, anyio.get_cancelled_exc_class())
+            error_type: str | None = type(exc_val).__name__ if exc_val is not None and not is_cancellation else None
+            record_server_session_duration(
+                duration,
+                error_type=error_type,
+                mcp_protocol_version=mcp_protocol_version,
+            )
+        return await super().__aexit__(exc_type, exc_val, exc_tb)
 
     @property
     def _receive_request_adapter(self) -> TypeAdapter[types.ClientRequest]:
