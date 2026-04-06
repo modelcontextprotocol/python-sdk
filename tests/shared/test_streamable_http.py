@@ -2329,15 +2329,16 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
 @pytest.mark.anyio
 async def test_handle_reconnection_does_not_retry_infinitely():
-    """Reconnection must count TOTAL attempts, not reset on each successful connect.
+    """Reconnection must give up when no forward progress is made.
 
     Regression test for #2393: when a stream connects successfully but drops
     before delivering a response, the attempt counter was reset to 0 on the
     recursive call, allowing an infinite retry loop.
 
     This test simulates a stream that connects, yields one non-completing SSE
-    event, then ends — repeatedly. With MAX_RECONNECTION_ATTEMPTS the loop
-    must terminate.
+    event with the SAME event ID each time (no new data), then ends —
+    repeatedly. Without forward progress the loop must terminate within
+    MAX_RECONNECTION_ATTEMPTS.
     """
     transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
     transport.session_id = "test-session"
@@ -2354,13 +2355,15 @@ async def test_handle_reconnection_does_not_retry_infinitely():
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
 
-        # Yield a single non-completing notification SSE event, then end the stream
-        # (simulating a server that drops the connection after partial delivery)
+        # Yield a single non-completing notification SSE event with the SAME
+        # event ID every time, then end the stream.  Because the ID never
+        # changes, the transport sees no forward progress and should count
+        # each reconnection towards the retry budget.
         async def aiter_sse() -> AsyncIterator[ServerSentEvent]:
             yield ServerSentEvent(
                 event="message",
                 data='{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"tok","progress":1,"total":10}}',
-                id=f"evt-{connect_count}",
+                id="evt-static",
                 retry=None,
             )
 
