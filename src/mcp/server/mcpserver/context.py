@@ -187,28 +187,21 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     async def log(
         self,
         level: Literal["debug", "info", "warning", "error"],
-        message: str,
+        message: Any,
         *,
         logger_name: str | None = None,
-        extra: dict[str, Any] | None = None,
     ) -> None:
         """Send a log message to the client.
 
         Args:
             level: Log level (debug, info, warning, error)
-            message: Log message
+            message: Log data (any JSON-serializable type)
             logger_name: Optional logger name
-            extra: Optional dictionary with additional structured data to include
         """
-
-        if extra:
-            log_data = {"message": message, **extra}
-        else:
-            log_data = message
 
         await self.request_context.session.send_log_message(
             level=level,
-            data=log_data,
+            data=message,
             logger=logger_name,
             related_request_id=self.request_id,
         )
@@ -261,20 +254,20 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
-    async def debug(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+    async def debug(self, message: Any, *, logger_name: str | None = None) -> None:
         """Send a debug log message."""
-        await self.log("debug", message, logger_name=logger_name, extra=extra)
+        await self.log("debug", message, logger_name=logger_name)
 
-    async def info(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+    async def info(self, message: Any, *, logger_name: str | None = None) -> None:
         """Send an info log message."""
-        await self.log("info", message, logger_name=logger_name, extra=extra)
+        await self.log("info", message, logger_name=logger_name)
 
     async def warning(
-        self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None
+        self, message: Any, *, logger_name: str | None = None
     ) -> None:
         """Send a warning log message."""
-        await self.log("warning", message, logger_name=logger_name, extra=extra)
+        await self.log("warning", message, logger_name=logger_name)
 
-    async def error(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+    async def error(self, message: Any, *, logger_name: str | None = None) -> None:
         """Send an error log message."""
-        await self.log("error", message, logger_name=logger_name, extra=extra)
+        await self.log("error", message, logger_name=logger_name)
