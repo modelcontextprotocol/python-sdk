@@ -94,6 +94,11 @@ def create_auth_routes(
     client_authenticator = ClientAuthenticator(provider)
     token_handler = TokenHandler(provider, client_authenticator, identity_assertion_enabled=identity_assertion_enabled)
 
+    # Extract the base path from the issuer URL so that auth routes are
+    # registered under the same prefix. This is necessary when the server
+    # sits behind a gateway with a custom base path (e.g., /custom/path).
+    issuer_path = urlparse(str(issuer_url)).path.rstrip("/")
+
     # Create routes
     # Allow CORS requests for endpoints meant to be hit by the OAuth client
     # (with the client secret). This is intended to support things like MCP Inspector,
@@ -101,7 +106,7 @@ def create_auth_routes(
     # responses produced by inner layers (such as a 413) still carry CORS headers.
     routes = [
         Route(
-            "/.well-known/oauth-authorization-server",
+            issuer_path + "/.well-known/oauth-authorization-server",
             endpoint=cors_middleware(
                 MetadataHandler(metadata).handle,
                 ["GET", "OPTIONS"],
@@ -109,14 +114,14 @@ def create_auth_routes(
             methods=["GET", "OPTIONS"],
         ),
         Route(
-            AUTHORIZATION_PATH,
+            issuer_path + AUTHORIZATION_PATH,
             # do not allow CORS for authorization endpoint;
             # clients should just redirect to this
             endpoint=_body_limited(request_response(AuthorizationHandler(provider).handle)),
             methods=["GET", "POST"],
         ),
         Route(
-            TOKEN_PATH,
+            issuer_path + TOKEN_PATH,
             endpoint=_cors(_body_limited(request_response(token_handler.handle)), ["POST", "OPTIONS"]),
             methods=["POST", "OPTIONS"],
         ),
@@ -129,7 +134,7 @@ def create_auth_routes(
         )
         routes.append(
             Route(
-                REGISTRATION_PATH,
+                issuer_path + REGISTRATION_PATH,
                 endpoint=_cors(_body_limited(request_response(registration_handler.handle)), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
@@ -139,7 +144,7 @@ def create_auth_routes(
         revocation_handler = RevocationHandler(provider, client_authenticator)
         routes.append(
             Route(
-                REVOCATION_PATH,
+                issuer_path + REVOCATION_PATH,
                 endpoint=_cors(_body_limited(request_response(revocation_handler.handle)), ["POST", "OPTIONS"]),
                 methods=["POST", "OPTIONS"],
             )
