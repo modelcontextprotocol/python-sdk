@@ -1189,3 +1189,31 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def test_docstring_param_descriptions_populate_schema():
+    def add_numbers(a: float, b: float) -> float:
+        """Adds two numbers and returns the result.
+
+        Args:
+            a: The first number to add.
+            b: The second number to add.
+        """
+        return a + b  # pragma: no cover
+
+    meta = func_metadata(add_numbers)
+    schema = meta.arg_model.model_json_schema()
+
+    assert schema["properties"]["a"]["description"] == "The first number to add."
+    assert schema["properties"]["b"]["description"] == "The second number to add."
+
+
+def test_docstring_without_args_section_leaves_descriptions_empty():
+    def no_args_section(x: int) -> int:
+        """A function with no Args section in the docstring."""
+        return x  # pragma: no cover
+
+    meta = func_metadata(no_args_section)
+    schema = meta.arg_model.model_json_schema()
+
+    assert "description" not in schema["properties"]["x"]
