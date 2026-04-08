@@ -176,3 +176,31 @@ def test_complex_type_annotation_in_param():
     """
     _, params = parse_docstring(docstring)
     assert params == {"data": "Input data."}
+
+
+def test_param_line_with_unclosed_parenthesis():
+    """An unclosed type annotation should be treated as a non-param line."""
+    docstring = """
+    Function.
+
+    Args:
+        broken (unclosed type: description
+        ok: A real param.
+    """
+    summary, params = parse_docstring(docstring)
+    assert summary == "Function."
+    assert params == {"ok": "A real param."}
+
+
+def test_param_line_starting_with_non_word():
+    """A line that does not start with a word character should be skipped."""
+    docstring = """
+    Function.
+
+    Args:
+        : orphan colon line
+        x: Real param.
+    """
+    summary, params = parse_docstring(docstring)
+    assert summary == "Function."
+    assert params == {"x": "Real param."}
