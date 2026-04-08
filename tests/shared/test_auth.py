@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.shared.auth import InvalidScopeError, OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import InvalidScopeError, OAuthClientInformationFull, OAuthMetadata
 
 
 def _make_client(scope: str | None) -> OAuthClientInformationFull:
