@@ -109,6 +109,13 @@ class TestSubscriptionRegistry:
         with pytest.raises(ValueError, match="exceeds maximum depth of 8 segments"):
             await registry.add("s1", "a/b/c/d/e/f/g/h/i")
 
+    async def test_hash_root_wildcard_matches_everything(self, registry: SubscriptionRegistry):
+        """Pattern '#' (sole segment) should match any topic."""
+        await registry.add("s1", "#")
+        assert await registry.match("any/topic/at/all") == {"s1"}
+        assert await registry.match("single") == {"s1"}
+        assert await registry.match("a/b") == {"s1"}
+
     async def test_hash_matches_zero_trailing_no_slash(self, registry: SubscriptionRegistry):
         """# should match the prefix with no trailing slash (zero segments after prefix).
 

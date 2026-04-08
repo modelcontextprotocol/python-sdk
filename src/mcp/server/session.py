@@ -44,6 +44,7 @@ import anyio
 import anyio.lowlevel
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import AnyUrl
+from ulid import ULID
 
 import mcp.types as types
 from mcp.server.experimental.session_features import ExperimentalServerSessionFeatures
@@ -218,8 +219,6 @@ class ServerSession(
     ) -> None:
         """Push an event to the client on the given topic."""
         if event_id is None:
-            from ulid import ULID
-
             event_id = str(ULID())
         if timestamp is None:
             from datetime import datetime, timezone

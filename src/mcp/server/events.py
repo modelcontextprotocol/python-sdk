@@ -30,9 +30,14 @@ def _pattern_to_regex(pattern: str) -> re.Pattern[str]:
         if part == "#":
             if i != len(parts) - 1:
                 raise ValueError("'#' wildcard is only valid as the last segment")
-            # Use (/.*)?$ so that # matches zero or more trailing segments.
-            # e.g. "a/#" -> "^a(/.*)?$" matches "a", "a/b", "a/b/c"
-            return re.compile("^" + "/".join(regex_parts) + "(/.*)?$")
+            # # matches zero or more trailing segments.
+            # If preceding segments exist, the / before # is optional
+            # so "myapp/#" matches both "myapp" and "myapp/anything".
+            # If # is the sole segment, it matches everything.
+            if regex_parts:
+                return re.compile("^" + "/".join(regex_parts) + "(/.*)?$")
+            else:
+                return re.compile("^.*$")
         elif part == "+":
             regex_parts.append("[^/]+")
         else:
@@ -126,6 +131,7 @@ class RetainedValueStore:
         self._lock = asyncio.Lock()
         self._store: dict[str, RetainedEvent] = {}
         self._expires: dict[str, str] = {}  # topic -> ISO 8601 expires_at
+        self._regex_cache: dict[str, re.Pattern[str]] = {}
 
     async def set(self, topic: str, event: RetainedEvent, expires_at: str | None = None) -> None:
         """Store or replace the retained value for *topic*."""
@@ -151,7 +157,9 @@ class RetainedValueStore:
     async def get_matching(self, pattern: str) -> list[RetainedEvent]:
         """Return all non-expired retained events whose topic matches *pattern*."""
         async with self._lock:
-            regex = _pattern_to_regex(pattern)
+            if pattern not in self._regex_cache:
+                self._regex_cache[pattern] = _pattern_to_regex(pattern)
+            regex = self._regex_cache[pattern]
             result: list[RetainedEvent] = []
             expired_topics: list[str] = []
             for topic, event in self._store.items():

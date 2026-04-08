@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import timedelta
 from typing import Any, Protocol, overload
 
@@ -282,24 +283,25 @@ class ClientSession(
 
     def _topic_matches_subscriptions(self, topic: str) -> bool:
         """Check if a topic matches any of our subscribed patterns."""
-        import re as _re
-
         for pattern in self._subscribed_patterns:
             parts = pattern.split("/")
             regex_parts: list[str] = []
             for i, part in enumerate(parts):
                 if part == "#":
-                    regex = "^" + "/".join(regex_parts) + "(/.*)?$"
-                    if _re.match(regex, topic):
+                    if regex_parts:
+                        regex = "^" + "/".join(regex_parts) + "(/.*)?$"
+                    else:
+                        regex = "^.*$"
+                    if re.match(regex, topic):
                         return True
                     break
                 elif part == "+":
                     regex_parts.append("[^/]+")
                 else:
-                    regex_parts.append(_re.escape(part))
+                    regex_parts.append(re.escape(part))
             else:
                 regex = "^" + "/".join(regex_parts) + "$"
-                if _re.match(regex, topic):
+                if re.match(regex, topic):
                     return True
         return False
 
@@ -312,23 +314,24 @@ class ClientSession(
             return
 
         if self._event_topic_filter is not None:
-            import re as _re
-
             parts = self._event_topic_filter.split("/")
             regex_parts: list[str] = []
             matched = False
             for i, part in enumerate(parts):
                 if part == "#":
-                    regex = "^" + "/".join(regex_parts) + "(/.*)?$"
-                    matched = bool(_re.match(regex, params.topic))
+                    if regex_parts:
+                        regex = "^" + "/".join(regex_parts) + "(/.*)?$"
+                    else:
+                        regex = "^.*$"
+                    matched = bool(re.match(regex, params.topic))
                     break
                 elif part == "+":
                     regex_parts.append("[^/]+")
                 else:
-                    regex_parts.append(_re.escape(part))
+                    regex_parts.append(re.escape(part))
             else:
                 regex = "^" + "/".join(regex_parts) + "$"
-                matched = bool(_re.match(regex, params.topic))
+                matched = bool(re.match(regex, params.topic))
             if not matched:
                 return
 
