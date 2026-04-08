@@ -96,9 +96,7 @@ class OAuthClientMetadata(BaseModel):
         allowed = set(self.scope.split())
         if not requested.issubset(allowed):
             invalid = requested - allowed
-            raise InvalidScopeError(
-                f"Client was not registered with scope(s): {' '.join(sorted(invalid))}"
-            )
+            raise InvalidScopeError(f"Client was not registered with scope(s): {' '.join(sorted(invalid))}")
         return requested_scopes
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
