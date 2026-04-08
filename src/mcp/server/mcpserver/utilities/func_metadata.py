@@ -22,6 +22,7 @@ from typing_inspection.introspection import (
 )
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
+from mcp.server.mcpserver.utilities.docstring import parse_docstring
 from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult, ContentBlock, TextContent
@@ -215,6 +216,7 @@ def func_metadata(
         # model_rebuild right before using it 🤷
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
+    _, param_descriptions = parse_docstring(func.__doc__)
     dynamic_pydantic_model_params: dict[str, Any] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
@@ -229,6 +231,9 @@ def func_metadata(
 
         if param.annotation is inspect.Parameter.empty:
             field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+        # Populate JSON schema description from the docstring if available
+        if param.name in param_descriptions:
+            field_kwargs["description"] = param_descriptions[param.name]
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
