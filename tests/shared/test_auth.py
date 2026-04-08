@@ -3,7 +3,39 @@
 import pytest
 from pydantic import ValidationError
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+from mcp.shared.auth import InvalidScopeError, OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
+
+
+def _make_client(scope: str | None) -> OAuthClientInformationFull:
+    return OAuthClientInformationFull(
+        redirect_uris=["https://example.com/callback"],
+        scope=scope,
+        client_id="test-client",
+    )
+
+
+def test_validate_scope_returns_none_when_no_scope_requested():
+    client = _make_client("read write")
+    assert client.validate_scope(None) is None
+
+
+def test_validate_scope_allows_registered_scopes():
+    client = _make_client("read write")
+    assert client.validate_scope("read") == ["read"]
+    assert client.validate_scope("read write") == ["read", "write"]
+
+
+def test_validate_scope_raises_for_unregistered_scope():
+    client = _make_client("read")
+    with pytest.raises(InvalidScopeError):
+        client.validate_scope("read admin")
+
+
+def test_validate_scope_allows_any_scope_when_client_has_no_scope_restriction():
+    """When client.scope is None, any requested scope should be allowed (issue #2216)."""
+    client = _make_client(None)
+    assert client.validate_scope("read") == ["read"]
+    assert client.validate_scope("read write admin") == ["read", "write", "admin"]
 
 
 def test_oauth():
