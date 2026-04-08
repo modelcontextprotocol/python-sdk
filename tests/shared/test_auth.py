@@ -7,10 +7,12 @@ from mcp.shared.auth import InvalidScopeError, OAuthClientInformationFull, OAuth
 
 
 def _make_client(scope: str | None) -> OAuthClientInformationFull:
-    return OAuthClientInformationFull(
-        redirect_uris=["https://example.com/callback"],
-        scope=scope,
-        client_id="test-client",
+    return OAuthClientInformationFull.model_validate(
+        {
+            "redirect_uris": ["https://example.com/callback"],
+            "scope": scope,
+            "client_id": "test-client",
+        }
     )
 
 
