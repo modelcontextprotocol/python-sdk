@@ -36,6 +36,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.9.0",
     "typing-inspection>=0.4.1",
+    "python-ulid>=3.0.0",
 ]
 
 [project.optional-dependencies]

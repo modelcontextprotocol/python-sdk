@@ -224,6 +224,11 @@ class Server(Generic[LifespanResultT, RequestT]):
         if types.CompleteRequest in self.request_handlers:
             completions_capability = types.CompletionsCapability()
 
+        # Set events capability if handler exists
+        events_capability = None
+        if types.EventSubscribeRequest in self.request_handlers:
+            events_capability = types.EventsCapability()
+
         capabilities = types.ServerCapabilities(
             prompts=prompts_capability,
             resources=resources_capability,
@@ -231,6 +236,7 @@ class Server(Generic[LifespanResultT, RequestT]):
             logging=logging_capability,
             experimental=experimental_capabilities,
             completions=completions_capability,
+            events=events_capability,
         )
         if self._experimental_handlers:
             self._experimental_handlers.update_capabilities(capabilities)

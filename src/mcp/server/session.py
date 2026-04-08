@@ -202,6 +202,48 @@ class ServerSession(
                 if self._initialization_state != InitializationState.Initialized:  # pragma: no cover
                     raise RuntimeError("Received notification before initialization was complete")
 
+    async def emit_event(
+        self,
+        topic: str,
+        payload: Any,
+        *,
+        event_id: str | None = None,
+        timestamp: str | None = None,
+        retained: bool = False,
+        source: str | None = None,
+        correlation_id: str | None = None,
+        requested_effects: list[types.EventEffect] | None = None,
+        expires_at: str | None = None,
+        related_request_id: types.RequestId | None = None,
+    ) -> None:
+        """Push an event to the client on the given topic."""
+        if event_id is None:
+            from ulid import ULID
+
+            event_id = str(ULID())
+        if timestamp is None:
+            from datetime import datetime, timezone
+
+            timestamp = datetime.now(timezone.utc).isoformat()
+        await self.send_notification(
+            types.ServerNotification(
+                types.EventEmitNotification(
+                    params=types.EventParams(
+                        topic=topic,
+                        eventId=event_id,
+                        payload=payload,
+                        timestamp=timestamp,
+                        retained=retained,
+                        source=source,
+                        correlationId=correlation_id,
+                        requestedEffects=requested_effects,
+                        expiresAt=expires_at,
+                    ),
+                )
+            ),
+            related_request_id,
+        )
+
     async def send_log_message(
         self,
         level: types.LoggingLevel,

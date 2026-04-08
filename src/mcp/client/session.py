@@ -42,6 +42,10 @@ class ListRootsFnT(Protocol):
     ) -> types.ListRootsResult | types.ErrorData: ...  # pragma: no branch
 
 
+class EventHandlerFnT(Protocol):
+    async def __call__(self, params: types.EventParams) -> None: ...  # pragma: no branch
+
+
 class LoggingFnT(Protocol):
     async def __call__(
         self,
@@ -141,6 +145,9 @@ class ClientSession(
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
+        self._event_handler: EventHandlerFnT | None = None
+        self._event_topic_filter: str | None = None
+        self._subscribed_patterns: set[str] = set()
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
@@ -216,6 +223,116 @@ class ClientSession(
         if self._experimental_features is None:
             self._experimental_features = ExperimentalClientFeatures(self)
         return self._experimental_features
+
+    # ----- Event methods -----
+
+    async def subscribe_events(self, topics: list[str]) -> types.EventSubscribeResult:
+        """Send an events/subscribe request."""
+        result = await self.send_request(
+            types.ClientRequest(
+                types.EventSubscribeRequest(
+                    params=types.EventSubscribeParams(topics=topics),
+                )
+            ),
+            types.EventSubscribeResult,
+        )
+        for sub in result.subscribed:
+            self._subscribed_patterns.add(sub.pattern)
+        return result
+
+    async def unsubscribe_events(self, topics: list[str]) -> types.EventUnsubscribeResult:
+        """Send an events/unsubscribe request."""
+        result = await self.send_request(
+            types.ClientRequest(
+                types.EventUnsubscribeRequest(
+                    params=types.EventUnsubscribeParams(topics=topics),
+                )
+            ),
+            types.EventUnsubscribeResult,
+        )
+        for pattern in result.unsubscribed:
+            self._subscribed_patterns.discard(pattern)
+        return result
+
+    async def list_events(self) -> types.EventListResult:
+        """Send an events/list request."""
+        return await self.send_request(
+            types.ClientRequest(types.EventListRequest()),
+            types.EventListResult,
+        )
+
+    def set_event_handler(
+        self,
+        handler: EventHandlerFnT,
+        *,
+        topic_filter: str | None = None,
+    ) -> None:
+        """Register a callback for incoming event notifications."""
+        self._event_handler = handler
+        self._event_topic_filter = topic_filter
+
+    def on_event(self, topic_filter: str | None = None):
+        """Decorator for registering an event handler."""
+
+        def decorator(fn: EventHandlerFnT) -> EventHandlerFnT:
+            self.set_event_handler(fn, topic_filter=topic_filter)
+            return fn
+
+        return decorator
+
+    def _topic_matches_subscriptions(self, topic: str) -> bool:
+        """Check if a topic matches any of our subscribed patterns."""
+        import re as _re
+
+        for pattern in self._subscribed_patterns:
+            parts = pattern.split("/")
+            regex_parts: list[str] = []
+            for i, part in enumerate(parts):
+                if part == "#":
+                    regex = "^" + "/".join(regex_parts) + "(/.*)?$"
+                    if _re.match(regex, topic):
+                        return True
+                    break
+                elif part == "+":
+                    regex_parts.append("[^/]+")
+                else:
+                    regex_parts.append(_re.escape(part))
+            else:
+                regex = "^" + "/".join(regex_parts) + "$"
+                if _re.match(regex, topic):
+                    return True
+        return False
+
+    async def _handle_event(self, params: types.EventParams) -> None:
+        """Dispatch an incoming event to the registered handler."""
+        if self._event_handler is None:
+            return
+
+        if self._subscribed_patterns and not self._topic_matches_subscriptions(params.topic):
+            return
+
+        if self._event_topic_filter is not None:
+            import re as _re
+
+            parts = self._event_topic_filter.split("/")
+            regex_parts: list[str] = []
+            matched = False
+            for i, part in enumerate(parts):
+                if part == "#":
+                    regex = "^" + "/".join(regex_parts) + "(/.*)?$"
+                    matched = bool(_re.match(regex, params.topic))
+                    break
+                elif part == "+":
+                    regex_parts.append("[^/]+")
+                else:
+                    regex_parts.append(_re.escape(part))
+            else:
+                regex = "^" + "/".join(regex_parts) + "$"
+                matched = bool(_re.match(regex, params.topic))
+            if not matched:
+                return
+
+        await self._event_handler(params)
 
     async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
@@ -611,5 +728,7 @@ class ClientSession(
                 # Clients MAY use this to retry requests or update UI
                 # The notification contains the elicitationId of the completed elicitation
                 pass
+            case types.EventEmitNotification(params=params):
+                await self._handle_event(params)
             case _:
                 pass

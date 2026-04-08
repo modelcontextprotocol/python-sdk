@@ -520,7 +520,34 @@ class ServerCapabilities(BaseModel):
     """Present if the server offers autocompletion suggestions for prompts and resources."""
     tasks: ServerTasksCapability | None = None
     """Present if the server supports task-augmented requests."""
+
+    events: "EventsCapability | None" = None
+    """Present if the server supports publishing events to clients."""
+
     model_config = ConfigDict(extra="allow")
+
+
+class EventEffect(BaseModel):
+    """Advisory hint about how the client should handle an event."""
+
+    type: Literal["inject_context", "notify_user", "trigger_turn"]
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
+
+
+class EventTopicDescriptor(BaseModel):
+    """Describes a topic the server can publish to."""
+
+    pattern: str
+    description: str | None = None
+    retained: bool = False
+    schema_: dict[str, Any] | None = Field(None, alias="schema")
+
+
+class EventsCapability(BaseModel):
+    """Server capability for events."""
+
+    topics: list[EventTopicDescriptor] = []
+    instructions: str | None = None
 
 
 TaskStatus = Literal["working", "input_required", "completed", "failed", "cancelled"]
@@ -1419,6 +1446,127 @@ class LoggingMessageNotification(Notification[LoggingMessageNotificationParams, 
     params: LoggingMessageNotificationParams
 
 
+# ---------------------------------------------------------------------------
+# Events
+# ---------------------------------------------------------------------------
+
+
+class EventParams(NotificationParams):
+    """Parameters for events/emit notification."""
+
+    topic: str
+    eventId: str
+    payload: Any
+    timestamp: str | None = None
+    retained: bool = False
+    source: str | None = None
+    correlationId: str | None = None
+    requestedEffects: list[EventEffect] | None = None
+    expiresAt: str | None = None
+    @property
+    def event_id(self) -> str:
+        return self.eventId
+
+    @property
+    def correlation_id(self) -> str | None:
+        return self.correlationId
+
+    @property
+    def requested_effects(self) -> list[EventEffect] | None:
+        return self.requestedEffects
+
+    @property
+    def expires_at(self) -> str | None:
+        return self.expiresAt
+
+
+class EventEmitNotification(Notification[EventParams, Literal["events/emit"]]):
+    """Event notification sent from server to client."""
+
+    method: Literal["events/emit"] = "events/emit"
+    params: EventParams
+
+
+class EventSubscribeParams(RequestParams):
+    """Parameters for events/subscribe request."""
+
+    topics: list[str]
+
+
+class SubscribedTopic(BaseModel):
+    """A topic pattern that was successfully subscribed."""
+
+    pattern: str
+
+
+class RejectedTopic(BaseModel):
+    """A topic pattern that was rejected, with reason."""
+
+    pattern: str
+    reason: str
+
+
+class RetainedEvent(BaseModel):
+    """A retained event delivered on subscribe."""
+
+    topic: str
+    eventId: str
+    timestamp: str | None = None
+    payload: Any
+
+    @property
+    def event_id(self) -> str:
+        """Snake-case alias for eventId."""
+        return self.eventId
+
+
+class EventSubscribeResult(Result):
+    """Response to events/subscribe."""
+
+    subscribed: list[SubscribedTopic]
+    rejected: list[RejectedTopic] = []
+    retained: list[RetainedEvent] = []
+
+
+class EventSubscribeRequest(Request[EventSubscribeParams, Literal["events/subscribe"]]):
+    """Client request to subscribe to event topics."""
+
+    method: Literal["events/subscribe"] = "events/subscribe"
+    params: EventSubscribeParams
+
+
+class EventUnsubscribeParams(RequestParams):
+    """Parameters for events/unsubscribe request."""
+
+    topics: list[str]
+
+
+class EventUnsubscribeResult(Result):
+    """Response to events/unsubscribe."""
+
+    unsubscribed: list[str]
+
+
+class EventUnsubscribeRequest(Request[EventUnsubscribeParams, Literal["events/unsubscribe"]]):
+    """Client request to unsubscribe from event topics."""
+
+    method: Literal["events/unsubscribe"] = "events/unsubscribe"
+    params: EventUnsubscribeParams
+
+
+class EventListResult(Result):
+    """Response to events/list."""
+
+    topics: list[EventTopicDescriptor]
+
+
+class EventListRequest(Request[RequestParams | None, Literal["events/list"]]):
+    """Client request to list available event topics."""
+
+    method: Literal["events/list"] = "events/list"
+    params: RequestParams | None = None
+
+
 IncludeContext = Literal["none", "thisServer", "allServers"]
 
 
@@ -1808,6 +1956,9 @@ ClientRequestType: TypeAlias = (
     | GetTaskPayloadRequest
     | ListTasksRequest
     | CancelTaskRequest
+    | EventSubscribeRequest
+    | EventUnsubscribeRequest
+    | EventListRequest
 )
 
 
@@ -1969,6 +2120,7 @@ ServerNotificationType: TypeAlias = (
     | PromptListChangedNotification
     | ElicitCompleteNotification
     | TaskStatusNotification
+    | EventEmitNotification
 )
 
 
@@ -1992,6 +2144,9 @@ ServerResultType: TypeAlias = (
     | ListTasksResult
     | CancelTaskResult
     | CreateTaskResult
+    | EventSubscribeResult
+    | EventUnsubscribeResult
+    | EventListResult
 )
 
 
