@@ -349,6 +349,9 @@ def _try_create_model_and_schema(
     elif isinstance(type_expr, GenericAlias):
         origin = get_origin(type_expr)
 
+        if origin in (list, tuple, set, frozenset, Sequence) and _annotation_contains_any(type_expr):
+            return None, None, False
+
         # Special case: dict with string keys can use RootModel
         if origin is dict:
             args = get_args(type_expr)
@@ -472,6 +475,18 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
     model_name = f"{func_name}Output"
 
     return create_model(model_name, result=annotation)
+
+
+def _annotation_contains_any(annotation: Any) -> bool:
+    """Return True if a type annotation contains `Any` anywhere within it."""
+    if annotation is Any:
+        return True
+
+    origin = get_origin(annotation)
+    if origin is None:
+        return False
+
+    return any(_annotation_contains_any(arg) for arg in get_args(annotation) if arg is not Ellipsis)
 
 
 def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:

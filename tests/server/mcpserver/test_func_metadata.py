@@ -674,6 +674,9 @@ def test_structured_output_generic_types():
     def func_dict_str_int() -> dict[str, int]:  # pragma: no cover
         return {"a": 1, "b": 2}
 
+    def func_list_any() -> list[Any]:  # pragma: no cover
+        return ["a", "b", "c"]
+
     def func_union() -> str | int:  # pragma: no cover
         return "hello"
 
@@ -688,6 +691,10 @@ def test_structured_output_generic_types():
         "required": ["result"],
         "title": "func_list_strOutput",
     }
+
+    # Test list[Any] - should stay unstructured because it can contain arbitrary non-serializable values
+    meta = func_metadata(func_list_any)
+    assert meta.output_schema is None
 
     # Test dict[str, int] - should NOT be wrapped
     meta = func_metadata(func_dict_str_int)
