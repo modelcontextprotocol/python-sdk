@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("server")
 
 
-async def receive_loop(session: ServerSession):
+async def receive_loop(session: ServerSession) -> None:
     logger.info("Starting receive loop")
     async for message in session.incoming_messages:
         if isinstance(message, Exception):
@@ -27,7 +27,7 @@ async def receive_loop(session: ServerSession):
         logger.info("Received message from client: %s", message)
 
 
-async def main():
+async def main() -> None:
     version = importlib.metadata.version("mcp")
     async with stdio_server() as (read_stream, write_stream):
         async with (

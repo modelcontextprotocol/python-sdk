@@ -8,7 +8,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 
-async def main():
+async def main() -> None:
     # Connect to a streamable HTTP server
     async with streamable_http_client("http://localhost:8000/mcp") as (read_stream, write_stream):
         # Create a session using the client streams

@@ -17,7 +17,7 @@ server_params = StdioServerParameters(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the completion client example."""
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -68,7 +68,7 @@ async def run():
                 print(f"Completions for 'style' argument: {result.completion.values}")
 
 
-def main():
+def main() -> None:
     """Entry point for the completion client."""
     asyncio.run(run())
 

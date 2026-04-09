@@ -532,7 +532,7 @@ def get_user(user_id: str) -> UserProfile:
 
 # Classes WITHOUT type hints cannot be used for structured output
 class UntypedConfig:
-    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]
+    def __init__(self, setting1, setting2):  # type: ignore[reportMissingParameterType]  # noqa: ANN001
         self.setting1 = setting1
         self.setting2 = setting2
 
@@ -744,7 +744,7 @@ server_params = StdioServerParameters(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the completion client example."""
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -795,7 +795,7 @@ async def run():
                 print(f"Completions for 'style' argument: {result.completion.values}")
 
 
-def main():
+def main() -> None:
     """Entry point for the completion client."""
     asyncio.run(run())
 
@@ -1210,7 +1210,7 @@ def hello(name: str = "World") -> str:
     return f"Hello, {name}!"
 
 
-def main():
+def main() -> None:
     """Entry point for the direct execution server."""
     mcp.run()
 
@@ -1280,6 +1280,7 @@ uvicorn examples.snippets.servers.streamable_starlette_mount:app --reload
 """
 
 import contextlib
+from collections.abc import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -1308,7 +1309,7 @@ def add_two(n: int) -> int:
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
-async def lifespan(app: Starlette):
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(echo_mcp.session_manager.run())
         await stack.enter_async_context(math_mcp.session_manager.run())
@@ -1392,6 +1393,7 @@ Run from the repository root:
 """
 
 import contextlib
+from collections.abc import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -1410,7 +1412,7 @@ def hello() -> str:
 
 # Create a lifespan context manager to run the session manager
 @contextlib.asynccontextmanager
-async def lifespan(app: Starlette):
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
     async with mcp.session_manager.run():
         yield
 
@@ -1439,6 +1441,7 @@ Run from the repository root:
 """
 
 import contextlib
+from collections.abc import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.routing import Host
@@ -1457,7 +1460,7 @@ def domain_info() -> str:
 
 # Create a lifespan context manager to run the session manager
 @contextlib.asynccontextmanager
-async def lifespan(app: Starlette):
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
     async with mcp.session_manager.run():
         yield
 
@@ -1486,6 +1489,7 @@ Run from the repository root:
 """
 
 import contextlib
+from collections.abc import AsyncIterator
 
 from starlette.applications import Starlette
 from starlette.routing import Mount
@@ -1511,7 +1515,7 @@ def send_message(message: str) -> str:
 
 # Create a combined lifespan to manage both session managers
 @contextlib.asynccontextmanager
-async def lifespan(app: Starlette):
+async def lifespan(app: Starlette) -> AsyncIterator[None]:
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(api_mcp.session_manager.run())
         await stack.enter_async_context(chat_mcp.session_manager.run())
@@ -1718,7 +1722,7 @@ server = Server(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the server with lifespan management."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -1796,7 +1800,7 @@ server = Server(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the basic low-level server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -1889,7 +1893,7 @@ server = Server(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the structured output server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -1964,7 +1968,7 @@ server = Server(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -2127,7 +2131,7 @@ async def handle_sampling_message(
     )
 
 
-async def run():
+async def run() -> None:
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write, sampling_callback=handle_sampling_message) as session:
             # Initialize the connection
@@ -2165,7 +2169,7 @@ async def run():
             print(f"Structured tool result: {result_structured}")
 
 
-def main():
+def main() -> None:
     """Entry point for the client script."""
     asyncio.run(run())
 
@@ -2191,7 +2195,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 
-async def main():
+async def main() -> None:
     # Connect to a streamable HTTP server
     async with streamable_http_client("http://localhost:8000/mcp") as (read_stream, write_stream):
         # Create a session using the client streams
@@ -2235,7 +2239,7 @@ server_params = StdioServerParameters(
 )
 
 
-async def display_tools(session: ClientSession):
+async def display_tools(session: ClientSession) -> None:
     """Display available tools with human-readable names"""
     tools_response = await session.list_tools()
 
@@ -2247,7 +2251,7 @@ async def display_tools(session: ClientSession):
             print(f"   {tool.description}")
 
 
-async def display_resources(session: ClientSession):
+async def display_resources(session: ClientSession) -> None:
     """Display available resources with human-readable names"""
     resources_response = await session.list_resources()
 
@@ -2261,7 +2265,7 @@ async def display_resources(session: ClientSession):
         print(f"Resource Template: {display_name}")
 
 
-async def run():
+async def run() -> None:
     """Run the display utilities example."""
     async with stdio_client(server_params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -2275,7 +2279,7 @@ async def run():
             await display_resources(session)
 
 
-def main():
+def main() -> None:
     """Entry point for the display utilities client."""
     asyncio.run(run())
 
@@ -2354,7 +2358,7 @@ async def handle_callback() -> tuple[str, str | None]:
     return params["code"][0], params.get("state", [None])[0]
 
 
-async def main():
+async def main() -> None:
     """Run the OAuth client example."""
     oauth_auth = OAuthClientProvider(
         server_url="http://localhost:8001",
@@ -2382,7 +2386,7 @@ async def main():
                 print(f"Available resources: {[r.uri for r in resources.resources]}")
 
 
-def run():
+def run() -> None:
     asyncio.run(main())
 
 

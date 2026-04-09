@@ -12,7 +12,7 @@ import sys
 from typing import Literal, cast
 
 
-def run_server():
+def run_server() -> None:
     """Run a server by name with optional transport.
 
     Usage: server <server-name> [transport]

@@ -43,7 +43,7 @@ async def websocket_client(
         read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
         write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
 
-        async def ws_reader():
+        async def ws_reader() -> None:
             """Reads text messages from the WebSocket, parses them as JSON-RPC messages,
             and sends them into read_stream_writer.
             """
@@ -57,7 +57,7 @@ async def websocket_client(
                         # If JSON parse or model validation fails, send the exception
                         await read_stream_writer.send(exc)
 
-        async def ws_writer():
+        async def ws_writer() -> None:
             """Reads JSON-RPC messages from write_stream_reader and
             sends them to the server.
             """

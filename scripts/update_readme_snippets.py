@@ -138,7 +138,7 @@ def update_readme_snippets(readme_path: Path = Path("README.md"), check_mode: bo
         return True
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Update README code snippets from source files")
     parser.add_argument(

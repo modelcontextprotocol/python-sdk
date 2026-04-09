@@ -133,6 +133,7 @@ extend-exclude = ["README.md", "README.v2.md"]
 
 [tool.ruff.lint]
 select = [
+    "ANN",    # flake8-annotations
     "C4",     # flake8-comprehensions
     "C90",    # mccabe
     "D212",   # pydocstyle: multi-line docstring summary should start at the first line
@@ -143,7 +144,14 @@ select = [
     "UP",     # pyupgrade
     "TID251", # https://docs.astral.sh/ruff/rules/banned-api/
 ]
-ignore = ["PERF203"]
+ignore = [
+    "ANN204",  # special methods (__init__, __enter__, etc.) have well-known return types
+    "ANN401",  # `Any` is sometimes the right type; pyright strict handles real misuse
+    "PERF203",
+]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "pydantic.RootModel".msg = "Use `pydantic.TypeAdapter` instead."
@@ -154,6 +162,7 @@ max-complexity = 24 # Default is 10
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"tests/**" = ["ANN"]
 "tests/server/mcpserver/test_func_metadata.py" = ["E501"]
 "tests/shared/test_progress_notifications.py" = ["PLW0603"]
 

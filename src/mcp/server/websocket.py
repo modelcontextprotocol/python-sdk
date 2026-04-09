@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import anyio
@@ -11,7 +12,11 @@ from mcp.shared.message import SessionMessage
 
 
 @asynccontextmanager
-async def websocket_server(scope: Scope, receive: Receive, send: Send):
+async def websocket_server(
+    scope: Scope, receive: Receive, send: Send
+) -> AsyncGenerator[
+    tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]], None
+]:
     """WebSocket server transport for MCP. This is an ASGI application, suitable for use
     with a framework like Starlette and a server like Hypercorn.
     """
@@ -22,7 +27,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
-    async def ws_reader():
+    async def ws_reader() -> None:
         try:
             async with read_stream_writer:
                 async for msg in websocket.iter_text():
@@ -37,7 +42,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
         except anyio.ClosedResourceError:  # pragma: no cover
             await websocket.close()
 
-    async def ws_writer():
+    async def ws_writer() -> None:
         try:
             async with write_stream_reader:
                 async for session_message in write_stream_reader:
