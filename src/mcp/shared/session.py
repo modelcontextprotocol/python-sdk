@@ -348,6 +348,9 @@ class BaseSession(
     def _receive_notification_adapter(self) -> TypeAdapter[ReceiveNotificationT]:
         raise NotImplementedError
 
+    def _get_request_validation_error(self, request: JSONRPCRequest) -> ErrorData:
+        return ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+
     async def _receive_loop(self) -> None:
         async with self._read_stream, self._write_stream:
             try:
@@ -382,7 +385,7 @@ class BaseSession(
                             error_response = JSONRPCError(
                                 jsonrpc="2.0",
                                 id=message.message.id,
-                                error=ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
+                                error=self._get_request_validation_error(message.message),
                             )
                             session_message = SessionMessage(message=error_response)
                             await self._write_stream.send(session_message)
