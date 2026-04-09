@@ -71,8 +71,7 @@ CI requires 100% (`fail_under = 100`, `branch = true`).
 - Full check: `./scripts/test` (~23s). Runs coverage + `strict-no-cover` on the
   default Python. Not identical to CI: CI runs 3.10–3.14 × {ubuntu, windows}
   × {locked, lowest-direct}, and some branch-coverage quirks only surface on
-  specific matrix entries. To reproduce a `lowest-direct` failure locally,
-  resync with `uv sync --upgrade --resolution lowest-direct` first.
+  specific matrix entries.
 - Targeted check while iterating (~4s, deterministic):
 
   ```bash
