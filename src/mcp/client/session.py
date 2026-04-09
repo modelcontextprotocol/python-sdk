@@ -74,7 +74,7 @@ async def _default_elicitation_callback(
     context: RequestContext[ClientSession],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
-    return types.ErrorData(  # pragma: no cover
+    return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Elicitation not supported",
     )
@@ -215,6 +215,48 @@ class ClientSession(
         if self._experimental_features is None:
             self._experimental_features = ExperimentalClientFeatures(self)
         return self._experimental_features
+
+    def set_sampling_callback(self, callback: SamplingFnT | None) -> None:
+        """Update the sampling callback.
+
+        Note: Client capabilities are advertised to the server during :meth:`initialize`
+        and will not be re-negotiated when this setter is called. If a sampling
+        callback is set after initialization, the server may not be aware of the
+        capability.
+
+        Args:
+            callback: The new sampling callback, or ``None`` to restore the default
+                (which rejects all sampling requests with an error).
+        """
+        self._sampling_callback = callback or _default_sampling_callback
+
+    def set_elicitation_callback(self, callback: ElicitationFnT | None) -> None:
+        """Update the elicitation callback.
+
+        Note: Client capabilities are advertised to the server during :meth:`initialize`
+        and will not be re-negotiated when this setter is called. If an elicitation
+        callback is set after initialization, the server may not be aware of the
+        capability.
+
+        Args:
+            callback: The new elicitation callback, or ``None`` to restore the default
+                (which rejects all elicitation requests with an error).
+        """
+        self._elicitation_callback = callback or _default_elicitation_callback
+
+    def set_list_roots_callback(self, callback: ListRootsFnT | None) -> None:
+        """Update the list roots callback.
+
+        Note: Client capabilities are advertised to the server during :meth:`initialize`
+        and will not be re-negotiated when this setter is called. If a list-roots
+        callback is set after initialization, the server may not be aware of the
+        capability.
+
+        Args:
+            callback: The new list roots callback, or ``None`` to restore the default
+                (which rejects all list-roots requests with an error).
+        """
+        self._list_roots_callback = callback or _default_list_roots_callback
 
     async def send_ping(self, *, meta: RequestParamsMeta | None = None) -> types.EmptyResult:
         """Send a ping request."""
