@@ -428,6 +428,34 @@ async def my_tool(x: int, ctx: Context) -> str:
 
 The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
 
+### Tool registration now accepts prebuilt `Tool` objects
+
+`MCPServer.add_tool()` and `ToolManager.add_tool()` now expect a fully constructed `Tool` instance, matching the resource registration pattern. Build tools with `Tool.from_function(...)` or register them through the `@mcp.tool()` decorator, which still handles construction for you.
+
+**Before (v1):**
+
+```python
+def add(a: int, b: int) -> int:
+    return a + b
+
+mcp.add_tool(add)
+```
+
+**After (v2):**
+
+```python
+from mcp.server.mcpserver.tools import Tool
+
+
+def add(a: int, b: int) -> int:
+    return a + b
+
+
+mcp.add_tool(Tool.from_function(add))
+```
+
+If you need to customize the tool metadata before registration, build the `Tool` first and then pass it to `add_tool()`.
+
 ### Registering lowlevel handlers on `MCPServer` (workaround)
 
 `MCPServer` does not expose public APIs for `subscribe_resource`, `unsubscribe_resource`, or `set_logging_level` handlers. In v1, the workaround was to reach into the private lowlevel server and use its decorator methods:

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
@@ -36,6 +36,12 @@ class Tool(BaseModel):
     icons: list[Icon] | None = Field(default=None, description="Optional list of icons for this tool")
     meta: dict[str, Any] | None = Field(default=None, description="Optional metadata for this tool")
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, name: str) -> str:
+        validate_and_warn_tool_name(name)
+        return name
+
     @cached_property
     def output_schema(self) -> dict[str, Any] | None:
         return self.fn_metadata.output_schema
@@ -55,8 +61,6 @@ class Tool(BaseModel):
     ) -> Tool:
         """Create a Tool from a function."""
         func_name = name or fn.__name__
-
-        validate_and_warn_tool_name(func_name)
 
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
