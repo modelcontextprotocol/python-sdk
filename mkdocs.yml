@@ -18,6 +18,7 @@ nav:
       - Writing Clients: client.md
       - Protocol Features: protocol.md
       - Low-Level Server: low-level-server.md
+      - Events: events.md
       - Authorization: authorization.md
       - Testing: testing.md
   - Experimental:

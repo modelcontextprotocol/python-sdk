@@ -60,9 +60,10 @@ npx -y @modelcontextprotocol/inspector
 1. **[Install](installation.md)** the MCP SDK
 2. **[Build servers](server.md)** - tools, resources, prompts, transports, ASGI mounting
 3. **[Write clients](client.md)** - connect to servers, use tools/resources/prompts
-4. **[Explore authorization](authorization.md)** - add security to your servers
-5. **[Use low-level APIs](low-level-server.md)** - for advanced customization
-6. **[Protocol features](protocol.md)** - MCP primitives, server capabilities
+4. **[Push events](events.md)** - topic-based server-to-client notifications
+5. **[Explore authorization](authorization.md)** - add security to your servers
+6. **[Use low-level APIs](low-level-server.md)** - for advanced customization
+7. **[Protocol features](protocol.md)** - MCP primitives, server capabilities
 
 ## API Reference
 

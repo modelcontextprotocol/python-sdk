@@ -23,6 +23,7 @@ MCP servers declare capabilities during initialization:
 | `tools`      | `listChanged`                | Tool discovery and execution       |
 | `logging`    | -                            | Server logging configuration       |
 | `completions`| -                            | Argument completion suggestions    |
+| `events`     | `topics`                     | Topic-based server-to-client push  |
 
 ## Ping
 
@@ -87,6 +88,7 @@ During initialization, the client and server exchange capability declarations. T
 - `tools` -- declared when a `list_tools` handler is registered
 - `logging` -- declared when a `set_logging_level` handler is registered
 - `completions` -- declared when a `completion` handler is registered
+- `events` -- declared when an `EventSubscribeRequest` handler is registered
 
 After initialization, clients can inspect server capabilities:
 
