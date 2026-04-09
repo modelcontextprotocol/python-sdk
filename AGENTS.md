@@ -31,7 +31,9 @@
 ## Code Quality
 
 - Type hints required for all code
-- Public APIs must have docstrings
+- Public APIs must have docstrings. When a public API raises exceptions a
+  caller would reasonably catch, document them in a `Raises:` section. Don't
+  list exceptions from argument validation or programmer error.
 - `src/mcp/__init__.py` defines the public API surface via `__all__`. Adding a
   symbol there is a deliberate API decision, not a convenience re-export.
 - IMPORTANT: All imports go at the top of the file — inline imports hide
@@ -50,16 +52,17 @@
   cleanest approach (see `tests/client/test_client.py` for the canonical
   pattern). For narrower changes, testing the function directly is fine. Use
   judgment.
-- Test files mirror the source tree: `src/mcp/client/streamable_http.py` →
-  `tests/client/test_streamable_http.py`. Add tests to the existing file for that module.
+- Test files mirror the source tree: `src/mcp/client/stdio.py` →
+  `tests/client/test_stdio.py`. Add tests to the existing file for that module.
 - Avoid `anyio.sleep()` with a fixed duration to wait for async operations. Instead:
   - Use `anyio.Event` — set it in the callback/handler, `await event.wait()` in the test
   - For stream messages, use `await stream.receive()` instead of `sleep()` + `receive_nowait()`
   - Exception: `sleep()` is appropriate when testing time-based features (e.g., timeouts)
 - Wrap indefinite waits (`event.wait()`, `stream.receive()`) in `anyio.fail_after(5)` to prevent hangs
 - Pytest is configured with `filterwarnings = ["error"]`, so warnings fail
-  tests. Don't silence them with `filterwarnings` or `warnings.catch_warnings()`;
-  fix the underlying cause instead.
+  tests. Don't silence warnings from your own code; fix the underlying cause.
+  Scoped `ignore::` entries for upstream libraries are acceptable in
+  `pyproject.toml` with a comment explaining why.
 
 ### Coverage
 
