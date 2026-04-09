@@ -7,20 +7,20 @@ from typing import Any
 
 import anyio
 import pytest
-
 from pydantic import ValidationError
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.server.lowlevel.server import Server
-from mcp.shared.context import RequestContext
 from mcp.server.events import RetainedValueStore, SubscriptionRegistry
 from mcp.server.lowlevel import NotificationOptions
+from mcp.server.lowlevel.server import Server
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    ClientRequest,
     EventEffect,
     EventEmitNotification,
     EventListRequest,
@@ -37,10 +37,9 @@ from mcp.types import (
     RejectedTopic,
     RetainedEvent,
     ServerCapabilities,
-    SubscribedTopic,
-    ClientRequest,
     ServerNotification,
     ServerResult,
+    SubscribedTopic,
 )
 
 
@@ -181,9 +180,7 @@ class TestEventEmitNotification:
 
 class TestEventSubscribeRequest:
     def test_roundtrip_via_root_model(self):
-        req = EventSubscribeRequest(
-            params=EventSubscribeParams(topics=["a/+", "b/#"])
-        )
+        req = EventSubscribeRequest(params=EventSubscribeParams(topics=["a/+", "b/#"]))
         data = req.model_dump(by_alias=True, mode="json")
         wrapped = ClientRequest.model_validate(data)
         parsed = wrapped.root
@@ -193,9 +190,7 @@ class TestEventSubscribeRequest:
 
 class TestEventUnsubscribeRequest:
     def test_roundtrip_via_root_model(self):
-        req = EventUnsubscribeRequest(
-            params=EventUnsubscribeParams(topics=["a/+"])
-        )
+        req = EventUnsubscribeRequest(params=EventUnsubscribeParams(topics=["a/+"]))
         data = req.model_dump(by_alias=True, mode="json")
         wrapped = ClientRequest.model_validate(data)
         parsed = wrapped.root
@@ -316,15 +311,16 @@ async def _on_unsubscribe_events(
 
 def _create_test_server() -> Server:
     server = Server("test-events-server")
+
     # Register event handlers via request_handlers dict (keyed by type)
     async def subscribe_handler(req: EventSubscribeRequest):
         ctx = server.request_context
-        result = await _on_subscribe_events(ctx, req.root.params if hasattr(req, 'root') else req.params)
+        result = await _on_subscribe_events(ctx, req.root.params if hasattr(req, "root") else req.params)
         return types.ServerResult(result)
 
     async def unsubscribe_handler(req: EventUnsubscribeRequest):
         ctx = server.request_context
-        result = await _on_unsubscribe_events(ctx, req.root.params if hasattr(req, 'root') else req.params)
+        result = await _on_unsubscribe_events(ctx, req.root.params if hasattr(req, "root") else req.params)
         return types.ServerResult(result)
 
     server.request_handlers[EventSubscribeRequest] = subscribe_handler
@@ -350,6 +346,7 @@ async def _run_server(server_session: ServerSession, server: Server) -> None:
                 handler = server.request_handlers.get(type(req.root))
                 if handler:
                     from mcp.server.lowlevel.server import request_ctx
+
                     token = request_ctx.set(
                         RequestContext(
                             request_id=message.request_id,
@@ -368,7 +365,7 @@ async def _run_server(server_session: ServerSession, server: Server) -> None:
 @pytest.fixture(autouse=True)
 def _reset_event_types_registry():
     """Reset the global registry and store between tests."""
-    global _registry, _retained_store
+    global _registry, _retained_store  # noqa: PLW0603
     _registry = SubscriptionRegistry()
     _retained_store = RetainedValueStore()
     yield

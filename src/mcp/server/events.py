@@ -19,7 +19,6 @@ from mcp.shared.topic_patterns import pattern_to_regex as _pattern_to_regex
 from mcp.types import RetainedEvent
 
 
-
 class SubscriptionRegistry:
     """Thread-safe registry mapping session IDs to topic subscription patterns.
 
@@ -48,10 +47,7 @@ class SubscriptionRegistry:
         """
         segments = pattern.split("/")
         if len(segments) > 8:
-            raise ValueError(
-                f"Topic pattern exceeds maximum depth of 8 segments "
-                f"(got {len(segments)}): {pattern}"
-            )
+            raise ValueError(f"Topic pattern exceeds maximum depth of 8 segments (got {len(segments)}): {pattern}")
         async with self._lock:
             self._subscriptions.setdefault(session_id, set()).add(pattern)
             self._compile(pattern)

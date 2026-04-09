@@ -1463,6 +1463,7 @@ class EventParams(NotificationParams):
     correlationId: str | None = None
     requestedEffects: list[EventEffect] | None = None
     expiresAt: str | None = None
+
     @property
     def event_id(self) -> str:
         return self.eventId

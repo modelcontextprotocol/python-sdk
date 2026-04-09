@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import anyio
@@ -10,20 +9,18 @@ import pytest
 
 from mcp import types
 from mcp.client.session import ClientSession
-from mcp.server.lowlevel.server import Server, request_ctx
-from mcp.shared.context import RequestContext
 from mcp.server.events import RetainedValueStore, SubscriptionRegistry
 from mcp.server.lowlevel import NotificationOptions
+from mcp.server.lowlevel.server import Server, request_ctx
 from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
+from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
-    EventEmitNotification,
     EventListRequest,
     EventListResult,
     EventParams,
-    EventsCapability,
     EventSubscribeParams,
     EventSubscribeRequest,
     EventSubscribeResult,
@@ -33,10 +30,8 @@ from mcp.types import (
     EventUnsubscribeResult,
     RejectedTopic,
     RetainedEvent,
-    ServerCapabilities,
     SubscribedTopic,
 )
-
 
 # Shared registry and store for the test server
 _registry = SubscriptionRegistry()
@@ -141,7 +136,7 @@ async def _run_server(server_session: ServerSession, server: Server) -> None:
 @pytest.fixture(autouse=True)
 async def reset_registry():
     """Reset the global registry and store between tests."""
-    global _registry, _retained_store
+    global _registry, _retained_store  # noqa: PLW0603
     _registry = SubscriptionRegistry()
     _retained_store = RetainedValueStore()
     yield
@@ -189,11 +184,14 @@ async def test_emit_event_received_by_client():
             sub_result = await client_session.subscribe_events(["test/+"])
             assert len(sub_result.subscribed) == 1
 
-            # Server emits
+            # Server emits with an explicit timestamp, exercising the
+            # branch where emit_event does NOT auto-generate one.
+            explicit_ts = "2025-01-01T00:00:00+00:00"
             await server_session.emit_event(
                 topic="test/hello",
                 payload={"message": "world"},
                 event_id="evt-1",
+                timestamp=explicit_ts,
             )
 
             # Give the notification time to propagate
@@ -203,6 +201,7 @@ async def test_emit_event_received_by_client():
             assert received_events[0].topic == "test/hello"
             assert received_events[0].payload == {"message": "world"}
             assert received_events[0].event_id == "evt-1"
+            assert received_events[0].timestamp == explicit_ts
 
             tg.cancel_scope.cancel()
     except (anyio.ClosedResourceError, anyio.EndOfStream):
@@ -498,6 +497,89 @@ async def test_subscribe_rejects_undeclared_topic():
             assert len(sub_result.rejected) == 1
             assert sub_result.rejected[0].pattern == "secret/stuff"
             assert sub_result.rejected[0].reason == "unknown_topic"
+
+            tg.cancel_scope.cancel()
+    except (anyio.ClosedResourceError, anyio.EndOfStream):
+        pass
+
+
+@pytest.mark.anyio
+async def test_topic_matches_subscriptions_recompiles_on_cache_miss():
+    """_topic_matches_subscriptions should recompile when the cache entry is missing.
+
+    This exercises the fallback branch where a pattern is in ``_subscribed_patterns``
+    but not in ``_subscription_regex_cache`` (e.g. after manual cache eviction).
+    """
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    try:
+        async with (
+            server_to_client_send,
+            server_to_client_receive,
+            client_to_server_send,
+            client_to_server_receive,
+            ClientSession(
+                server_to_client_receive,
+                client_to_server_send,
+            ) as client_session,
+        ):
+            # Seed a pattern without populating the regex cache.
+            client_session._subscribed_patterns.add("foo/+")
+            assert "foo/+" not in client_session._subscription_regex_cache
+
+            assert client_session._topic_matches_subscriptions("foo/bar") is True
+            # The cache should now be populated as a side effect.
+            assert "foo/+" in client_session._subscription_regex_cache
+
+            # Non-matching topic exercises the return False path.
+            assert client_session._topic_matches_subscriptions("other/thing") is False
+    except (anyio.ClosedResourceError, anyio.EndOfStream):
+        pass
+
+
+@pytest.mark.anyio
+async def test_subscribe_events_skips_recompile_for_cached_pattern():
+    """subscribe_events should not recompile a regex for an already-cached pattern.
+
+    Covers the branch where ``sub.pattern`` is already present in
+    ``_subscription_regex_cache`` so the compile step is skipped.
+    """
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    server = _create_test_server()
+    # Reset shared state for isolation.
+    _registry._subscriptions.clear()
+
+    try:
+        async with (
+            ServerSession(
+                client_to_server_receive,
+                server_to_client_send,
+                InitializationOptions(
+                    server_name="test",
+                    server_version="0.1.0",
+                    capabilities=server.get_capabilities(NotificationOptions(), {}),
+                ),
+            ) as server_session,
+            ClientSession(
+                server_to_client_receive,
+                client_to_server_send,
+                message_handler=_message_handler,
+            ) as client_session,
+            anyio.create_task_group() as tg,
+        ):
+            tg.start_soon(_run_server, server_session, server)
+            await client_session.initialize()
+
+            # First subscribe populates the cache.
+            await client_session.subscribe_events(["test/+"])
+            cached_regex = client_session._subscription_regex_cache["test/+"]
+
+            # Second subscribe to the same pattern should reuse the cached compile.
+            await client_session.subscribe_events(["test/+"])
+            assert client_session._subscription_regex_cache["test/+"] is cached_regex
 
             tg.cancel_scope.cancel()
     except (anyio.ClosedResourceError, anyio.EndOfStream):

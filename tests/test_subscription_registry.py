@@ -183,6 +183,43 @@ class TestRetainedValueStore:
         await store.set("a/b", event, expires_at=future)
         assert await store.get("a/b") == event
 
+    async def test_get_matching_reuses_cached_regex(self, store: RetainedValueStore):
+        """Second call with same pattern should reuse cached compiled regex."""
+        e1 = RetainedEvent(topic="a/x", eventId="e1", payload="v1")
+        await store.set("a/x", e1)
+        # First call compiles and caches
+        first = await store.get_matching("a/+")
+        assert len(first) == 1
+        # Second call hits the cache branch (skips compile)
+        second = await store.get_matching("a/+")
+        assert len(second) == 1
+        assert second[0].topic == "a/x"
+
+    async def test_invalid_expires_at_treated_as_not_expired(self, store: RetainedValueStore):
+        """Malformed ``expires_at`` should be treated as not expired rather than raising."""
+        event = RetainedEvent(topic="a/b", eventId="e1", payload="val")
+        await store.set("a/b", event, expires_at="not-a-valid-iso-timestamp")
+        # Parsing fails (ValueError), so _is_expired returns False and the value is returned.
+        assert await store.get("a/b") == event
+
+    async def test_naive_expires_at_assumed_utc(self, store: RetainedValueStore):
+        """A naive (tz-less) ISO timestamp should be interpreted as UTC.
+
+        Exercises the ``if expiry.tzinfo is None`` branch in ``_is_expired``.
+        """
+        # Naive timestamp in the future (no timezone suffix).
+        future_naive = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(tzinfo=None).isoformat()
+        event = RetainedEvent(topic="a/b", eventId="e1", payload="val")
+        await store.set("a/b", event, expires_at=future_naive)
+        # Interpreted as UTC -> not expired -> returned.
+        assert await store.get("a/b") == event
+
+        # Naive timestamp in the past -> expired -> None.
+        past_naive = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None).isoformat()
+        event2 = RetainedEvent(topic="c/d", eventId="e2", payload="val2")
+        await store.set("c/d", event2, expires_at=past_naive)
+        assert await store.get("c/d") is None
+
     async def test_expired_cleaned_on_get_matching(self, store: RetainedValueStore):
         past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
