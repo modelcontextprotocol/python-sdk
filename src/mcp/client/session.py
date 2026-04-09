@@ -14,6 +14,7 @@ from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared.context import RequestContext
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import BaseSession, ProgressFnT, RequestResponder
+from mcp.shared.topic_patterns import pattern_to_regex
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
 
 DEFAULT_CLIENT_INFO = types.Implementation(name="mcp", version="0.1.0")
@@ -148,7 +149,11 @@ class ClientSession(
         self._experimental_features: ExperimentalClientFeatures | None = None
         self._event_handler: EventHandlerFnT | None = None
         self._event_topic_filter: str | None = None
+        self._event_topic_filter_regex: re.Pattern[str] | None = None
         self._subscribed_patterns: set[str] = set()
+        # Cache compiled regexes for subscription patterns to avoid
+        # recompiling on every incoming event.
+        self._subscription_regex_cache: dict[str, re.Pattern[str]] = {}
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
@@ -239,6 +244,8 @@ class ClientSession(
         )
         for sub in result.subscribed:
             self._subscribed_patterns.add(sub.pattern)
+            if sub.pattern not in self._subscription_regex_cache:
+                self._subscription_regex_cache[sub.pattern] = pattern_to_regex(sub.pattern)
         return result
 
     async def unsubscribe_events(self, topics: list[str]) -> types.EventUnsubscribeResult:
@@ -253,6 +260,7 @@ class ClientSession(
         )
         for pattern in result.unsubscribed:
             self._subscribed_patterns.discard(pattern)
+            self._subscription_regex_cache.pop(pattern, None)
         return result
 
     async def list_events(self) -> types.EventListResult:
@@ -268,9 +276,17 @@ class ClientSession(
         *,
         topic_filter: str | None = None,
     ) -> None:
-        """Register a callback for incoming event notifications."""
+        """Register a callback for incoming event notifications.
+
+        If *topic_filter* is provided, it is compiled once here and the
+        cached regex is reused for every incoming event. The filter uses
+        the same MQTT-style wildcard syntax as subscription patterns
+        (``+`` for a single segment, ``#`` as a trailing multi-segment
+        wildcard).
+        """
         self._event_handler = handler
         self._event_topic_filter = topic_filter
+        self._event_topic_filter_regex = pattern_to_regex(topic_filter) if topic_filter is not None else None
 
     def on_event(self, topic_filter: str | None = None):
         """Decorator for registering an event handler."""
@@ -282,58 +298,43 @@ class ClientSession(
         return decorator
 
     def _topic_matches_subscriptions(self, topic: str) -> bool:
-        """Check if a topic matches any of our subscribed patterns."""
+        """Check if *topic* matches any of our subscribed patterns.
+
+        Compiled regexes are cached per subscription pattern so incoming
+        events do not pay a recompile cost on every match attempt.
+        """
         for pattern in self._subscribed_patterns:
-            parts = pattern.split("/")
-            regex_parts: list[str] = []
-            for i, part in enumerate(parts):
-                if part == "#":
-                    if regex_parts:
-                        regex = "^" + "/".join(regex_parts) + "(/.*)?$"
-                    else:
-                        regex = "^.*$"
-                    if re.match(regex, topic):
-                        return True
-                    break
-                elif part == "+":
-                    regex_parts.append("[^/]+")
-                else:
-                    regex_parts.append(re.escape(part))
-            else:
-                regex = "^" + "/".join(regex_parts) + "$"
-                if re.match(regex, topic):
-                    return True
+            regex = self._subscription_regex_cache.get(pattern)
+            if regex is None:
+                regex = pattern_to_regex(pattern)
+                self._subscription_regex_cache[pattern] = regex
+            if regex.match(topic):
+                return True
         return False
 
     async def _handle_event(self, params: types.EventParams) -> None:
-        """Dispatch an incoming event to the registered handler."""
+        """Dispatch an incoming event to the registered handler.
+
+        Filtering order:
+
+        1. If no handler is registered, drop the event.
+        2. If the client has any active subscriptions, the topic must
+           match at least one of them. Events for unsubscribed topics
+           are dropped. (A client with zero subscriptions accepts any
+           topic the server chooses to deliver; this is the "pass
+           through" fallback documented in ``docs/events.md``.)
+        3. If an additional ``topic_filter`` was provided to
+           ``set_event_handler``, the topic must also match that
+           filter.
+        """
         if self._event_handler is None:
             return
 
         if self._subscribed_patterns and not self._topic_matches_subscriptions(params.topic):
             return
 
-        if self._event_topic_filter is not None:
-            parts = self._event_topic_filter.split("/")
-            regex_parts: list[str] = []
-            matched = False
-            for i, part in enumerate(parts):
-                if part == "#":
-                    if regex_parts:
-                        regex = "^" + "/".join(regex_parts) + "(/.*)?$"
-                    else:
-                        regex = "^.*$"
-                    matched = bool(re.match(regex, params.topic))
-                    break
-                elif part == "+":
-                    regex_parts.append("[^/]+")
-                else:
-                    regex_parts.append(re.escape(part))
-            else:
-                regex = "^" + "/".join(regex_parts) + "$"
-                matched = bool(re.match(regex, params.topic))
-            if not matched:
-                return
+        if self._event_topic_filter_regex is not None and not self._event_topic_filter_regex.match(params.topic):
+            return
 
         await self._event_handler(params)
 

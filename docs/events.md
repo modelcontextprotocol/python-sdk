@@ -242,9 +242,9 @@ async def on_build_event(params: EventParams) -> None:
     print(f"Build: {params.payload}")
 ```
 
-The optional `topic_filter` applies an additional client-side filter using the same wildcard syntax as subscription patterns. Events that do not match the filter are silently dropped before reaching the handler.
+The optional `topic_filter` applies an additional client-side filter using the same wildcard syntax as subscription patterns. The filter is compiled once when the handler is registered and reused for every incoming event. Events that do not match the filter are silently dropped before reaching the handler.
 
-The client also tracks subscribed patterns internally. Events for topics that do not match any active subscription are dropped, even if the server sends them.
+The client also tracks subscribed patterns internally. Once a client has at least one active subscription, events whose topic does not match any subscribed pattern are dropped before reaching the handler, even if the server sends them. A client that never calls `subscribe_events` has no subscription patterns registered and will pass every event received from the server through to the handler, subject only to the optional `topic_filter`. If you want strict subscription-only delivery, subscribe explicitly.
 
 ### Unsubscribing
 
