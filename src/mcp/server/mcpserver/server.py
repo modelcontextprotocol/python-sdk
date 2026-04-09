@@ -163,10 +163,10 @@ class MCPServer(Generic[LifespanResultT]):
         self.dependencies = self.settings.dependencies
 
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
-        self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
-        if resources is not None:
-            for resource in resources:
-                self._resource_manager.add_resource(resource)
+        self._resource_manager = ResourceManager(
+            resources=resources,
+            warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources,
+        )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self._lowlevel_server = Server(
             name=name or "mcp-server",

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -5,7 +6,12 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.server.mcpserver import Context
-from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
+from mcp.server.mcpserver.resources import (
+    FileResource,
+    FunctionResource,
+    ResourceManager,
+    ResourceTemplate,
+)
 
 
 @pytest.fixture
@@ -27,6 +33,27 @@ def temp_file():
 
 class TestResourceManager:
     """Test ResourceManager functionality."""
+
+    def test_init_with_resources(self, temp_file: Path, caplog: pytest.LogCaptureFixture):
+        resource = FileResource(
+            uri=f"file://{temp_file}",
+            name="test",
+            path=temp_file,
+        )
+        manager = ResourceManager(resources=[resource])
+        assert manager.list_resources() == [resource]
+
+        duplicate_resource = FileResource(
+            uri=f"file://{temp_file}",
+            name="duplicate",
+            path=temp_file,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            manager = ResourceManager(True, resources=[resource, duplicate_resource])
+
+        assert "Resource already exists" in caplog.text
+        assert manager.list_resources() == [resource]
 
     def test_add_resource(self, temp_file: Path):
         """Test adding a resource."""
