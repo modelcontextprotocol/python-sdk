@@ -38,6 +38,7 @@ http_client = httpx.AsyncClient(
     headers={"Authorization": "Bearer token"},
     timeout=httpx.Timeout(30, read=300),
     auth=my_auth,
+    follow_redirects=True,
 )
 
 async with http_client:
@@ -47,6 +48,8 @@ async with http_client:
     ) as (read_stream, write_stream):
         ...
 ```
+
+v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx.AsyncClient` to preserve that behavior.
 
 ### `get_session_id` callback removed from `streamable_http_client`
 
@@ -99,6 +102,8 @@ async with http_client:
 ### `StreamableHTTPTransport` parameters removed
 
 The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
+
+Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
 
 ### Removed type aliases and classes
 
@@ -388,6 +393,8 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
+If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
+
 ### `MCPServer.get_context()` removed
 
 `MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.
@@ -500,6 +507,22 @@ notification = server_notification_adapter.validate_python(data)
 # No .root access needed - notification is the actual type
 ```
 
+The same applies when constructing values — the wrapper call is no longer needed:
+
+**Before (v1):**
+
+```python
+await session.send_notification(ClientNotification(InitializedNotification()))
+await session.send_request(ClientRequest(PingRequest()), EmptyResult)
+```
+
+**After (v2):**
+
+```python
+await session.send_notification(InitializedNotification())
+await session.send_request(PingRequest(), EmptyResult)
+```
+
 **Available adapters:**
 
 | Union Type | Adapter |
@@ -575,6 +598,22 @@ ctx: ClientRequestContext
 
 # For server-specific context with lifespan and request types
 server_ctx: ServerRequestContext[LifespanContextT, RequestT]
+```
+
+The high-level `Context` class (injected into `@mcp.tool()` etc.) similarly dropped its `ServerSessionT` parameter: `Context[ServerSessionT, LifespanContextT, RequestT]` → `Context[LifespanContextT, RequestT]`. Both remaining parameters have defaults, so bare `Context` is usually sufficient:
+
+**Before (v1):**
+
+```python
+async def my_tool(ctx: Context[ServerSession, None]) -> str: ...
+```
+
+**After (v2):**
+
+```python
+async def my_tool(ctx: Context) -> str: ...
+# or, with an explicit lifespan type:
+async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
 ```
 
 ### `ProgressContext` and `progress()` context manager removed
@@ -752,6 +791,8 @@ if ListToolsRequest in server.request_handlers:
 server = Server("my-server", on_list_tools=handle_list_tools)
 ```
 
+If you need to check whether a handler is registered, track this yourself — there is currently no public introspection API.
+
 ### Lowlevel `Server`: decorator-based handlers replaced with constructor `on_*` params
 
 The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are passed as `on_*` keyword arguments to the constructor.
@@ -876,10 +917,17 @@ Note: `params.arguments` can be `None` (the old decorator defaulted it to `{}`).
 
 **`read_resource()` — content type wrapping removed:**
 
-The old decorator auto-wrapped `str` into `TextResourceContents` and `bytes` into `BlobResourceContents` (with base64 encoding), and applied a default mime type of `text/plain`:
+The old decorator auto-wrapped `Iterable[ReadResourceContents]` (and the deprecated `str`/`bytes` shorthand) into `TextResourceContents`/`BlobResourceContents`, handling base64 encoding and mime-type defaulting:
 
 ```python
-# Before (v1) — str/bytes auto-wrapped with mime type defaulting
+# Before (v1) — Iterable[ReadResourceContents] auto-wrapped
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+
+@server.read_resource()
+async def handle(uri: AnyUrl) -> Iterable[ReadResourceContents]:
+    return [ReadResourceContents(content="file contents", mime_type="text/plain")]
+
+# Before (v1) — str/bytes shorthand (already deprecated in v1)
 @server.read_resource()
 async def handle(uri: str) -> str:
     return "file contents"
