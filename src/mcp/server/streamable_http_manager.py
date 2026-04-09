@@ -90,6 +90,9 @@ class StreamableHTTPSessionManager:
         self._session_creation_lock = anyio.Lock()
         self._server_instances: dict[str, StreamableHTTPServerTransport] = {}
 
+        # Track in-flight stateless transports for graceful shutdown
+        self._stateless_transports: set[StreamableHTTPServerTransport] = set()
+
         # The task group will be set during lifespan
         self._task_group = None
         # Thread-safe tracking of run() calls
@@ -130,11 +133,28 @@ class StreamableHTTPSessionManager:
                 yield  # Let the application run
             finally:
                 logger.info("StreamableHTTP session manager shutting down")
+
+                # Terminate all active transports before cancelling the task
+                # group.  This closes their in-memory streams, which lets
+                # EventSourceResponse send a final ``more_body=False`` chunk
+                # — a clean HTTP close instead of a connection reset.
+                for transport in list(self._server_instances.values()):
+                    try:
+                        await transport.terminate()
+                    except Exception:  # pragma: no cover
+                        logger.debug("Error terminating transport during shutdown", exc_info=True)
+                for transport in list(self._stateless_transports):
+                    try:
+                        await transport.terminate()
+                    except Exception:  # pragma: no cover
+                        logger.debug("Error terminating stateless transport during shutdown", exc_info=True)
+
                 # Cancel task group to stop all spawned tasks
                 tg.cancel_scope.cancel()
                 self._task_group = None
                 # Clear any remaining server instances
                 self._server_instances.clear()
+                self._stateless_transports.clear()
 
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.
@@ -151,7 +171,12 @@ class StreamableHTTPSessionManager:
             await self._handle_stateful_request(scope, receive, send)
 
     async def _handle_stateless_request(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Process request in stateless mode - creating a new transport for each request."""
+        """Process request in stateless mode - creating a new transport for each request.
+
+        Uses a request-scoped task group so the server task is automatically
+        cancelled when the request completes, preventing task accumulation in
+        the manager's global task group.
+        """
         logger.debug("Stateless mode: Creating new transport for this request")
         # No session ID needed in stateless mode
         http_transport = StreamableHTTPServerTransport(
@@ -160,6 +185,9 @@ class StreamableHTTPSessionManager:
             event_store=None,  # No event store in stateless mode
             security_settings=self.security_settings,
         )
+
+        # Track for graceful shutdown
+        self._stateless_transports.add(http_transport)
 
         # Start server in a new task
         async def run_stateless_server(*, task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED):
@@ -173,18 +201,27 @@ class StreamableHTTPSessionManager:
                         self.app.create_initialization_options(),
                         stateless=True,
                     )
-                except Exception:  # pragma: no cover
+                except Exception:  # pragma: lax no cover
                     logger.exception("Stateless session crashed")
 
-        # Assert task group is not None for type checking
-        assert self._task_group is not None
-        # Start the server task
-        await self._task_group.start(run_stateless_server)
+        # Use a request-scoped task group instead of the global one.
+        # This ensures the server task is cancelled when the request
+        # finishes, preventing zombie tasks from accumulating.
+        # See: https://github.com/modelcontextprotocol/python-sdk/issues/1764
+        try:
+            async with anyio.create_task_group() as request_tg:
+                await request_tg.start(run_stateless_server)
+                # Handle the HTTP request directly in the caller's context
+                # (not as a child task) so execution flows back naturally.
+                await http_transport.handle_request(scope, receive, send)
+                # Cancel the request-scoped task group to stop the server task.
+                request_tg.cancel_scope.cancel()
+        finally:
+            self._stateless_transports.discard(http_transport)
 
-        # Handle the HTTP request and return the response
-        await http_transport.handle_request(scope, receive, send)
-
-        # Terminate the transport after the request is handled
+        # Terminate after the task group exits — the server task is already
+        # cancelled at this point, so this is just cleanup (sets _terminated
+        # flag and closes any remaining streams).
         await http_transport.terminate()
 
     async def _handle_stateful_request(self, scope: Scope, receive: Receive, send: Send) -> None:
