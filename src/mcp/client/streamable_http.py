@@ -194,7 +194,10 @@ class StreamableHTTPTransport:
                     headers[LAST_EVENT_ID] = last_event_id
 
                 async with aconnect_sse(client, "GET", self.url, headers=headers) as event_source:
-                    event_source.response.raise_for_status()
+                    if event_source.response.status_code >= 400:  # pragma: no cover
+                        logger.warning(f"GET SSE returned HTTP {event_source.response.status_code}")
+                        attempt += 1
+                        continue
                     logger.debug("GET SSE connection established")
 
                     async for sse in event_source.aiter_sse():
@@ -237,7 +240,16 @@ class StreamableHTTPTransport:
             original_request_id = ctx.session_message.message.id
 
         async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
-            event_source.response.raise_for_status()
+            if event_source.response.status_code >= 400:  # pragma: no cover
+                logger.warning(f"Resumption GET returned HTTP {event_source.response.status_code}")
+                if original_request_id is not None:
+                    error_data = ErrorData(
+                        code=INTERNAL_ERROR,
+                        message=f"Server returned HTTP {event_source.response.status_code}",
+                    )
+                    error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data))
+                    await ctx.read_stream_writer.send(error_msg)
+                return
             logger.debug("Resumption GET SSE connection established")
 
             async for sse in event_source.aiter_sse():  # pragma: no branch
@@ -276,7 +288,10 @@ class StreamableHTTPTransport:
 
             if response.status_code >= 400:
                 if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                    error_data = ErrorData(
+                        code=INTERNAL_ERROR,
+                        message=f"Server returned HTTP {response.status_code}",
+                    )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
@@ -398,7 +413,18 @@ class StreamableHTTPTransport:
 
         try:
             async with aconnect_sse(ctx.client, "GET", self.url, headers=headers) as event_source:
-                event_source.response.raise_for_status()
+                if event_source.response.status_code >= 400:  # pragma: no cover
+                    logger.warning(f"Reconnection GET returned HTTP {event_source.response.status_code}")
+                    if original_request_id is not None:
+                        error_data = ErrorData(
+                            code=INTERNAL_ERROR,
+                            message=f"Server returned HTTP {event_source.response.status_code}",
+                        )
+                        error_msg = SessionMessage(
+                            JSONRPCError(jsonrpc="2.0", id=original_request_id, error=error_data)
+                        )
+                        await ctx.read_stream_writer.send(error_msg)
+                    return
                 logger.info("Reconnected to SSE stream")
 
                 # Track for potential further reconnection
