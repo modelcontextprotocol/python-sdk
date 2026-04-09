@@ -140,6 +140,7 @@ class MCPServer(Generic[LifespanResultT]):
         token_verifier: TokenVerifier | None = None,
         *,
         tools: list[Tool] | None = None,
+        resources: list[Resource] | None = None,
         debug: bool = False,
         log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
         warn_on_duplicate_resources: bool = True,
@@ -163,6 +164,9 @@ class MCPServer(Generic[LifespanResultT]):
 
         self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
         self._resource_manager = ResourceManager(warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources)
+        if resources is not None:
+            for resource in resources:
+                self._resource_manager.add_resource(resource)
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
         self._lowlevel_server = Server(
             name=name or "mcp-server",
