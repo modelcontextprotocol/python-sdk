@@ -61,13 +61,13 @@ def create_client_task_handlers(
     ) -> CreateTaskResult:
         """Handle task-augmented elicitation by creating a client-side task."""
         elicit_received.set()
-        task = await client_task_store.create_task(task_metadata)
+        task = await client_task_store.create_task(task_metadata, session_id="test-session")
         task_complete_events[task.task_id] = Event()
 
         async def complete_task() -> None:
             # Store result before updating status to avoid race condition
-            await client_task_store.store_result(task.task_id, elicit_response)
-            await client_task_store.update_task(task.task_id, status="completed")
+            await client_task_store.store_result(task.task_id, elicit_response, session_id="test-session")
+            await client_task_store.update_task(task.task_id, status="completed", session_id="test-session")
             task_complete_events[task.task_id].set()
 
         context.session._task_group.start_soon(complete_task)  # pyright: ignore[reportPrivateUsage]
@@ -78,7 +78,7 @@ def create_client_task_handlers(
         params: Any,
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
-        task = await client_task_store.get_task(params.task_id)
+        task = await client_task_store.get_task(params.task_id, session_id="test-session")
         assert task is not None, f"Task not found: {params.task_id}"
         return GetTaskResult(
             task_id=task.task_id,
@@ -98,7 +98,7 @@ def create_client_task_handlers(
         event = task_complete_events.get(params.task_id)
         assert event is not None, f"No completion event for task: {params.task_id}"
         await event.wait()
-        result = await client_task_store.get_result(params.task_id)
+        result = await client_task_store.get_result(params.task_id, session_id="test-session")
         assert result is not None, f"Result not found for task: {params.task_id}"
         return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
 
@@ -129,13 +129,13 @@ def create_sampling_task_handlers(
     ) -> CreateTaskResult:
         """Handle task-augmented sampling by creating a client-side task."""
         sampling_received.set()
-        task = await client_task_store.create_task(task_metadata)
+        task = await client_task_store.create_task(task_metadata, session_id="test-session")
         task_complete_events[task.task_id] = Event()
 
         async def complete_task() -> None:
             # Store result before updating status to avoid race condition
-            await client_task_store.store_result(task.task_id, sampling_response)
-            await client_task_store.update_task(task.task_id, status="completed")
+            await client_task_store.store_result(task.task_id, sampling_response, session_id="test-session")
+            await client_task_store.update_task(task.task_id, status="completed", session_id="test-session")
             task_complete_events[task.task_id].set()
 
         context.session._task_group.start_soon(complete_task)  # pyright: ignore[reportPrivateUsage]
@@ -146,7 +146,7 @@ def create_sampling_task_handlers(
         params: Any,
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
-        task = await client_task_store.get_task(params.task_id)
+        task = await client_task_store.get_task(params.task_id, session_id="test-session")
         assert task is not None, f"Task not found: {params.task_id}"
         return GetTaskResult(
             task_id=task.task_id,
@@ -166,7 +166,7 @@ def create_sampling_task_handlers(
         event = task_complete_events.get(params.task_id)
         assert event is not None, f"No completion event for task: {params.task_id}"
         await event.wait()
-        result = await client_task_store.get_result(params.task_id)
+        result = await client_task_store.get_result(params.task_id, session_id="test-session")
         assert result is not None, f"Result not found for task: {params.task_id}"
         return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
 
@@ -230,6 +230,7 @@ async def test_scenario1_normal_tool_normal_elicitation() -> None:
                 notification_options=NotificationOptions(),
                 experimental_capabilities={},
             ),
+            session_id="test-session",
         )
 
     async def run_client() -> None:
@@ -307,6 +308,7 @@ async def test_scenario2_normal_tool_task_augmented_elicitation() -> None:
                 notification_options=NotificationOptions(),
                 experimental_capabilities={},
             ),
+            session_id="test-session",
         )
 
     async def run_client() -> None:
@@ -386,6 +388,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
                 notification_options=NotificationOptions(),
                 experimental_capabilities={},
             ),
+            session_id="test-session",
         )
 
     async def run_client() -> None:
@@ -483,6 +486,7 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
                 notification_options=NotificationOptions(),
                 experimental_capabilities={},
             ),
+            session_id="test-session",
         )
 
     async def run_client() -> None:
@@ -577,6 +581,7 @@ async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
                 notification_options=NotificationOptions(),
                 experimental_capabilities={},
             ),
+            session_id="test-session",
         )
 
     async def run_client() -> None:
@@ -656,6 +661,7 @@ async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() 
                 notification_options=NotificationOptions(),
                 experimental_capabilities={},
             ),
+            session_id="test-session",
         )
 
     async def run_client() -> None:
