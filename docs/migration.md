@@ -38,6 +38,7 @@ http_client = httpx.AsyncClient(
     headers={"Authorization": "Bearer token"},
     timeout=httpx.Timeout(30, read=300),
     auth=my_auth,
+    follow_redirects=True,
 )
 
 async with http_client:
@@ -47,6 +48,8 @@ async with http_client:
     ) as (read_stream, write_stream):
         ...
 ```
+
+v1's internal client set `follow_redirects=True`; set it explicitly when supplying your own `httpx.AsyncClient` to preserve that behavior.
 
 ### `get_session_id` callback removed from `streamable_http_client`
 
@@ -100,6 +103,8 @@ async with http_client:
 
 The `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters have been removed from `StreamableHTTPTransport`. Configure these on the `httpx.AsyncClient` instead (see example above).
 
+Note: `sse_client` retains its `headers`, `timeout`, `sse_read_timeout`, and `auth` parameters — only the streamable HTTP transport changed.
+
 ### Removed type aliases and classes
 
 The following deprecated type aliases and classes have been removed from `mcp.types`:
@@ -125,6 +130,52 @@ from mcp.types import Content, ResourceReference, Cursor
 from mcp.types import ContentBlock, ResourceTemplateReference
 # Use `str` instead of `Cursor` for pagination cursors
 ```
+
+### Field names changed from camelCase to snake_case
+
+All Pydantic model fields in `mcp.types` now use snake_case names for Python attribute access. The JSON wire format is unchanged — serialization still uses camelCase via Pydantic aliases.
+
+**Before (v1):**
+
+```python
+result = await session.call_tool("my_tool", {"x": 1})
+if result.isError:
+    ...
+
+tools = await session.list_tools()
+cursor = tools.nextCursor
+schema = tools.tools[0].inputSchema
+```
+
+**After (v2):**
+
+```python
+result = await session.call_tool("my_tool", {"x": 1})
+if result.is_error:
+    ...
+
+tools = await session.list_tools()
+cursor = tools.next_cursor
+schema = tools.tools[0].input_schema
+```
+
+Common renames:
+
+| v1 (camelCase) | v2 (snake_case) |
+|----------------|-----------------|
+| `inputSchema` | `input_schema` |
+| `outputSchema` | `output_schema` |
+| `isError` | `is_error` |
+| `nextCursor` | `next_cursor` |
+| `mimeType` | `mime_type` |
+| `structuredContent` | `structured_content` |
+| `serverInfo` | `server_info` |
+| `protocolVersion` | `protocol_version` |
+| `uriTemplate` | `uri_template` |
+| `listChanged` | `list_changed` |
+| `progressToken` | `progress_token` |
+
+Because `populate_by_name=True` is set, the old camelCase names still work as constructor kwargs (e.g., `Tool(inputSchema={...})` is accepted), but attribute access must use snake_case (`tool.input_schema`).
 
 ### `args` parameter removed from `ClientSessionGroup.call_tool()`
 
@@ -225,6 +276,28 @@ except MCPError as e:
 from mcp import MCPError
 ```
 
+The constructor signature also changed — it now takes `code`, `message`, and optional `data` directly instead of wrapping an `ErrorData`:
+
+**Before (v1):**
+
+```python
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, INVALID_REQUEST
+
+raise McpError(ErrorData(code=INVALID_REQUEST, message="bad input"))
+```
+
+**After (v2):**
+
+```python
+from mcp.shared.exceptions import MCPError
+from mcp.types import INVALID_REQUEST
+
+raise MCPError(INVALID_REQUEST, "bad input")
+# or, if you already have an ErrorData:
+raise MCPError.from_error_data(error_data)
+```
+
 ### `FastMCP` renamed to `MCPServer`
 
 The `FastMCP` class has been renamed to `MCPServer` to better reflect its role as the main server class in the SDK. This is a simple rename with no functional changes to the class itself.
@@ -240,10 +313,18 @@ mcp = FastMCP("Demo")
 **After (v2):**
 
 ```python
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import MCPServer, Context
 
 mcp = MCPServer("Demo")
 ```
+
+`Context` is the type annotation for the `ctx` parameter injected into tools, resources, and prompts (see [`get_context()` removed](#mcpserverget_context-removed) below).
+
+All submodules under `mcp.server.fastmcp.*` are now under `mcp.server.mcpserver.*` with the same structure. Common imports:
+
+- `Image`, `Audio` — from `mcp.server.mcpserver` (or `.utilities.types`)
+- `UserMessage`, `AssistantMessage` — from `mcp.server.mcpserver.prompts.base`
+- `ToolError`, `ResourceError` — from `mcp.server.mcpserver.exceptions`
 
 ### `mount_path` parameter removed from MCPServer
 
@@ -312,6 +393,8 @@ app = Starlette(routes=[Mount("/", app=mcp.streamable_http_app(json_response=Tru
 
 **Note:** DNS rebinding protection is automatically enabled when `host` is `127.0.0.1`, `localhost`, or `::1`. This now happens in `sse_app()` and `streamable_http_app()` instead of the constructor.
 
+If you were mutating these via `mcp.settings` after construction (e.g., `mcp.settings.port = 9000`), pass them to `run()` / `sse_app()` / `streamable_http_app()` instead — these fields no longer exist on `Settings`. The `debug` and `log_level` parameters remain on the constructor.
+
 ### `MCPServer.get_context()` removed
 
 `MCPServer.get_context()` has been removed. Context is now injected by the framework and passed explicitly — there is no ambient ContextVar to read from.
@@ -331,6 +414,8 @@ async def my_tool(x: int) -> str:
 **After (v2):**
 
 ```python
+from mcp.server.mcpserver import Context
+
 @mcp.tool()
 async def my_tool(x: int, ctx: Context) -> str:
     await ctx.info("Processing...")
@@ -342,6 +427,45 @@ async def my_tool(x: int, ctx: Context) -> str:
 `MCPServer.call_tool()`, `MCPServer.read_resource()`, and `MCPServer.get_prompt()` now accept an optional `context: Context | None = None` parameter. The framework passes this automatically during normal request handling. If you call these methods directly and omit `context`, a Context with no active request is constructed for you — tools that don't use `ctx` work normally, but any attempt to use `ctx.session`, `ctx.request_id`, etc. will raise.
 
 The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
+
+### Registering lowlevel handlers on `MCPServer` (workaround)
+
+`MCPServer` does not expose public APIs for `subscribe_resource`, `unsubscribe_resource`, or `set_logging_level` handlers. In v1, the workaround was to reach into the private lowlevel server and use its decorator methods:
+
+**Before (v1):**
+
+```python
+@mcp._mcp_server.set_logging_level()  # pyright: ignore[reportPrivateUsage]
+async def handle_set_logging_level(level: str) -> None:
+    ...
+
+mcp._mcp_server.subscribe_resource()(handle_subscribe)  # pyright: ignore[reportPrivateUsage]
+```
+
+In v2, the lowlevel `Server` no longer has decorator methods (handlers are constructor-only), so the equivalent workaround is `_add_request_handler`:
+
+**After (v2):**
+
+```python
+from mcp.server import ServerRequestContext
+from mcp.types import EmptyResult, SetLevelRequestParams, SubscribeRequestParams
+
+
+async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+    ...
+    return EmptyResult()
+
+
+async def handle_subscribe(ctx: ServerRequestContext, params: SubscribeRequestParams) -> EmptyResult:
+    ...
+    return EmptyResult()
+
+
+mcp._lowlevel_server._add_request_handler("logging/setLevel", handle_set_logging_level)  # pyright: ignore[reportPrivateUsage]
+mcp._lowlevel_server._add_request_handler("resources/subscribe", handle_subscribe)  # pyright: ignore[reportPrivateUsage]
+```
+
+This is a private API and may change. A public way to register these handlers on `MCPServer` is planned; until then, use this workaround or use the lowlevel `Server` directly.
 
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
@@ -381,6 +505,22 @@ request = client_request_adapter.validate_python(data)
 
 notification = server_notification_adapter.validate_python(data)
 # No .root access needed - notification is the actual type
+```
+
+The same applies when constructing values — the wrapper call is no longer needed:
+
+**Before (v1):**
+
+```python
+await session.send_notification(ClientNotification(InitializedNotification()))
+await session.send_request(ClientRequest(PingRequest()), EmptyResult)
+```
+
+**After (v2):**
+
+```python
+await session.send_notification(InitializedNotification())
+await session.send_request(PingRequest(), EmptyResult)
 ```
 
 **Available adapters:**
@@ -428,6 +568,8 @@ server = Server("my-server", on_call_tool=handle_call_tool)
 
 ### `RequestContext` type parameters simplified
 
+The `mcp.shared.context` module has been removed. `RequestContext` is now split into `ClientRequestContext` (in `mcp.client.context`) and `ServerRequestContext` (in `mcp.server.context`).
+
 The `RequestContext` class has been split to separate shared fields from server-specific fields. The shared `RequestContext` now only takes 1 type parameter (the session type) instead of 3.
 
 **`RequestContext` changes:**
@@ -458,11 +600,27 @@ ctx: ClientRequestContext
 server_ctx: ServerRequestContext[LifespanContextT, RequestT]
 ```
 
+The high-level `Context` class (injected into `@mcp.tool()` etc.) similarly dropped its `ServerSessionT` parameter: `Context[ServerSessionT, LifespanContextT, RequestT]` → `Context[LifespanContextT, RequestT]`. Both remaining parameters have defaults, so bare `Context` is usually sufficient:
+
+**Before (v1):**
+
+```python
+async def my_tool(ctx: Context[ServerSession, None]) -> str: ...
+```
+
+**After (v2):**
+
+```python
+async def my_tool(ctx: Context) -> str: ...
+# or, with an explicit lifespan type:
+async def my_tool(ctx: Context[MyLifespanState]) -> str: ...
+```
+
 ### `ProgressContext` and `progress()` context manager removed
 
 The `mcp.shared.progress` module (`ProgressContext`, `Progress`, and the `progress()` context manager) has been removed. This module had no real-world adoption — all users send progress notifications via `Context.report_progress()` or `session.send_progress_notification()` directly.
 
-**Before:**
+**Before (v1):**
 
 ```python
 from mcp.shared.progress import progress
@@ -488,6 +646,46 @@ await session.send_progress_notification(
     progress=25,
     total=100,
 )
+```
+
+### `create_connected_server_and_client_session` removed
+
+The `create_connected_server_and_client_session` helper in `mcp.shared.memory` has been removed. Use `mcp.client.Client` instead — it accepts a `Server` or `MCPServer` instance directly and handles the in-memory transport and session setup for you.
+
+**Before (v1):**
+
+```python
+from mcp.shared.memory import create_connected_server_and_client_session
+
+async with create_connected_server_and_client_session(server) as session:
+    result = await session.call_tool("my_tool", {"x": 1})
+```
+
+**After (v2):**
+
+```python
+from mcp.client import Client
+
+async with Client(server) as client:
+    result = await client.call_tool("my_tool", {"x": 1})
+```
+
+`Client` accepts the same callback parameters the old helper did (`sampling_callback`, `list_roots_callback`, `logging_callback`, `message_handler`, `elicitation_callback`, `client_info`) plus `raise_exceptions` to surface server-side errors.
+
+If you need direct access to the underlying `ClientSession` and memory streams (e.g., for low-level transport testing), `create_client_server_memory_streams` is still available in `mcp.shared.memory`:
+
+```python
+import anyio
+from mcp.client.session import ClientSession
+from mcp.shared.memory import create_client_server_memory_streams
+
+async with create_client_server_memory_streams() as (client_streams, server_streams):
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(lambda: server.run(*server_streams, server.create_initialization_options()))
+        async with ClientSession(*client_streams) as session:
+            await session.initialize()
+            ...
+        tg.cancel_scope.cancel()
 ```
 
 ### Resource URI type changed from `AnyUrl` to `str`
@@ -593,6 +791,8 @@ if ListToolsRequest in server.request_handlers:
 server = Server("my-server", on_list_tools=handle_list_tools)
 ```
 
+If you need to check whether a handler is registered, track this yourself — there is currently no public introspection API.
+
 ### Lowlevel `Server`: decorator-based handlers replaced with constructor `on_*` params
 
 The lowlevel `Server` class no longer uses decorator methods for handler registration. Instead, handlers are passed as `on_*` keyword arguments to the constructor.
@@ -645,6 +845,29 @@ server = Server("my-server", on_list_tools=handle_list_tools, on_call_tool=handl
 - Handlers return the full result type (e.g. `ListToolsResult`) rather than unwrapped values (e.g. `list[Tool]`).
 - The automatic `jsonschema` input/output validation that the old `call_tool()` decorator performed has been removed. There is no built-in replacement — if you relied on schema validation in the lowlevel server, you will need to validate inputs yourself in your handler.
 
+**Complete handler reference:**
+
+All handlers receive `ctx: ServerRequestContext` as the first argument. The second argument and return type are:
+
+| v1 decorator | v2 constructor kwarg | `params` type | return type |
+|---|---|---|---|
+| `@server.list_tools()` | `on_list_tools` | `PaginatedRequestParams \| None` | `ListToolsResult` |
+| `@server.call_tool()` | `on_call_tool` | `CallToolRequestParams` | `CallToolResult \| CreateTaskResult` |
+| `@server.list_resources()` | `on_list_resources` | `PaginatedRequestParams \| None` | `ListResourcesResult` |
+| `@server.list_resource_templates()` | `on_list_resource_templates` | `PaginatedRequestParams \| None` | `ListResourceTemplatesResult` |
+| `@server.read_resource()` | `on_read_resource` | `ReadResourceRequestParams` | `ReadResourceResult` |
+| `@server.subscribe_resource()` | `on_subscribe_resource` | `SubscribeRequestParams` | `EmptyResult` |
+| `@server.unsubscribe_resource()` | `on_unsubscribe_resource` | `UnsubscribeRequestParams` | `EmptyResult` |
+| `@server.list_prompts()` | `on_list_prompts` | `PaginatedRequestParams \| None` | `ListPromptsResult` |
+| `@server.get_prompt()` | `on_get_prompt` | `GetPromptRequestParams` | `GetPromptResult` |
+| `@server.completion()` | `on_completion` | `CompleteRequestParams` | `CompleteResult` |
+| `@server.set_logging_level()` | `on_set_logging_level` | `SetLevelRequestParams` | `EmptyResult` |
+| — | `on_ping` | `RequestParams \| None` | `EmptyResult` |
+| `@server.progress_notification()` | `on_progress` | `ProgressNotificationParams` | `None` |
+| — | `on_roots_list_changed` | `NotificationParams \| None` | `None` |
+
+All `params` and return types are importable from `mcp.types`.
+
 **Notification handlers:**
 
 ```python
@@ -694,10 +917,17 @@ Note: `params.arguments` can be `None` (the old decorator defaulted it to `{}`).
 
 **`read_resource()` — content type wrapping removed:**
 
-The old decorator auto-wrapped `str` into `TextResourceContents` and `bytes` into `BlobResourceContents` (with base64 encoding), and applied a default mime type of `text/plain`:
+The old decorator auto-wrapped `Iterable[ReadResourceContents]` (and the deprecated `str`/`bytes` shorthand) into `TextResourceContents`/`BlobResourceContents`, handling base64 encoding and mime-type defaulting:
 
 ```python
-# Before (v1) — str/bytes auto-wrapped with mime type defaulting
+# Before (v1) — Iterable[ReadResourceContents] auto-wrapped
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+
+@server.read_resource()
+async def handle(uri: AnyUrl) -> Iterable[ReadResourceContents]:
+    return [ReadResourceContents(content="file contents", mime_type="text/plain")]
+
+# Before (v1) — str/bytes shorthand (already deprecated in v1)
 @server.read_resource()
 async def handle(uri: str) -> str:
     return "file contents"
@@ -849,7 +1079,7 @@ params = CallToolRequestParams(
 params = CallToolRequestParams(
     name="my_tool",
     arguments={},
-    _meta={"progressToken": "tok", "customField": "value"},  # OK
+    _meta={"my_custom_key": "value", "another": 123},  # OK
 )
 ```
 
