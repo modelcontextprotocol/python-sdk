@@ -54,6 +54,7 @@
     - [Development Mode](#development-mode)
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
+    - [CLI Reference](#cli-reference)
     - [Streamable HTTP Transport](#streamable-http-transport)
       - [CORS Configuration for Browser-Based Clients](#cors-configuration-for-browser-based-clients)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
@@ -1231,6 +1232,43 @@ uv run mcp run servers/direct_execution.py
 ```
 
 Note that `uv run mcp run` or `uv run mcp dev` only supports server using MCPServer and not the low-level server variant.
+
+### CLI Reference
+
+A complete reference for all `mcp` CLI commands and their flags.
+
+#### `mcp dev <file_spec>`
+
+Run an MCP server with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) for interactive testing and debugging.
+
+| Flag | Short | Type | Description |
+| -------------------- | ----- | ------ | ----------------------------------------------------------------- |
+| `--with-editable` | `-e` | `PATH` | Directory containing `pyproject.toml` to install in editable mode |
+| `--with` | | `TEXT` | Additional packages to install (repeatable) |
+
+#### `mcp run <file_spec>`
+
+Run an MCP server directly. The server can be specified as a module (`server.py`) or with an explicit object path (`server.py:app`).
+
+| Flag | Short | Type | Description |
+| --------------- | ----- | ------------- | -------------------------------------------- |
+| `--transport` | `-t` | `stdio\|sse` | Transport protocol to use (default: `stdio`) |
+
+#### `mcp install <file_spec>`
+
+Install an MCP server in the Claude Desktop app. Environment variables are preserved once set and only updated when new values are explicitly provided.
+
+| Flag | Short | Type | Description |
+| -------------------- | ----- | ----------- | ----------------------------------------------------------------- |
+| `--name` | `-n` | `TEXT` | Custom name for the server (defaults to file name) |
+| `--with-editable` | `-e` | `PATH` | Directory containing `pyproject.toml` to install in editable mode |
+| `--with` | | `TEXT` | Additional packages to install (repeatable) |
+| `--env-var` | `-v` | `KEY=VALUE` | Environment variables in `KEY=VALUE` format (repeatable) |
+| `--env-file` | `-f` | `PATH` | Load environment variables from a `.env` file |
+
+#### `mcp version`
+
+Print the installed MCP SDK version.
 
 ### Streamable HTTP Transport
 
