@@ -69,8 +69,10 @@
 CI requires 100% (`fail_under = 100`, `branch = true`).
 
 - Full check: `./scripts/test` (~23s). Runs coverage + `strict-no-cover` on the
-  default Python. Not identical to CI: CI also runs 3.10–3.14 × {ubuntu, windows},
-  and some branch-coverage quirks only surface on specific matrix entries.
+  default Python. Not identical to CI: CI runs 3.10–3.14 × {ubuntu, windows}
+  × {locked, lowest-direct}, and some branch-coverage quirks only surface on
+  specific matrix entries. To reproduce a `lowest-direct` failure locally,
+  resync with `uv sync --upgrade --resolution lowest-direct` first.
 - Targeted check while iterating (~4s, deterministic):
 
   ```bash
@@ -97,8 +99,9 @@ git diff origin/main... | grep -E '^\+.*(pragma|type: ignore|noqa)'
 
 What the existing pragmas mean:
 
-- `# pragma: no cover` — line is never executed. CI's `strict-no-cover` fails if
-  it IS executed. When your test starts covering such a line, remove the pragma.
+- `# pragma: no cover` — line is never executed. CI's `strict-no-cover` (skipped
+  on Windows runners) fails if it IS executed. When your test starts covering
+  such a line, remove the pragma.
 - `# pragma: lax no cover` — excluded from coverage but not checked by
   `strict-no-cover`. Use for lines covered on some platforms/versions but not
   others.
