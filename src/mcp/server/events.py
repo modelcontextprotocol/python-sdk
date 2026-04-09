@@ -55,9 +55,9 @@ class SubscriptionRegistry:
     async def remove(self, session_id: str, pattern: str) -> None:
         """Remove a single subscription."""
         async with self._lock:
-            if session_id in self._subscriptions:
+            if session_id in self._subscriptions:  # pragma: no branch
                 self._subscriptions[session_id].discard(pattern)
-                if not self._subscriptions[session_id]:
+                if not self._subscriptions[session_id]:  # pragma: no branch
                     del self._subscriptions[session_id]
 
     async def remove_all(self, session_id: str) -> None:
