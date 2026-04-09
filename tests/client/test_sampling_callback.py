@@ -58,6 +58,50 @@ async def test_sampling_callback():
 
 
 @pytest.mark.anyio
+async def test_set_sampling_callback():
+    server = MCPServer("test")
+
+    updated_return = CreateMessageResult(
+        role="assistant",
+        content=TextContent(type="text", text="Updated response"),
+        model="updated-model",
+        stop_reason="endTurn",
+    )
+
+    async def updated_callback(
+        context: RequestContext[ClientSession],
+        params: CreateMessageRequestParams,
+    ) -> CreateMessageResult:
+        return updated_return
+
+    @server.tool("do_sample")
+    async def do_sample(message: str, ctx: Context) -> bool:
+        value = await ctx.session.create_message(
+            messages=[SamplingMessage(role="user", content=TextContent(type="text", text=message))],
+            max_tokens=100,
+        )
+        assert value == updated_return
+        return True
+
+    async with Client(server) as client:
+        # Before setting callback — default rejects with error
+        result = await client.call_tool("do_sample", {"message": "test"})
+        assert result.is_error is True
+
+        # Set new callback — should succeed
+        client.session.set_sampling_callback(updated_callback)
+        result = await client.call_tool("do_sample", {"message": "test"})
+        assert result.is_error is False
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text == "true"
+
+        # Reset to None — back to default error
+        client.session.set_sampling_callback(None)
+        result = await client.call_tool("do_sample", {"message": "test"})
+        assert result.is_error is True
+
+
+@pytest.mark.anyio
 async def test_create_message_backwards_compat_single_content():
     """Test backwards compatibility: create_message without tools returns single content."""
     server = MCPServer("test")
