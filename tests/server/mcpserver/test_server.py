@@ -1,4 +1,5 @@
 import base64
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -74,6 +75,44 @@ class TestServer:
 
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
+
+    def test_run_dispatches_to_stdio(self, monkeypatch: pytest.MonkeyPatch):
+        mcp = MCPServer("test")
+        captured: dict[str, Any] = {}
+
+        def fake_anyio_run(fn: Any, *args: Any, **kwargs: Any) -> None:
+            captured["fn"] = fn
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+
+        monkeypatch.setattr(MCPServer.run.__globals__["anyio"], "run", fake_anyio_run)
+
+        mcp.run()
+
+        assert captured["fn"] == mcp.run_stdio_async
+        assert captured["args"] == ()
+        assert captured["kwargs"] == {}
+
+    @pytest.mark.anyio
+    async def test_run_stdio_async_uses_stdio_server(self, monkeypatch: pytest.MonkeyPatch):
+        mcp = MCPServer("test")
+        read_stream = object()
+        write_stream = object()
+        init_options = object()
+        lowlevel_run = AsyncMock()
+
+        mcp._lowlevel_server.run = lowlevel_run  # type: ignore[method-assign]
+        monkeypatch.setattr(mcp._lowlevel_server, "create_initialization_options", lambda: init_options)
+
+        @asynccontextmanager
+        async def fake_stdio_server():
+            yield read_stream, write_stream
+
+        monkeypatch.setitem(MCPServer.run_stdio_async.__globals__, "stdio_server", fake_stdio_server)
+
+        await mcp.run_stdio_async()
+
+        lowlevel_run.assert_awaited_once_with(read_stream, write_stream, init_options)
 
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
