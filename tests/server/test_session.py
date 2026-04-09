@@ -13,6 +13,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    INVALID_REQUEST,
     ClientNotification,
     CompletionsCapability,
     InitializedNotification,
@@ -489,4 +490,67 @@ async def test_other_requests_blocked_before_initialization():
         tg.start_soon(mock_client)
 
     assert error_response_received
-    assert error_code == types.INVALID_PARAMS
+
+
+@pytest.mark.anyio
+async def test_request_before_initialization_returns_error():
+    """Test that sending a request before initialize returns a proper JSON-RPC error.
+
+    This reproduces the crash reported in GitHub issue #423, where MCP clients
+    (e.g. Cursor, MCP Inspector) send requests such as tools/list immediately
+    after a server restart, without first completing the initialize handshake.
+
+    Previously the server raised RuntimeError which propagated through the anyio
+    task group and crashed the ASGI application. Now it must respond with an
+    INVALID_REQUEST JSON-RPC error and keep running.
+    """
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+
+    error_code_received: int | None = None
+    error_message_received: str | None = None
+    client_done = anyio.Event()
+
+    async def run_server():
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ):
+            # The error response is sent directly inside _received_request
+            # without reaching incoming_messages. Keep the session alive until
+            # the mock client has received the error and signals completion.
+            with anyio.fail_after(5):
+                await client_done.wait()
+
+    async def mock_client():
+        nonlocal error_code_received, error_message_received
+
+        # Send tools/list WITHOUT any prior initialize handshake
+        await client_to_server_send.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/list")))
+
+        # Expect a JSON-RPC error response, not a crash
+        with anyio.fail_after(5):
+            response = await server_to_client_receive.receive()
+
+        assert isinstance(response.message, types.JSONRPCError)
+        error_code_received = response.message.error.code
+        error_message_received = response.message.error.message
+        client_done.set()
+
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+        anyio.create_task_group() as tg,
+    ):
+        tg.start_soon(run_server)
+        tg.start_soon(mock_client)
+
+    assert error_code_received == INVALID_REQUEST
+    assert error_message_received == "Received request before initialization was complete"
