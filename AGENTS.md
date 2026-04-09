@@ -79,6 +79,7 @@ CI requires 100% (`fail_under = 100`, `branch = true`).
   uv run --frozen coverage run -m pytest tests/path/test_foo.py
   uv run --frozen coverage combine
   uv run --frozen coverage report --include='src/mcp/path/foo.py' --fail-under=0
+  # UV_FROZEN=1 propagates --frozen to the uv subprocess strict-no-cover spawns
   UV_FROZEN=1 uv run --frozen strict-no-cover
   ```
 
