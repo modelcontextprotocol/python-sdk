@@ -520,6 +520,7 @@ async def streamable_http_client(
     url: str,
     *,
     http_client: httpx.AsyncClient | None = None,
+    auth: httpx.Auth | None = None,
     terminate_on_close: bool = True,
 ) -> AsyncGenerator[TransportStreams, None]:
     """Client transport for StreamableHTTP.
@@ -528,7 +529,12 @@ async def streamable_http_client(
         url: The MCP server endpoint URL.
         http_client: Optional pre-configured httpx.AsyncClient. If None, a default
             client with recommended MCP timeouts will be created. To configure headers,
-            authentication, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+            timeouts, or other HTTP settings, create an httpx.AsyncClient and pass it here.
+            Mutually exclusive with `auth`.
+        auth: Optional httpx.Auth provider (e.g., `BearerAuth` or `OAuthClientProvider`).
+            Shortcut for creating a default http_client with this auth configured.
+            Mutually exclusive with `http_client` — to combine auth with custom HTTP
+            settings, pass `http_client=httpx.AsyncClient(auth=..., ...)` instead.
         terminate_on_close: If True, send a DELETE request to terminate the session when the context exits.
 
     Yields:
@@ -536,16 +542,25 @@ async def streamable_http_client(
             - read_stream: Stream for reading messages from the server
             - write_stream: Stream for sending messages to the server
 
+    Raises:
+        ValueError: If both `http_client` and `auth` are provided.
+
     Example:
         See examples/snippets/clients/ for usage patterns.
     """
+    if http_client is not None and auth is not None:
+        raise ValueError(
+            "Pass either `http_client` or `auth`, not both. "
+            "To combine auth with custom HTTP settings, set auth on the httpx.AsyncClient."
+        )
+
     # Determine if we need to create and manage the client
     client_provided = http_client is not None
     client = http_client
 
     if client is None:
         # Create default client with recommended MCP timeouts
-        client = create_mcp_http_client()
+        client = create_mcp_http_client(auth=auth)
 
     transport = StreamableHTTPTransport(url)
 

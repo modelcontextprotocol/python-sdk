@@ -91,7 +91,7 @@ def create_mcp_http_client(
         kwargs["headers"] = headers
 
     # Handle authentication
-    if auth is not None:  # pragma: no cover
+    if auth is not None:
         kwargs["auth"] = auth
 
     return httpx.AsyncClient(**kwargs)
