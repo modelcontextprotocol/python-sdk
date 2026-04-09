@@ -146,6 +146,7 @@ class ClientSession(
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._server_capabilities: types.ServerCapabilities | None = None
+        self._session_id: str | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
         self._event_handler: EventHandlerFnT | None = None
         self._event_topic_filter: str | None = None
@@ -205,6 +206,16 @@ class ClientSession(
 
         self._server_capabilities = result.capabilities
 
+        # FastMCP servers inject a server-assigned session_id into
+        # InitializeResult._meta so clients can synchronously read it after
+        # connect (e.g. to subscribe to session-scoped event topics like
+        # ``sessions/{session_id}/messages``). Non-FastMCP servers typically
+        # omit this, in which case ``self._session_id`` stays ``None``.
+        if result.meta is not None:
+            meta_session_id = result.meta.get("session_id")
+            if isinstance(meta_session_id, str):
+                self._session_id = meta_session_id
+
         await self.send_notification(types.ClientNotification(types.InitializedNotification()))
 
         return result
@@ -215,6 +226,17 @@ class ClientSession(
         Returns None if the session has not been initialized yet.
         """
         return self._server_capabilities
+
+    @property
+    def session_id(self) -> str | None:
+        """The server-assigned session ID from InitializeResult._meta, if present.
+
+        This is set by FastMCP servers to enable client-side subscription to
+        session-scoped event topics like ``sessions/{session_id}/messages``.
+        Returns None if the server did not provide a session_id (e.g.,
+        non-FastMCP server).
+        """
+        return self._session_id
 
     @property
     def experimental(self) -> ExperimentalClientFeatures:

@@ -27,6 +27,10 @@ Topics are `/`-separated strings with a maximum depth of 8 segments. Clients sub
 - `+` matches exactly one segment
 - `#` matches zero or more trailing segments (must be the last segment)
 
+### Session-Scoped Topics
+
+Servers may use a `{session_id}` placeholder in topic patterns to scope topics to individual sessions (e.g., `app/sessions/{session_id}/messages`). When a topic contains `{session_id}`, the server enforces that subscribers can only substitute their own session UUID -- wildcards and other session IDs are rejected. This convention is not part of the core MCP spec but is a common server-side pattern (used by FastMCP, among others).
+
 ## Server-Side
 
 ### Declaring Event Topics
@@ -194,6 +198,17 @@ server.request_handlers[EventListRequest] = handle_list
 ```
 
 ## Client-Side
+
+### Session ID
+
+After initialization, `session.session_id` returns the server-assigned session ID (`str | None`), sourced from `InitializeResult._meta["session_id"]`. This is useful for constructing session-scoped topic patterns:
+
+```python
+topic = f"app/sessions/{session.session_id}/messages"
+await session.subscribe_events([topic])
+```
+
+Returns `None` if the server does not provide a session ID in `_meta`.
 
 ### Subscribing to Events
 
