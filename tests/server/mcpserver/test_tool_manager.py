@@ -23,7 +23,7 @@ class TestAddTools:
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(sum)
+        manager.add_tool(Tool.from_function(sum))
 
         tool = manager.get_tool("sum")
         assert tool is not None
@@ -54,13 +54,24 @@ class TestAddTools:
             context_kwarg=None,
             annotations=None,
         )
-        manager = ToolManager(tools=[original_tool])
+        duplicate_tool = Tool(
+            name="sum",
+            title="Duplicate Tool",
+            description="Add two numbers.",
+            fn=sum,
+            fn_metadata=fn_metadata,
+            is_async=False,
+            parameters=AddArguments.model_json_schema(),
+            context_kwarg=None,
+            annotations=None,
+        )
+        manager = ToolManager(tools=[original_tool, duplicate_tool])
         saved_tool = manager.get_tool("sum")
-        assert saved_tool == original_tool
+        assert saved_tool is original_tool
 
         # warn on duplicate tools
         with caplog.at_level(logging.WARNING):
-            manager = ToolManager(True, tools=[original_tool, original_tool])
+            manager = ToolManager(True, tools=[original_tool, duplicate_tool])
             assert "Tool already exists: sum" in caplog.text
 
     @pytest.mark.anyio
@@ -72,7 +83,7 @@ class TestAddTools:
             return f"Data from {url}"
 
         manager = ToolManager()
-        manager.add_tool(fetch_data)
+        manager.add_tool(Tool.from_function(fetch_data))
 
         tool = manager.get_tool("fetch_data")
         assert tool is not None
@@ -93,7 +104,7 @@ class TestAddTools:
             return {"id": 1, **user.model_dump()}
 
         manager = ToolManager()
-        manager.add_tool(create_user)
+        manager.add_tool(Tool.from_function(create_user))
 
         tool = manager.get_tool("create_user")
         assert tool is not None
@@ -115,7 +126,7 @@ class TestAddTools:
                 return x * 2
 
         manager = ToolManager()
-        tool = manager.add_tool(MyTool())
+        tool = manager.add_tool(Tool.from_function(MyTool()))
         assert tool.name == "MyTool"
         assert tool.is_async is False
         assert tool.parameters["properties"]["x"]["type"] == "integer"
@@ -132,25 +143,23 @@ class TestAddTools:
                 return x * 2
 
         manager = ToolManager()
-        tool = manager.add_tool(MyAsyncTool())
+        tool = manager.add_tool(Tool.from_function(MyAsyncTool()))
         assert tool.name == "MyAsyncTool"
         assert tool.is_async is True
         assert tool.parameters["properties"]["x"]["type"] == "integer"
 
     def test_add_invalid_tool(self):
-        manager = ToolManager()
         with pytest.raises(AttributeError):
-            manager.add_tool(1)  # type: ignore
+            Tool.from_function(1)  # type: ignore[arg-type]
 
     def test_add_lambda(self):
         manager = ToolManager()
-        tool = manager.add_tool(lambda x: x, name="my_tool")  # type: ignore[reportUnknownLambdaType]
+        tool = manager.add_tool(Tool.from_function(lambda x: x, name="my_tool"))  # type: ignore[reportUnknownLambdaType]
         assert tool.name == "my_tool"
 
     def test_add_lambda_with_no_name(self):
-        manager = ToolManager()
         with pytest.raises(ValueError, match="You must provide a name for lambda functions"):
-            manager.add_tool(lambda x: x)  # type: ignore[reportUnknownLambdaType]
+            Tool.from_function(lambda x: x)  # type: ignore[reportUnknownLambdaType]
 
     def test_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
         """Test warning on duplicate tools."""
@@ -159,9 +168,9 @@ class TestAddTools:
             return x
 
         manager = ToolManager()
-        manager.add_tool(f)
+        manager.add_tool(Tool.from_function(f))
         with caplog.at_level(logging.WARNING):
-            manager.add_tool(f)
+            manager.add_tool(Tool.from_function(f))
             assert "Tool already exists: f" in caplog.text
 
     def test_disable_warn_on_duplicate_tools(self, caplog: pytest.LogCaptureFixture):
@@ -171,10 +180,10 @@ class TestAddTools:
             return x
 
         manager = ToolManager()
-        manager.add_tool(f)
+        manager.add_tool(Tool.from_function(f))
         manager.warn_on_duplicate_tools = False
         with caplog.at_level(logging.WARNING):
-            manager.add_tool(f)
+            manager.add_tool(Tool.from_function(f))
             assert "Tool already exists: f" not in caplog.text
 
 
@@ -186,7 +195,7 @@ class TestCallTools:
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(sum)
+        manager.add_tool(Tool.from_function(sum))
         result = await manager.call_tool("sum", {"a": 1, "b": 2}, Context())
         assert result == 3
 
@@ -197,7 +206,7 @@ class TestCallTools:
             return n * 2
 
         manager = ToolManager()
-        manager.add_tool(double)
+        manager.add_tool(Tool.from_function(double))
         result = await manager.call_tool("double", {"n": 5}, Context())
         assert result == 10
 
@@ -211,7 +220,7 @@ class TestCallTools:
                 return x * 2
 
         manager = ToolManager()
-        tool = manager.add_tool(MyTool())
+        tool = manager.add_tool(Tool.from_function(MyTool()))
         result = await tool.run({"x": 5}, Context())
         assert result == 10
 
@@ -225,7 +234,7 @@ class TestCallTools:
                 return x * 2
 
         manager = ToolManager()
-        tool = manager.add_tool(MyAsyncTool())
+        tool = manager.add_tool(Tool.from_function(MyAsyncTool()))
         result = await tool.run({"x": 5}, Context())
         assert result == 10
 
@@ -236,7 +245,7 @@ class TestCallTools:
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(sum)
+        manager.add_tool(Tool.from_function(sum))
         result = await manager.call_tool("sum", {"a": 1}, Context())
         assert result == 2
 
@@ -247,7 +256,7 @@ class TestCallTools:
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(sum)
+        manager.add_tool(Tool.from_function(sum))
         with pytest.raises(ToolError):
             await manager.call_tool("sum", {"a": 1}, Context())
 
@@ -263,7 +272,7 @@ class TestCallTools:
             return sum(vals)
 
         manager = ToolManager()
-        manager.add_tool(sum_vals)
+        manager.add_tool(Tool.from_function(sum_vals))
         # Try both with plain list and with JSON list
         result = await manager.call_tool("sum_vals", {"vals": "[1, 2, 3]"}, Context())
         assert result == 6
@@ -276,7 +285,7 @@ class TestCallTools:
             return vals if isinstance(vals, str) else "".join(vals)
 
         manager = ToolManager()
-        manager.add_tool(concat_strs)
+        manager.add_tool(Tool.from_function(concat_strs))
         # Try both with plain python object and with JSON list
         result = await manager.call_tool("concat_strs", {"vals": ["a", "b", "c"]}, Context())
         assert result == "abc"
@@ -300,7 +309,7 @@ class TestCallTools:
             return [x.name for x in tank.shrimp]
 
         manager = ToolManager()
-        manager.add_tool(name_shrimp)
+        manager.add_tool(Tool.from_function(name_shrimp))
         result = await manager.call_tool(
             "name_shrimp",
             {"tank": {"x": None, "shrimp": [{"name": "rex"}, {"name": "gertrude"}]}},
@@ -322,7 +331,7 @@ class TestToolSchema:
             return a
 
         manager = ToolManager()
-        tool = manager.add_tool(something)
+        tool = manager.add_tool(Tool.from_function(something))
         assert "ctx" not in json.dumps(tool.parameters)
         assert "Context" not in json.dumps(tool.parameters)
         assert "ctx" not in tool.fn_metadata.arg_model.model_fields
@@ -339,19 +348,19 @@ class TestContextHandling:
             return str(x)
 
         manager = ToolManager()
-        tool = manager.add_tool(tool_with_context)
+        tool = manager.add_tool(Tool.from_function(tool_with_context))
         assert tool.context_kwarg == "ctx"
 
         def tool_without_context(x: int) -> str:  # pragma: no cover
             return str(x)
 
-        tool = manager.add_tool(tool_without_context)
+        tool = manager.add_tool(Tool.from_function(tool_without_context))
         assert tool.context_kwarg is None
 
         def tool_with_parametrized_context(x: int, ctx: Context[LifespanContextT, RequestT]) -> str:  # pragma: no cover
             return str(x)
 
-        tool = manager.add_tool(tool_with_parametrized_context)
+        tool = manager.add_tool(Tool.from_function(tool_with_parametrized_context))
         assert tool.context_kwarg == "ctx"
 
     @pytest.mark.anyio
@@ -363,7 +372,7 @@ class TestContextHandling:
             return str(x)
 
         manager = ToolManager()
-        manager.add_tool(tool_with_context)
+        manager.add_tool(Tool.from_function(tool_with_context))
 
         result = await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
         assert result == "42"
@@ -377,7 +386,7 @@ class TestContextHandling:
             return str(x)
 
         manager = ToolManager()
-        manager.add_tool(async_tool)
+        manager.add_tool(Tool.from_function(async_tool))
 
         result = await manager.call_tool("async_tool", {"x": 42}, context=Context())
         assert result == "42"
@@ -390,7 +399,7 @@ class TestContextHandling:
             raise ValueError("Test error")
 
         manager = ToolManager()
-        manager.add_tool(tool_with_context)
+        manager.add_tool(Tool.from_function(tool_with_context))
 
         with pytest.raises(ToolError, match="Error executing tool tool_with_context"):
             await manager.call_tool("tool_with_context", {"x": 42}, context=Context())
@@ -411,7 +420,7 @@ class TestToolAnnotations:
         )
 
         manager = ToolManager()
-        tool = manager.add_tool(read_data, annotations=annotations)
+        tool = manager.add_tool(Tool.from_function(read_data, annotations=annotations))
 
         assert tool.annotations is not None
         assert tool.annotations.title == "File Reader"
@@ -452,7 +461,7 @@ class TestStructuredOutput:
             return UserOutput(name="John", age=30)
 
         manager = ToolManager()
-        manager.add_tool(get_user)
+        manager.add_tool(Tool.from_function(get_user))
         result = await manager.call_tool("get_user", {"user_id": 1}, Context(), convert_result=True)
         # don't test unstructured output here, just the structured conversion
         assert len(result) == 2 and result[1] == {"name": "John", "age": 30}
@@ -466,7 +475,7 @@ class TestStructuredOutput:
             return 10
 
         manager = ToolManager()
-        manager.add_tool(double_number)
+        manager.add_tool(Tool.from_function(double_number))
         result = await manager.call_tool("double_number", {"n": 5}, Context())
         assert result == 10
         result = await manager.call_tool("double_number", {"n": 5}, Context(), convert_result=True)
@@ -487,7 +496,7 @@ class TestStructuredOutput:
             return UserDict(name="Alice", age=25)
 
         manager = ToolManager()
-        manager.add_tool(get_user_dict)
+        manager.add_tool(Tool.from_function(get_user_dict))
         result = await manager.call_tool("get_user_dict", {"user_id": 1}, Context())
         assert result == expected_output
 
@@ -507,7 +516,7 @@ class TestStructuredOutput:
             return Person("Bob", 40)
 
         manager = ToolManager()
-        manager.add_tool(get_person)
+        manager.add_tool(Tool.from_function(get_person))
         result = await manager.call_tool("get_person", {}, Context(), convert_result=True)
         # don't test unstructured output here, just the structured conversion
         assert len(result) == 2 and result[1] == expected_output
@@ -524,7 +533,7 @@ class TestStructuredOutput:
             return expected_list
 
         manager = ToolManager()
-        manager.add_tool(get_numbers)
+        manager.add_tool(Tool.from_function(get_numbers))
         result = await manager.call_tool("get_numbers", {}, Context())
         assert result == expected_list
         result = await manager.call_tool("get_numbers", {}, Context(), convert_result=True)
@@ -539,7 +548,7 @@ class TestStructuredOutput:
             return {"key": "value"}
 
         manager = ToolManager()
-        manager.add_tool(get_dict, structured_output=False)
+        manager.add_tool(Tool.from_function(get_dict, structured_output=False))
         result = await manager.call_tool("get_dict", {}, Context())
         assert isinstance(result, dict)
         assert result == {"key": "value"}
@@ -555,7 +564,7 @@ class TestStructuredOutput:
             return UserOutput(name="Test", age=25)
 
         manager = ToolManager()
-        tool = manager.add_tool(get_user)
+        tool = manager.add_tool(Tool.from_function(get_user))
 
         # Test that output_schema is populated
         expected_schema = {
@@ -575,7 +584,7 @@ class TestStructuredOutput:
             return {"debug": True, "port": 8080, "features": ["auth", "logging"]}
 
         manager = ToolManager()
-        tool = manager.add_tool(get_config)
+        tool = manager.add_tool(Tool.from_function(get_config))
 
         # Check output schema
         assert tool.output_schema is not None
@@ -600,7 +609,7 @@ class TestStructuredOutput:
             return {"alice": 100, "bob": 85, "charlie": 92}
 
         manager = ToolManager()
-        tool = manager.add_tool(get_scores)
+        tool = manager.add_tool(Tool.from_function(get_scores))
 
         # Check output schema
         assert tool.output_schema is not None
@@ -630,7 +639,7 @@ class TestToolMetadata:
         metadata = {"ui": {"type": "form", "fields": ["input"]}, "version": "1.0"}
 
         manager = ToolManager()
-        tool = manager.add_tool(process_data, meta=metadata)
+        tool = manager.add_tool(Tool.from_function(process_data, meta=metadata))
 
         assert tool.meta is not None
         assert tool.meta == metadata
@@ -645,7 +654,7 @@ class TestToolMetadata:
             return x * 2
 
         manager = ToolManager()
-        tool = manager.add_tool(simple_tool)
+        tool = manager.add_tool(Tool.from_function(simple_tool))
 
         assert tool.meta is None
 
@@ -746,7 +755,7 @@ class TestToolMetadata:
         }
 
         manager = ToolManager()
-        tool = manager.add_tool(complex_tool, meta=metadata)
+        tool = manager.add_tool(Tool.from_function(complex_tool, meta=metadata))
 
         assert tool.meta is not None
         assert tool.meta["ui"]["components"][0]["validation"]["minLength"] == 5
@@ -762,7 +771,7 @@ class TestToolMetadata:
             return x
 
         manager = ToolManager()
-        tool = manager.add_tool(tool_with_empty_meta, meta={})
+        tool = manager.add_tool(Tool.from_function(tool_with_empty_meta, meta={}))
 
         assert tool.meta is not None
         assert tool.meta == {}
@@ -800,7 +809,7 @@ class TestRemoveTools:
             return a + b
 
         manager = ToolManager()
-        manager.add_tool(add)
+        manager.add_tool(Tool.from_function(add))
 
         # Verify tool exists
         assert manager.get_tool("add") is not None
@@ -836,9 +845,9 @@ class TestRemoveTools:
             return a / b
 
         manager = ToolManager()
-        manager.add_tool(add)
-        manager.add_tool(multiply)
-        manager.add_tool(divide)
+        manager.add_tool(Tool.from_function(add))
+        manager.add_tool(Tool.from_function(multiply))
+        manager.add_tool(Tool.from_function(divide))
 
         # Verify all tools exist
         assert len(manager.list_tools()) == 3
@@ -864,7 +873,7 @@ class TestRemoveTools:
             return f"Hello, {name}!"
 
         manager = ToolManager()
-        manager.add_tool(greet)
+        manager.add_tool(Tool.from_function(greet))
 
         # Verify tool works before removal
         result = await manager.call_tool("greet", {"name": "World"}, Context())
@@ -885,7 +894,7 @@ class TestRemoveTools:
             return "test"
 
         manager = ToolManager()
-        manager.add_tool(test_func)
+        manager.add_tool(Tool.from_function(test_func))
 
         # Verify tool exists
         assert manager.get_tool("test_func") is not None

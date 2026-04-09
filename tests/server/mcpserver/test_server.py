@@ -16,6 +16,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
+from mcp.server.mcpserver.tools import Tool
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
@@ -239,20 +240,21 @@ def mixed_content_tool_fn() -> list[ContentBlock]:
 class TestServerTools:
     async def test_add_tool(self):
         mcp = MCPServer()
-        mcp.add_tool(tool_fn)
-        mcp.add_tool(tool_fn)
+        tool = Tool.from_function(tool_fn)
+        mcp.add_tool(tool)
+        mcp.add_tool(tool)
         assert len(mcp._tool_manager.list_tools()) == 1
 
     async def test_list_tools(self):
         mcp = MCPServer()
-        mcp.add_tool(tool_fn)
+        mcp.add_tool(Tool.from_function(tool_fn))
         async with Client(mcp) as client:
             tools = await client.list_tools()
             assert len(tools.tools) == 1
 
     async def test_call_tool(self):
         mcp = MCPServer()
-        mcp.add_tool(tool_fn)
+        mcp.add_tool(Tool.from_function(tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("my_tool", {"arg1": "value"})
             assert not hasattr(result, "error")
@@ -260,7 +262,7 @@ class TestServerTools:
 
     async def test_tool_exception_handling(self):
         mcp = MCPServer()
-        mcp.add_tool(error_tool_fn)
+        mcp.add_tool(Tool.from_function(error_tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             assert len(result.content) == 1
@@ -271,7 +273,7 @@ class TestServerTools:
 
     async def test_tool_error_handling(self):
         mcp = MCPServer()
-        mcp.add_tool(error_tool_fn)
+        mcp.add_tool(Tool.from_function(error_tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             assert len(result.content) == 1
@@ -283,7 +285,7 @@ class TestServerTools:
     async def test_tool_error_details(self):
         """Test that exception details are properly formatted in the response"""
         mcp = MCPServer()
-        mcp.add_tool(error_tool_fn)
+        mcp.add_tool(Tool.from_function(error_tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("error_tool_fn", {})
             content = result.content[0]
@@ -294,7 +296,7 @@ class TestServerTools:
 
     async def test_tool_return_value_conversion(self):
         mcp = MCPServer()
-        mcp.add_tool(tool_fn)
+        mcp.add_tool(Tool.from_function(tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("tool_fn", {"x": 1, "y": 2})
             assert len(result.content) == 1
@@ -311,7 +313,7 @@ class TestServerTools:
         image_path.write_bytes(b"fake png data")
 
         mcp = MCPServer()
-        mcp.add_tool(image_tool_fn)
+        mcp.add_tool(Tool.from_function(image_tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("image_tool_fn", {"path": str(image_path)})
             assert len(result.content) == 1
@@ -331,7 +333,7 @@ class TestServerTools:
         audio_path.write_bytes(b"fake wav data")
 
         mcp = MCPServer()
-        mcp.add_tool(audio_tool_fn)
+        mcp.add_tool(Tool.from_function(audio_tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("audio_tool_fn", {"path": str(audio_path)})
             assert len(result.content) == 1
@@ -360,7 +362,7 @@ class TestServerTools:
     async def test_tool_audio_suffix_detection(self, tmp_path: Path, filename: str, expected_mime_type: str):
         """Test that Audio helper correctly detects MIME types from file suffixes"""
         mcp = MCPServer()
-        mcp.add_tool(audio_tool_fn)
+        mcp.add_tool(Tool.from_function(audio_tool_fn))
 
         # Create a test audio file with the specific extension
         audio_path = tmp_path / filename
@@ -379,7 +381,7 @@ class TestServerTools:
 
     async def test_tool_mixed_content(self):
         mcp = MCPServer()
-        mcp.add_tool(mixed_content_tool_fn)
+        mcp.add_tool(Tool.from_function(mixed_content_tool_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("mixed_content_tool_fn", {})
             assert len(result.content) == 3
@@ -420,8 +422,8 @@ class TestServerTools:
 
         # TODO(Marcelo): It seems if we add the proper type hint, it generates an invalid JSON schema.
         # We need to fix this.
-        def mixed_list_fn() -> list:  # type: ignore
-            return [  # type: ignore
+        def mixed_list_fn() -> list[Any]:
+            return [
                 "text message",
                 Image(image_path),
                 Audio(audio_path),
@@ -430,7 +432,7 @@ class TestServerTools:
             ]
 
         mcp = MCPServer()
-        mcp.add_tool(mixed_list_fn)  # type: ignore
+        mcp.add_tool(Tool.from_function(mixed_list_fn))
         async with Client(mcp) as client:
             result = await client.call_tool("mixed_list_fn", {})
             assert len(result.content) == 5
@@ -472,7 +474,7 @@ class TestServerTools:
             return UserOutput(name="John Doe", age=30)
 
         mcp = MCPServer()
-        mcp.add_tool(get_user)
+        mcp.add_tool(Tool.from_function(get_user))
 
         async with Client(mcp) as client:
             # Check that the tool has outputSchema
@@ -501,7 +503,7 @@ class TestServerTools:
             return a + b
 
         mcp = MCPServer()
-        mcp.add_tool(calculate_sum)
+        mcp.add_tool(Tool.from_function(calculate_sum))
 
         async with Client(mcp) as client:
             # Check that the tool has outputSchema
@@ -527,7 +529,7 @@ class TestServerTools:
             return [1, 2, 3, 4, 5]
 
         mcp = MCPServer()
-        mcp.add_tool(get_numbers)
+        mcp.add_tool(Tool.from_function(get_numbers))
 
         async with Client(mcp) as client:
             result = await client.call_tool("get_numbers", {})
@@ -542,7 +544,7 @@ class TestServerTools:
             return [1, 2, 3, 4, [5]]  # type: ignore
 
         mcp = MCPServer()
-        mcp.add_tool(get_numbers)
+        mcp.add_tool(Tool.from_function(get_numbers))
 
         async with Client(mcp) as client:
             result = await client.call_tool("get_numbers", {})
@@ -565,7 +567,7 @@ class TestServerTools:
             }
 
         mcp = MCPServer()
-        mcp.add_tool(get_metadata)
+        mcp.add_tool(Tool.from_function(get_metadata))
 
         async with Client(mcp) as client:
             # Check schema
@@ -600,7 +602,7 @@ class TestServerTools:
             return {"theme": "dark", "language": "en", "timezone": "UTC"}
 
         mcp = MCPServer()
-        mcp.add_tool(get_settings)
+        mcp.add_tool(Tool.from_function(get_settings))
 
         async with Client(mcp) as client:
             # Check schema
@@ -618,7 +620,7 @@ class TestServerTools:
     async def test_remove_tool(self):
         """Test removing a tool from the server."""
         mcp = MCPServer()
-        mcp.add_tool(tool_fn)
+        mcp.add_tool(Tool.from_function(tool_fn))
 
         # Verify tool exists
         assert len(mcp._tool_manager.list_tools()) == 1
@@ -639,8 +641,8 @@ class TestServerTools:
     async def test_remove_tool_and_list(self):
         """Test that a removed tool doesn't appear in list_tools."""
         mcp = MCPServer()
-        mcp.add_tool(tool_fn)
-        mcp.add_tool(error_tool_fn)
+        mcp.add_tool(Tool.from_function(tool_fn))
+        mcp.add_tool(Tool.from_function(error_tool_fn))
 
         # Verify both tools exist
         async with Client(mcp) as client:
@@ -662,7 +664,7 @@ class TestServerTools:
     async def test_remove_tool_and_call(self):
         """Test that calling a removed tool fails appropriately."""
         mcp = MCPServer()
-        mcp.add_tool(tool_fn)
+        mcp.add_tool(Tool.from_function(tool_fn))
 
         # Verify tool works before removal
         async with Client(mcp) as client:
@@ -1014,7 +1016,7 @@ class TestContextInjection:
         def tool_with_context(x: int, ctx: Context) -> str:  # pragma: no cover
             return f"Request {ctx.request_id}: {x}"
 
-        tool = mcp._tool_manager.add_tool(tool_with_context)
+        tool = mcp._tool_manager.add_tool(Tool.from_function(tool_with_context))
         assert tool.context_kwarg == "ctx"
 
     async def test_context_injection(self):
@@ -1025,7 +1027,7 @@ class TestContextInjection:
             assert ctx.request_id is not None
             return f"Request {ctx.request_id}: {x}"
 
-        mcp.add_tool(tool_with_context)
+        mcp.add_tool(Tool.from_function(tool_with_context))
         async with Client(mcp) as client:
             result = await client.call_tool("tool_with_context", {"x": 42})
             assert len(result.content) == 1
@@ -1042,7 +1044,7 @@ class TestContextInjection:
             assert ctx.request_id is not None
             return f"Async request {ctx.request_id}: {x}"
 
-        mcp.add_tool(async_tool)
+        mcp.add_tool(Tool.from_function(async_tool))
         async with Client(mcp) as client:
             result = await client.call_tool("async_tool", {"x": 42})
             assert len(result.content) == 1
@@ -1062,7 +1064,7 @@ class TestContextInjection:
             await ctx.error("Error message")
             return f"Logged messages for {msg}"
 
-        mcp.add_tool(logging_tool)
+        mcp.add_tool(Tool.from_function(logging_tool))
 
         with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
             async with Client(mcp) as client:
@@ -1085,7 +1087,7 @@ class TestContextInjection:
         def no_context(x: int) -> int:
             return x * 2
 
-        mcp.add_tool(no_context)
+        mcp.add_tool(Tool.from_function(no_context))
         async with Client(mcp) as client:
             result = await client.call_tool("no_context", {"x": 21})
             assert len(result.content) == 1

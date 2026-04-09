@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.tools.base import Tool
 from mcp.server.mcpserver.utilities.logging import get_logger
-from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -25,13 +23,10 @@ class ToolManager:
         tools: list[Tool] | None = None,
     ):
         self._tools: dict[str, Tool] = {}
+        self.warn_on_duplicate_tools = warn_on_duplicate_tools
         if tools is not None:
             for tool in tools:
-                if warn_on_duplicate_tools and tool.name in self._tools:
-                    logger.warning(f"Tool already exists: {tool.name}")
-                self._tools[tool.name] = tool
-
-        self.warn_on_duplicate_tools = warn_on_duplicate_tools
+                self.add_tool(tool)
 
     def get_tool(self, name: str) -> Tool | None:
         """Get tool by name."""
@@ -43,26 +38,9 @@ class ToolManager:
 
     def add_tool(
         self,
-        fn: Callable[..., Any],
-        name: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-        annotations: ToolAnnotations | None = None,
-        icons: list[Icon] | None = None,
-        meta: dict[str, Any] | None = None,
-        structured_output: bool | None = None,
+        tool: Tool,
     ) -> Tool:
-        """Add a tool to the server."""
-        tool = Tool.from_function(
-            fn,
-            name=name,
-            title=title,
-            description=description,
-            annotations=annotations,
-            icons=icons,
-            meta=meta,
-            structured_output=structured_output,
-        )
+        """Add a tool to the manager."""
         existing = self._tools.get(tool.name)
         if existing:
             if self.warn_on_duplicate_tools:

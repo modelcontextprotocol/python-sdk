@@ -455,45 +455,13 @@ class MCPServer(Generic[LifespanResultT]):
             # If an exception happens when reading the resource, we should not leak the exception to the client.
             raise ResourceError(f"Error reading resource {uri}") from exc
 
-    def add_tool(
-        self,
-        fn: Callable[..., Any],
-        name: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-        annotations: ToolAnnotations | None = None,
-        icons: list[Icon] | None = None,
-        meta: dict[str, Any] | None = None,
-        structured_output: bool | None = None,
-    ) -> None:
+    def add_tool(self, tool: Tool) -> None:
         """Add a tool to the server.
 
-        The tool function can optionally request a Context object by adding a parameter
-        with the Context type annotation. See the @tool decorator for examples.
-
         Args:
-            fn: The function to register as a tool
-            name: Optional name for the tool (defaults to function name)
-            title: Optional human-readable title for the tool
-            description: Optional description of what the tool does
-            annotations: Optional ToolAnnotations providing additional tool information
-            icons: Optional list of icons for the tool
-            meta: Optional metadata dictionary for the tool
-            structured_output: Controls whether the tool's output is structured or unstructured
-                - If None, auto-detects based on the function's return type annotation
-                - If True, creates a structured tool (return type annotation permitting)
-                - If False, unconditionally creates an unstructured tool
+            tool: A Tool instance to add
         """
-        self._tool_manager.add_tool(
-            fn,
-            name=name,
-            title=title,
-            description=description,
-            annotations=annotations,
-            icons=icons,
-            meta=meta,
-            structured_output=structured_output,
-        )
+        self._tool_manager.add_tool(tool)
 
     def remove_tool(self, name: str) -> None:
         """Remove a tool from the server by name.
@@ -562,7 +530,7 @@ class MCPServer(Generic[LifespanResultT]):
             )
 
         def decorator(fn: _CallableT) -> _CallableT:
-            self.add_tool(
+            tool = Tool.from_function(
                 fn,
                 name=name,
                 title=title,
@@ -572,6 +540,7 @@ class MCPServer(Generic[LifespanResultT]):
                 meta=meta,
                 structured_output=structured_output,
             )
+            self.add_tool(tool)
             return fn
 
         return decorator
