@@ -37,8 +37,8 @@ from mcp.types import (
 _registry = SubscriptionRegistry()
 _retained_store = RetainedValueStore()
 _topic_descriptors: list[EventTopicDescriptor] = [
-    EventTopicDescriptor(pattern="test/+", description="Test topic"),
-    EventTopicDescriptor(pattern="retained/value", description="Retained", retained=True),
+    EventTopicDescriptor(pattern="test/+", description="Test topic", schema=None),
+    EventTopicDescriptor(pattern="retained/value", description="Retained", retained=True, schema=None),
 ]
 
 
@@ -46,7 +46,7 @@ async def _on_subscribe_events(
     ctx: RequestContext[ServerSession, Any],
     params: EventSubscribeParams,
 ) -> EventSubscribeResult:
-    subscribed = []
+    subscribed: list[SubscribedTopic] = []
     for pattern in params.topics:
         await _registry.add("test-session", pattern)
         subscribed.append(SubscribedTopic(pattern=pattern))
@@ -106,18 +106,18 @@ async def _message_handler(
     message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
     if isinstance(message, Exception):
-        raise message
+        raise message  # pragma: no cover
 
 
 async def _run_server(server_session: ServerSession, server: Server) -> None:
     async for message in server_session.incoming_messages:
         if isinstance(message, Exception):
-            raise message
+            raise message  # pragma: no cover
         if isinstance(message, RequestResponder):
             with message:
                 req = message.request
                 handler = server.request_handlers.get(type(req.root))
-                if handler:
+                if handler:  # pragma: no branch
                     token = request_ctx.set(
                         RequestContext(
                             request_id=message.request_id,
@@ -204,7 +204,7 @@ async def test_emit_event_received_by_client():
             assert received_events[0].timestamp == explicit_ts
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -250,7 +250,7 @@ async def test_subscribe_receives_retained_values():
             assert sub_result.retained[0].payload == "cached"
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -294,7 +294,7 @@ async def test_unsubscribe_stops_matching():
             assert matches == set()
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -360,7 +360,7 @@ async def test_client_subscription_tracking_drops_unsubscribed():
             assert received_events[0].event_id == "evt-match"
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -408,7 +408,7 @@ async def test_list_events():
             assert by_pattern["retained/value"].retained is True
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -421,8 +421,8 @@ async def _on_subscribe_events_with_rejection(
     params: EventSubscribeParams,
 ) -> EventSubscribeResult:
     """Subscribe handler that rejects undeclared topic patterns."""
-    subscribed = []
-    rejected = []
+    subscribed: list[SubscribedTopic] = []
+    rejected: list[RejectedTopic] = []
     for pattern in params.topics:
         if pattern in _declared_patterns:
             await _registry.add("test-session", pattern)
@@ -444,19 +444,7 @@ def _create_rejecting_server() -> Server:
         result = await _on_subscribe_events_with_rejection(ctx, req.params)
         return types.ServerResult(result)
 
-    async def unsubscribe_handler(req: EventUnsubscribeRequest):
-        ctx = request_ctx.get()
-        result = await _on_unsubscribe_events(ctx, req.params)
-        return types.ServerResult(result)
-
-    async def list_handler(req: EventListRequest):
-        ctx = request_ctx.get()
-        result = await _on_list_events(ctx, req.params)
-        return types.ServerResult(result)
-
     server.request_handlers[EventSubscribeRequest] = subscribe_handler
-    server.request_handlers[EventUnsubscribeRequest] = unsubscribe_handler
-    server.request_handlers[EventListRequest] = list_handler
     return server
 
 
@@ -499,7 +487,7 @@ async def test_subscribe_rejects_undeclared_topic():
             assert sub_result.rejected[0].reason == "unknown_topic"
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -534,7 +522,7 @@ async def test_topic_matches_subscriptions_recompiles_on_cache_miss():
 
             # Non-matching topic exercises the return False path.
             assert client_session._topic_matches_subscriptions("other/thing") is False
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -582,5 +570,5 @@ async def test_subscribe_events_skips_recompile_for_cached_pattern():
             assert client_session._subscription_regex_cache["test/+"] is cached_regex
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass

@@ -63,7 +63,7 @@ class TestEventEffect:
 
 class TestEventTopicDescriptor:
     def test_basic(self):
-        d = EventTopicDescriptor(pattern="foo/bar", description="A topic", retained=True)
+        d = EventTopicDescriptor(pattern="foo/bar", description="A topic", retained=True, schema=None)
         assert d.pattern == "foo/bar"
         assert d.description == "A topic"
         assert d.retained is True
@@ -84,7 +84,7 @@ class TestEventsCapability:
     def test_with_topics(self):
         c = EventsCapability(
             topics=[
-                EventTopicDescriptor(pattern="a/b", description="Alpha-bravo", retained=True),
+                EventTopicDescriptor(pattern="a/b", description="Alpha-bravo", retained=True, schema=None),
             ],
             instructions="Subscribe to a/b for updates",
         )
@@ -117,11 +117,13 @@ class TestEventParams:
         )
         assert p.meta is None
         # _meta field should be serializable
-        p2 = EventParams(
-            topic="test/topic",
-            eventId="abc123",
-            payload="hello",
-            _meta={"related_request_id": "req-1"},
+        p2 = EventParams.model_validate(
+            {
+                "topic": "test/topic",
+                "eventId": "abc123",
+                "payload": "hello",
+                "_meta": {"related_request_id": "req-1"},
+            }
         )
         data = p2.model_dump(by_alias=True)
         assert data["_meta"] == {"related_request_id": "req-1"}
@@ -240,7 +242,7 @@ class TestResultTypes:
     def test_list_result(self):
         r = EventListResult(
             topics=[
-                EventTopicDescriptor(pattern="x/y", description="desc"),
+                EventTopicDescriptor(pattern="x/y", description="desc", schema=None),
             ]
         )
         data = r.model_dump(by_alias=True, mode="json")
@@ -256,29 +258,29 @@ class TestInvalidEventEffect:
     def test_invalid_type_rejected(self):
         """EventEffect with an invalid type literal should be rejected by Pydantic."""
         with pytest.raises(ValidationError):
-            EventEffect(type="bogus_effect")
+            EventEffect.model_validate({"type": "bogus_effect"})
 
     def test_invalid_priority_rejected(self):
         """EventEffect with an invalid priority literal should be rejected."""
         with pytest.raises(ValidationError):
-            EventEffect(type="inject_context", priority="super_duper")
+            EventEffect.model_validate({"type": "inject_context", "priority": "super_duper"})
 
 
 class TestInvalidEventParams:
     def test_missing_topic_rejected(self):
         """EventParams missing required 'topic' field should fail validation."""
         with pytest.raises(ValidationError):
-            EventParams(eventId="e1", payload="x")
+            EventParams.model_validate({"eventId": "e1", "payload": "x"})
 
     def test_missing_event_id_rejected(self):
         """EventParams missing required 'event_id' field should fail validation."""
         with pytest.raises(ValidationError):
-            EventParams(topic="a/b", payload="x")
+            EventParams.model_validate({"topic": "a/b", "payload": "x"})
 
     def test_missing_payload_rejected(self):
         """EventParams missing required 'payload' field should fail validation."""
         with pytest.raises(ValidationError):
-            EventParams(topic="a/b", eventId="e1")
+            EventParams.model_validate({"topic": "a/b", "eventId": "e1"})
 
 
 # ---------------------------------------------------------------------------
@@ -293,20 +295,11 @@ async def _on_subscribe_events(
     ctx: RequestContext[ServerSession, Any],
     params: EventSubscribeParams,
 ) -> EventSubscribeResult:
-    subscribed = []
+    subscribed: list[SubscribedTopic] = []
     for pattern in params.topics:
         await _registry.add("test-session", pattern)
         subscribed.append(SubscribedTopic(pattern=pattern))
     return EventSubscribeResult(subscribed=subscribed)
-
-
-async def _on_unsubscribe_events(
-    ctx: RequestContext[ServerSession, Any],
-    params: EventUnsubscribeParams,
-) -> EventUnsubscribeResult:
-    for pattern in params.topics:
-        await _registry.remove("test-session", pattern)
-    return EventUnsubscribeResult(unsubscribed=params.topics)
 
 
 def _create_test_server() -> Server:
@@ -315,16 +308,10 @@ def _create_test_server() -> Server:
     # Register event handlers via request_handlers dict (keyed by type)
     async def subscribe_handler(req: EventSubscribeRequest):
         ctx = server.request_context
-        result = await _on_subscribe_events(ctx, req.root.params if hasattr(req, "root") else req.params)
-        return types.ServerResult(result)
-
-    async def unsubscribe_handler(req: EventUnsubscribeRequest):
-        ctx = server.request_context
-        result = await _on_unsubscribe_events(ctx, req.root.params if hasattr(req, "root") else req.params)
+        result = await _on_subscribe_events(ctx, req.params)
         return types.ServerResult(result)
 
     server.request_handlers[EventSubscribeRequest] = subscribe_handler
-    server.request_handlers[EventUnsubscribeRequest] = unsubscribe_handler
     return server
 
 
@@ -332,19 +319,19 @@ async def _message_handler(
     message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
     if isinstance(message, Exception):
-        raise message
+        raise message  # pragma: no cover
 
 
 async def _run_server(server_session: ServerSession, server: Server) -> None:
     async for message in server_session.incoming_messages:
         if isinstance(message, Exception):
-            raise message
+            raise message  # pragma: no cover
         if isinstance(message, RequestResponder):
             with message:
                 req = message.request
                 # v1.27.0: request_handlers keyed by type
                 handler = server.request_handlers.get(type(req.root))
-                if handler:
+                if handler:  # pragma: no branch
                     from mcp.server.lowlevel.server import request_ctx
 
                     token = request_ctx.set(
@@ -423,7 +410,7 @@ async def test_emit_event_auto_generates_event_id():
             assert len(received_events[0].event_id) > 0
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -479,7 +466,7 @@ async def test_on_event_decorator():
             assert received_events[0].payload == "via-decorator"
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -534,7 +521,7 @@ async def test_topic_matches_with_no_subscriptions():
             assert received_events[0].topic == "anything/goes"
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -598,7 +585,7 @@ async def test_set_event_handler_with_topic_filter():
             assert received_events[0].payload == "match"
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -647,7 +634,7 @@ async def test_handle_event_with_no_handler():
             # If we get here without exception, the test passes
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -757,7 +744,7 @@ async def test_emit_event_optional_parameters_roundtrip():
             assert evt.expires_at == future
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
 
 
@@ -816,5 +803,5 @@ async def test_emit_event_auto_sets_timestamp():
             assert ts <= datetime.now(timezone.utc)
 
             tg.cancel_scope.cancel()
-    except (anyio.ClosedResourceError, anyio.EndOfStream):
+    except (anyio.ClosedResourceError, anyio.EndOfStream):  # pragma: no cover
         pass
