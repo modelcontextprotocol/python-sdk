@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from mcp.client.events import EventQueue, ProvenanceEnvelope
 from mcp.types import EventEffect, EventParams
 
@@ -55,12 +57,15 @@ class TestProvenanceEnvelope:
             source="tool/messaging_send",
         )
         xml = env.to_xml('{"text": "hello"}')
-        assert xml.startswith("<mcp:event ")
-        assert 'server="spellbook"' in xml
-        assert 'server_trust="trusted"' in xml
-        assert 'topic="spellbook/sessions/abc/messages"' in xml
-        assert 'source="tool/messaging_send"' in xml
-        assert '{"text": "hello"}</mcp:event>' in xml
+        assert xml == (
+            '<mcp:event server="spellbook" server_trust="trusted"'
+            ' topic="spellbook/sessions/abc/messages"'
+            ' source="tool/messaging_send">'
+            '{"text": "hello"}</mcp:event>'
+        )
+        # event_id and received_at must not appear when not set
+        assert "event_id" not in xml
+        assert "received_at" not in xml
 
     def test_to_xml_empty_payload(self) -> None:
         env = ProvenanceEnvelope(
@@ -85,10 +90,11 @@ class TestProvenanceEnvelope:
             topic="x<y",
         )
         xml = env.to_xml("payload")
-        # Attribute values must be quoted safely (no raw " or <)
-        assert 'server="evil"server"' not in xml
-        # quoteattr will use &quot; or switch to single-quote wrapping
-        assert "payload</mcp:event>" in xml
+        # quoteattr switches to single-quote wrapping when value contains "
+        assert "server='evil\"server'" in xml
+        # quoteattr escapes < inside attribute values
+        assert 'topic="x&lt;y"' in xml
+        assert xml == "<mcp:event server='evil\"server' server_trust=\"t\" topic=\"x&lt;y\">payload</mcp:event>"
 
     def test_from_event_extracts_fields(self) -> None:
         event = EventParams(
@@ -106,8 +112,8 @@ class TestProvenanceEnvelope:
         assert env.source == "ci/jenkins"
         assert env.event_id == "evt_123"
         assert env.received_at is not None
-        # received_at should be a valid ISO 8601 string
-        assert "T" in env.received_at
+        # received_at must be a valid ISO 8601 timestamp
+        datetime.fromisoformat(env.received_at)
 
     def test_from_event_no_source(self) -> None:
         event = EventParams(
@@ -203,20 +209,26 @@ class TestEventQueue:
             EventEffect(type="inject_context", priority="low"),
             EventEffect(type="notify_user", priority="urgent"),
         ])
+        low_event = _make_event(topic="low-only", effects=[EventEffect(type="inject_context", priority="low")])
         q.enqueue(event)
-        # Should be in the urgent queue (highest priority wins)
-        result = q.drain()
+        q.enqueue(low_event)
+        # multi-effect event should be in urgent bucket, so it comes out first
+        result = q.drain(max_count=1)
         assert len(result) == 1
         assert result[0].topic == "multi-effect"
 
     def test_priority_no_effects(self) -> None:
         q = EventQueue()
+        # Enqueue the low-priority event first
+        low_event = _make_event(topic="low-event", effects=[EventEffect(type="inject_context", priority="low")])
+        q.enqueue(low_event)
         event = _make_event(topic="no-effects", effects=None)
         q.enqueue(event)
-        # Should default to "normal"
-        assert len(q) == 1
+        # no-effects defaults to "normal", which ranks above "low"
         result = q.drain()
+        assert len(result) == 2
         assert result[0].topic == "no-effects"
+        assert result[1].topic == "low-event"
 
     def test_enqueue_drain_is_destructive(self) -> None:
         q = EventQueue()
