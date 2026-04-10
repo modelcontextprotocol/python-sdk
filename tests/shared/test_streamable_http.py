@@ -29,6 +29,7 @@ from starlette.routing import Mount
 
 from mcp import MCPError, types
 from mcp.client.session import ClientSession
+from mcp.client.streamable_http import RequestContext as HTTPRequestContext
 from mcp.client.streamable_http import StreamableHTTPTransport, streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.streamable_http import (
@@ -2345,7 +2346,7 @@ async def test_reconnection_attempt_counter_increments_on_clean_disconnect(
 
     async def spy_handle_reconnection(
         self: StreamableHTTPTransport,
-        ctx: object,
+        ctx: HTTPRequestContext,
         last_event_id: str,
         retry_interval_ms: int | None = None,
         attempt: int = 0,
@@ -2369,7 +2370,7 @@ async def test_reconnection_attempt_counter_increments_on_clean_disconnect(
                             "tool_with_multiple_stream_closes",
                             {"checkpoints": 3, "sleep_time": 0.6},
                         )
-                    except Exception:
+                    except Exception:  # pragma: no cover
                         pass
 
     # With the fix: attempts seen are [0, 1, 2] — counter increments on each clean close.
