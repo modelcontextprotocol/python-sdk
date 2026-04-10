@@ -1,5 +1,6 @@
 import errno
 import shutil
+import subprocess
 import sys
 import textwrap
 import time
@@ -68,6 +69,45 @@ async def test_stdio_client():
         assert len(read_messages) == 2
         assert read_messages[0] == JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
         assert read_messages[1] == JSONRPCResponse(jsonrpc="2.0", id=2, result={})
+
+
+@pytest.mark.anyio
+async def test_stdio_client_devnull_errlog():
+    """Test that stdio_client accepts subprocess.DEVNULL for errlog,
+    allowing callers to suppress stderr output from the child process.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1806
+    """
+    # A script that writes to stderr then echoes stdin to stdout
+    script_content = textwrap.dedent(
+        """
+        import sys
+        sys.stderr.write("this goes to devnull\\n")
+        sys.stderr.flush()
+        for line in sys.stdin:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script_content],
+    )
+
+    async with stdio_client(server_params, errlog=subprocess.DEVNULL) as (read_stream, write_stream):
+        message = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+        session_message = SessionMessage(message)
+
+        async with write_stream:
+            await write_stream.send(session_message)
+
+        async with read_stream:
+            async for received in read_stream:
+                if isinstance(received, Exception):  # pragma: no cover
+                    raise received
+                assert received.message == message
+                break
 
 
 @pytest.mark.anyio
