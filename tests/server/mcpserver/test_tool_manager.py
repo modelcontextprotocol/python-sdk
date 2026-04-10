@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from mcp.server.context import LifespanContextT, RequestT
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, ToolNotFoundError
 from mcp.server.mcpserver.tools import Tool, ToolManager
 from mcp.server.mcpserver.utilities.func_metadata import ArgModelBase, FuncMetadata
 from mcp.types import TextContent, ToolAnnotations
@@ -820,6 +820,13 @@ class TestRemoveTools:
         with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
             manager.remove_tool("nonexistent")
 
+    def test_remove_nonexistent_tool_raises_tool_not_found_error(self):
+        """Test removing a non-existent tool raises ToolError."""
+        manager = ToolManager()
+
+        with pytest.raises(ToolNotFoundError, match="Unknown tool: nonexistent"):
+            manager.remove_tool("nonexistent")
+
     def test_remove_tool_from_multiple_tools(self):
         """Test removing one tool when multiple tools exist."""
 
@@ -877,6 +884,10 @@ class TestRemoveTools:
         with pytest.raises(ToolError, match="Unknown tool: greet"):
             await manager.call_tool("greet", {"name": "World"}, Context())
 
+        # Verify calling removed tool raises ToolNotFoundError
+        with pytest.raises(ToolNotFoundError, match="Unknown tool: greet"):
+            await manager.call_tool("greet", {"name": "World"}, Context())
+
     def test_remove_tool_case_sensitive(self):
         """Test that tool removal is case-sensitive."""
 
@@ -892,6 +903,10 @@ class TestRemoveTools:
 
         # Try to remove with different case - should raise ToolError
         with pytest.raises(ToolError, match="Unknown tool: Test_Func"):
+            manager.remove_tool("Test_Func")
+
+        # Try to remove with different case - should raise ToolNotFoundError
+        with pytest.raises(ToolNotFoundError, match="Unknown tool: Test_Func"):
             manager.remove_tool("Test_Func")
 
         # Verify original tool still exists
