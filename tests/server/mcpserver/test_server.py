@@ -1078,6 +1078,87 @@ class TestContextInjection:
                 mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
                 mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
 
+    async def test_context_logging_with_structured_data(self):
+        """Test that context logging accepts structured data per MCP spec (issue #397)."""
+        mcp = MCPServer()
+
+        async def structured_logging_tool(msg: str, ctx: Context) -> str:
+            # Test with dictionary
+            await ctx.info({"status": "success", "message": msg, "count": 42})
+            # Test with list
+            await ctx.debug([1, 2, 3, "item"])
+            # Test with number
+            await ctx.warning(404)
+            # Test with boolean
+            await ctx.error(True)
+            # Test with null
+            await ctx.info(None)
+            # Test string still works (backward compatibility)
+            await ctx.info("Plain string message")
+            return f"Logged structured data for {msg}"
+
+        mcp.add_tool(structured_logging_tool)
+
+        with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
+            async with Client(mcp) as client:
+                result = await client.call_tool("structured_logging_tool", {"msg": "test"})
+                assert len(result.content) == 1
+                content = result.content[0]
+                assert isinstance(content, TextContent)
+                assert "Logged structured data for test" in content.text
+
+                # Verify all log calls were made with correct data types
+                assert mock_log.call_count == 6
+
+                # Check dictionary logging
+                mock_log.assert_any_call(
+                    level="info",
+                    data={"status": "success", "message": "test", "count": 42},
+                    logger=None,
+                    related_request_id="1",
+                )
+
+                # Check list logging
+                mock_log.assert_any_call(
+                    level="debug",
+                    data=[1, 2, 3, "item"],
+                    logger=None,
+                    related_request_id="1",
+                )
+
+                # Check number logging
+                mock_log.assert_any_call(
+                    level="warning",
+                    data=404,
+                    logger=None,
+                    related_request_id="1",
+                )
+
+                # Check boolean logging
+                mock_log.assert_any_call(
+                    level="error",
+                    data=True,
+                    logger=None,
+                    related_request_id="1",
+                )
+
+                # Check null logging
+                mock_log.assert_any_call(
+                    level="info",
+                    data=None,
+                    logger=None,
+                    related_request_id="1",
+                )
+
+                # Check string still works
+                mock_log.assert_any_call(
+                    level="info",
+                    data="Plain string message",
+                    logger=None,
+                    related_request_id="1",
+                )
+
+    @pytest.mark.anyio
     async def test_optional_context(self):
         """Test that context is optional."""
         mcp = MCPServer()
