@@ -1051,6 +1051,23 @@ server = Server("my-server")
 server.experimental.enable_tasks(on_get_task=custom_get_task)
 ```
 
+### Server auth: `InvalidScopeError` removed, `validate_scope` no longer enforces
+
+`OAuthClientMetadata.validate_scope()` no longer rejects scopes outside the client's registered set — it now only parses the scope string. The previous check blocked the MCP spec's step-up authorization flow, where a client must be able to request scopes beyond its initial registration in response to a `WWW-Authenticate: insufficient_scope` challenge. See [TypeScript SDK #983](https://github.com/modelcontextprotocol/typescript-sdk/pull/983) for the equivalent change.
+
+`InvalidScopeError` (from `mcp.shared.auth`) has been removed — the SDK no longer raises it.
+
+If your server needs to reject scopes, enforce policy inside `OAuthAuthorizationServerProvider.authorize()`:
+
+```python
+from mcp.server.auth.provider import AuthorizeError
+
+async def authorize(self, client, params):
+    if params.scopes and "admin" in params.scopes and not client_is_trusted(client):
+        raise AuthorizeError(error="invalid_scope", error_description="admin scope requires approval")
+    ...
+```
+
 ## Deprecations
 
 <!-- Add deprecations below -->

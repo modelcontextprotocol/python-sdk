@@ -22,11 +22,6 @@ class OAuthToken(BaseModel):
         return v  # pragma: no cover
 
 
-class InvalidScopeError(Exception):
-    def __init__(self, message: str):
-        self.message = message
-
-
 class InvalidRedirectUriError(Exception):
     def __init__(self, message: str):
         self.message = message
@@ -68,14 +63,15 @@ class OAuthClientMetadata(BaseModel):
     software_version: str | None = None
 
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
+        """Parse the requested scope string into a list.
+
+        Scope policy enforcement is the provider's responsibility: raise
+        ``AuthorizeError(error="invalid_scope", ...)`` from
+        ``OAuthAuthorizationServerProvider.authorize()`` to reject.
+        """
         if requested_scope is None:
             return None
-        requested_scopes = requested_scope.split(" ")
-        allowed_scopes = [] if self.scope is None else self.scope.split(" ")
-        for scope in requested_scopes:
-            if scope not in allowed_scopes:  # pragma: no branch
-                raise InvalidScopeError(f"Client was not registered with scope {scope}")
-        return requested_scopes  # pragma: no cover
+        return requested_scope.split(" ")
 
     def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
         if redirect_uri is not None:
