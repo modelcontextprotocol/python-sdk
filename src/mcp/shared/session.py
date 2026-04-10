@@ -130,7 +130,9 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         """
         if not self._entered:  # pragma: no cover
             raise RuntimeError("RequestResponder must be used as a context manager")
-        assert not self._completed, "Request already responded to"
+        # Guard against race: if cancel() already set _completed, skip silently.
+        if self._completed:
+            return
 
         if not self.cancelled:  # pragma: no branch
             self._completed = True
