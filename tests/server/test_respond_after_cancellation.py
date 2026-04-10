@@ -82,9 +82,7 @@ async def test_respond_after_cancellation_is_silent() -> None:
 
         await server_to_client_receive.receive()  # InitializeResult
 
-        await client_to_server_send.send(
-            SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list"))
-        )
+        await client_to_server_send.send(SessionMessage(types.JSONRPCRequest(jsonrpc="2.0", id=2, method="tools/list")))
 
         # Drain any pending messages (server may have sent nothing for the silenced respond)
         with anyio.fail_after(3):
