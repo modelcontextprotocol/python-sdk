@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Generator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
 import anyio
@@ -2318,3 +2318,64 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_reconnection_attempt_counter_increments_on_clean_disconnect(
+    event_server: tuple[SimpleEventStore, str],
+) -> None:
+    """Verify that _handle_reconnection increments attempt on clean stream close.
+
+    Previously, the attempt counter was reset to 0 on clean disconnect, causing
+    MAX_RECONNECTION_ATTEMPTS to be ineffective and allowing infinite reconnect
+    loops when a server repeatedly accepts then closes the stream without responding.
+
+    With the fix (attempt+1), MAX_RECONNECTION_ATTEMPTS is respected for clean
+    disconnects too, and the client gives up after a bounded number of retries.
+
+    Uses tool_with_multiple_stream_closes with more checkpoints than MAX_RECONNECTION_ATTEMPTS
+    so that the attempt counter is exercised all the way to the limit.
+    """
+    import mcp.client.streamable_http as streamable_http_module
+
+    _, server_url = event_server
+
+    attempts_seen: list[int] = []
+    original_handle_reconnection = StreamableHTTPTransport._handle_reconnection
+
+    async def spy_handle_reconnection(
+        self: StreamableHTTPTransport,
+        ctx: object,
+        last_event_id: str,
+        retry_interval_ms: int | None = None,
+        attempt: int = 0,
+    ) -> None:
+        attempts_seen.append(attempt)
+        await original_handle_reconnection(self, ctx, last_event_id, retry_interval_ms, attempt)
+
+    with (
+        patch.object(streamable_http_module, "MAX_RECONNECTION_ATTEMPTS", 2),
+        patch.object(StreamableHTTPTransport, "_handle_reconnection", spy_handle_reconnection),
+    ):
+        with anyio.move_on_after(8):
+            async with streamable_http_client(f"{server_url}/mcp") as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                    await session.initialize()
+                    try:
+                        # Use more checkpoints than MAX_RECONNECTION_ATTEMPTS=2.
+                        # Each checkpoint closes then reopens the stream. With attempt+1,
+                        # the counter increments and hits the limit after MAX attempts.
+                        await session.call_tool(
+                            "tool_with_multiple_stream_closes",
+                            {"checkpoints": 3, "sleep_time": 0.6},
+                        )
+                    except Exception:
+                        pass
+
+    # With the fix: attempts seen are [0, 1, 2] — counter increments on each clean close.
+    # The bail at attempt=2 (>= MAX=2) covers the MAX_RECONNECTION_ATTEMPTS guard.
+    # Without the fix: attempts would repeat [0, 0, 0, ...] forever.
+    assert attempts_seen == [0, 1, 2], (
+        f"Expected attempt counter to increment [0, 1, 2], got {attempts_seen}. "
+        "This indicates the reconnect counter is not incrementing on clean disconnects."
+    )
