@@ -131,7 +131,7 @@ async def test_decorator_raises_outside_root():
 
     @within_roots_check
     async def read_file(path: str, ctx: MagicMock) -> str:
-        return "file contents"
+        raise AssertionError("tool body must not run when decorator denies access")  # pragma: no cover
 
     with pytest.raises(PermissionError):
         await read_file(path="/etc/passwd", ctx=ctx)
@@ -142,7 +142,7 @@ async def test_decorator_checks_star_path_params():
 
     @within_roots_check
     async def copy_file(source_path: str, dest_path: str, ctx: MagicMock) -> str:
-        return "copied"
+        raise AssertionError("tool body must not run when decorator denies access")  # pragma: no cover
 
     with pytest.raises(PermissionError):
         await copy_file(
@@ -152,10 +152,25 @@ async def test_decorator_checks_star_path_params():
         )
 
 
+async def test_decorator_ignores_non_path_string_params():
+    ctx = make_ctx(["file:///home/user/project"])
+
+    @within_roots_check
+    async def tool(name: str, path: str, ctx: MagicMock) -> str:
+        return f"{name}:{path}"
+
+    result = await tool(
+        name="greeting",
+        path="/home/user/project/file.txt",
+        ctx=ctx,
+    )
+    assert result == "greeting:/home/user/project/file.txt"
+
+
 async def test_decorator_raises_without_ctx():
     @within_roots_check
     async def bad_tool(path: str) -> str:
-        return "oops"
+        raise AssertionError("tool body must not run when ctx is missing")  # pragma: no cover
 
     with pytest.raises(ValueError, match="ctx"):
         await bad_tool(path="/some/path")
