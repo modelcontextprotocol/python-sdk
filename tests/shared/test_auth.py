@@ -58,3 +58,53 @@ def test_oauth_with_jarm():
             "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
         }
     )
+
+
+def test_validate_scope_none_client_scope_allows_any_requested_scope():
+    """When client.scope is None, any requested scope should be allowed."""
+    from mcp.shared.auth import OAuthClientMetadata
+
+    client = OAuthClientMetadata(
+        redirect_uris=["https://example.com/callback"],
+        scope=None,
+    )
+    result = client.validate_scope("read write admin")
+    assert result == ["read", "write", "admin"]
+
+
+def test_validate_scope_with_client_scope_rejects_unregistered():
+    """When client.scope is set, unregistered scopes should be rejected."""
+    import pytest
+
+    from mcp.shared.auth import InvalidScopeError, OAuthClientMetadata
+
+    client = OAuthClientMetadata(
+        redirect_uris=["https://example.com/callback"],
+        scope="read write",
+    )
+    with pytest.raises(InvalidScopeError):
+        client.validate_scope("admin")
+
+
+def test_validate_scope_with_client_scope_allows_registered():
+    """When client.scope is set, registered scopes should be allowed."""
+    from mcp.shared.auth import OAuthClientMetadata
+
+    client = OAuthClientMetadata(
+        redirect_uris=["https://example.com/callback"],
+        scope="read write",
+    )
+    result = client.validate_scope("read")
+    assert result == ["read"]
+
+
+def test_validate_scope_none_requested_returns_none():
+    """When requested_scope is None, should return None."""
+    from mcp.shared.auth import OAuthClientMetadata
+
+    client = OAuthClientMetadata(
+        redirect_uris=["https://example.com/callback"],
+        scope=None,
+    )
+    result = client.validate_scope(None)
+    assert result is None
