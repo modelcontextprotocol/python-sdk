@@ -421,9 +421,15 @@ class StreamableHTTPTransport:
                         await event_source.response.aclose()
                         return
 
-                # Stream ended again without response - reconnect again (reset attempt counter)
+                # Stream ended again without response - reconnect again
                 logger.info("SSE stream disconnected, reconnecting...")
-                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+                # Reset attempt counter only if the stream delivered new events
+                # (i.e. made forward progress). If no new events arrived, the
+                # server is connecting then dropping immediately — count that
+                # towards the retry budget to avoid infinite loops (#2393).
+                made_progress = reconnect_last_event_id != last_event_id
+                next_attempt = 0 if made_progress else attempt + 1
+                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, next_attempt)
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
