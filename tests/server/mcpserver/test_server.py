@@ -1078,6 +1078,43 @@ class TestContextInjection:
                 mock_log.assert_any_call(level="warning", data="Warning message", logger=None, related_request_id="1")
                 mock_log.assert_any_call(level="error", data="Error message", logger=None, related_request_id="1")
 
+    async def test_context_logging_structured_data(self):
+        """Test that context logging methods accept any JSON serializable type."""
+        mcp = MCPServer()
+
+        async def structured_logging_tool(ctx: Context) -> str:
+            await ctx.info({"event": "user_login", "user_id": 123})
+            await ctx.debug(["step1", "step2", "step3"])
+            await ctx.warning(42)
+            await ctx.error(None)
+            return "done"
+
+        mcp.add_tool(structured_logging_tool)
+
+        with patch("mcp.server.session.ServerSession.send_log_message") as mock_log:
+            async with Client(mcp) as client:
+                result = await client.call_tool("structured_logging_tool", {})
+                assert len(result.content) == 1
+                content = result.content[0]
+                assert isinstance(content, TextContent)
+                assert content.text == "done"
+
+                assert mock_log.call_count == 4
+                mock_log.assert_any_call(
+                    level="info",
+                    data={"event": "user_login", "user_id": 123},
+                    logger=None,
+                    related_request_id="1",
+                )
+                mock_log.assert_any_call(
+                    level="debug",
+                    data=["step1", "step2", "step3"],
+                    logger=None,
+                    related_request_id="1",
+                )
+                mock_log.assert_any_call(level="warning", data=42, logger=None, related_request_id="1")
+                mock_log.assert_any_call(level="error", data=None, logger=None, related_request_id="1")
+
     async def test_optional_context(self):
         """Test that context is optional."""
         mcp = MCPServer()
