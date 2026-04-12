@@ -3,6 +3,7 @@
 import importlib.metadata
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -42,15 +43,12 @@ app = typer.Typer(
 def _get_npx_command():
     """Get the correct npx command for the current platform."""
     if sys.platform == "win32":
-        # Try both npx.cmd and npx.exe on Windows
+        # Resolve a concrete executable path so Windows never has to route through cmd.exe.
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
-            try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
-                return cmd
-            except subprocess.CalledProcessError:
-                continue
+            if resolved := shutil.which(cmd):
+                return resolved
         return None
-    return "npx"  # On Unix-like systems, just use npx
+    return "npx"
 
 
 def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
@@ -271,13 +269,10 @@ def dev(
             )
             sys.exit(1)
 
-        # Run the MCP Inspector command with shell=True on Windows
-        shell = sys.platform == "win32"
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
-            shell=shell,
-            env=dict(os.environ.items()),  # Convert to list of tuples for env update
+            env=os.environ.copy(),
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:

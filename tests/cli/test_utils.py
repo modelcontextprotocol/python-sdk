@@ -1,10 +1,13 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from mcp.cli import cli as cli_module
 from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  # type: ignore[reportPrivateUsage]
 
 
@@ -76,26 +79,75 @@ def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_get_npx_windows(monkeypatch: pytest.MonkeyPatch):
-    """Should return one of the npx candidates on Windows."""
-    candidates = ["npx.cmd", "npx.exe", "npx"]
+    """Should return the first Windows npx executable found on PATH."""
+    resolved_commands = {
+        "npx.cmd": r"C:\Program Files\nodejs\npx.cmd",
+        "npx.exe": None,
+        "npx": None,
+    }
 
-    def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[bytes]:
-        if cmd[0] in candidates:
-            return subprocess.CompletedProcess(cmd, 0)
-        else:  # pragma: no cover
-            raise subprocess.CalledProcessError(1, cmd[0])
+    def fake_which(cmd: str) -> str | None:
+        return resolved_commands.get(cmd)
 
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    assert _get_npx_command() in candidates
+    monkeypatch.setattr("shutil.which", fake_which)
+    assert _get_npx_command() == r"C:\Program Files\nodejs\npx.cmd"
 
 
 def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
     """Should give None if every candidate fails."""
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
-
-    def always_fail(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
-        raise subprocess.CalledProcessError(1, args[0])
-
-    monkeypatch.setattr(subprocess, "run", always_fail)
+    monkeypatch.setattr("shutil.which", lambda cmd: None)
     assert _get_npx_command() is None
+
+
+def test_dev_runs_inspector_without_shell_on_windows(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Should invoke the inspector with a resolved executable and shell=False on Windows."""
+    server_file = tmp_path / "server.py"
+    server_file.write_text("x = 1")
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(cli_module, "_parse_file_path", lambda file_spec: (server_file, None))
+    monkeypatch.setattr(cli_module, "_import_server", lambda file, server_object: SimpleNamespace(dependencies=[]))
+    monkeypatch.setattr(
+        cli_module,
+        "_build_uv_command",
+        lambda file_spec, with_editable=None, with_packages=None: [
+            "uv",
+            "run",
+            "--with",
+            "mcp",
+            "mcp",
+            "run",
+            file_spec,
+        ],
+    )
+    monkeypatch.setattr(cli_module, "_get_npx_command", lambda: r"C:\Program Files\nodejs\npx.cmd")
+
+    recorded: dict[str, Any] = {}
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        recorded["cmd"] = cmd
+        recorded["kwargs"] = kwargs
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli_module.dev(str(server_file))
+
+    assert excinfo.value.code == 0
+    assert recorded["cmd"] == [
+        r"C:\Program Files\nodejs\npx.cmd",
+        "@modelcontextprotocol/inspector",
+        "uv",
+        "run",
+        "--with",
+        "mcp",
+        "mcp",
+        "run",
+        str(server_file),
+    ]
+    assert recorded["kwargs"]["check"] is True
+    assert recorded["kwargs"]["env"] == dict(os.environ.items())
+    assert recorded["kwargs"].get("shell", False) is False
