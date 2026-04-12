@@ -690,11 +690,7 @@ class TestServerResources:
             """Seeded resource."""
             return "Hello from init!"
 
-        resource = FunctionResource.from_function(
-            fn=get_text,
-            uri="resource://init",
-            name="init_resource",
-        )
+        resource = FunctionResource.from_function(fn=get_text, uri="resource://init", name="init_resource")
 
         mcp = MCPServer(resources=[resource])
 
