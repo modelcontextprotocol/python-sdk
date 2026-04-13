@@ -17,7 +17,7 @@ from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     construct_redirect_uri,
 )
-from mcp.shared.auth import InvalidRedirectUriError, InvalidScopeError
+from mcp.shared.auth import InvalidRedirectUriError
 
 logger = logging.getLogger(__name__)
 
@@ -185,15 +185,7 @@ class AuthorizationHandler:
                     error_description=validation_error.message,
                 )
 
-            # Validate scope - for scope errors, we can redirect
-            try:
-                scopes = client.validate_scope(auth_request.scope)
-            except InvalidScopeError as validation_error:
-                # For scope errors, redirect with error parameters
-                return await error_response(
-                    error="invalid_scope",
-                    error_description=validation_error.message,
-                )
+            scopes = client.validate_scope(auth_request.scope)
 
             # Setup authorization parameters
             auth_params = AuthorizationParams(
