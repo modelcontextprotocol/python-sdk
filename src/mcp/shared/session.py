@@ -428,6 +428,21 @@ class BaseSession(
                 async for message in self._read_stream:
                     if isinstance(message, Exception):
                         await self._handle_incoming(message)
+                        
+                        # Fix #1401: Propagate exception to all pending requests
+                        # This prevents waiters from hanging when the transport fails
+                        error_data = (
+                            message.to_error_data() 
+                            if isinstance(message, MCPError) 
+                            else ErrorData(code=0, message=str(message))
+                        )
+                        jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=None, error=error_data) # id=None because it applies to all
+                        
+                        # We must send an error to every individual waiter
+                        for req_id, stream in list(self._response_streams.items()):
+                            # Send a response with the correct ID
+                            await stream.send(JSONRPCError(jsonrpc="2.0", id=req_id, error=error_data))
+                        
                         continue
 
                     await _handle_session_message(message)
