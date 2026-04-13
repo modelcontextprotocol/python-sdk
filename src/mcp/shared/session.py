@@ -439,9 +439,13 @@ class BaseSession(
 
                         # We must send an error to every individual waiter
                         for req_id, stream in list(self._response_streams.items()):
-                            # Send a response with the correct ID
-                            await stream.send(JSONRPCError(jsonrpc="2.0", id=req_id, error=error_data))
-
+                            try:
+                                # Send a response with the correct ID
+                                await stream.send(JSONRPCError(jsonrpc="2.0", id=req_id, error=error_data))
+                            finally:
+                                # Ensure we clean up the stream so finally block doesn't double-handle
+                                self._response_streams.pop(req_id, None)
+                                await stream.aclose()
                         continue
 
                     await _handle_session_message(message)
