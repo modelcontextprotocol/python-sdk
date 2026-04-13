@@ -10,6 +10,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PydanticUserError,
     RootModel,
     WithJsonSchema,
     create_model,
@@ -411,9 +412,16 @@ def _try_create_model_and_schema(
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
             schema = model.model_json_schema(schema_generator=StrictJsonSchema)
-        except (TypeError, ValueError, pydantic_core.SchemaError, pydantic_core.ValidationError) as e:
+        except (
+            PydanticUserError,
+            TypeError,
+            ValueError,
+            pydantic_core.SchemaError,
+            pydantic_core.ValidationError,
+        ) as e:
             # These are expected errors when a type can't be converted to a Pydantic schema
-            # TypeError: When Pydantic can't handle the type
+            # PydanticUserError: When Pydantic can't handle the type (e.g. PydanticInvalidForJsonSchema);
+            #   subclasses TypeError on pydantic <2.13 and RuntimeError on pydantic >=2.13
             # ValueError: When there are issues with the type definition (including our custom warnings)
             # SchemaError: When Pydantic can't build a schema
             # ValidationError: When validation fails
