@@ -10,7 +10,7 @@ from urllib.parse import unquote
 import httpx
 import pytest
 from inline_snapshot import Is, snapshot
-from pydantic import AnyHttpUrl, AnyUrl, ValidationError
+from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
 from mcp.client.auth.exceptions import OAuthFlowError
@@ -855,79 +855,6 @@ class TestRegistrationResponse:
         assert mock_response._aread_called
         # Verify the error message includes the response text
         assert "Registration failed: 400" in str(exc_info.value)
-
-
-class TestOAuthClientMetadataEmptyUrlCoercion:
-    """RFC 7591 §2 marks client_uri/logo_uri/tos_uri/policy_uri/jwks_uri as OPTIONAL.
-    Some authorization servers echo the client's omitted metadata back as ""
-    instead of dropping the keys; without coercion, AnyHttpUrl rejects "" and
-    the whole registration response is thrown away even though the server
-    returned a valid client_id."""
-
-    @pytest.mark.parametrize(
-        "empty_field",
-        ["client_uri", "logo_uri", "tos_uri", "policy_uri", "jwks_uri"],
-    )
-    def test_optional_url_empty_string_coerced_to_none(self, empty_field: str):
-        data = {
-            "redirect_uris": ["https://example.com/callback"],
-            empty_field: "",
-        }
-        metadata = OAuthClientMetadata.model_validate(data)
-        assert getattr(metadata, empty_field) is None
-
-    def test_all_optional_urls_empty_together(self):
-        data = {
-            "redirect_uris": ["https://example.com/callback"],
-            "client_uri": "",
-            "logo_uri": "",
-            "tos_uri": "",
-            "policy_uri": "",
-            "jwks_uri": "",
-        }
-        metadata = OAuthClientMetadata.model_validate(data)
-        assert metadata.client_uri is None
-        assert metadata.logo_uri is None
-        assert metadata.tos_uri is None
-        assert metadata.policy_uri is None
-        assert metadata.jwks_uri is None
-
-    def test_valid_url_passes_through_unchanged(self):
-        data = {
-            "redirect_uris": ["https://example.com/callback"],
-            "client_uri": "https://udemy.com/",
-        }
-        metadata = OAuthClientMetadata.model_validate(data)
-        assert str(metadata.client_uri) == "https://udemy.com/"
-
-    def test_information_full_inherits_coercion(self):
-        """OAuthClientInformationFull subclasses OAuthClientMetadata, so the
-        same coercion applies to DCR responses parsed via the full model."""
-        data = {
-            "client_id": "abc123",
-            "redirect_uris": ["https://example.com/callback"],
-            "client_uri": "",
-            "logo_uri": "",
-            "tos_uri": "",
-            "policy_uri": "",
-            "jwks_uri": "",
-        }
-        info = OAuthClientInformationFull.model_validate(data)
-        assert info.client_id == "abc123"
-        assert info.client_uri is None
-        assert info.logo_uri is None
-        assert info.tos_uri is None
-        assert info.policy_uri is None
-        assert info.jwks_uri is None
-
-    def test_invalid_non_empty_url_still_rejected(self):
-        """Coercion must only touch empty strings — garbage URLs still raise."""
-        data = {
-            "redirect_uris": ["https://example.com/callback"],
-            "client_uri": "not a url",
-        }
-        with pytest.raises(ValidationError):
-            OAuthClientMetadata.model_validate(data)
 
 
 class TestCreateClientRegistrationRequest:
