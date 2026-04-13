@@ -1,6 +1,7 @@
 import functools
 import inspect
 import json
+import re
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
 from types import GenericAlias
@@ -167,6 +168,74 @@ class FuncMetadata(BaseModel):
     )
 
 
+# Regex patterns for extracting parameter descriptions from docstrings.
+# Supports Google, NumPy, and Sphinx styles without any external dependencies.
+_GOOGLE_ARGS_RE = re.compile(
+    r"(?:Args|Arguments|Parameters)\s*:\s*\n((?:[ \t]+.+\n?)+)",
+    re.IGNORECASE,
+)
+_GOOGLE_PARAM_RE = re.compile(
+    r"^[ \t]+(\w+)\s*(?:\(.+?\))?\s*:\s*(.+(?:\n(?:[ \t]+(?![ \t]*\w+\s*(?:\(.+?\))?\s*:).+))*)",
+    re.MULTILINE,
+)
+_SPHINX_PARAM_RE = re.compile(
+    r":param\s+(\w+)\s*:\s*(.+(?:\n(?:[ \t]+(?!:).+))*)",
+    re.MULTILINE,
+)
+_NUMPY_PARAMS_RE = re.compile(
+    r"(?:Parameters)\s*\n\s*-{3,}\s*\n((?:.*\n?)+?)(?:\n\s*\w+\s*\n\s*-{3,}|\Z)",
+    re.IGNORECASE,
+)
+_NUMPY_PARAM_RE = re.compile(
+    r"^(\w+)\s*(?::.*)?$\n((?:[ \t]+.+\n?)+)",
+    re.MULTILINE,
+)
+
+
+def _parse_docstring_params(func: Callable[..., Any]) -> dict[str, str]:
+    """Parse a function's docstring to extract parameter descriptions.
+
+    Supports Google, NumPy, and Sphinx-style docstrings using simple regex patterns.
+    No external dependencies required.
+
+    Returns:
+        A dict mapping parameter names to their descriptions.
+    """
+    doc = func.__doc__
+    if not doc:
+        return {}
+
+    # Try Sphinx style first (:param name: description)
+    sphinx_matches = _SPHINX_PARAM_RE.findall(doc)
+    if sphinx_matches:
+        return {name: " ".join(desc.split()) for name, desc in sphinx_matches}
+
+    # Try Google style (Args: / Arguments: / Parameters:)
+    google_section = _GOOGLE_ARGS_RE.search(doc)
+    if google_section:
+        params = _GOOGLE_PARAM_RE.findall(google_section.group(1))
+        if params:
+            return {name: " ".join(desc.split()) for name, desc in params}
+
+    # Try NumPy style (Parameters\n----------)
+    numpy_section = _NUMPY_PARAMS_RE.search(doc)
+    if numpy_section:
+        params = _NUMPY_PARAM_RE.findall(numpy_section.group(1))
+        if params:
+            return {name: " ".join(desc.split()) for name, desc in params}
+
+    return {}
+
+
+def _annotation_has_description(annotation: Any) -> bool:
+    """Check if an Annotated type already includes a Field with a description."""
+    if get_origin(annotation) is Annotated:
+        for arg in get_args(annotation)[1:]:
+            if isinstance(arg, FieldInfo) and arg.description is not None:
+                return True
+    return False
+
+
 def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
@@ -215,6 +284,7 @@ def func_metadata(
         # model_rebuild right before using it 🤷
         raise InvalidSignature(f"Unable to evaluate type annotations for callable {func.__name__!r}") from e
     params = sig.parameters
+    docstring_descriptions = _parse_docstring_params(func)
     dynamic_pydantic_model_params: dict[str, Any] = {}
     for param in params.values():
         if param.name.startswith("_"):  # pragma: no cover
@@ -229,6 +299,15 @@ def func_metadata(
 
         if param.annotation is inspect.Parameter.empty:
             field_metadata.append(WithJsonSchema({"title": param.name, "type": "string"}))
+
+        # Add description from docstring if no explicit Field description exists
+        if param.name in docstring_descriptions:
+            has_explicit_desc = _annotation_has_description(annotation) or (
+                isinstance(param.default, FieldInfo) and param.default.description is not None
+            )
+            if not has_explicit_desc:
+                field_kwargs["description"] = docstring_descriptions[param.name]
+
         # Check if the parameter name conflicts with BaseModel attributes
         # This is necessary because Pydantic warns about shadowing parent attributes
         if hasattr(BaseModel, field_name) and callable(getattr(BaseModel, field_name)):
