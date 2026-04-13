@@ -45,7 +45,9 @@
 
 - Framework: `uv run --frozen pytest`
 - Async testing: use anyio, not asyncio
-- Do not use `Test` prefixed classes, use functions
+- Do not use `Test` prefixed classes — write plain top-level `test_*` functions.
+  Legacy files still contain `Test*` classes; do NOT follow that pattern for new
+  tests even when adding to such a file.
 - IMPORTANT: Tests should be fast and deterministic. Prefer in-memory async execution;
   reach for threads only when necessary, and subprocesses only as a last resort.
 - For end-to-end behavior, an in-memory `Client(server)` is usually the
