@@ -130,6 +130,14 @@ class StreamableHTTPSessionManager:
                 yield  # Let the application run
             finally:
                 logger.info("StreamableHTTP session manager shutting down")
+                # Gracefully terminate all active sessions before cancelling
+                # tasks so that EventSourceResponse coroutines can complete
+                # and Uvicorn does not log ASGI-incomplete-response errors.
+                for transport in list(self._server_instances.values()):  # pragma: no cover
+                    try:
+                        await transport.terminate()
+                    except Exception:  # pragma: no cover
+                        logger.exception("Error terminating transport during shutdown")
                 # Cancel task group to stop all spawned tasks
                 tg.cancel_scope.cancel()
                 self._task_group = None
