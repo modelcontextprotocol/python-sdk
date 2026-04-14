@@ -45,7 +45,7 @@ class MockTokenStorage:
         self._client_info: OAuthClientInformationFull | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
-        return self._tokens  # pragma: no cover
+        return self._tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._tokens = tokens
@@ -1166,6 +1166,89 @@ class TestAuthFlow:
         assert oauth_provider.context.current_tokens is not None
         assert oauth_provider.context.current_tokens.access_token == "new_access_token"
         assert oauth_provider.context.token_expiry_time is not None
+
+    @pytest.mark.anyio
+    async def test_auth_flow_forwards_user_agent_to_oauth_requests(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+    ):
+        oauth_provider.context.current_tokens = None
+        oauth_provider.context.token_expiry_time = None
+        oauth_provider._initialized = True
+
+        test_request = httpx.Request(
+            "GET", "https://api.example.com/mcp", headers={"User-Agent": "my-custom-client/1.0"}
+        )
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        request = await auth_flow.__anext__()
+        assert request.headers["User-Agent"] == "my-custom-client/1.0"
+
+        response = httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            },
+            request=test_request,
+        )
+
+        discovery_request = await auth_flow.asend(response)
+        assert discovery_request.headers["User-Agent"] == "my-custom-client/1.0"
+
+        discovery_response = httpx.Response(
+            200,
+            content=b'{"resource":"https://api.example.com/v1/mcp","authorization_servers":["https://auth.example.com"]}',
+            request=discovery_request,
+        )
+
+        oauth_metadata_request = await auth_flow.asend(discovery_response)
+        assert oauth_metadata_request.headers["User-Agent"] == "my-custom-client/1.0"
+
+        oauth_metadata_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer":"https://auth.example.com",'
+                b'"authorization_endpoint":"https://auth.example.com/authorize",'
+                b'"token_endpoint":"https://auth.example.com/token",'
+                b'"registration_endpoint":"https://auth.example.com/register"}'
+            ),
+            request=oauth_metadata_request,
+        )
+
+        registration_request = await auth_flow.asend(oauth_metadata_response)
+        assert registration_request.headers["User-Agent"] == "my-custom-client/1.0"
+
+        registration_response = httpx.Response(
+            201,
+            content=b'{"client_id":"test_client_id","client_secret":"test_client_secret","redirect_uris":["http://localhost:3030/callback"]}',
+            request=registration_request,
+        )
+
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
+
+        token_request = await auth_flow.asend(registration_response)
+        assert token_request.headers["User-Agent"] == "my-custom-client/1.0"
+
+        token_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token":"new_access_token","token_type":"Bearer","expires_in":3600,'
+                b'"refresh_token":"new_refresh_token"}'
+            ),
+            request=token_request,
+        )
+
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+
+        final_response = httpx.Response(200, request=final_request)
+        with pytest.raises(StopAsyncIteration):
+            await auth_flow.asend(final_response)
+
+        stored_tokens = await mock_storage.get_tokens()
+        assert stored_tokens is not None
+        assert stored_tokens.access_token == "new_access_token"
 
     @pytest.mark.anyio
     async def test_auth_flow_no_unnecessary_retry_after_oauth(
