@@ -447,6 +447,44 @@ class TestChildProcessCleanup:
 
 
 @pytest.mark.anyio
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
+async def test_stdio_client_no_broken_resource_error_on_shutdown():
+    """Test that exiting stdio_client without consuming the read stream does not
+    raise BrokenResourceError.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1960.
+    The race condition occurs when stdout_reader is blocked on send() into a
+    zero-buffer memory stream and the finally block closes the receiving end,
+    causing BrokenResourceError instead of ClosedResourceError.
+    """
+    # Server sends a JSON-RPC message and then sleeps, keeping stdout open.
+    # The client exits without consuming the read stream, triggering the race.
+    server_script = textwrap.dedent(
+        """
+        import sys
+        import time
+
+        sys.stdout.write('{"jsonrpc":"2.0","id":1,"result":{}}\\n')
+        sys.stdout.flush()
+        time.sleep(5.0)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", server_script],
+    )
+
+    # This should exit cleanly without raising an ExceptionGroup
+    # containing BrokenResourceError.
+    with anyio.fail_after(10.0):
+        async with stdio_client(server_params) as (_read_stream, _write_stream):
+            # Give stdout_reader time to read the message and block on send()
+            await anyio.sleep(0.3)
+            # Exit without consuming read_stream - this triggers the race
+
+
+@pytest.mark.anyio
 async def test_stdio_client_graceful_stdin_exit():
     """Test that a process exits gracefully when stdin is closed,
     without needing SIGTERM or SIGKILL.
