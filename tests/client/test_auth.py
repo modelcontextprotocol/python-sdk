@@ -712,6 +712,109 @@ class TestOAuthFallback:
         assert "client_secret=" not in content
 
     @pytest.mark.anyio
+    async def test_handle_refresh_response_preserves_existing_refresh_token(
+        self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+    ):
+        """Test that the existing refresh_token is preserved when the server omits it.
+
+        Per RFC 6749 Section 6, the authorization server MAY issue a new refresh
+        token in the refresh response. If it doesn't, the client should continue
+        using the existing one.
+        """
+        oauth_provider.context.current_tokens = valid_tokens
+
+        # Server response without refresh_token
+        refresh_response = httpx.Response(
+            200,
+            content=b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600}',
+            request=httpx.Request("POST", "https://auth.example.com/token"),
+        )
+
+        result = await oauth_provider._handle_refresh_response(refresh_response)
+
+        assert result is True
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.current_tokens.access_token == "new_access_token"
+        # Old refresh_token should be preserved
+        assert oauth_provider.context.current_tokens.refresh_token == "test_refresh_token"
+
+    @pytest.mark.anyio
+    async def test_handle_refresh_response_uses_new_refresh_token(
+        self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+    ):
+        """Test that a new refresh_token from the server replaces the old one."""
+        oauth_provider.context.current_tokens = valid_tokens
+
+        # Server response with a new refresh_token (token rotation)
+        refresh_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer",'
+                b' "expires_in": 3600, "refresh_token": "rotated_refresh_token"}'
+            ),
+            request=httpx.Request("POST", "https://auth.example.com/token"),
+        )
+
+        result = await oauth_provider._handle_refresh_response(refresh_response)
+
+        assert result is True
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.current_tokens.access_token == "new_access_token"
+        assert oauth_provider.context.current_tokens.refresh_token == "rotated_refresh_token"
+
+    @pytest.mark.anyio
+    async def test_handle_refresh_response_no_prior_tokens(self, oauth_provider: OAuthClientProvider):
+        """Test refresh response when there are no prior tokens stored."""
+        oauth_provider.context.current_tokens = None
+
+        refresh_response = httpx.Response(
+            200,
+            content=b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600}',
+            request=httpx.Request("POST", "https://auth.example.com/token"),
+        )
+
+        result = await oauth_provider._handle_refresh_response(refresh_response)
+
+        assert result is True
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.current_tokens.access_token == "new_access_token"
+        assert oauth_provider.context.current_tokens.refresh_token is None
+
+    @pytest.mark.anyio
+    async def test_handle_refresh_response_failure(self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+        """Test that a non-200 refresh response clears tokens."""
+        oauth_provider.context.current_tokens = valid_tokens
+
+        refresh_response = httpx.Response(
+            401,
+            content=b"Unauthorized",
+            request=httpx.Request("POST", "https://auth.example.com/token"),
+        )
+
+        result = await oauth_provider._handle_refresh_response(refresh_response)
+
+        assert result is False
+        assert oauth_provider.context.current_tokens is None
+
+    @pytest.mark.anyio
+    async def test_handle_refresh_response_invalid_json(
+        self, oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+    ):
+        """Test that an invalid response body clears tokens."""
+        oauth_provider.context.current_tokens = valid_tokens
+
+        refresh_response = httpx.Response(
+            200,
+            content=b"not valid json",
+            request=httpx.Request("POST", "https://auth.example.com/token"),
+        )
+
+        result = await oauth_provider._handle_refresh_response(refresh_response)
+
+        assert result is False
+        assert oauth_provider.context.current_tokens is None
+
+    @pytest.mark.anyio
     async def test_none_auth_method(self, oauth_provider: OAuthClientProvider):
         """Test 'none' authentication method (public client)."""
         oauth_provider.context.oauth_metadata = OAuthMetadata(
