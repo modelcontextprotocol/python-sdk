@@ -246,9 +246,7 @@ async def test_validate_tool_result_paginates_all_pages():
         "required": ["result"],
     }
 
-    page1_tools = [
-        Tool(name=f"tool_{i}", description="d", input_schema={"type": "object"}) for i in range(3)
-    ]
+    page1_tools = [Tool(name=f"tool_{i}", description="d", input_schema={"type": "object"}) for i in range(3)]
     page2_tools = [
         Tool(
             name="paginated_tool",

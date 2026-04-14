@@ -328,9 +328,7 @@ class ClientSession(
             # beyond the first page are also considered before giving up.
             list_result = await self.list_tools()
             while list_result.next_cursor is not None and name not in self._tool_output_schemas:
-                list_result = await self.list_tools(
-                    params=types.PaginatedRequestParams(cursor=list_result.next_cursor)
-                )
+                list_result = await self.list_tools(params=types.PaginatedRequestParams(cursor=list_result.next_cursor))
 
         output_schema = None
         if name in self._tool_output_schemas:
