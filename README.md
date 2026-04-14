@@ -135,19 +135,19 @@ uv run mcp
 
 Let's create a simple MCP server that exposes a calculator tool and some data:
 
-<!-- snippet-source examples/snippets/servers/fastmcp_quickstart.py -->
+<!-- snippet-source examples/snippets/servers/mcpserver_quickstart.py -->
 ```python
 """
-FastMCP quickstart example.
+MCPServer quickstart example.
 
 Run from the repository root:
-    uv run examples/snippets/servers/fastmcp_quickstart.py
+    uv run examples/snippets/servers/mcpserver_quickstart.py
 """
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 # Create an MCP server
-mcp = FastMCP("Demo", json_response=True)
+mcp = MCPServer("Demo")
 
 
 # Add an addition tool
@@ -179,10 +179,10 @@ def greet_user(name: str, style: str = "friendly") -> str:
 
 # Run with streamable HTTP transport
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", json_response=True)
 ```
 
-_Full example: [examples/snippets/servers/fastmcp_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/fastmcp_quickstart.py)_
+_Full example: [examples/snippets/servers/mcpserver_quickstart.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/mcpserver_quickstart.py)_
 <!-- /snippet-source -->
 
 You can install this server in [Claude Code](https://docs.claude.com/en/docs/claude-code/mcp) and interact with it right away. First, run the server:
