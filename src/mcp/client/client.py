@@ -95,6 +95,15 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    streamable_http_session_id: str | None = None
+    """Optional pre-existing MCP session ID used when server is a StreamableHTTP URL."""
+
+    streamable_http_initialize_result: InitializeResult | None = None
+    """Previously negotiated InitializeResult used to resume a StreamableHTTP session."""
+
+    streamable_http_terminate_on_close: bool = True
+    """Whether a URL-based StreamableHTTP client should terminate the session on close."""
+
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
@@ -103,9 +112,30 @@ class Client:
         if isinstance(self.server, Server | MCPServer):
             self._transport = InMemoryTransport(self.server, raise_exceptions=self.raise_exceptions)
         elif isinstance(self.server, str):
-            self._transport = streamable_http_client(self.server)
+            self._transport = streamable_http_client(
+                self.server,
+                session_id=self.streamable_http_session_id,
+                terminate_on_close=self.streamable_http_terminate_on_close,
+            )
         else:
             self._transport = self.server
+
+    @classmethod
+    def resume_session(
+        cls,
+        server: str,
+        *,
+        session_id: str,
+        initialize_result: InitializeResult,
+        **kwargs: Any,
+    ) -> Client:
+        """Create a URL-based client configured to resume an existing StreamableHTTP session."""
+        return cls(
+            server=server,
+            streamable_http_session_id=session_id,
+            streamable_http_initialize_result=initialize_result,
+            **kwargs,
+        )
 
     async def __aenter__(self) -> Client:
         """Enter the async context manager."""
@@ -129,7 +159,15 @@ class Client:
                 )
             )
 
-            await self._session.initialize()
+            if self.streamable_http_session_id is None and self.streamable_http_initialize_result is not None:
+                raise RuntimeError(
+                    "streamable_http_initialize_result requires streamable_http_session_id for session resumption"
+                )
+
+            if self.streamable_http_session_id is not None and self.streamable_http_initialize_result is not None:
+                self._session.resume(self.streamable_http_initialize_result)
+            else:
+                await self._session.initialize()
 
             # Transfer ownership to self for __aexit__ to handle
             self._exit_stack = exit_stack.pop_all()

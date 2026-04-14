@@ -607,6 +607,28 @@ async def test_initialize_result():
 
 
 @pytest.mark.anyio
+async def test_client_session_resume_sets_initialize_result():
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    session = ClientSession(server_to_client_receive, client_to_server_send)
+    assert session.initialize_result is None
+
+    resumed_result = InitializeResult(
+        protocol_version=LATEST_PROTOCOL_VERSION,
+        capabilities=ServerCapabilities(),
+        server_info=Implementation(name="mock-server", version="0.1.0"),
+    )
+    session.resume(resumed_result)
+    assert session.initialize_result == resumed_result
+
+    await client_to_server_send.aclose()
+    await client_to_server_receive.aclose()
+    await server_to_client_send.aclose()
+    await server_to_client_receive.aclose()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(argnames="meta", argvalues=[None, {"toolMeta": "value"}])
 async def test_client_tool_call_with_meta(meta: RequestParamsMeta | None):
     """Test that client tool call requests can include metadata"""
