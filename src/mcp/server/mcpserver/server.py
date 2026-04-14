@@ -579,7 +579,7 @@ class MCPServer(Generic[LifespanResultT]):
 
         return decorator
 
-    def completion(self):
+    def completion(self) -> Callable[[_CallableT], _CallableT]:
         """Decorator to register a completion handler.
 
         The completion handler receives:
@@ -808,7 +808,7 @@ class MCPServer(Generic[LifespanResultT]):
         methods: list[str],
         name: str | None = None,
         include_in_schema: bool = True,
-    ):
+    ) -> Callable[[Callable[[Request], Awaitable[Response]]], Callable[[Request], Awaitable[Response]]]:
         """Decorator to register a custom HTTP route on the MCP server.
 
         Allows adding arbitrary HTTP endpoints outside the standard MCP protocol,
@@ -935,7 +935,7 @@ class MCPServer(Generic[LifespanResultT]):
 
         sse = SseServerTransport(message_path, security_settings=transport_security)
 
-        async def handle_sse(scope: Scope, receive: Receive, send: Send):  # pragma: no cover
+        async def handle_sse(scope: Scope, receive: Receive, send: Send) -> Response:  # pragma: no cover
             # Add client ID from auth context into request context if available
 
             async with sse.connect_sse(scope, receive, send) as streams:

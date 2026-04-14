@@ -21,7 +21,7 @@ from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
 from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
 
-def validate_issuer_url(url: AnyHttpUrl):
+def validate_issuer_url(url: AnyHttpUrl) -> None:
     """Validate that the issuer URL meets OAuth 2.0 requirements.
 
     Args:

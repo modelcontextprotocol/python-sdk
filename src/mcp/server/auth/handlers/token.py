@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, TypeAdapter, ValidationError
 from starlette.requests import Request
+from starlette.responses import Response
 
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
@@ -63,7 +64,7 @@ class TokenHandler:
     provider: OAuthAuthorizationServerProvider[Any, Any, Any]
     client_authenticator: ClientAuthenticator
 
-    def response(self, obj: TokenSuccessResponse | TokenErrorResponse):
+    def response(self, obj: TokenSuccessResponse | TokenErrorResponse) -> PydanticJSONResponse:
         status_code = 200
         if isinstance(obj, TokenErrorResponse):
             status_code = 400
@@ -77,7 +78,7 @@ class TokenHandler:
             },
         )
 
-    async def handle(self, request: Request):
+    async def handle(self, request: Request) -> Response:
         try:
             client_info = await self.client_authenticator.authenticate_request(request)
         except AuthenticationError as e:

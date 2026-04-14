@@ -80,7 +80,7 @@ class AuthorizationHandler:
             error: AuthorizationErrorCode,
             error_description: str | None,
             attempt_load_client: bool = True,
-        ):
+        ) -> Response:
             # Error responses take two different formats:
             # 1. The request has a valid client ID & redirect_uri: we issue a redirect
             #    back to the redirect_uri with the error response fields as query

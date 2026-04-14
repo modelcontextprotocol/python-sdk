@@ -66,7 +66,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
         """Get OAuth client information."""
         return self.clients.get(client_id)
 
-    async def register_client(self, client_info: OAuthClientInformationFull):
+    async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         """Register a new OAuth client."""
         if not client_info.client_id:
             raise ValueError("No client_id provided")

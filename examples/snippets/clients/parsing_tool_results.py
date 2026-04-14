@@ -6,7 +6,7 @@ from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
 
-async def parse_tool_results():
+async def parse_tool_results() -> None:
     """Demonstrates how to parse different types of content in CallToolResult."""
     server_params = StdioServerParameters(command="python", args=["path/to/mcp_server.py"])
 
@@ -52,7 +52,7 @@ async def parse_tool_results():
                         print(f"Error: {content.text}")
 
 
-async def main():
+async def main() -> None:
     await parse_tool_results()
 
 

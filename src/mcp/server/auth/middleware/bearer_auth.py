@@ -25,7 +25,7 @@ class BearerAuthBackend(AuthenticationBackend):
     def __init__(self, token_verifier: TokenVerifier):
         self.token_verifier = token_verifier
 
-    async def authenticate(self, conn: HTTPConnection):
+    async def authenticate(self, conn: HTTPConnection) -> tuple[AuthCredentials, AuthenticatedUser] | None:
         auth_header = next(
             (conn.headers.get(key) for key in conn.headers if key.lower() == "authorization"),
             None,

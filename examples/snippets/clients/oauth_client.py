@@ -52,7 +52,7 @@ async def handle_callback() -> tuple[str, str | None]:
     return params["code"][0], params.get("state", [None])[0]
 
 
-async def main():
+async def main() -> None:
     """Run the OAuth client example."""
     oauth_auth = OAuthClientProvider(
         server_url="http://localhost:8001",
@@ -80,7 +80,7 @@ async def main():
                 print(f"Available resources: {[r.uri for r in resources.resources]}")
 
 
-def run():
+def run() -> None:
     asyncio.run(main())
 
 

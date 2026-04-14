@@ -49,7 +49,7 @@ server = Server(
 )
 
 
-async def run():
+async def run() -> None:
     """Run the basic low-level server."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(

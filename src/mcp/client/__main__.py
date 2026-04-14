@@ -36,7 +36,7 @@ async def run_session(
     read_stream: ReadStream[SessionMessage | Exception],
     write_stream: WriteStream[SessionMessage],
     client_info: types.Implementation | None = None,
-):
+) -> None:
     async with ClientSession(
         read_stream,
         write_stream,
@@ -48,7 +48,7 @@ async def run_session(
         logger.info("Initialized")
 
 
-async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]]):
+async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]]) -> None:
     env_dict = dict(env)
 
     if urlparse(command_or_url).scheme in ("http", "https"):
@@ -62,7 +62,7 @@ async def main(command_or_url: str, args: list[str], env: list[tuple[str, str]])
             await run_session(*streams)
 
 
-def cli():
+def cli() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("command_or_url", help="Command or URL to connect to")
     parser.add_argument("args", nargs="*", help="Additional arguments")
