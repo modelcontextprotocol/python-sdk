@@ -208,6 +208,65 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
 
 
 @pytest.mark.anyio
+async def test_run_terminates_active_stateful_sessions_on_shutdown():
+    app = Server("test-shutdown-cleanup")
+    manager = StreamableHTTPSessionManager(app=app)
+    created_transports: list[StreamableHTTPServerTransport] = []
+    run_started = anyio.Event()
+
+    original_constructor = StreamableHTTPServerTransport
+
+    def track_transport(*args: Any, **kwargs: Any) -> StreamableHTTPServerTransport:
+        transport = original_constructor(*args, **kwargs)
+        created_transports.append(transport)
+        return transport
+
+    async def block_run(*args: Any, **kwargs: Any) -> None:
+        run_started.set()
+        await anyio.sleep_forever()
+
+    app.run = AsyncMock(side_effect=block_run)
+
+    sent_messages: list[Message] = []
+
+    async def mock_send(message: Message):
+        sent_messages.append(message)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp",
+        "headers": [(b"content-type", b"application/json")],
+    }
+
+    async def mock_receive():
+        return {"type": "http.request", "body": b"", "more_body": False}  # pragma: no cover
+
+    with patch.object(streamable_http_manager, "StreamableHTTPServerTransport", side_effect=track_transport):
+        async with manager.run():
+            await manager.handle_request(scope, mock_receive, mock_send)
+            await run_started.wait()
+
+            assert len(created_transports) == 1
+            transport = created_transports[0]
+            terminate_spy = AsyncMock(side_effect=transport.terminate)
+            transport.terminate = terminate_spy
+
+            response_start = next(
+                (msg for msg in sent_messages if msg["type"] == "http.response.start"),
+                None,
+            )
+            assert response_start is not None
+            assert manager._server_instances
+
+        await anyio.sleep(0)
+
+    terminate_spy.assert_awaited_once()
+    assert transport._terminated
+    assert not manager._server_instances
+
+
+@pytest.mark.anyio
 async def test_stateless_requests_memory_cleanup():
     """Test that stateless requests actually clean up resources using real transports."""
     app = Server("test-stateless-real-cleanup")
