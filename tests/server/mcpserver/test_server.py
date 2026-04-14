@@ -65,6 +65,15 @@ class TestServer:
         assert len(mcp.icons) == 1
         assert mcp.icons[0].src == "https://example.com/icon.png"
 
+    def test_dependencies(self):
+        """Dependencies list is read by `mcp install` / `mcp dev` CLI commands."""
+        mcp = MCPServer("test", dependencies=["pandas", "numpy"])
+        assert mcp.dependencies == ["pandas", "numpy"]
+        assert mcp.settings.dependencies == ["pandas", "numpy"]
+
+        mcp_no_deps = MCPServer("test")
+        assert mcp_no_deps.dependencies == []
+
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
@@ -676,6 +685,32 @@ class TestServerTools:
 
 
 class TestServerResources:
+    async def test_init_with_resources(self):
+        def get_text() -> str:
+            """Seeded resource."""
+            return "Hello from init!"
+
+        resource = FunctionResource.from_function(fn=get_text, uri="resource://init", name="init_resource")
+
+        mcp = MCPServer(resources=[resource])
+
+        async with Client(mcp) as client:
+            assert client.initialize_result.capabilities.resources is not None
+
+            resources = await client.list_resources()
+            assert len(resources.resources) == 1
+            listed = resources.resources[0]
+            assert listed.uri == "resource://init"
+            assert listed.name == "init_resource"
+            assert listed.description == "Seeded resource."
+
+            result = await client.read_resource("resource://init")
+
+            assert len(result.contents) == 1
+            content = result.contents[0]
+            assert isinstance(content, TextResourceContents)
+            assert content.text == "Hello from init!"
+
     async def test_text_resource(self):
         mcp = MCPServer()
 
