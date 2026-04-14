@@ -681,11 +681,11 @@ The Context object provides the following capabilities:
 - `ctx.mcp_server` - Access to the MCPServer server instance (see [MCPServer Properties](#mcpserver-properties))
 - `ctx.session` - Access to the underlying session for advanced communication (see [Session Properties and Methods](#session-properties-and-methods))
 - `ctx.request_context` - Access to request-specific data and lifespan resources (see [Request Context Properties](#request-context-properties))
-- `await ctx.debug(message)` - Send debug log message
-- `await ctx.info(message)` - Send info log message
-- `await ctx.warning(message)` - Send warning log message
-- `await ctx.error(message)` - Send error log message
-- `await ctx.log(level, message, logger_name=None)` - Send log with custom level
+- `await ctx.debug(data)` - Send debug log message
+- `await ctx.info(data)` - Send info log message
+- `await ctx.warning(data)` - Send warning log message
+- `await ctx.error(data)` - Send error log message
+- `await ctx.log(level, data, logger_name=None)` - Send log with custom level
 - `await ctx.report_progress(progress, total=None, message=None)` - Report operation progress
 - `await ctx.read_resource(uri)` - Read a resource by URI
 - `await ctx.elicit(message, schema)` - Request additional information from user with validation
