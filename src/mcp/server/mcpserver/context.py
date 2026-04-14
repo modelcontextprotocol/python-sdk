@@ -187,7 +187,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     async def log(
         self,
         level: Literal["debug", "info", "warning", "error"],
-        message: str,
+        message: Any,
         *,
         logger_name: str | None = None,
         extra: dict[str, Any] | None = None,
@@ -196,7 +196,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         Args:
             level: Log level (debug, info, warning, error)
-            message: Log message
+            message: Log message. Any JSON-serializable type is allowed per the MCP spec.
             logger_name: Optional logger name
             extra: Optional dictionary with additional structured data to include
         """
@@ -261,20 +261,20 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
             await self._request_context.close_standalone_sse_stream()
 
     # Convenience methods for common log levels
-    async def debug(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
-        """Send a debug log message."""
+    async def debug(self, message: Any, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+        """Send a debug log message. Any JSON-serializable type is allowed for message."""
         await self.log("debug", message, logger_name=logger_name, extra=extra)
 
-    async def info(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
-        """Send an info log message."""
+    async def info(self, message: Any, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+        """Send an info log message. Any JSON-serializable type is allowed for message."""
         await self.log("info", message, logger_name=logger_name, extra=extra)
 
     async def warning(
-        self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None
+        self, message: Any, *, logger_name: str | None = None, extra: dict[str, Any] | None = None
     ) -> None:
-        """Send a warning log message."""
+        """Send a warning log message. Any JSON-serializable type is allowed for message."""
         await self.log("warning", message, logger_name=logger_name, extra=extra)
 
-    async def error(self, message: str, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
-        """Send an error log message."""
+    async def error(self, message: Any, *, logger_name: str | None = None, extra: dict[str, Any] | None = None) -> None:
+        """Send an error log message. Any JSON-serializable type is allowed for message."""
         await self.log("error", message, logger_name=logger_name, extra=extra)
