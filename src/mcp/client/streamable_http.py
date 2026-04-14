@@ -295,6 +295,7 @@ class StreamableHTTPTransport:
                 elif content_type.startswith("text/event-stream"):
                     await self._handle_sse_response(response, ctx, is_initialization)
                 else:
+                    await response.aread()  # consume body to prevent stream hang
                     logger.error(f"Unexpected content type: {content_type}")
                     error_data = ErrorData(code=INVALID_REQUEST, message=f"Unexpected content type: {content_type}")
                     error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
