@@ -2334,5 +2334,5 @@ async def test_unexpected_content_type_does_not_hang():
         write_stream,
     ):
         async with ClientSession(read_stream, write_stream) as session:
-            with pytest.raises(MCPError, match="Unexpected content type"):
+            with pytest.raises(MCPError, match="Unexpected content type"):  # pragma: no branch
                 await session.initialize()
