@@ -50,6 +50,7 @@ from mcp.shared.session import (
     RequestResponder,
 )
 from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+from mcp.types import INVALID_REQUEST, ErrorData
 
 
 class InitializationState(Enum):
@@ -192,7 +193,14 @@ class ServerSession(
                 pass
             case _:
                 if self._initialization_state != InitializationState.Initialized:
-                    raise RuntimeError("Received request before initialization was complete")
+                    with responder:
+                        await responder.respond(
+                            ErrorData(
+                                code=INVALID_REQUEST,
+                                message="Received request before initialization was complete",
+                            )
+                        )
+                    return
 
     async def _received_notification(self, notification: types.ClientNotification) -> None:
         # Need this to avoid ASYNC910
