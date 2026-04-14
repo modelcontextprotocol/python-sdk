@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mcp.shared.auth import InvalidScopeError, OAuthClientInformationFull, OAuthMetadata
+from mcp.shared.auth import InvalidScopeError, OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
 
 
 def _make_client(scope: str | None) -> OAuthClientInformationFull:
