@@ -64,6 +64,40 @@ async def test_stdio_server():
 
 
 @pytest.mark.anyio
+async def test_stdio_server_no_crlf(monkeypatch: pytest.MonkeyPatch):
+    """Raw bytes written to stdout must use LF (\\n), never CRLF (\\r\\n).
+
+    On Windows, TextIOWrapper with the default newline=None translates \\n to
+    \\r\\n on write, which corrupts NDJSON framing for JSON-RPC. The fix is to
+    pass newline="" to TextIOWrapper so no translation occurs.
+    """
+    raw_stdout = io.BytesIO()
+    # Wrap with newline="" so we can inspect the exact bytes that
+    # stdio_server writes. The key assertion is that the raw bytes
+    # contain \n and never \r\n.
+    stdout_wrapper = TextIOWrapper(raw_stdout, encoding="utf-8", newline="")
+    stdin_wrapper = TextIOWrapper(io.BytesIO(b""), encoding="utf-8")
+
+    message = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+
+    with anyio.fail_after(5):
+        async with stdio_server(
+            stdin=anyio.AsyncFile(stdin_wrapper),
+            stdout=anyio.AsyncFile(stdout_wrapper),
+        ) as (read_stream, write_stream):
+            async with write_stream:
+                await write_stream.send(SessionMessage(message))
+            async with read_stream:
+                pass
+
+    stdout_wrapper.flush()
+    raw_bytes = raw_stdout.getvalue()
+    assert len(raw_bytes) > 0, "expected output bytes"
+    assert raw_bytes.endswith(b"\n"), "output must end with LF"
+    assert b"\r\n" not in raw_bytes, "output must not contain CRLF"
+
+
+@pytest.mark.anyio
 async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
     """Non-UTF-8 bytes on stdin must not crash the server.
 
