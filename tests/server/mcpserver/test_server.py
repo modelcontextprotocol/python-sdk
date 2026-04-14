@@ -13,7 +13,7 @@ from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, ToolNotFoundError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
@@ -634,6 +634,13 @@ class TestServerTools:
         mcp = MCPServer()
 
         with pytest.raises(ToolError, match="Unknown tool: nonexistent"):
+            mcp.remove_tool("nonexistent")
+
+    async def test_remove_nonexistent_tool_raises_tool_not_found_error(self):
+        """Test that removing a non-existent tool raises ToolNotFoundError."""
+        mcp = MCPServer()
+
+        with pytest.raises(ToolNotFoundError, match="Unknown tool: nonexistent"):
             mcp.remove_tool("nonexistent")
 
     async def test_remove_tool_and_list(self):
