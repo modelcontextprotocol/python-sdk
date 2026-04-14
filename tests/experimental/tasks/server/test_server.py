@@ -340,6 +340,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
                         experimental_capabilities={},
                     ),
                 ),
+                session_id="test-session",
             ) as server_session:
                 task_support.configure_session(server_session)
                 async for message in server_session.incoming_messages:
@@ -356,7 +357,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             await client_session.initialize()
 
             # Create a task directly in the store for testing
-            task = await store.create_task(TaskMetadata(ttl=60000))
+            task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
 
             # Test list_tasks (default handler)
             list_result = await client_session.experimental.list_tasks()
@@ -373,11 +374,13 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
                 await client_session.experimental.get_task("nonexistent-task")
 
             # Create a completed task to test get_task_result
-            completed_task = await store.create_task(TaskMetadata(ttl=60000))
+            completed_task = await store.create_task(TaskMetadata(ttl=60000), session_id="test-session")
             await store.store_result(
-                completed_task.task_id, CallToolResult(content=[TextContent(type="text", text="Test result")])
+                completed_task.task_id,
+                CallToolResult(content=[TextContent(type="text", text="Test result")]),
+                session_id="test-session",
             )
-            await store.update_task(completed_task.task_id, status="completed")
+            await store.update_task(completed_task.task_id, status="completed", session_id="test-session")
 
             # Test get_task_result (default handler)
             payload_result = await client_session.send_request(
@@ -392,6 +395,56 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
             cancel_result = await client_session.experimental.cancel_task(task.task_id)
             assert cancel_result.task_id == task.task_id
             assert cancel_result.status == "cancelled"
+
+            tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_default_task_handlers_reject_stateless_mode() -> None:
+    """Test that default task handlers reject requests in stateless mode.
+
+    Task operations require a persistent session for result retrieval; stateless
+    mode creates a fresh session per request, so tasks cannot survive across requests.
+    """
+    server = Server("test-stateless")
+    server.experimental.enable_tasks()
+
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def message_handler(
+        message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
+    ) -> None: ...  # pragma: no branch
+
+    async def run_server() -> None:
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="test-server",
+                server_version="1.0.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+            stateless=True,
+        ) as server_session:
+            async for message in server_session.incoming_messages:
+                await server._handle_message(message, server_session, {}, False)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_server)
+
+        async with ClientSession(
+            server_to_client_receive,
+            client_to_server_send,
+            message_handler=message_handler,
+        ) as client_session:
+            await client_session.initialize()
+
+            with pytest.raises(MCPError, match="do not support stateless mode"):
+                await client_session.experimental.list_tasks()
 
             tg.cancel_scope.cancel()
 
