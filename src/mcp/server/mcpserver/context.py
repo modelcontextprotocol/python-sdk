@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, Generic, Literal
+from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import AnyUrl, BaseModel
 
@@ -14,6 +14,7 @@ from mcp.server.elicitation import (
     elicit_with_validation,
 )
 from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.types import LoggingLevel
 
 if TYPE_CHECKING:
     from mcp.server.mcpserver.server import MCPServer
@@ -186,7 +187,7 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     async def log(
         self,
-        level: Literal["debug", "info", "warning", "error"],
+        level: LoggingLevel,
         data: Any,
         *,
         logger_name: str | None = None,
@@ -194,7 +195,8 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """Send a log message to the client.
 
         Args:
-            level: Log level (debug, info, warning, error)
+            level: Log level (debug, info, notice, warning, error, critical,
+                alert, emergency)
             data: The data to be logged. Any JSON serializable type is allowed
                 (string, dict, list, number, bool, etc.) per the MCP specification.
             logger_name: Optional logger name
