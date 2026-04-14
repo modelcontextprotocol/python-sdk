@@ -47,6 +47,12 @@ def run_uvicorn_in_thread(app: Any, **config_kwargs: Any) -> Generator[str, None
     # which Python 3.14 deprecates. Under filterwarnings=error this crashes
     # the server thread silently. Starlette is asgi3; skip the autodetect.
     config_kwargs.setdefault("interface", "asgi3")
+    # shutdown() waits indefinitely for open connections to drain. SSE tests
+    # may leave streams open at teardown, so without a bound the join below
+    # times out and abandons the thread mid-shutdown — on Windows the
+    # Proactor's Overlapped Recv ops get GC'd pending. This bounds the wait,
+    # then cancels remaining tasks via asyncio so transports unwind cleanly.
+    config_kwargs.setdefault("timeout_graceful_shutdown", 1)
     server = uvicorn.Server(config=uvicorn.Config(app=app, **config_kwargs))
 
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
@@ -62,11 +68,15 @@ def wait_for_server(port: int, timeout: float = 20.0) -> None:
     """Wait for server to be ready to accept connections.
 
     Polls the server port until it accepts connections or timeout is reached.
-    This eliminates race conditions without arbitrary sleeps.
+
+    .. deprecated::
+        This has a race: the port may be bound by a different server (another
+        pytest-xdist worker). Prefer :func:`run_uvicorn_in_thread` which holds
+        the port atomically from bind until shutdown.
 
     Args:
         port: The port number to check
-        timeout: Maximum time to wait in seconds (default 5.0)
+        timeout: Maximum time to wait in seconds
 
     Raises:
         TimeoutError: If server doesn't start within the timeout period
@@ -77,9 +87,7 @@ def wait_for_server(port: int, timeout: float = 20.0) -> None:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(0.1)
                 s.connect(("127.0.0.1", port))
-                # Server is ready
                 return
         except (ConnectionRefusedError, OSError):
-            # Server not ready yet, retry quickly
             time.sleep(0.01)
     raise TimeoutError(f"Server on port {port} did not start within {timeout} seconds")  # pragma: no cover
