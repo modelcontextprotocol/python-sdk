@@ -4,10 +4,10 @@ import logging
 from typing import Any, Protocol
 
 import anyio.lowlevel
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import TypeAdapter
 
 from mcp import types
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
@@ -109,8 +109,8 @@ class ClientSession(
 ):
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,

@@ -43,7 +43,6 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
@@ -55,6 +54,7 @@ from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
+from mcp.shared._context_streams import ContextSendStream, create_context_streams
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
+    _read_stream_writers: dict[UUID, ContextSendStream[SessionMessage | Exception]]
     _security: TransportSecurityMiddleware
 
     def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
@@ -129,14 +129,9 @@ class SseServerTransport:
             raise ValueError("Request validation failed")
 
         logger.debug("Setting up SSE connection")
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
-        read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
-        write_stream: MemoryObjectSendStream[SessionMessage]
-        write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
-
-        read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-        write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
         session_id = uuid4()
         self._read_stream_writers[session_id] = read_stream_writer

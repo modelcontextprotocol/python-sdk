@@ -11,11 +11,11 @@ from dataclasses import dataclass
 import anyio
 import httpx
 from anyio.abc import TaskGroup
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
+from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 
 # TODO(Marcelo): Put the TransportStreams in a module under shared, so we can import here.
 SessionMessageOrError = SessionMessage | Exception
-StreamWriter = MemoryObjectSendStream[SessionMessageOrError]
-StreamReader = MemoryObjectReceiveStream[SessionMessage]
+StreamWriter = ContextSendStream[SessionMessageOrError]
+StreamReader = ContextReceiveStream[SessionMessage]
 
 MCP_SESSION_ID = "mcp-session-id"
 MCP_PROTOCOL_VERSION = "mcp-protocol-version"
@@ -435,14 +435,15 @@ class StreamableHTTPTransport:
         client: httpx.AsyncClient,
         write_stream_reader: StreamReader,
         read_stream_writer: StreamWriter,
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        write_stream: ContextSendStream[SessionMessage],
         start_get_stream: Callable[[], None],
         tg: TaskGroup,
     ) -> None:
         """Handle writing requests to the server."""
         try:
             async with write_stream_reader, read_stream_writer, write_stream:
-                async for session_message in write_stream_reader:
+
+                async def _handle_message(session_message: SessionMessage) -> None:
                     message = session_message.message
                     metadata = (
                         session_message.metadata
@@ -478,6 +479,14 @@ class StreamableHTTPTransport:
                         tg.start_soon(handle_request_async)
                     else:
                         await handle_request_async()
+
+                async for session_message in write_stream_reader:
+                    sender_ctx = write_stream_reader.last_context
+                    if sender_ctx is not None:
+                        async with anyio.create_task_group() as tg_local:
+                            sender_ctx.run(tg_local.start_soon, _handle_message, session_message)
+                    else:
+                        await _handle_message(session_message)  # pragma: no cover
 
         except Exception:  # pragma: lax no cover
             logger.exception("Error in post_writer")
@@ -551,8 +560,8 @@ async def streamable_http_client(
         if not client_provided:
             await stack.enter_async_context(client)
 
-        read_stream_writer, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](0)
-        write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
         async with (
             read_stream_writer,

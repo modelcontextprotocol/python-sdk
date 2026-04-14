@@ -46,6 +46,7 @@ from mcp.server.streamable_http import (
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared._context import RequestContext
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared._httpx_utils import (
     MCP_DEFAULT_SSE_READ_TIMEOUT,
     MCP_DEFAULT_TIMEOUT,
@@ -1784,8 +1785,8 @@ async def test_handle_sse_event_skips_empty_data():
     # Create a mock SSE event with empty data (keep-alive ping)
     mock_sse = ServerSentEvent(event="message", data="", id=None, retry=None)
 
-    # Create a mock stream writer
-    write_stream, read_stream = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+    # Create a context-aware stream writer (matches StreamWriter type alias)
+    write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
 
     try:
         # Call _handle_sse_event with empty data - should return False and not raise
@@ -1795,8 +1796,9 @@ async def test_handle_sse_event_skips_empty_data():
         assert result is False
 
         # Nothing should have been written to the stream
-        # Check buffer is empty (statistics().current_buffer_used returns buffer size)
-        assert write_stream.statistics().current_buffer_used == 0
+        with pytest.raises(TimeoutError):
+            with anyio.fail_after(0):
+                await read_stream.receive()
     finally:
         await write_stream.aclose()
         await read_stream.aclose()

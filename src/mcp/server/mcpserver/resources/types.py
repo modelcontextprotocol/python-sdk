@@ -1,6 +1,7 @@
 """Concrete resource implementations."""
 
-import inspect
+from __future__ import annotations
+
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -14,6 +15,7 @@ import pydantic_core
 from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
+from mcp.shared._callable_inspection import is_async_callable
 from mcp.types import Annotations, Icon
 
 
@@ -55,11 +57,11 @@ class FunctionResource(Resource):
     async def read(self) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
-            # Call the function first to see if it returns a coroutine
-            result = self.fn()
-            # If it's a coroutine, await it
-            if inspect.iscoroutine(result):
-                result = await result
+            fn = self.fn
+            if is_async_callable(fn):
+                result = await fn()
+            else:
+                result = await anyio.to_thread.run_sync(self.fn)
 
             if isinstance(result, Resource):  # pragma: no cover
                 return await result.read()
@@ -84,7 +86,7 @@ class FunctionResource(Resource):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
-    ) -> "FunctionResource":
+    ) -> FunctionResource:
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":  # pragma: no cover

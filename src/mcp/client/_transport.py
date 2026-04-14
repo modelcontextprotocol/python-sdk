@@ -5,11 +5,12 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
+from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.message import SessionMessage
 
-TransportStreams = tuple[MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage]]
+__all__ = ["ReadStream", "WriteStream", "Transport", "TransportStreams"]
+
+TransportStreams = tuple[ReadStream[SessionMessage | Exception], WriteStream[SessionMessage]]
 
 
 class Transport(AbstractAsyncContextManager[TransportStreams], Protocol):
