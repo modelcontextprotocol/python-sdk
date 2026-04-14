@@ -118,6 +118,7 @@ class ClientSession(
         logging_callback: LoggingFnT | None = None,
         message_handler: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
+        protocol_version: str | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
@@ -133,6 +134,7 @@ class ClientSession(
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
+        self._protocol_version = protocol_version or types.LATEST_PROTOCOL_VERSION
 
         # Experimental: Task handlers (use defaults if not provided)
         self._task_handlers = experimental_task_handlers or ExperimentalTaskHandlers()
@@ -168,7 +170,7 @@ class ClientSession(
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=types.LATEST_PROTOCOL_VERSION,
+                    protocol_version=self._protocol_version,
                     capabilities=types.ClientCapabilities(
                         sampling=sampling,
                         elicitation=elicitation,
