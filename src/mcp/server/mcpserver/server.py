@@ -247,7 +247,13 @@ class MCPServer(Generic[LifespanResultT]):
         return self._lowlevel_server.session_manager  # pragma: no cover
 
     @overload
-    def run(self, transport: Literal["stdio"] = ...) -> None: ...
+    def run(
+        self,
+        transport: Literal["stdio"] = ...,
+        *,
+        stdin: anyio.AsyncFile[str] | None = ...,
+        stdout: anyio.AsyncFile[str] | None = ...,
+    ) -> None: ...
 
     @overload
     def run(
@@ -293,7 +299,7 @@ class MCPServer(Generic[LifespanResultT]):
 
         match transport:
             case "stdio":
-                anyio.run(self.run_stdio_async)
+                anyio.run(lambda: self.run_stdio_async(**kwargs))
             case "sse":  # pragma: no cover
                 anyio.run(lambda: self.run_sse_async(**kwargs))
             case "streamable-http":  # pragma: no cover
@@ -845,9 +851,25 @@ class MCPServer(Generic[LifespanResultT]):
 
         return decorator  # pragma: no cover
 
-    async def run_stdio_async(self) -> None:
-        """Run the server using stdio transport."""
-        async with stdio_server() as (read_stream, write_stream):
+    async def run_stdio_async(
+        self,
+        *,
+        stdin: anyio.AsyncFile[str] | None = None,
+        stdout: anyio.AsyncFile[str] | None = None,
+    ) -> None:
+        """Run the server using stdio transport.
+
+        Args:
+            stdin: Async text stream to read JSON-RPC lines from. When ``None``,
+                uses the process stdin (see :func:`mcp.server.stdio.stdio_server`).
+            stdout: Async text stream to write JSON-RPC lines to. When ``None``,
+                uses the process stdout.
+
+        Custom streams are useful when the process ``sys.stdout`` / ``sys.stdin``
+        must be redirected (for example so logging or subprocess output does not
+        corrupt the MCP JSON-RPC stream on fd 1).
+        """
+        async with stdio_server(stdin=stdin, stdout=stdout) as (read_stream, write_stream):
             await self._lowlevel_server.run(
                 read_stream,
                 write_stream,
