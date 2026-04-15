@@ -117,3 +117,23 @@ async def test_auth_context_middleware_with_no_user():
     # Verify context is still empty after middleware
     assert auth_context_var.get() is None
     assert get_access_token() is None
+
+
+def test_access_token_subject_field():
+    """Test that AccessToken supports the optional subject field."""
+    # Without subject (backward compatible)
+    token_no_sub = AccessToken(
+        token="token1",
+        client_id="client1",
+        scopes=["read"],
+    )
+    assert token_no_sub.subject is None
+
+    # With subject
+    token_with_sub = AccessToken(
+        token="token2",
+        client_id="client2",
+        scopes=["read", "write"],
+        subject="user-123",
+    )
+    assert token_with_sub.subject == "user-123"
