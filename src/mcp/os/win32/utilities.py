@@ -138,7 +138,7 @@ async def create_windows_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
     """Creates a subprocess in a Windows-compatible way with Job Object support.
@@ -155,7 +155,7 @@ async def create_windows_process(
         command (str): The executable to run
         args (list[str]): List of command line arguments
         env (dict[str, str] | None): Environment variables
-        errlog (TextIO | None): Where to send stderr output (defaults to sys.stderr)
+        errlog (TextIO | int | None): Where to send stderr output (defaults to sys.stderr)
         cwd (Path | str | None): Working directory for the subprocess
 
     Returns:
@@ -196,7 +196,7 @@ async def _create_windows_fallback_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO | None = sys.stderr,
+    errlog: TextIO | int | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
     """Create a subprocess using subprocess.Popen as a fallback when anyio fails.
