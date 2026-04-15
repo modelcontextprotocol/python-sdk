@@ -14,7 +14,6 @@ This matches the behavior of the typescript-sdk (see
 
 from __future__ import annotations
 
-from copy import copy
 from typing import Any
 
 
@@ -68,7 +67,9 @@ def dereference_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
             return node
         if isinstance(node, list):
             return [inline(item, stack) for item in node]
-        if not isinstance(node, dict):
+        if not isinstance(node, dict):  # pragma: no cover
+            # Defensive: valid JSON only contains None/str/int/float/bool/list/dict.
+            # Reachable only if a non-JSON-shaped value sneaks into a schema.
             return node
 
         ref = node.get("$ref")

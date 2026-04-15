@@ -78,9 +78,7 @@ class Tool(BaseModel):
         # JSON instead of structured objects. Inline local refs so tool schemas
         # are self-contained and LLM-consumable. Matches behavior of
         # typescript-sdk (#1563) and go-sdk.
-        parameters = dereference_local_refs(
-            func_arg_metadata.arg_model.model_json_schema(by_alias=True)
-        )
+        parameters = dereference_local_refs(func_arg_metadata.arg_model.model_json_schema(by_alias=True))
 
         return cls(
             fn=fn,

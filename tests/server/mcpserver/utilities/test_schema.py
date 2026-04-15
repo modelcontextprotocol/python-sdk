@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
+from typing import Any
 
 from mcp.server.mcpserver.utilities.schema import dereference_local_refs
 
@@ -140,3 +140,33 @@ class TestDereferenceLocalRefs:
         # Original still has $defs intact
         assert schema["$defs"] == original_defs
         assert schema["properties"]["x"] == {"$ref": "#/$defs/A"}
+
+    def test_empty_defs_returns_schema_unchanged(self) -> None:
+        """`$defs: {}` (empty container) is a no-op — returns input as-is."""
+        schema = {"type": "object", "$defs": {}}
+        result = dereference_local_refs(schema)
+        assert result is schema  # same object — no copy made on the empty path
+
+    def test_null_defs_returns_schema_unchanged(self) -> None:
+        """`$defs: null` falls through the same empty-defs path."""
+        schema: dict[str, Any] = {"type": "object", "$defs": None}
+        result = dereference_local_refs(schema)
+        assert result is schema
+
+    def test_inlines_through_array_of_objects(self) -> None:
+        """Refs nested inside arrays of dict items are recursed properly.
+
+        Covers the `if isinstance(node, list)` branch of the inner inline().
+        """
+        schema = {
+            "anyOf": [
+                {"$ref": "#/$defs/A"},
+                {"$ref": "#/$defs/B"},
+            ],
+            "$defs": {
+                "A": {"type": "string"},
+                "B": {"type": "integer"},
+            },
+        }
+        result = dereference_local_refs(schema)
+        assert result["anyOf"] == [{"type": "string"}, {"type": "integer"}]
