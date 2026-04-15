@@ -102,9 +102,15 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
+async def stdio_client(server: StdioServerParameters, errlog: TextIO | int = sys.stderr):
     """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
+
+    Args:
+        server: Parameters for the server process to spawn.
+        errlog: Where to send stderr output from the server process. Accepts a
+            text stream (e.g. ``sys.stderr``) or an integer file descriptor,
+            including ``subprocess.DEVNULL`` to discard stderr entirely.
     """
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
@@ -230,7 +236,7 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | int = sys.stderr,
     cwd: Path | str | None = None,
 ):
     """Creates a subprocess in a platform-compatible way.
