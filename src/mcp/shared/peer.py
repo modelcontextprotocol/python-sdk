@@ -1,13 +1,13 @@
 """Typed MCP request sugar over an `Outbound`.
 
 `PeerMixin` defines the server-to-client request methods (sampling, elicitation,
-roots, ping) once. Any class that satisfies `Outbound` (i.e. has `send_request`
+roots, ping) once. Any class that satisfies `Outbound` (i.e. has `send_raw_request`
 and `notify`) can mix it in and get the typed methods for free — `Context`,
 `Connection`, `Client`, or the bare `Peer` wrapper below.
 
 The mixin does no capability gating: it builds the params, calls
-``self.send_request(method, params)``, and parses the result into the typed
-model. Gating (and `NoBackChannelError`) is the host's `send_request`'s job.
+``self.send_raw_request(method, params)``, and parses the result into the typed
+model. Gating (and `NoBackChannelError`) is the host's `send_raw_request`'s job.
 """
 
 from collections.abc import Mapping
@@ -43,7 +43,7 @@ class PeerMixin:
     """Typed server-to-client request methods.
 
     Each method constrains ``self`` to `Outbound` so the mixin can be applied
-    to anything with ``send_request``/``notify`` — pyright checks the host
+    to anything with ``send_raw_request``/``notify`` — pyright checks the host
     class structurally at the call site.
     """
 
@@ -113,7 +113,7 @@ class PeerMixin:
             tools=tools,
             tool_choice=tool_choice,
         )
-        result = await self.send_request("sampling/createMessage", _dump(params), opts)
+        result = await self.send_raw_request("sampling/createMessage", _dump(params), opts)
         if tools is not None:
             return CreateMessageResultWithTools.model_validate(result)
         return CreateMessageResult.model_validate(result)
@@ -131,7 +131,7 @@ class PeerMixin:
             NoBackChannelError: No back-channel for server-initiated requests.
         """
         params = ElicitRequestFormParams(message=message, requested_schema=requested_schema)
-        result = await self.send_request("elicitation/create", _dump(params), opts)
+        result = await self.send_raw_request("elicitation/create", _dump(params), opts)
         return ElicitResult.model_validate(result)
 
     async def elicit_url(
@@ -148,7 +148,7 @@ class PeerMixin:
             NoBackChannelError: No back-channel for server-initiated requests.
         """
         params = ElicitRequestURLParams(message=message, url=url, elicitation_id=elicitation_id)
-        result = await self.send_request("elicitation/create", _dump(params), opts)
+        result = await self.send_raw_request("elicitation/create", _dump(params), opts)
         return ElicitResult.model_validate(result)
 
     async def list_roots(self: Outbound, opts: CallOptions | None = None) -> ListRootsResult:
@@ -158,7 +158,7 @@ class PeerMixin:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
         """
-        result = await self.send_request("roots/list", None, opts)
+        result = await self.send_raw_request("roots/list", None, opts)
         return ListRootsResult.model_validate(result)
 
     async def ping(self: Outbound, opts: CallOptions | None = None) -> None:
@@ -168,7 +168,7 @@ class PeerMixin:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
         """
-        await self.send_request("ping", None, opts)
+        await self.send_raw_request("ping", None, opts)
 
 
 class Peer(PeerMixin):
@@ -182,13 +182,13 @@ class Peer(PeerMixin):
     def __init__(self, outbound: Outbound) -> None:
         self._outbound = outbound
 
-    async def send_request(
+    async def send_raw_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
-        return await self._outbound.send_request(method, params, opts)
+        return await self._outbound.send_raw_request(method, params, opts)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         await self._outbound.notify(method, params)

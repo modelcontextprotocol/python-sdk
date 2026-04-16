@@ -1,7 +1,7 @@
 """Tests for `BaseContext`.
 
 `BaseContext` is composition over a `DispatchContext` — it forwards
-``transport``/``cancel_requested``/``send_request``/``notify``/``progress``
+``transport``/``cancel_requested``/``send_raw_request``/``notify``/``progress``
 and adds ``meta``. It must satisfy `Outbound` so `PeerMixin` works on it.
 """
 
@@ -33,7 +33,7 @@ async def test_base_context_forwards_transport_and_cancel_requested():
 
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            await client.send_request("t", None)
+            await client.send_raw_request("t", None)
     bctx = captured[0]
     assert bctx.transport.kind == "direct"
     assert isinstance(bctx.cancel_requested, anyio.Event)
@@ -42,13 +42,13 @@ async def test_base_context_forwards_transport_and_cancel_requested():
 
 
 @pytest.mark.anyio
-async def test_base_context_send_request_and_notify_forward_to_dispatch_context():
+async def test_base_context_send_raw_request_and_notify_forward_to_dispatch_context():
     crec = Recorder()
     c_req, c_notify = echo_handlers(crec)
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
         bctx = BaseContext(ctx)
-        sample = await bctx.send_request("sampling/createMessage", {"x": 1})
+        sample = await bctx.send_raw_request("sampling/createMessage", {"x": 1})
         await bctx.notify("notifications/message", {"level": "info"})
         return {"sample": sample}
 
@@ -59,7 +59,7 @@ async def test_base_context_send_request_and_notify_forward_to_dispatch_context(
         client_on_notify=c_notify,
     ) as (client, *_):
         with anyio.fail_after(5):
-            result = await client.send_request("tools/call", None)
+            result = await client.send_raw_request("tools/call", None)
             await crec.notified.wait()
     assert crec.requests == [("sampling/createMessage", {"x": 1})]
     assert crec.notifications == [("notifications/message", {"level": "info"})]
@@ -80,7 +80,7 @@ async def test_base_context_report_progress_invokes_caller_on_progress():
 
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            await client.send_request("t", None, {"on_progress": on_progress})
+            await client.send_raw_request("t", None, {"on_progress": on_progress})
     assert received == [(0.5, 1.0, "halfway")]
 
 
@@ -99,7 +99,7 @@ async def test_base_context_satisfies_outbound_so_peer_mixin_works():
         direct_pair, server_on_request=server_on_request, client_on_request=c_req, client_on_notify=c_notify
     ) as (client, *_):
         with anyio.fail_after(5):
-            await client.send_request("t", None)
+            await client.send_raw_request("t", None)
     assert crec.requests == [("ping", None)]
 
 
@@ -112,4 +112,4 @@ async def test_base_context_meta_holds_supplied_request_params_meta():
 
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            await client.send_request("t", None)
+            await client.send_raw_request("t", None)
