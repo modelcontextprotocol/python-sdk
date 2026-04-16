@@ -56,7 +56,7 @@ async def test_concurrent_send_requests_correlate_by_id_when_responses_arrive_ou
             results[method] = await client.send_request(method, None)
 
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
                 tg.start_soon(call, "first")
                 await anyio.sleep(0)
                 tg.start_soon(call, "second")
@@ -99,7 +99,7 @@ async def test_peer_cancel_interrupt_mode_sets_cancel_requested_and_sends_no_res
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call_then_record() -> None:
                     with pytest.raises(MCPError):  # we'll cancel via tg below
@@ -137,7 +137,7 @@ async def test_peer_cancel_signal_mode_sets_event_but_handler_runs_to_completion
     result_box: list[dict[str, Any]] = []
     async with running_pair(factory, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call() -> None:
                     result_box.append(await client.send_request("slow", None))
