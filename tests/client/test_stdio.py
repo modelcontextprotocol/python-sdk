@@ -4,6 +4,7 @@ import sys
 import textwrap
 import time
 from contextlib import AsyncExitStack, suppress
+from pathlib import Path
 
 import anyio
 import anyio.abc
@@ -68,6 +69,42 @@ async def test_stdio_client():
         assert len(read_messages) == 2
         assert read_messages[0] == JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
         assert read_messages[1] == JSONRPCResponse(jsonrpc="2.0", id=2, result={})
+
+
+@pytest.mark.anyio
+async def test_stdio_client_invalid_utf8_from_server_does_not_crash(tmp_path: Path):
+    """A buggy child server should surface malformed UTF-8 as an in-stream error.
+
+    The client should continue reading subsequent valid JSON-RPC lines instead of
+    crashing the whole transport task group during decoding.
+    """
+    script = tmp_path / "bad_stdout_server.py"
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    script.write_text(
+        textwrap.dedent(
+            f"""\
+            import sys
+            import time
+
+            sys.stdout.buffer.write(b"\\xff\\xfe\\n")
+            sys.stdout.buffer.write({valid.model_dump_json(by_alias=True, exclude_none=True)!r}.encode() + b"\\n")
+            sys.stdout.buffer.flush()
+            time.sleep(0.2)
+            """
+        )
+    )
+
+    server_params = StdioServerParameters(command=sys.executable, args=[str(script)])
+
+    with anyio.fail_after(5):
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            await write_stream.aclose()
+            first = await read_stream.receive()
+            assert isinstance(first, Exception)
+
+            second = await read_stream.receive()
+            assert isinstance(second, SessionMessage)
+            assert second.message == valid
 
 
 @pytest.mark.anyio
