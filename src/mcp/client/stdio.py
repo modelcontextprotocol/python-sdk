@@ -151,7 +151,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                     for line in lines:
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
-                        except Exception as exc:  # pragma: no cover
+                        except Exception as exc:
                             logger.exception("Failed to parse JSONRPC message from server")
                             await read_stream_writer.send(exc)
                             continue
