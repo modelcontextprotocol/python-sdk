@@ -385,8 +385,10 @@ async def test_idle_session_is_reaped():
 
         assert session_id is not None, "Session ID not found in response headers"
 
-        # Wait for the 50ms idle timeout to fire and cleanup to complete
-        await anyio.sleep(0.1)
+        # Wait deterministically for the idle timeout to fire and cleanup to complete.
+        with anyio.fail_after(1):
+            while session_id in manager._server_instances:
+                await anyio.sleep(0)
 
         # Verify via public API: old session ID now returns 404
         response_messages: list[Message] = []
@@ -399,6 +401,7 @@ async def test_idle_session_is_reaped():
             "method": "POST",
             "path": "/mcp",
             "headers": [
+                (b"accept", b"application/json, text/event-stream"),
                 (b"content-type", b"application/json"),
                 (b"mcp-session-id", session_id.encode()),
             ],
