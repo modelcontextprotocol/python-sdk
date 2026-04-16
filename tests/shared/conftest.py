@@ -48,20 +48,26 @@ def jsonrpc_pair(*, can_send_request: bool = True) -> DispatcherTriple:
     return client, server, close
 
 
-_JSONRPC_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="JSONRPCDispatcher.run() not yet implemented (PR2 chunks b/c)",
-)
-
-
 @pytest.fixture(
     params=[
         pytest.param(direct_pair, id="direct"),
-        pytest.param(jsonrpc_pair, id="jsonrpc", marks=_JSONRPC_XFAIL),
+        pytest.param(jsonrpc_pair, id="jsonrpc"),
     ]
 )
 def pair_factory(request: pytest.FixtureRequest) -> PairFactory:
     return request.param
 
 
-__all__ = ["PairFactory", "direct_pair", "jsonrpc_pair"]
+def xfail_jsonrpc_chunk_c(request: pytest.FixtureRequest, factory: PairFactory) -> None:
+    """Apply a strict xfail when running against the JSON-RPC dispatcher.
+
+    Use for contract tests that require `_handle_request`'s exception boundary
+    (PR2 chunk c). Remove once that lands.
+    """
+    if factory is jsonrpc_pair:
+        request.applymarker(
+            pytest.mark.xfail(strict=True, reason="needs JSONRPCDispatcher._handle_request exception boundary")
+        )
+
+
+__all__ = ["PairFactory", "direct_pair", "jsonrpc_pair", "xfail_jsonrpc_chunk_c"]

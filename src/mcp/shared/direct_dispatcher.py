@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
+import anyio.abc
 
 from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
@@ -101,10 +102,17 @@ class DirectDispatcher:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")
         await self._peer._dispatch_notify(method, params)
 
-    async def run(self, on_request: OnRequest, on_notify: OnNotify) -> None:
+    async def run(
+        self,
+        on_request: OnRequest,
+        on_notify: OnNotify,
+        *,
+        task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
         self._on_request = on_request
         self._on_notify = on_notify
         self._ready.set()
+        task_status.started()
         await self._closed.wait()
 
     def close(self) -> None:
