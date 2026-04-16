@@ -92,7 +92,7 @@ class StdioServerParameters(BaseModel):
     Defaults to utf-8.
     """
 
-    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "replace"
     """
     The text encoding error handler.
 
@@ -158,7 +158,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: lax no cover
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError, ConnectionResetError):  # pragma: lax no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
@@ -174,7 +174,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             errors=server.encoding_error_handler,
                         )
                     )
-        except anyio.ClosedResourceError:  # pragma: no cover
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError, ConnectionResetError):  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg, process:
