@@ -19,7 +19,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
 from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, REQUEST_TIMEOUT
 
-from .conftest import PairFactory, direct_pair, xfail_jsonrpc_chunk_c
+from .conftest import PairFactory, direct_pair
 
 
 class Recorder:
@@ -82,11 +82,7 @@ async def test_send_raw_request_returns_result_from_peer_on_request(pair_factory
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_reraises_mcperror_from_handler_unchanged(
-    pair_factory: PairFactory, request: pytest.FixtureRequest
-):
-    xfail_jsonrpc_chunk_c(request, pair_factory)
-
+async def test_send_raw_request_reraises_mcperror_from_handler_unchanged(pair_factory: PairFactory):
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -140,11 +136,7 @@ async def test_ctx_send_raw_request_round_trips_to_calling_side(pair_factory: Pa
 
 
 @pytest.mark.anyio
-async def test_ctx_send_raw_request_raises_nobackchannelerror_when_transport_disallows(
-    pair_factory: PairFactory, request: pytest.FixtureRequest
-):
-    xfail_jsonrpc_chunk_c(request, pair_factory)
-
+async def test_ctx_send_raw_request_raises_nobackchannelerror_when_transport_disallows(pair_factory: PairFactory):
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:

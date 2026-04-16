@@ -29,6 +29,7 @@ from typing import Any, Generic, Literal, TypeVar, cast, overload
 import anyio
 import anyio.abc
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from pydantic import ValidationError
 
 from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.dispatcher import CallOptions, Dispatcher, OnNotify, OnRequest, ProgressFnT
@@ -42,6 +43,9 @@ from mcp.shared.message import (
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
     CONNECTION_CLOSED,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    REQUEST_CANCELLED,
     REQUEST_TIMEOUT,
     ErrorData,
     JSONRPCError,
@@ -473,17 +477,43 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     ) -> None:
         """Run ``on_request`` for one inbound request and write its response.
 
-        Chunk (b): happy-path only. The full exception-to-wire boundary
-        (MCPError, ValidationError, INTERNAL_ERROR scrubbing, peer-cancel
-        no-response) lands in chunk (c).
+        This is the single exception-to-wire boundary: handler exceptions are
+        caught here and serialized to ``JSONRPCError``. Nothing above this in
+        the stack constructs wire errors.
         """
         try:
             with scope:
-                result = await on_request(dctx, req.method, req.params)
-                await self._write(JSONRPCResponse(jsonrpc="2.0", id=req.id, result=result))
+                try:
+                    result = await on_request(dctx, req.method, req.params)
+                finally:
+                    # Close the back-channel the moment the handler exits
+                    # (success or raise), before the response write — a handler
+                    # spawning detached work that later calls
+                    # `dctx.send_request()` should see `NoBackChannelError`.
+                    dctx.close()
+                await self._write_result(req.id, result)
+            # Peer-cancel: `_dispatch_notification` cancelled this scope. anyio
+            # swallows a scope's *own* cancel at __exit__, so the result write
+            # (or the handler) is interrupted and execution lands here without
+            # reaching the `except cancelled` arm below. Spec SHOULD: send no
+            # response — fall through to `finally`.
+        except anyio.get_cancelled_exc_class():
+            # Outer-cancel: run()'s task group is shutting down. Any bare
+            # `await` here re-raises immediately, so shield the courtesy write.
+            with anyio.CancelScope(shield=True):
+                await self._write_error(req.id, ErrorData(code=REQUEST_CANCELLED, message="Request cancelled"))
+            raise
+        except MCPError as e:
+            await self._write_error(req.id, e.error)
+        except ValidationError as e:
+            await self._write_error(req.id, ErrorData(code=INVALID_PARAMS, message=str(e)))
+        except Exception as e:
+            logger.exception("handler for %r raised", req.method)
+            await self._write_error(req.id, ErrorData(code=INTERNAL_ERROR, message=str(e)))
+            if self._raise_handler_exceptions:
+                raise
         finally:
             self._in_flight.pop(req.id, None)
-            dctx.close()
 
     def _allocate_id(self) -> int:
         self._next_id += 1
@@ -491,6 +521,18 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
     async def _write(self, message: JSONRPCMessage, metadata: MessageMetadata = None) -> None:
         await self._write_stream.send(SessionMessage(message=message, metadata=metadata))
+
+    async def _write_result(self, request_id: RequestId, result: dict[str, Any]) -> None:
+        try:
+            await self._write(JSONRPCResponse(jsonrpc="2.0", id=request_id, result=result))
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("dropped result for %r: write stream closed", request_id)
+
+    async def _write_error(self, request_id: RequestId, error: ErrorData) -> None:
+        try:
+            await self._write(JSONRPCError(jsonrpc="2.0", id=request_id, error=error))
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("dropped error for %r: write stream closed", request_id)
 
     async def _cancel_outbound(self, request_id: RequestId, reason: str) -> None:
         try:
