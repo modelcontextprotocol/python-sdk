@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
+from mcp.types import INVALID_REQUEST, URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 
 class MCPError(Exception):
@@ -39,6 +39,25 @@ class MCPError(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+
+class NoBackChannelError(MCPError):
+    """Raised when sending a server-initiated request over a transport that cannot deliver it.
+
+    Stateless HTTP and JSON-response-mode HTTP have no channel for the server to
+    push requests (sampling, elicitation, roots/list) to the client. This is
+    raised by `DispatchContext.send_raw_request` when `transport.can_send_request`
+    is ``False``, and serializes to an ``INVALID_REQUEST`` error response.
+    """
+
+    def __init__(self, method: str):
+        super().__init__(
+            code=INVALID_REQUEST,
+            message=(
+                f"Cannot send {method!r}: this transport context has no back-channel for server-initiated requests."
+            ),
+        )
+        self.method = method
 
 
 class StatelessModeNotSupported(RuntimeError):
