@@ -109,7 +109,7 @@ async def test_call_with_timeout_raises_mcperror_request_timeout():
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         await anyio.sleep_forever()
-        return {}
+        raise NotImplementedError
 
     async with running_pair(server_on_call=on_call) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
@@ -148,8 +148,7 @@ async def test_ctx_send_request_raises_nobackchannelerror_when_transport_disallo
     async def server_on_call(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        await ctx.send_request("sampling/createMessage", None)
-        return {}
+        return await ctx.send_request("sampling/createMessage", None)
 
     async with running_pair(server_on_call=server_on_call, can_send_request=False) as (client, *_):
         with anyio.fail_after(5), pytest.raises(NoBackChannelError) as exc:

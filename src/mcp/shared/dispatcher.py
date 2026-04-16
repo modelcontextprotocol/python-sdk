@@ -66,8 +66,8 @@ class CallOptions(TypedDict, total=False):
 class RequestSender(Protocol):
     """Anything that can send a request and await its result.
 
-    Both `Dispatcher` (for top-level outbound calls) and `DispatchContext`
-    (for server-to-client calls made *during* an inbound request) satisfy this.
+    `DispatchContext` satisfies this; `PeerMixin` (and `Connection`/`Peer`) wrap
+    a `RequestSender` to provide typed request methods.
     """
 
     async def send_request(
