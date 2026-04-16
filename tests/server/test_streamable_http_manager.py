@@ -11,7 +11,7 @@ import httpx
 import pytest
 from starlette.applications import Starlette
 from starlette.routing import Mount
-from starlette.types import Message
+from starlette.types import Message, Receive, Scope, Send
 
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
@@ -446,7 +446,7 @@ async def test_session_idle_timeout_does_not_cancel_in_flight_request():
                 Tool(
                     name="slow",
                     description="Slow tool",
-                    inputSchema={"type": "object", "properties": {}},
+                    input_schema={"type": "object", "properties": {}},
                 )
             ]
         )
@@ -458,7 +458,7 @@ async def test_session_idle_timeout_does_not_cancel_in_flight_request():
     server = Server("idle-timeout-active-request", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     manager = StreamableHTTPSessionManager(app=server, session_idle_timeout=1.0)
 
-    async def handle_streamable_http(scope, receive, send) -> None:
+    async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
         await manager.handle_request(scope, receive, send)
 
     @asynccontextmanager
@@ -477,4 +477,5 @@ async def test_session_idle_timeout_does_not_cancel_in_flight_request():
         with anyio.fail_after(5):
             result = await client.call_tool("slow", {})
 
+        assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "ok"
