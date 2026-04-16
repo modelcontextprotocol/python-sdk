@@ -40,7 +40,7 @@ class _DirectDispatchContext:
     """`DispatchContext` for an inbound request on a `DirectDispatcher`.
 
     The back-channel callables target the *originating* side, so a handler's
-    `send_request` reaches the peer that made the inbound request.
+    `send_raw_request` reaches the peer that made the inbound request.
     """
 
     transport: TransportContext
@@ -52,7 +52,7 @@ class _DirectDispatchContext:
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         await self._back_notify(method, params)
 
-    async def send_request(
+    async def send_raw_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
@@ -71,7 +71,7 @@ class DirectDispatcher:
     """A `Dispatcher` that calls a peer's handlers directly, in-process.
 
     Two instances are wired together with `create_direct_dispatcher_pair`; each
-    holds a reference to the other. `send_request` on one awaits the peer's
+    holds a reference to the other. `send_raw_request` on one awaits the peer's
     `on_request`. `run` parks until `close` is called.
     """
 
@@ -86,7 +86,7 @@ class DirectDispatcher:
     def connect_to(self, peer: DirectDispatcher) -> None:
         self._peer = peer
 
-    async def send_request(
+    async def send_raw_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,

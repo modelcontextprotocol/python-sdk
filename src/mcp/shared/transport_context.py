@@ -26,5 +26,5 @@ class TransportContext:
 
     ``False`` for stateless HTTP and HTTP with JSON response mode; ``True`` for
     stdio, SSE, and stateful streamable HTTP. When ``False``,
-    `DispatchContext.send_request` raises `NoBackChannelError`.
+    `DispatchContext.send_raw_request` raises `NoBackChannelError`.
     """
