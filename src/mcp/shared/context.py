@@ -1,7 +1,7 @@
 """`BaseContext` — the user-facing per-request context.
 
 Composition over a `DispatchContext`: forwards the transport metadata, the
-back-channel (`send_request`/`notify`), progress reporting, and the cancel
+back-channel (`send_raw_request`/`notify`), progress reporting, and the cancel
 event. Adds `meta` (the inbound request's `_meta` field).
 
 Satisfies `Outbound`, so `PeerMixin` works on it (the server-side `Context`
@@ -56,7 +56,7 @@ class BaseContext(Generic[TransportT]):
         """The inbound request's ``_meta`` field, if present."""
         return self._meta
 
-    async def send_request(
+    async def send_raw_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
@@ -68,7 +68,7 @@ class BaseContext(Generic[TransportT]):
             MCPError: The peer responded with an error.
             NoBackChannelError: ``can_send_request`` is ``False``.
         """
-        return await self._dctx.send_request(method, params, opts)
+        return await self._dctx.send_raw_request(method, params, opts)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         """Send a notification to the peer on the back-channel."""
