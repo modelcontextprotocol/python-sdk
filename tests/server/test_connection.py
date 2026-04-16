@@ -173,6 +173,27 @@ def test_connection_check_capability_false_before_initialized():
     assert conn.check_capability(ClientCapabilities(sampling=SamplingCapability())) is False
 
 
+@pytest.mark.parametrize(
+    ("have", "want", "expected"),
+    [
+        (ClientCapabilities(roots=None), ClientCapabilities(roots=RootsCapability()), False),
+        (
+            ClientCapabilities(roots=RootsCapability(list_changed=False)),
+            ClientCapabilities(roots=RootsCapability(list_changed=True)),
+            False,
+        ),
+        (ClientCapabilities(sampling=None), ClientCapabilities(sampling=SamplingCapability()), False),
+        (ClientCapabilities(experimental=None), ClientCapabilities(experimental={"a": {}}), False),
+        (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"b": {}}), False),
+        (ClientCapabilities(experimental={"a": {}}), ClientCapabilities(experimental={"a": {}}), True),
+    ],
+)
+def test_check_capability_per_field_branches(have: ClientCapabilities, want: ClientCapabilities, expected: bool):
+    conn = Connection(StubOutbound(), has_standalone_channel=True)
+    conn.client_capabilities = have
+    assert conn.check_capability(want) is expected
+
+
 def test_connection_check_capability_true_when_client_declares_it():
     conn = Connection(StubOutbound(), has_standalone_channel=True)
     conn.client_capabilities = ClientCapabilities(
