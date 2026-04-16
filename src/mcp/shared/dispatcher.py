@@ -20,6 +20,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol, TypedDict, TypeVar, runtime_checkable
 
 import anyio
+import anyio.abc
 
 from mcp.shared.transport_context import TransportContext
 
@@ -136,11 +137,21 @@ class Dispatcher(Outbound, Protocol[TransportT_co]):
     receive loop, per-request concurrency, and cancellation/progress wiring.
     """
 
-    async def run(self, on_request: OnRequest, on_notify: OnNotify) -> None:
+    async def run(
+        self,
+        on_request: OnRequest,
+        on_notify: OnNotify,
+        *,
+        task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
+    ) -> None:
         """Drive the receive loop until the underlying channel closes.
 
         Each inbound request is dispatched to ``on_request`` in its own task;
         the returned dict (or raised ``MCPError``) is sent back as the response.
         Inbound notifications go to ``on_notify``.
+
+        ``task_status.started()`` is called once the dispatcher is ready to
+        accept ``send_request``/``notify`` calls, so callers can use
+        ``await tg.start(dispatcher.run, on_request, on_notify)``.
         """
         ...
