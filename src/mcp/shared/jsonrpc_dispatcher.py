@@ -359,8 +359,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 self._dispatch_notification(msg, metadata, on_notify, sender_ctx)
             case JSONRPCResponse():
                 self._resolve_pending(msg.id, msg.result)
-            case JSONRPCError():
+            case JSONRPCError():  # pragma: no branch
                 # `id` may be None per JSON-RPC (parse error before id known).
+                # The match is exhaustive over JSONRPCMessage; the no-match arc
+                # on this final case is unreachable.
                 self._resolve_pending(msg.id, msg.error)
 
     def _dispatch_request(
@@ -537,7 +539,5 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
     async def _cancel_outbound(self, request_id: RequestId, reason: str) -> None:
         try:
             await self.notify("notifications/cancelled", {"requestId": request_id, "reason": reason})
-        except anyio.BrokenResourceError:
-            pass
-        except anyio.ClosedResourceError:
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             pass
