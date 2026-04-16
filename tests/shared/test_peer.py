@@ -12,7 +12,7 @@ import anyio
 import pytest
 
 from mcp.shared.dispatcher import DispatchContext
-from mcp.shared.peer import Peer
+from mcp.shared.peer import Peer, dump_params
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
     CreateMessageResult,
@@ -114,6 +114,25 @@ async def test_peer_list_roots_sends_roots_list_and_returns_typed_result():
     assert isinstance(result, ListRootsResult)
     assert len(result.roots) == 1
     assert str(result.roots[0].uri) == "file:///workspace"
+
+
+@pytest.mark.anyio
+async def test_peer_list_roots_with_meta_sends_meta_in_params():
+    rec = _Recorder({"roots": []})
+    async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
+        peer = Peer(client)
+        with anyio.fail_after(5):
+            await peer.list_roots(meta={"traceId": "t1"})
+    method, params = rec.seen[0]
+    assert method == "roots/list"
+    assert params == {"_meta": {"traceId": "t1"}}
+
+
+def test_dump_params_merges_meta_over_model_meta():
+    out = dump_params(None, None)
+    assert out is None
+    out = dump_params(None, {"k": 1})
+    assert out == {"_meta": {"k": 1}}
 
 
 @pytest.mark.anyio

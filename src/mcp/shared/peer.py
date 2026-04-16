@@ -1,9 +1,9 @@
 """Typed MCP request sugar over an `Outbound`.
 
 `PeerMixin` defines the server-to-client request methods (sampling, elicitation,
-roots, ping) once. Any class that satisfies `Outbound` (i.e. has `send_raw_request`
-and `notify`) can mix it in and get the typed methods for free — `Context`,
-`Connection`, `Client`, or the bare `Peer` wrapper below.
+roots, ping) once. Any class that satisfies `Outbound` (i.e. has
+``send_raw_request`` and ``notify``) can mix it in and get the typed methods for
+free — `Context`, `Connection`, `Client`, or the bare `Peer` wrapper below.
 
 The mixin does no capability gating: it builds the params, calls
 ``self.send_raw_request(method, params)``, and parses the result into the typed
@@ -32,11 +32,24 @@ from mcp.types import (
     ToolChoice,
 )
 
-__all__ = ["Peer", "PeerMixin"]
+__all__ = ["Meta", "Peer", "PeerMixin", "dump_params"]
+
+Meta = dict[str, Any]
+"""Type alias for the ``_meta`` field carried on request/notification params."""
 
 
-def _dump(model: BaseModel) -> dict[str, Any]:
-    return model.model_dump(by_alias=True, mode="json", exclude_none=True)
+def dump_params(model: BaseModel | None, meta: Meta | None = None) -> dict[str, Any] | None:
+    """Serialize a params model to a wire dict, merging ``meta`` into ``_meta``.
+
+    Shared by `PeerMixin`, `Connection`, and `TypedServerRequestMixin` so every
+    typed convenience method gets the same `_meta` handling. ``meta`` keys take
+    precedence over any ``_meta`` already present on the model.
+    """
+    out = model.model_dump(by_alias=True, mode="json", exclude_none=True) if model is not None else None
+    if meta:
+        out = dict(out or {})
+        out["_meta"] = {**out.get("_meta", {}), **meta}
+    return out
 
 
 class PeerMixin:
@@ -61,6 +74,7 @@ class PeerMixin:
         model_preferences: ModelPreferences | None = None,
         tools: None = None,
         tool_choice: ToolChoice | None = None,
+        meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResult: ...
     @overload
@@ -77,6 +91,7 @@ class PeerMixin:
         model_preferences: ModelPreferences | None = None,
         tools: list[Tool],
         tool_choice: ToolChoice | None = None,
+        meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResultWithTools: ...
     async def sample(
@@ -92,6 +107,7 @@ class PeerMixin:
         model_preferences: ModelPreferences | None = None,
         tools: list[Tool] | None = None,
         tool_choice: ToolChoice | None = None,
+        meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> CreateMessageResult | CreateMessageResultWithTools:
         """Send a ``sampling/createMessage`` request to the peer.
@@ -113,7 +129,7 @@ class PeerMixin:
             tools=tools,
             tool_choice=tool_choice,
         )
-        result = await self.send_raw_request("sampling/createMessage", _dump(params), opts)
+        result = await self.send_raw_request("sampling/createMessage", dump_params(params, meta), opts)
         if tools is not None:
             return CreateMessageResultWithTools.model_validate(result)
         return CreateMessageResult.model_validate(result)
@@ -122,6 +138,8 @@ class PeerMixin:
         self: Outbound,
         message: str,
         requested_schema: ElicitRequestedSchema,
+        *,
+        meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> ElicitResult:
         """Send a form-mode ``elicitation/create`` request.
@@ -131,7 +149,7 @@ class PeerMixin:
             NoBackChannelError: No back-channel for server-initiated requests.
         """
         params = ElicitRequestFormParams(message=message, requested_schema=requested_schema)
-        result = await self.send_raw_request("elicitation/create", _dump(params), opts)
+        result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
         return ElicitResult.model_validate(result)
 
     async def elicit_url(
@@ -139,6 +157,8 @@ class PeerMixin:
         message: str,
         url: str,
         elicitation_id: str,
+        *,
+        meta: Meta | None = None,
         opts: CallOptions | None = None,
     ) -> ElicitResult:
         """Send a URL-mode ``elicitation/create`` request.
@@ -148,27 +168,29 @@ class PeerMixin:
             NoBackChannelError: No back-channel for server-initiated requests.
         """
         params = ElicitRequestURLParams(message=message, url=url, elicitation_id=elicitation_id)
-        result = await self.send_raw_request("elicitation/create", _dump(params), opts)
+        result = await self.send_raw_request("elicitation/create", dump_params(params, meta), opts)
         return ElicitResult.model_validate(result)
 
-    async def list_roots(self: Outbound, opts: CallOptions | None = None) -> ListRootsResult:
+    async def list_roots(
+        self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None
+    ) -> ListRootsResult:
         """Send a ``roots/list`` request.
 
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
         """
-        result = await self.send_raw_request("roots/list", None, opts)
+        result = await self.send_raw_request("roots/list", dump_params(None, meta), opts)
         return ListRootsResult.model_validate(result)
 
-    async def ping(self: Outbound, opts: CallOptions | None = None) -> None:
+    async def ping(self: Outbound, *, meta: Meta | None = None, opts: CallOptions | None = None) -> None:
         """Send a ``ping`` request and ignore the result.
 
         Raises:
             MCPError: The peer responded with an error.
             NoBackChannelError: No back-channel for server-initiated requests.
         """
-        await self.send_raw_request("ping", None, opts)
+        await self.send_raw_request("ping", dump_params(None, meta), opts)
 
 
 class Peer(PeerMixin):
