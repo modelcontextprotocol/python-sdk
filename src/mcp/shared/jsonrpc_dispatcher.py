@@ -112,7 +112,7 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         await self._dispatcher.notify(method, params, _related_request_id=self._request_id)
 
-    async def send_request(
+    async def send_raw_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
@@ -120,7 +120,7 @@ class _JSONRPCDispatchContext(Generic[TransportT]):
     ) -> dict[str, Any]:
         if not self.can_send_request:
             raise NoBackChannelError(method)
-        return await self._dispatcher.send_request(method, params, opts, _related_request_id=self._request_id)
+        return await self._dispatcher.send_raw_request(method, params, opts, _related_request_id=self._request_id)
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         if self._progress_token is None:
@@ -208,7 +208,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._tg: anyio.abc.TaskGroup | None = None
         self._running = False
 
-    async def send_request(
+    async def send_raw_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
@@ -232,7 +232,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                 finished.
         """
         if not self._running:
-            raise RuntimeError("JSONRPCDispatcher.send_request called before run() / after close")
+            raise RuntimeError("JSONRPCDispatcher.send_raw_request called before run() / after close")
         opts = opts or {}
         request_id = self._allocate_id()
         out_params = dict(params) if params is not None else None
@@ -308,7 +308,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
 
         Each inbound request is handled in its own task in an internal task
         group; ``task_status.started()`` fires once that group is open, so
-        ``await tg.start(dispatcher.run, ...)`` resumes when ``send_request``
+        ``await tg.start(dispatcher.run, ...)`` resumes when ``send_raw_request``
         is usable.
         """
         try:
@@ -323,9 +323,9 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                         # snapshot per message). Plain memory streams don't.
                         sender_ctx: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
                         self._dispatch(item, on_request, on_notify, sender_ctx)
-                # Read stream EOF: wake any blocked `send_request` waiters now,
+                # Read stream EOF: wake any blocked `send_raw_request` waiters now,
                 # *before* the task group joins, so handlers parked in
-                # `dctx.send_request()` can unwind and the join doesn't deadlock.
+                # `dctx.send_raw_request()` can unwind and the join doesn't deadlock.
                 self._running = False
                 self._fan_out_closed()
         finally:
@@ -457,7 +457,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             self._tg.start_soon(fn, *args)
 
     def _fan_out_closed(self) -> None:
-        """Wake every pending ``send_request`` waiter with ``CONNECTION_CLOSED``.
+        """Wake every pending ``send_raw_request`` waiter with ``CONNECTION_CLOSED``.
 
         Synchronous (uses ``send_nowait``) because it's called from ``finally``
         which may be inside a cancelled scope. Idempotent.
@@ -491,7 +491,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
                     # Close the back-channel the moment the handler exits
                     # (success or raise), before the response write — a handler
                     # spawning detached work that later calls
-                    # `dctx.send_request()` should see `NoBackChannelError`.
+                    # `dctx.send_raw_request()` should see `NoBackChannelError`.
                     dctx.close()
                 await self._write_result(req.id, result)
             # Peer-cancel: `_dispatch_notification` cancelled this scope. anyio
