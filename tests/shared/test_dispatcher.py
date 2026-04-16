@@ -208,8 +208,8 @@ async def test_direct_send_raw_request_wraps_non_mcperror_exception_as_internal_
     async with running_pair(direct_pair, server_on_request=on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", {})
-    assert exc.value.error.code == INTERNAL_ERROR
-    assert isinstance(exc.value.__cause__, ValueError)
+        assert exc.value.error.code == INTERNAL_ERROR
+        assert isinstance(exc.value.__cause__, ValueError)
 
 
 @pytest.mark.anyio
