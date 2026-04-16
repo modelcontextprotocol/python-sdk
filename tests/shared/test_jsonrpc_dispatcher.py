@@ -41,7 +41,7 @@ DCtx = DispatchContext[TransportContext]
 
 
 @pytest.mark.anyio
-async def test_concurrent_send_requests_correlate_by_id_when_responses_arrive_out_of_order():
+async def test_concurrent_send_raw_requests_correlate_by_id_when_responses_arrive_out_of_order():
     release_first = anyio.Event()
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -53,7 +53,7 @@ async def test_concurrent_send_requests_correlate_by_id_when_responses_arrive_ou
         results: dict[str, dict[str, Any]] = {}
 
         async def call(method: str) -> None:
-            results[method] = await client.send_request(method, None)
+            results[method] = await client.send_raw_request(method, None)
 
         with anyio.fail_after(5):
             async with anyio.create_task_group() as tg:  # pragma: no branch
@@ -76,7 +76,7 @@ async def test_handler_raising_exception_sends_internal_error_with_str_message()
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
-            await client.send_request("tools/list", None)
+            await client.send_raw_request("tools/list", None)
     assert exc.value.error.code == INTERNAL_ERROR
     assert exc.value.error.message == "kaboom"
     assert exc.value.__cause__ is None  # cause does not survive the wire
@@ -103,7 +103,7 @@ async def test_peer_cancel_interrupt_mode_sets_cancel_requested_and_sends_no_res
 
                 async def call_then_record() -> None:
                     with pytest.raises(MCPError):  # we'll cancel via tg below
-                        await client.send_request("slow", None)
+                        await client.send_raw_request("slow", None)
 
                 tg.start_soon(call_then_record)
                 await handler_started.wait()
@@ -140,7 +140,7 @@ async def test_peer_cancel_signal_mode_sets_event_but_handler_runs_to_completion
             async with anyio.create_task_group() as tg:  # pragma: no branch
 
                 async def call() -> None:
-                    result_box.append(await client.send_request("slow", None))
+                    result_box.append(await client.send_raw_request("slow", None))
 
                 tg.start_soon(call)
                 await handler_started.wait()
@@ -150,8 +150,8 @@ async def test_peer_cancel_signal_mode_sets_event_but_handler_runs_to_completion
 
 
 @pytest.mark.anyio
-async def test_send_request_raises_connection_closed_when_read_stream_eofs_mid_await():
-    """A blocked send_request is woken with CONNECTION_CLOSED when run() exits."""
+async def test_send_raw_request_raises_connection_closed_when_read_stream_eofs_mid_await():
+    """A blocked send_raw_request is woken with CONNECTION_CLOSED when run() exits."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
@@ -162,7 +162,7 @@ async def test_send_request_raises_connection_closed_when_read_stream_eofs_mid_a
 
             async def caller() -> None:
                 with pytest.raises(MCPError) as exc:
-                    await client.send_request("ping", None)
+                    await client.send_raw_request("ping", None)
                 assert exc.value.error.code == CONNECTION_CLOSED
 
             tg.start_soon(caller)
@@ -187,13 +187,13 @@ async def test_late_response_after_timeout_is_dropped_without_crashing():
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
             with pytest.raises(MCPError):  # REQUEST_TIMEOUT
-                await client.send_request("slow", None, {"timeout": 0})
+                await client.send_raw_request("slow", None, {"timeout": 0})
             # The server handler is still running; let it finish and write a
             # response for an id the client has already discarded.
             await handler_started.wait()
             proceed.set()
             # One more round-trip proves the dispatcher is still healthy.
-            assert await client.send_request("ping", None) == {"late": True}
+            assert await client.send_raw_request("ping", None) == {"late": True}
 
 
 @pytest.mark.anyio
@@ -234,14 +234,14 @@ async def test_raise_handler_exceptions_true_propagates_out_of_run():
 
 
 @pytest.mark.anyio
-async def test_ctx_send_request_tags_outbound_with_server_message_metadata():
+async def test_ctx_send_raw_request_tags_outbound_with_server_message_metadata():
     """Server-to-client requests carry related_request_id for SHTTP routing."""
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
     server: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(c2s_recv, s2c_send)
 
     async def server_on_request(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        return await ctx.send_request("sampling/createMessage", {"prompt": "hi"})
+        return await ctx.send_raw_request("sampling/createMessage", {"prompt": "hi"})
 
     async def on_notify(ctx: DCtx, method: str, params: Mapping[str, Any] | None) -> None:
         raise NotImplementedError
@@ -285,7 +285,7 @@ async def test_ctx_progress_with_only_progress_value_omits_total_and_message():
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            await client.send_request("t", None, {"on_progress": on_progress})
+            await client.send_raw_request("t", None, {"on_progress": on_progress})
     assert received == [(0.25, None, None)]
 
 
@@ -297,18 +297,18 @@ async def test_handler_raising_validation_error_sends_invalid_params():
 
     async with running_pair(jsonrpc_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
-            await client.send_request("t", None)
+            await client.send_raw_request("t", None)
     assert exc.value.error.code == INVALID_PARAMS
 
 
 @pytest.mark.anyio
-async def test_send_request_before_run_raises_runtimeerror():
+async def test_send_raw_request_before_run_raises_runtimeerror():
     c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](1)
     d: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
     try:
         with pytest.raises(RuntimeError, match="before run"):
-            await d.send_request("ping", None)
+            await d.send_raw_request("ping", None)
     finally:
         for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
             s.close()
@@ -351,7 +351,7 @@ async def test_cancelled_notification_for_unknown_request_id_is_noop():
         with anyio.fail_after(5):
             await client.notify("notifications/cancelled", {"requestId": 999})
             # No effect; dispatcher remains healthy.
-            assert await client.send_request("t", None) == {"echoed": "t", "params": {}}
+            assert await client.send_raw_request("t", None) == {"echoed": "t", "params": {}}
     assert srec.notifications == []  # cancelled is fully consumed, never teed
 
 
@@ -451,7 +451,7 @@ async def test_cancel_outbound_after_write_stream_closed_is_swallowed():
 
             async def caller() -> None:
                 with caller_scope:
-                    await client.send_request("slow", None)
+                    await client.send_raw_request("slow", None)
                 caller_done.set()
 
             tg.start_soon(caller)
