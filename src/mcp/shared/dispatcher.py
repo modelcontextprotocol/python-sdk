@@ -2,7 +2,7 @@
 
 A Dispatcher turns a duplex message channel into two things:
 
-* an outbound API: ``send_request(method, params)`` and ``notify(method, params)``
+* an outbound API: ``send_raw_request(method, params)`` and ``notify(method, params)``
 * an inbound pump: ``run(on_request, on_notify)`` that drives the receive loop
   and invokes the supplied handlers for each incoming request/notification
 
@@ -44,7 +44,7 @@ class ProgressFnT(Protocol):
 
 
 class CallOptions(TypedDict, total=False):
-    """Per-call options for `Outbound.send_request`.
+    """Per-call options for `Outbound.send_raw_request`.
 
     All keys are optional. Dispatchers ignore keys they do not understand.
     """
@@ -67,17 +67,18 @@ class Outbound(Protocol):
     """Anything that can send requests and notifications to the peer.
 
     Both `Dispatcher` (top-level outbound) and `DispatchContext` (back-channel
-    during an inbound request) extend this. `PeerMixin` wraps an `Outbound` to
-    provide typed MCP request/notification methods.
+    during an inbound request) extend this. The MCP type layer (`PeerMixin`,
+    `Connection`, `Context`) builds typed ``send_request`` / convenience methods
+    on top of this raw channel.
     """
 
-    async def send_request(
+    async def send_raw_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
         opts: CallOptions | None = None,
     ) -> dict[str, Any]:
-        """Send a request and await its result.
+        """Send a request and await its raw result dict.
 
         Raises:
             MCPError: If the peer responded with an error, or the handler
@@ -96,7 +97,7 @@ class DispatchContext(Outbound, Protocol[TransportT_co]):
 
     Carries the transport metadata for the inbound message and provides the
     back-channel for sending requests/notifications to the peer while handling
-    it. `send_request` raises `NoBackChannelError` if
+    it. `send_raw_request` raises `NoBackChannelError` if
     ``transport.can_send_request`` is ``False``.
     """
 

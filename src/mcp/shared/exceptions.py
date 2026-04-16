@@ -46,7 +46,7 @@ class NoBackChannelError(MCPError):
 
     Stateless HTTP and JSON-response-mode HTTP have no channel for the server to
     push requests (sampling, elicitation, roots/list) to the client. This is
-    raised by `DispatchContext.send_request` when `transport.can_send_request`
+    raised by `DispatchContext.send_raw_request` when `transport.can_send_request`
     is ``False``, and serializes to an ``INVALID_REQUEST`` error response.
     """
 

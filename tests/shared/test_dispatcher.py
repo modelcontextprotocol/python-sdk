@@ -67,16 +67,16 @@ async def running_pair(
 
 
 @pytest.mark.anyio
-async def test_send_request_returns_result_from_peer_on_request():
+async def test_send_raw_request_returns_result_from_peer_on_request():
     async with running_pair() as (client, _server, _crec, srec):
         with anyio.fail_after(5):
-            result = await client.send_request("tools/list", {"cursor": "abc"})
+            result = await client.send_raw_request("tools/list", {"cursor": "abc"})
     assert result == {"echoed": "tools/list", "params": {"cursor": "abc"}}
     assert srec.requests == [("tools/list", {"cursor": "abc"})]
 
 
 @pytest.mark.anyio
-async def test_send_request_reraises_mcperror_from_handler_unchanged():
+async def test_send_raw_request_reraises_mcperror_from_handler_unchanged():
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -84,13 +84,13 @@ async def test_send_request_reraises_mcperror_from_handler_unchanged():
 
     async with running_pair(server_on_request=on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
-            await client.send_request("tools/list", {})
+            await client.send_raw_request("tools/list", {})
     assert exc.value.error.code == INVALID_PARAMS
     assert exc.value.error.message == "bad cursor"
 
 
 @pytest.mark.anyio
-async def test_send_request_wraps_non_mcperror_exception_as_internal_error():
+async def test_send_raw_request_wraps_non_mcperror_exception_as_internal_error():
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -98,13 +98,13 @@ async def test_send_request_wraps_non_mcperror_exception_as_internal_error():
 
     async with running_pair(server_on_request=on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
-            await client.send_request("tools/list", {})
+            await client.send_raw_request("tools/list", {})
     assert exc.value.error.code == INTERNAL_ERROR
     assert isinstance(exc.value.__cause__, ValueError)
 
 
 @pytest.mark.anyio
-async def test_send_request_with_timeout_raises_mcperror_request_timeout():
+async def test_send_raw_request_with_timeout_raises_mcperror_request_timeout():
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -113,7 +113,7 @@ async def test_send_request_with_timeout_raises_mcperror_request_timeout():
 
     async with running_pair(server_on_request=on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
-            await client.send_request("slow", None, {"timeout": 0})
+            await client.send_raw_request("slow", None, {"timeout": 0})
     assert exc.value.error.code == REQUEST_TIMEOUT
 
 
@@ -127,32 +127,32 @@ async def test_notify_invokes_peer_on_notify():
 
 
 @pytest.mark.anyio
-async def test_ctx_send_request_round_trips_to_calling_side():
-    """A handler's ctx.send_request reaches the side that made the inbound request."""
+async def test_ctx_send_raw_request_round_trips_to_calling_side():
+    """A handler's ctx.send_raw_request reaches the side that made the inbound request."""
 
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        sample = await ctx.send_request("sampling/createMessage", {"prompt": "hi"})
+        sample = await ctx.send_raw_request("sampling/createMessage", {"prompt": "hi"})
         return {"sampled": sample}
 
     async with running_pair(server_on_request=server_on_request) as (client, _server, crec, _srec):
         with anyio.fail_after(5):
-            result = await client.send_request("tools/call", None)
+            result = await client.send_raw_request("tools/call", None)
     assert crec.requests == [("sampling/createMessage", {"prompt": "hi"})]
     assert result == {"sampled": {"echoed": "sampling/createMessage", "params": {"prompt": "hi"}}}
 
 
 @pytest.mark.anyio
-async def test_ctx_send_request_raises_nobackchannelerror_when_transport_disallows():
+async def test_ctx_send_raw_request_raises_nobackchannelerror_when_transport_disallows():
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
-        return await ctx.send_request("sampling/createMessage", None)
+        return await ctx.send_raw_request("sampling/createMessage", None)
 
     async with running_pair(server_on_request=server_on_request, can_send_request=False) as (client, *_):
         with anyio.fail_after(5), pytest.raises(NoBackChannelError) as exc:
-            await client.send_request("tools/call", None)
+            await client.send_raw_request("tools/call", None)
     assert exc.value.method == "sampling/createMessage"
     assert exc.value.error.code == INVALID_REQUEST
 
@@ -167,7 +167,7 @@ async def test_ctx_notify_invokes_calling_side_on_notify():
 
     async with running_pair(server_on_request=server_on_request) as (client, _server, crec, _srec):
         with anyio.fail_after(5):
-            await client.send_request("tools/call", None)
+            await client.send_raw_request("tools/call", None)
             await crec.notified.wait()
     assert crec.notifications == [("notifications/message", {"level": "info"})]
 
@@ -187,12 +187,12 @@ async def test_ctx_progress_invokes_caller_on_progress_callback():
 
     async with running_pair(server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            await client.send_request("tools/call", None, {"on_progress": on_progress})
+            await client.send_raw_request("tools/call", None, {"on_progress": on_progress})
     assert received == [(0.5, 1.0, "halfway")]
 
 
 @pytest.mark.anyio
-async def test_send_request_issued_before_peer_run_blocks_until_peer_ready():
+async def test_send_raw_request_issued_before_peer_run_blocks_until_peer_ready():
     client, server = create_direct_dispatcher_pair()
     s_req, s_notify = echo_handlers(Recorder())
     c_req, c_notify = echo_handlers(Recorder())
@@ -205,7 +205,7 @@ async def test_send_request_issued_before_peer_run_blocks_until_peer_ready():
         tg.start_soon(client.run, c_req, c_notify)
         tg.start_soon(late_start)
         with anyio.fail_after(5):
-            result = await client.send_request("ping", None)
+            result = await client.send_raw_request("ping", None)
         assert result == {"echoed": "ping", "params": {}}
         client.close()
         server.close()
@@ -221,15 +221,15 @@ async def test_ctx_progress_is_noop_when_caller_supplied_no_callback():
 
     async with running_pair(server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
-            result = await client.send_request("tools/call", None)
+            result = await client.send_raw_request("tools/call", None)
     assert result == {"ok": True}
 
 
 @pytest.mark.anyio
-async def test_send_request_and_notify_raise_runtimeerror_when_no_peer_connected():
+async def test_send_raw_request_and_notify_raise_runtimeerror_when_no_peer_connected():
     d = DirectDispatcher(TransportContext(kind="direct", can_send_request=True))
     with pytest.raises(RuntimeError, match="no peer"):
-        await d.send_request("ping", None)
+        await d.send_raw_request("ping", None)
     with pytest.raises(RuntimeError, match="no peer"):
         await d.notify("ping", None)
 
