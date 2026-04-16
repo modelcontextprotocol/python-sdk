@@ -136,6 +136,23 @@ def test_dump_params_merges_meta_over_model_meta():
 
 
 @pytest.mark.anyio
+async def test_peer_notify_forwards_to_wrapped_outbound():
+    sent: list[tuple[str, Mapping[str, Any] | None]] = []
+
+    class _Out:
+        async def send_raw_request(
+            self, method: str, params: Mapping[str, Any] | None, opts: Any = None
+        ) -> dict[str, Any]:
+            raise NotImplementedError
+
+        async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
+            sent.append((method, params))
+
+    await Peer(_Out()).notify("n", {"x": 1})
+    assert sent == [("n", {"x": 1})]
+
+
+@pytest.mark.anyio
 async def test_peer_ping_sends_ping_and_returns_none():
     rec = _Recorder({})
     async with running_pair(direct_pair, server_on_request=rec.on_request) as (client, *_):
