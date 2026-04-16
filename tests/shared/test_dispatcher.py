@@ -1,8 +1,9 @@
-"""Behavioral tests for the Dispatcher Protocol via DirectDispatcher.
+"""Behavioral tests for the Dispatcher Protocol.
 
-These exercise the `Dispatcher` / `DispatchContext` contract end-to-end using
-the in-memory `DirectDispatcher`. JSON-RPC framing is covered separately in
-``test_jsonrpc_dispatcher.py``.
+The contract tests are parametrized over every `Dispatcher` implementation via
+the `pair_factory` fixture (see ``conftest.py``); they must pass for both
+`DirectDispatcher` and `JSONRPCDispatcher`. Implementation-specific tests pass
+a concrete factory directly.
 """
 
 from collections.abc import AsyncIterator, Mapping
@@ -14,9 +15,11 @@ import pytest
 
 from mcp.shared.direct_dispatcher import DirectDispatcher, create_direct_dispatcher_pair
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, OnNotify, OnRequest, Outbound
-from mcp.shared.exceptions import MCPError, NoBackChannelError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
 from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, REQUEST_TIMEOUT
+
+from .conftest import PairFactory, direct_pair
 
 
 class Recorder:
@@ -44,31 +47,34 @@ def echo_handlers(recorder: Recorder) -> tuple[OnRequest, OnNotify]:
 
 @asynccontextmanager
 async def running_pair(
+    factory: PairFactory,
     *,
     server_on_request: OnRequest | None = None,
     server_on_notify: OnNotify | None = None,
     client_on_request: OnRequest | None = None,
     client_on_notify: OnNotify | None = None,
     can_send_request: bool = True,
-) -> AsyncIterator[tuple[DirectDispatcher, DirectDispatcher, Recorder, Recorder]]:
+) -> AsyncIterator[tuple[Dispatcher[TransportContext], Dispatcher[TransportContext], Recorder, Recorder]]:
     """Yield ``(client, server, client_recorder, server_recorder)`` with both ``run()`` loops live."""
-    client, server = create_direct_dispatcher_pair(can_send_request=can_send_request)
+    client, server, close = factory(can_send_request=can_send_request)
     client_rec, server_rec = Recorder(), Recorder()
     c_req, c_notify = echo_handlers(client_rec)
     s_req, s_notify = echo_handlers(server_rec)
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(client.run, client_on_request or c_req, client_on_notify or c_notify)
-        tg.start_soon(server.run, server_on_request or s_req, server_on_notify or s_notify)
-        try:
-            yield client, server, client_rec, server_rec
-        finally:
-            client.close()
-            server.close()
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(client.run, client_on_request or c_req, client_on_notify or c_notify)
+            tg.start_soon(server.run, server_on_request or s_req, server_on_notify or s_notify)
+            try:
+                yield client, server, client_rec, server_rec
+            finally:
+                tg.cancel_scope.cancel()
+    finally:
+        close()
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_returns_result_from_peer_on_request():
-    async with running_pair() as (client, _server, _crec, srec):
+async def test_send_raw_request_returns_result_from_peer_on_request(pair_factory: PairFactory):
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             result = await client.send_raw_request("tools/list", {"cursor": "abc"})
     assert result == {"echoed": "tools/list", "params": {"cursor": "abc"}}
@@ -76,13 +82,13 @@ async def test_send_raw_request_returns_result_from_peer_on_request():
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_reraises_mcperror_from_handler_unchanged():
+async def test_send_raw_request_reraises_mcperror_from_handler_unchanged(pair_factory: PairFactory):
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         raise MCPError(code=INVALID_PARAMS, message="bad cursor")
 
-    async with running_pair(server_on_request=on_request) as (client, *_):
+    async with running_pair(pair_factory, server_on_request=on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", {})
     assert exc.value.error.code == INVALID_PARAMS
@@ -90,36 +96,22 @@ async def test_send_raw_request_reraises_mcperror_from_handler_unchanged():
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_wraps_non_mcperror_exception_as_internal_error():
-    async def on_request(
-        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
-    ) -> dict[str, Any]:
-        raise ValueError("oops")
-
-    async with running_pair(server_on_request=on_request) as (client, *_):
-        with anyio.fail_after(5), pytest.raises(MCPError) as exc:
-            await client.send_raw_request("tools/list", {})
-    assert exc.value.error.code == INTERNAL_ERROR
-    assert isinstance(exc.value.__cause__, ValueError)
-
-
-@pytest.mark.anyio
-async def test_send_raw_request_with_timeout_raises_mcperror_request_timeout():
+async def test_send_raw_request_with_timeout_raises_mcperror_request_timeout(pair_factory: PairFactory):
     async def on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         await anyio.sleep_forever()
         raise NotImplementedError
 
-    async with running_pair(server_on_request=on_request) as (client, *_):
+    async with running_pair(pair_factory, server_on_request=on_request) as (client, *_):
         with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("slow", None, {"timeout": 0})
     assert exc.value.error.code == REQUEST_TIMEOUT
 
 
 @pytest.mark.anyio
-async def test_notify_invokes_peer_on_notify():
-    async with running_pair() as (client, _server, _crec, srec):
+async def test_notify_invokes_peer_on_notify(pair_factory: PairFactory):
+    async with running_pair(pair_factory) as (client, _server, _crec, srec):
         with anyio.fail_after(5):
             await client.notify("notifications/initialized", {"v": 1})
             await srec.notified.wait()
@@ -127,7 +119,7 @@ async def test_notify_invokes_peer_on_notify():
 
 
 @pytest.mark.anyio
-async def test_ctx_send_raw_request_round_trips_to_calling_side():
+async def test_ctx_send_raw_request_round_trips_to_calling_side(pair_factory: PairFactory):
     """A handler's ctx.send_raw_request reaches the side that made the inbound request."""
 
     async def server_on_request(
@@ -136,7 +128,7 @@ async def test_ctx_send_raw_request_round_trips_to_calling_side():
         sample = await ctx.send_raw_request("sampling/createMessage", {"prompt": "hi"})
         return {"sampled": sample}
 
-    async with running_pair(server_on_request=server_on_request) as (client, _server, crec, _srec):
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, _server, crec, _srec):
         with anyio.fail_after(5):
             result = await client.send_raw_request("tools/call", None)
     assert crec.requests == [("sampling/createMessage", {"prompt": "hi"})]
@@ -144,28 +136,27 @@ async def test_ctx_send_raw_request_round_trips_to_calling_side():
 
 
 @pytest.mark.anyio
-async def test_ctx_send_raw_request_raises_nobackchannelerror_when_transport_disallows():
+async def test_ctx_send_raw_request_raises_nobackchannelerror_when_transport_disallows(pair_factory: PairFactory):
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         return await ctx.send_raw_request("sampling/createMessage", None)
 
-    async with running_pair(server_on_request=server_on_request, can_send_request=False) as (client, *_):
-        with anyio.fail_after(5), pytest.raises(NoBackChannelError) as exc:
+    async with running_pair(pair_factory, server_on_request=server_on_request, can_send_request=False) as (client, *_):
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/call", None)
-    assert exc.value.method == "sampling/createMessage"
     assert exc.value.error.code == INVALID_REQUEST
 
 
 @pytest.mark.anyio
-async def test_ctx_notify_invokes_calling_side_on_notify():
+async def test_ctx_notify_invokes_calling_side_on_notify(pair_factory: PairFactory):
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
         await ctx.notify("notifications/message", {"level": "info"})
         return {}
 
-    async with running_pair(server_on_request=server_on_request) as (client, _server, crec, _srec):
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, _server, crec, _srec):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None)
             await crec.notified.wait()
@@ -173,7 +164,7 @@ async def test_ctx_notify_invokes_calling_side_on_notify():
 
 
 @pytest.mark.anyio
-async def test_ctx_progress_invokes_caller_on_progress_callback():
+async def test_ctx_progress_invokes_caller_on_progress_callback(pair_factory: PairFactory):
     async def server_on_request(
         ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
     ) -> dict[str, Any]:
@@ -185,14 +176,44 @@ async def test_ctx_progress_invokes_caller_on_progress_callback():
     async def on_progress(progress: float, total: float | None, message: str | None) -> None:
         received.append((progress, total, message))
 
-    async with running_pair(server_on_request=server_on_request) as (client, *_):
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None, {"on_progress": on_progress})
     assert received == [(0.5, 1.0, "halfway")]
 
 
 @pytest.mark.anyio
-async def test_send_raw_request_issued_before_peer_run_blocks_until_peer_ready():
+async def test_ctx_progress_is_noop_when_caller_supplied_no_callback(pair_factory: PairFactory):
+    async def server_on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        await ctx.progress(0.5)
+        return {"ok": True}
+
+    async with running_pair(pair_factory, server_on_request=server_on_request) as (client, *_):
+        with anyio.fail_after(5):
+            result = await client.send_raw_request("tools/call", None)
+    assert result == {"ok": True}
+
+
+@pytest.mark.anyio
+async def test_direct_send_raw_request_wraps_non_mcperror_exception_as_internal_error_with_cause():
+    """DirectDispatcher-specific: the original exception is chained via __cause__."""
+
+    async def on_request(
+        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
+    ) -> dict[str, Any]:
+        raise ValueError("oops")
+
+    async with running_pair(direct_pair, server_on_request=on_request) as (client, *_):
+        with anyio.fail_after(5), pytest.raises(MCPError) as exc:
+            await client.send_raw_request("tools/list", {})
+    assert exc.value.error.code == INTERNAL_ERROR
+    assert isinstance(exc.value.__cause__, ValueError)
+
+
+@pytest.mark.anyio
+async def test_direct_send_raw_request_issued_before_peer_run_blocks_until_peer_ready():
     client, server = create_direct_dispatcher_pair()
     s_req, s_notify = echo_handlers(Recorder())
     c_req, c_notify = echo_handlers(Recorder())
@@ -212,21 +233,7 @@ async def test_send_raw_request_issued_before_peer_run_blocks_until_peer_ready()
 
 
 @pytest.mark.anyio
-async def test_ctx_progress_is_noop_when_caller_supplied_no_callback():
-    async def server_on_request(
-        ctx: DispatchContext[TransportContext], method: str, params: Mapping[str, Any] | None
-    ) -> dict[str, Any]:
-        await ctx.progress(0.5)
-        return {"ok": True}
-
-    async with running_pair(server_on_request=server_on_request) as (client, *_):
-        with anyio.fail_after(5):
-            result = await client.send_raw_request("tools/call", None)
-    assert result == {"ok": True}
-
-
-@pytest.mark.anyio
-async def test_send_raw_request_and_notify_raise_runtimeerror_when_no_peer_connected():
+async def test_direct_send_raw_request_and_notify_raise_runtimeerror_when_no_peer_connected():
     d = DirectDispatcher(TransportContext(kind="direct", can_send_request=True))
     with pytest.raises(RuntimeError, match="no peer"):
         await d.send_raw_request("ping", None)
@@ -235,7 +242,7 @@ async def test_send_raw_request_and_notify_raise_runtimeerror_when_no_peer_conne
 
 
 @pytest.mark.anyio
-async def test_close_makes_run_return():
+async def test_direct_close_makes_run_return():
     client, server = create_direct_dispatcher_pair()
     on_request, on_notify = echo_handlers(Recorder())
     with anyio.fail_after(5):
