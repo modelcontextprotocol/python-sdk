@@ -1,7 +1,7 @@
 """In-memory `Dispatcher` that wires two peers together with no transport.
 
-`DirectDispatcher` is the simplest possible `Dispatcher` implementation: a call
-on one side directly invokes the other side's `on_call`. There is no
+`DirectDispatcher` is the simplest possible `Dispatcher` implementation: a
+request on one side directly invokes the other side's `on_request`. There is no
 serialization, no JSON-RPC framing, and no streams. It exists to:
 
 * prove the `Dispatcher` Protocol is implementable without JSON-RPC
@@ -21,7 +21,7 @@ from typing import Any
 
 import anyio
 
-from mcp.shared.dispatcher import CallOptions, OnCall, OnNotify, ProgressFnT
+from mcp.shared.dispatcher import CallOptions, OnNotify, OnRequest, ProgressFnT
 from mcp.shared.exceptions import MCPError, NoBackChannelError
 from mcp.shared.transport_context import TransportContext
 from mcp.types import INTERNAL_ERROR, REQUEST_TIMEOUT
@@ -31,20 +31,20 @@ __all__ = ["DirectDispatcher", "create_direct_dispatcher_pair"]
 DIRECT_TRANSPORT_KIND = "direct"
 
 
-_Call = Callable[[str, Mapping[str, Any] | None, CallOptions | None], Awaitable[dict[str, Any]]]
+_Request = Callable[[str, Mapping[str, Any] | None, CallOptions | None], Awaitable[dict[str, Any]]]
 _Notify = Callable[[str, Mapping[str, Any] | None], Awaitable[None]]
 
 
 @dataclass
 class _DirectDispatchContext:
-    """`DispatchContext` for an inbound call on a `DirectDispatcher`.
+    """`DispatchContext` for an inbound request on a `DirectDispatcher`.
 
     The back-channel callables target the *originating* side, so a handler's
-    `send_request` reaches the peer that made the inbound call.
+    `send_request` reaches the peer that made the inbound request.
     """
 
     transport: TransportContext
-    _back_call: _Call
+    _back_request: _Request
     _back_notify: _Notify
     _on_progress: ProgressFnT | None = None
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
@@ -60,7 +60,7 @@ class _DirectDispatchContext:
     ) -> dict[str, Any]:
         if not self.transport.can_send_request:
             raise NoBackChannelError(method)
-        return await self._back_call(method, params, opts)
+        return await self._back_request(method, params, opts)
 
     async def progress(self, progress: float, total: float | None = None, message: str | None = None) -> None:
         if self._on_progress is not None:
@@ -71,14 +71,14 @@ class DirectDispatcher:
     """A `Dispatcher` that calls a peer's handlers directly, in-process.
 
     Two instances are wired together with `create_direct_dispatcher_pair`; each
-    holds a reference to the other. `call` on one awaits the peer's `on_call`.
-    `run` parks until `close` is called.
+    holds a reference to the other. `send_request` on one awaits the peer's
+    `on_request`. `run` parks until `close` is called.
     """
 
     def __init__(self, transport_ctx: TransportContext):
         self._transport_ctx = transport_ctx
         self._peer: DirectDispatcher | None = None
-        self._on_call: OnCall | None = None
+        self._on_request: OnRequest | None = None
         self._on_notify: OnNotify | None = None
         self._ready = anyio.Event()
         self._closed = anyio.Event()
@@ -86,7 +86,7 @@ class DirectDispatcher:
     def connect_to(self, peer: DirectDispatcher) -> None:
         self._peer = peer
 
-    async def call(
+    async def send_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
@@ -94,15 +94,15 @@ class DirectDispatcher:
     ) -> dict[str, Any]:
         if self._peer is None:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")
-        return await self._peer._dispatch_call(method, params, opts)
+        return await self._peer._dispatch_request(method, params, opts)
 
     async def notify(self, method: str, params: Mapping[str, Any] | None) -> None:
         if self._peer is None:
             raise RuntimeError("DirectDispatcher has no peer; use create_direct_dispatcher_pair()")
         await self._peer._dispatch_notify(method, params)
 
-    async def run(self, on_call: OnCall, on_notify: OnNotify) -> None:
-        self._on_call = on_call
+    async def run(self, on_request: OnRequest, on_notify: OnNotify) -> None:
+        self._on_request = on_request
         self._on_notify = on_notify
         self._ready.set()
         await self._closed.wait()
@@ -115,25 +115,25 @@ class DirectDispatcher:
         peer = self._peer
         return _DirectDispatchContext(
             transport=self._transport_ctx,
-            _back_call=lambda m, p, o: peer._dispatch_call(m, p, o),
+            _back_request=lambda m, p, o: peer._dispatch_request(m, p, o),
             _back_notify=lambda m, p: peer._dispatch_notify(m, p),
             _on_progress=on_progress,
         )
 
-    async def _dispatch_call(
+    async def _dispatch_request(
         self,
         method: str,
         params: Mapping[str, Any] | None,
         opts: CallOptions | None,
     ) -> dict[str, Any]:
         await self._ready.wait()
-        assert self._on_call is not None
+        assert self._on_request is not None
         opts = opts or {}
         dctx = self._make_context(on_progress=opts.get("on_progress"))
         try:
             with anyio.fail_after(opts.get("timeout")):
                 try:
-                    return await self._on_call(dctx, method, params)
+                    return await self._on_request(dctx, method, params)
                 except MCPError:
                     raise
                 except Exception as e:
