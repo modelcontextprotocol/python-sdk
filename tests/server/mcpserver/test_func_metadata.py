@@ -551,6 +551,70 @@ async def test_str_annotation_runtime_validation():
     assert result == f"Handled payload of length {len(json_array_payload)}"
 
 
+
+def test_str_union_pre_parse_preserves_strings():
+    """Regression test for #1873: pre_parse_json must not JSON-parse strings
+    when the annotation is a union of simple types like str | None.
+
+    UUIDs and other string identifiers that start with digits were being
+    corrupted because json.loads would partially parse them as numbers.
+    """
+
+    def func_optional_str(value: str | None = None) -> str:  # pragma: no cover
+        return str(value)
+
+    meta = func_metadata(func_optional_str)
+
+    # A JSON object string must be preserved as-is for str | None
+    json_obj = '{"database": "postgres", "port": 5432}'
+    assert meta.pre_parse_json({"value": json_obj})["value"] == json_obj
+
+    # A JSON array string must be preserved as-is for str | None
+    json_array = '["item1", "item2"]'
+    assert meta.pre_parse_json({"value": json_array})["value"] == json_array
+
+    # Plain strings are unaffected
+    assert meta.pre_parse_json({"value": "hello"})["value"] == "hello"
+
+    # UUID-like strings must never be corrupted
+    uuid_val = "58aa9efd-faad-4901-89e8-99e807a1a2d6"
+    assert meta.pre_parse_json({"value": uuid_val})["value"] == uuid_val
+
+    # UUID with scientific-notation-like prefix must be preserved
+    uuid_sci = "3400e37e-b251-49d9-91b0-f8dd8602ff7e"
+    assert meta.pre_parse_json({"value": uuid_sci})["value"] == uuid_sci
+
+
+def test_complex_union_still_pre_parses():
+    """Ensure complex unions like list[str] | None still benefit from
+    JSON pre-parsing so that serialized lists are deserialized properly.
+    """
+
+    def func_optional_list(items: list[str] | None = None) -> str:  # pragma: no cover
+        return str(items)
+
+    meta = func_metadata(func_optional_list)
+    assert meta.pre_parse_json({"items": '["a", "b", "c"]'})["items"] == ["a", "b", "c"]
+
+
+@pytest.mark.anyio
+async def test_str_union_uuid_end_to_end():
+    """End-to-end test: a str | None parameter receives the exact UUID string."""
+
+    def update_task(task_id: str | None = None) -> str:  # pragma: no cover
+        return f"got {task_id}"
+
+    meta = func_metadata(update_task)
+    uuid_val = "58aa9efd-faad-4901-89e8-99e807a1a2d6"
+    result = await meta.call_fn_with_arg_validation(
+        update_task,
+        fn_is_async=False,
+        arguments_to_validate={"task_id": uuid_val},
+        arguments_to_pass_directly=None,
+    )
+    assert result == f"got {uuid_val}"
+
+
 # Tests for structured output functionality
 
 

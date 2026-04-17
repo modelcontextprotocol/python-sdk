@@ -148,7 +148,7 @@ class FuncMetadata(BaseModel):
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data_value, str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and _should_pre_parse_json(field_info.annotation):
                 try:
                     pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
@@ -414,6 +414,30 @@ def _try_create_model_and_schema(
         return model, schema, wrap_output
 
     return None, None, False
+
+
+
+_SIMPLE_TYPES: frozenset[type] = frozenset({str, int, float, bool, type(None)})
+
+
+def _should_pre_parse_json(annotation: Any) -> bool:
+    """Return True if the annotation may benefit from JSON pre-parsing.
+
+    For unions containing only simple scalar types (str, int, float, bool, None),
+    pre-parsing is skipped because json.loads would corrupt string values that
+    happen to look like JSON objects or arrays -- e.g. a UUID passed as a string
+    should stay a string even if the annotation is ``str | None``.
+
+    Complex unions like ``list[str] | None`` still need pre-parsing so that a
+    JSON-encoded list arriving as a string can be deserialized before Pydantic
+    validation.
+    """
+    if annotation is str:
+        return False
+    origin = get_origin(annotation)
+    if origin is not None and is_union_origin(origin):
+        return any(arg not in _SIMPLE_TYPES for arg in get_args(annotation))
+    return True
 
 
 _no_default = object()
