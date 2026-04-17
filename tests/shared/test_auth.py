@@ -138,3 +138,52 @@ def test_invalid_non_empty_url_still_rejected():
     }
     with pytest.raises(ValidationError):
         OAuthClientMetadata.model_validate(data)
+
+
+class TestValidateScope:
+    """Tests for OAuthClientMetadata.validate_scope()."""
+
+    def _make_client(self, scope: str | None = None) -> OAuthClientMetadata:
+        return OAuthClientMetadata.model_validate(
+            {
+                "redirect_uris": ["https://example.com/callback"],
+                "scope": scope,
+            }
+        )
+
+    def test_requested_scope_none_returns_none(self):
+        client = self._make_client(scope="read write")
+        assert client.validate_scope(None) is None
+
+    def test_registered_scope_none_allows_any_requested_scope(self):
+        """When the client has no registered scopes (scope=None),
+        any requested scope should be allowed through."""
+        client = self._make_client(scope=None)
+        result = client.validate_scope("read write admin")
+        assert result == ["read", "write", "admin"]
+
+    def test_registered_scope_none_allows_single_scope(self):
+        client = self._make_client(scope=None)
+        result = client.validate_scope("read")
+        assert result == ["read"]
+
+    def test_valid_scope_subset(self):
+        client = self._make_client(scope="read write admin")
+        result = client.validate_scope("read write")
+        assert result == ["read", "write"]
+
+    def test_valid_scope_exact_match(self):
+        client = self._make_client(scope="read write")
+        result = client.validate_scope("read write")
+        assert result == ["read", "write"]
+
+    def test_invalid_scope_raises_error(self):
+        from mcp.shared.auth import InvalidScopeError
+
+        client = self._make_client(scope="read write")
+        with pytest.raises(InvalidScopeError, match="delete"):
+            client.validate_scope("read delete")
+
+    def test_no_registered_scope_and_no_requested_scope(self):
+        client = self._make_client(scope=None)
+        assert client.validate_scope(None) is None
