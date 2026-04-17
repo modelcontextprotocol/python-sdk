@@ -559,7 +559,7 @@ def test_str_union_pre_parse_preserves_strings():
     corrupted because json.loads would partially parse them as numbers.
     """
 
-    def func_optional_str(value: str | None = None) -> str:
+    def func_optional_str(value: str | None = None) -> str:  # pragma: no cover
         return str(value)
 
     meta = func_metadata(func_optional_str)
@@ -589,7 +589,7 @@ def test_complex_union_still_pre_parses():
     JSON pre-parsing so that serialized lists are deserialized properly.
     """
 
-    def func_optional_list(items: list[str] | None = None) -> str:
+    def func_optional_list(items: list[str] | None = None) -> str:  # pragma: no cover
         return str(items)
 
     meta = func_metadata(func_optional_list)
