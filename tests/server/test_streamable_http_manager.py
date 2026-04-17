@@ -119,7 +119,7 @@ async def test_stateful_session_cleanup_on_graceful_exit(running_manager: tuple[
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive():  # pragma: no cover
+    async def mock_receive():
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -178,7 +178,7 @@ async def test_stateful_session_cleanup_on_exception(running_manager: tuple[Stre
         "headers": [(b"content-type", b"application/json")],
     }
 
-    async def mock_receive():  # pragma: no cover
+    async def mock_receive():
         return {"type": "http.request", "body": b"", "more_body": False}
 
     # Trigger session creation
@@ -357,7 +357,7 @@ async def test_idle_session_is_reaped():
             "headers": [(b"content-type", b"application/json")],
         }
 
-        async def mock_receive():  # pragma: no cover
+        async def mock_receive():
             return {"type": "http.request", "body": b"", "more_body": False}
 
         await manager.handle_request(scope, mock_receive, mock_send)
