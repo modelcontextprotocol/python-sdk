@@ -354,7 +354,7 @@ class Server(Generic[LifespanResultT]):
                 "Session manager can only be accessed after calling streamable_http_app(). "
                 "The session manager is created lazily to avoid unnecessary initialization."
             )
-        return self._session_manager  # pragma: no cover
+        return self._session_manager
 
     async def run(
         self,
@@ -567,6 +567,7 @@ class Server(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        session_idle_timeout: float | None = None,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
@@ -588,6 +589,7 @@ class Server(Generic[LifespanResultT]):
             app=self,
             event_store=event_store,
             retry_interval=retry_interval,
+            session_idle_timeout=session_idle_timeout,
             json_response=json_response,
             stateless=stateless_http,
             security_settings=transport_security,

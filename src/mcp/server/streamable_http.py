@@ -7,6 +7,7 @@ responses, with streaming support for long-running operations.
 """
 
 import logging
+import math
 import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -171,8 +172,26 @@ class StreamableHTTPServerTransport:
         ] = {}
         self._sse_stream_writers: dict[RequestId, MemoryObjectSendStream[dict[str, str]]] = {}
         self._terminated = False
+        self._active_request_count = 0
         # Idle timeout cancel scope; managed by the session manager.
         self.idle_scope: anyio.CancelScope | None = None
+
+    def mark_request_started(self) -> None:
+        """Suspend idle reaping while at least one HTTP request is in flight."""
+        self._active_request_count += 1
+        if self.idle_scope is not None:
+            self.idle_scope.deadline = math.inf
+
+    def mark_request_finished(self, idle_timeout_seconds: float | None) -> None:
+        """Resume idle reaping once the last in-flight request completes."""
+        self._active_request_count = max(0, self._active_request_count - 1)
+        if (
+            idle_timeout_seconds is not None
+            and self.idle_scope is not None
+            and self._active_request_count == 0
+            and not self._terminated
+        ):
+            self.idle_scope.deadline = anyio.current_time() + idle_timeout_seconds
 
     @property
     def is_terminated(self) -> bool:
