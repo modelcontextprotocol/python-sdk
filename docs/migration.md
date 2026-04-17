@@ -467,6 +467,26 @@ mcp._lowlevel_server._add_request_handler("resources/subscribe", handle_subscrib
 
 This is a private API and may change. A public way to register these handlers on `MCPServer` is planned; until then, use this workaround or use the lowlevel `Server` directly.
 
+### `MCPServer`'s `Context` logging: `message` renamed to `data`, `extra` removed
+
+On the high-level `Context` object (`mcp.server.mcpserver.Context`), `log()`, `.debug()`, `.info()`, `.warning()`, and `.error()` now take `data: Any` instead of `message: str`, matching the MCP spec's `LoggingMessageNotificationParams.data` field which allows any JSON-serializable value. The `extra` parameter has been removed — pass structured data directly as `data`.
+
+The lowlevel `ServerSession.send_log_message(data: Any)` already accepted arbitrary data and is unchanged.
+
+`Context.log()` also now accepts all eight RFC-5424 log levels (`debug`, `info`, `notice`, `warning`, `error`, `critical`, `alert`, `emergency`) via the `LoggingLevel` type, not just the four it previously allowed.
+
+```python
+# Before
+await ctx.info("Connection failed", extra={"host": "localhost", "port": 5432})
+await ctx.log(level="info", message="hello")
+
+# After
+await ctx.info({"message": "Connection failed", "host": "localhost", "port": 5432})
+await ctx.log(level="info", data="hello")
+```
+
+Positional calls (`await ctx.info("hello")`) are unaffected.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:
