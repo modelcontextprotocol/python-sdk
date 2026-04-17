@@ -551,7 +551,6 @@ async def test_str_annotation_runtime_validation():
     assert result == f"Handled payload of length {len(json_array_payload)}"
 
 
-
 def test_str_union_pre_parse_preserves_strings():
     """Regression test for #1873: pre_parse_json must not JSON-parse strings
     when the annotation is a union of simple types like str | None.
@@ -560,7 +559,7 @@ def test_str_union_pre_parse_preserves_strings():
     corrupted because json.loads would partially parse them as numbers.
     """
 
-    def func_optional_str(value: str | None = None) -> str:  # pragma: no cover
+    def func_optional_str(value: str | None = None) -> str:
         return str(value)
 
     meta = func_metadata(func_optional_str)
@@ -590,7 +589,7 @@ def test_complex_union_still_pre_parses():
     JSON pre-parsing so that serialized lists are deserialized properly.
     """
 
-    def func_optional_list(items: list[str] | None = None) -> str:  # pragma: no cover
+    def func_optional_list(items: list[str] | None = None) -> str:
         return str(items)
 
     meta = func_metadata(func_optional_list)
@@ -601,7 +600,7 @@ def test_complex_union_still_pre_parses():
 async def test_str_union_uuid_end_to_end():
     """End-to-end test: a str | None parameter receives the exact UUID string."""
 
-    def update_task(task_id: str | None = None) -> str:  # pragma: no cover
+    def update_task(task_id: str | None = None) -> str:
         return f"got {task_id}"
 
     meta = func_metadata(update_task)

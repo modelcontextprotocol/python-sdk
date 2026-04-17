@@ -416,7 +416,6 @@ def _try_create_model_and_schema(
     return None, None, False
 
 
-
 _SIMPLE_TYPES: frozenset[type] = frozenset({str, int, float, bool, type(None)})
 
 
