@@ -1,6 +1,7 @@
 from typing import Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
+from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_serializer, field_validator
 
 
 class OAuthToken(BaseModel):
@@ -123,6 +124,20 @@ class OAuthClientInformationFull(OAuthClientMetadata):
     client_secret_expires_at: int | None = None
 
 
+def _serialize_canonical_server_uri(url: AnyHttpUrl) -> str:
+    """Serialize root server URIs without the implicit trailing slash.
+
+    RFC-defined canonical server URIs omit the synthetic "/" path that
+    ``AnyHttpUrl`` adds for host-only URLs. Preserve non-root paths exactly.
+    """
+
+    serialized = str(url)
+    parsed = urlparse(serialized)
+    if parsed.path == "/" and not parsed.params and not parsed.query and not parsed.fragment:
+        return serialized[:-1]
+    return serialized
+
+
 class OAuthMetadata(BaseModel):
     """
     RFC 8414 OAuth 2.0 Authorization Server Metadata.
@@ -175,3 +190,11 @@ class ProtectedResourceMetadata(BaseModel):
     dpop_signing_alg_values_supported: list[str] | None = None
     # dpop_bound_access_tokens_required default is False, but ommited here for clarity
     dpop_bound_access_tokens_required: bool | None = None
+
+    @field_serializer("resource", when_used="json")
+    def _serialize_resource(self, resource: AnyHttpUrl) -> str:
+        return _serialize_canonical_server_uri(resource)
+
+    @field_serializer("authorization_servers", when_used="json")
+    def _serialize_authorization_servers(self, authorization_servers: list[AnyHttpUrl]) -> list[str]:
+        return [_serialize_canonical_server_uri(url) for url in authorization_servers]
