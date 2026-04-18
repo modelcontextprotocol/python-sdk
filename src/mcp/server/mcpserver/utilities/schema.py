@@ -20,6 +20,7 @@ JSONPrimitive: TypeAlias = None | str | int | float | bool
 JSONValue: TypeAlias = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
 JSONObject: TypeAlias = dict[str, JSONValue]
 
+
 def dereference_local_refs(schema: JSONObject) -> JSONObject:
     """Inline local ``$ref`` pointers in a JSON Schema.
 
@@ -107,9 +108,7 @@ def dereference_local_refs(schema: JSONObject) -> JSONObject:
             siblings: JSONObject = {k: v for k, v in node.items() if k != "$ref"}
             if siblings and isinstance(resolved, dict):
                 resolved_schema = cast(JSONObject, resolved)
-                resolved_siblings: JSONObject = {
-                    key: inline(value, stack) for key, value in siblings.items()
-                }
+                resolved_siblings: JSONObject = {key: inline(value, stack) for key, value in siblings.items()}
                 return {**resolved_schema, **resolved_siblings}
             return resolved
 
