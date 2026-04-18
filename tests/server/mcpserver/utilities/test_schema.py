@@ -153,6 +153,12 @@ class TestDereferenceLocalRefs:
         result = dereference_local_refs(schema)
         assert result is schema
 
+    def test_non_object_defs_returns_schema_unchanged(self) -> None:
+        """Malformed non-object defs are ignored without copying the schema."""
+        schema: dict[str, Any] = {"type": "object", "$defs": ["not", "an", "object"]}
+        result = dereference_local_refs(schema)
+        assert result is schema
+
     def test_inlines_through_array_of_objects(self) -> None:
         """Refs nested inside arrays of dict items are recursed properly.
 
