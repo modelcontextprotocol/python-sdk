@@ -63,7 +63,7 @@ def dereference_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
     prefix = f"#/{defs_key}/"
 
     def inline(node: Any, stack: set[str]) -> Any:
-        if node is None or isinstance(node, (str, int, float, bool)):
+        if node is None or isinstance(node, str | int | float | bool):
             return node
         if isinstance(node, list):
             return [inline(item, stack) for item in node]

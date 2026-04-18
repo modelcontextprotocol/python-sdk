@@ -174,7 +174,12 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             errors=server.encoding_error_handler,
                         )
                     )
-        except anyio.ClosedResourceError:  # pragma: no cover
+        except (
+            anyio.BrokenResourceError,
+            anyio.ClosedResourceError,
+            BrokenPipeError,
+            ConnectionResetError,
+        ):  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async with anyio.create_task_group() as tg, process:
