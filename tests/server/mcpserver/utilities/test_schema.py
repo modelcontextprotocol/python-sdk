@@ -158,7 +158,7 @@ class TestDereferenceLocalRefs:
 
         Covers the `if isinstance(node, list)` branch of the inner inline().
         """
-        schema = {
+        schema: dict[str, Any] = {
             "anyOf": [
                 {"$ref": "#/$defs/A"},
                 {"$ref": "#/$defs/B"},

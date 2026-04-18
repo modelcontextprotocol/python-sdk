@@ -14,10 +14,13 @@ This matches the behavior of the typescript-sdk (see
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeAlias, cast
 
+JSONPrimitive: TypeAlias = None | str | int | float | bool
+JSONValue: TypeAlias = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
+JSONObject: TypeAlias = dict[str, JSONValue]
 
-def dereference_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
+def dereference_local_refs(schema: JSONObject) -> JSONObject:
     """Inline local ``$ref`` pointers in a JSON Schema.
 
     Behavior mirrors ``dereferenceLocalRefs`` in the TypeScript SDK:
@@ -51,18 +54,24 @@ def dereference_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
     else:
         return schema
 
-    defs: dict[str, Any] = schema[defs_key] or {}
+    raw_defs = schema[defs_key]
+    if raw_defs is None:
+        return schema
+    if not isinstance(raw_defs, dict):
+        return schema
+
+    defs: JSONObject = raw_defs
     if not defs:
         return schema
 
     # Cache resolved defs to avoid redundant traversal on diamond references.
-    resolved_defs: dict[str, Any] = {}
+    resolved_defs: dict[str, JSONValue] = {}
     # Def names where a cycle was detected — their $ref is left in place and
     # their $defs entries must be preserved in the output.
     cyclic_defs: set[str] = set()
     prefix = f"#/{defs_key}/"
 
-    def inline(node: Any, stack: set[str]) -> Any:
+    def inline(node: JSONValue, stack: set[str]) -> JSONValue:
         if node is None or isinstance(node, str | int | float | bool):
             return node
         if isinstance(node, list):
@@ -95,14 +104,17 @@ def dereference_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
                 resolved_defs[def_name] = resolved
 
             # Siblings of $ref (JSON Schema 2020-12).
-            siblings = {k: v for k, v in node.items() if k != "$ref"}
+            siblings: JSONObject = {k: v for k, v in node.items() if k != "$ref"}
             if siblings and isinstance(resolved, dict):
-                resolved_siblings = {k: inline(v, stack) for k, v in siblings.items()}
-                return {**resolved, **resolved_siblings}
+                resolved_schema = cast(JSONObject, resolved)
+                resolved_siblings: JSONObject = {
+                    key: inline(value, stack) for key, value in siblings.items()
+                }
+                return {**resolved_schema, **resolved_siblings}
             return resolved
 
         # Regular object — recurse into values, but skip the top-level $defs container.
-        result: dict[str, Any] = {}
+        result: JSONObject = {}
         for key, value in node.items():
             if node is schema and key in ("$defs", "definitions"):
                 continue
@@ -116,7 +128,7 @@ def dereference_local_refs(schema: dict[str, Any]) -> dict[str, Any]:
 
     # Preserve only cyclic defs in the output.
     if cyclic_defs:
-        preserved = {name: defs[name] for name in cyclic_defs if name in defs}
+        preserved: JSONObject = {name: defs[name] for name in cyclic_defs if name in defs}
         inlined[defs_key] = preserved
 
     return inlined
