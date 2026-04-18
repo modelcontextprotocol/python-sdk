@@ -52,7 +52,7 @@ async def test_path_outside_roots_raises(tmp_path: Path):
     @server.tool("check")
     async def check(context: Context, path: str) -> bool:
         await context.assert_within_roots(path)
-        return True
+        return True  # pragma: no cover
 
     callback = _make_callback([Root(uri=FileUrl(f"file://{root_dir}"))])
 
@@ -74,7 +74,7 @@ async def test_no_roots_declared_raises(tmp_path: Path):
     @server.tool("check")
     async def check(context: Context, path: str) -> bool:
         await context.assert_within_roots(path)
-        return True
+        return True  # pragma: no cover
 
     callback = _make_callback([])
 
@@ -103,7 +103,7 @@ async def test_symlink_escaping_root_raises(tmp_path: Path):
     @server.tool("check")
     async def check(context: Context, path: str) -> bool:
         await context.assert_within_roots(path)
-        return True
+        return True  # pragma: no cover
 
     callback = _make_callback([Root(uri=FileUrl(f"file://{root_dir}"))])
 
