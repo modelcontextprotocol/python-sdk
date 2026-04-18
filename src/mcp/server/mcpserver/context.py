@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from pydantic import AnyUrl, BaseModel
 
@@ -116,6 +119,42 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
         return await self._mcp_server.read_resource(uri, self)
+
+    async def assert_within_roots(self, path: str | Path) -> None:
+        """Assert that a filesystem path is within the client's declared roots.
+
+        Provides server-side enforcement of the filesystem boundaries declared by
+        the client via the Roots capability. Call this at the start of any tool
+        that accepts a user-provided path, to prevent the tool from accessing
+        files outside the client's declared scope.
+
+        Args:
+            path: The filesystem path to validate. Accepts a string or Path.
+                Relative paths and symlinks are resolved before comparison.
+
+        Raises:
+            PermissionError: If the path is outside every declared root, or if
+                the client has declared no roots.
+
+        Example:
+            ```python
+            @server.tool()
+            async def read_file(path: str, ctx: Context) -> str:
+                await ctx.assert_within_roots(path)
+                with open(path) as f:
+                    return f.read()
+            ```
+        """
+        target = Path(path).resolve()
+
+        result = await self.request_context.session.list_roots()
+
+        for root in result.roots:
+            root_path = Path(url2pathname(urlparse(str(root.uri)).path)).resolve()
+            if target.is_relative_to(root_path):
+                return
+
+        raise PermissionError(f"Path {target} is not within any declared root")
 
     async def elicit(
         self,
