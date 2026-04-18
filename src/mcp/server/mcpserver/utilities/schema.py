@@ -14,7 +14,7 @@ This matches the behavior of the typescript-sdk (see
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias, cast
+from typing import TypeAlias, cast
 
 JSONPrimitive: TypeAlias = None | str | int | float | bool
 JSONValue: TypeAlias = JSONPrimitive | list["JSONValue"] | dict[str, "JSONValue"]
