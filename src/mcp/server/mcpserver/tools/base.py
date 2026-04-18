@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
+from mcp.server.mcpserver.utilities.schema import dereference_local_refs
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.shared.tool_name_validation import validate_and_warn_tool_name
@@ -72,7 +73,12 @@ class Tool(BaseModel):
             skip_names=[context_kwarg] if context_kwarg is not None else [],
             structured_output=structured_output,
         )
-        parameters = func_arg_metadata.arg_model.model_json_schema(by_alias=True)
+        # Pydantic emits $ref/$defs for nested models, which LLM clients often
+        # can't resolve — they serialize referenced parameters as stringified
+        # JSON instead of structured objects. Inline local refs so tool schemas
+        # are self-contained and LLM-consumable. Matches behavior of
+        # typescript-sdk (#1563) and go-sdk.
+        parameters = dereference_local_refs(func_arg_metadata.arg_model.model_json_schema(by_alias=True))
 
         return cls(
             fn=fn,

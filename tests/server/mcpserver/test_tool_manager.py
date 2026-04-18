@@ -100,8 +100,10 @@ class TestAddTools:
         assert tool.name == "create_user"
         assert tool.description == "Create a new user."
         assert tool.is_async is False
-        assert "name" in tool.parameters["$defs"]["UserInput"]["properties"]
-        assert "age" in tool.parameters["$defs"]["UserInput"]["properties"]
+        # $ref is now inlined (see dereference_local_refs in utilities/schema.py).
+        # The UserInput definition is merged directly into properties.user.
+        assert "name" in tool.parameters["properties"]["user"]["properties"]
+        assert "age" in tool.parameters["properties"]["user"]["properties"]
         assert "flag" in tool.parameters["properties"]
 
     def test_add_callable_object(self):
