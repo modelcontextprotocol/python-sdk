@@ -71,6 +71,21 @@ def _create_unexpected_content_type_app() -> Starlette:
     return Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
 
 
+def _create_plain_text_server_app() -> Starlette:
+    """Create a server that returns text/plain for all requests, including initialize.
+
+    This reproduces the scenario from issue #2432 where a misconfigured server
+    returns an unexpected content type on the initialize call, causing the client
+    to hang forever.
+    """
+
+    async def handle_mcp_request(request: Request) -> Response:
+        # Always return text/plain — never a valid MCP response.
+        return Response(content="this is not json", status_code=200, media_type="text/plain")
+
+    return Starlette(debug=True, routes=[Route("/mcp", handle_mcp_request, methods=["POST"])])
+
+
 async def test_non_compliant_notification_response() -> None:
     """Verify the client ignores unexpected responses to notifications.
 
@@ -114,6 +129,20 @@ async def test_unexpected_content_type_sends_jsonrpc_error() -> None:
 
                 with pytest.raises(MCPError, match="Unexpected content type: text/plain"):  # pragma: no branch
                     await session.list_tools()
+
+
+async def test_initialize_does_not_hang_on_unexpected_content_type() -> None:
+    """Verify that initialize() raises MCPError immediately when server returns wrong content type.
+
+    Regression test for issue #2432: when a misconfigured server returns a content type
+    other than application/json or text/event-stream in response to the initialize request,
+    the client must raise MCPError right away instead of hanging forever.
+    """
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=_create_plain_text_server_app())) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                with pytest.raises(MCPError, match="Unexpected content type: text/plain"):  # pragma: no branch
+                    await session.initialize()
 
 
 def _create_http_error_app(error_status: int, *, error_on_notifications: bool = False) -> Starlette:
