@@ -182,6 +182,7 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
+            capability_filter=self._filter_capabilities,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
@@ -205,6 +206,16 @@ class MCPServer(Generic[LifespanResultT]):
 
         # Configure logging
         configure_logging(self.settings.log_level)
+
+    def _filter_capabilities(self, capabilities: Any) -> Any:
+        """Hide MCPServer capabilities for primitives that have not been registered."""
+        if not self._tool_manager.list_tools():
+            capabilities.tools = None
+        if not self._prompt_manager.list_prompts():
+            capabilities.prompts = None
+        if not self._resource_manager.list_resources() and not self._resource_manager.list_templates():
+            capabilities.resources = None
+        return capabilities
 
     @property
     def name(self) -> str:
