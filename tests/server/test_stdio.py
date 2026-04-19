@@ -64,6 +64,32 @@ async def test_stdio_server():
 
 
 @pytest.mark.anyio
+async def test_stdio_server_uses_lf_newlines(monkeypatch: pytest.MonkeyPatch):
+    """stdio_server() must not emit CRLF on Windows (newline='' disables translation)."""
+
+    class UnclosableBuffer(io.BytesIO):
+        """BytesIO that ignores close() so we can read its value after the wrapper closes it."""
+
+        def close(self) -> None:
+            pass  # prevent TextIOWrapper from closing our buffer
+
+    raw_stdout = UnclosableBuffer()
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(io.BytesIO(b""), encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(raw_stdout, encoding="utf-8"))
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await read_stream.aclose()
+            async with write_stream:
+                session_message = SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="ping"))
+                await write_stream.send(session_message)
+
+    raw_bytes = raw_stdout.getvalue()
+    assert raw_bytes.endswith(b"\n"), "output must end with LF"
+    assert b"\r\n" not in raw_bytes, "output must not contain CRLF"
+
+
+@pytest.mark.anyio
 async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
     """Non-UTF-8 bytes on stdin must not crash the server.
 
