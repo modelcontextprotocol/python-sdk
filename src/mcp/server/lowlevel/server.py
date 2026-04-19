@@ -169,6 +169,7 @@ class Server(Generic[LifespanResultT]):
             Awaitable[types.EmptyResult],
         ]
         | None = None,
+        capability_filter: Callable[[types.ServerCapabilities], types.ServerCapabilities] | None = None,
         on_ping: Callable[
             [ServerRequestContext[LifespanResultT], types.RequestParams | None],
             Awaitable[types.EmptyResult],
@@ -192,6 +193,7 @@ class Server(Generic[LifespanResultT]):
         self.instructions = instructions
         self.website_url = website_url
         self.icons = icons
+        self._capability_filter = capability_filter
         self.lifespan = lifespan
         self._request_handlers: dict[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]] = {}
         self._notification_handlers: dict[
@@ -325,6 +327,8 @@ class Server(Generic[LifespanResultT]):
         )
         if self._experimental_handlers:
             self._experimental_handlers.update_capabilities(capabilities)
+        if self._capability_filter:
+            capabilities = self._capability_filter(capabilities)
         return capabilities
 
     @property

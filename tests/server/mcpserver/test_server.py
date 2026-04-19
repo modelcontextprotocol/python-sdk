@@ -74,6 +74,54 @@ class TestServer:
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
 
+    async def test_init_without_primitives_omits_prompt_resource_and_tool_capabilities(self):
+        mcp = MCPServer("empty")
+
+        async with Client(mcp) as client:
+            capabilities = client.initialize_result.capabilities
+            assert capabilities.tools is None
+            assert capabilities.resources is None
+            assert capabilities.prompts is None
+
+    async def test_init_with_tool_only_announces_only_tool_capability(self):
+        mcp = MCPServer("tool-only")
+
+        @mcp.tool()
+        def echo(text: str) -> str:
+            return text
+
+        async with Client(mcp) as client:
+            capabilities = client.initialize_result.capabilities
+            assert capabilities.tools is not None
+            assert capabilities.resources is None
+            assert capabilities.prompts is None
+
+    async def test_init_with_prompt_only_announces_only_prompt_capability(self):
+        mcp = MCPServer("prompt-only")
+
+        @mcp.prompt()
+        def greet(name: str) -> str:
+            return f"Hello {name}"
+
+        async with Client(mcp) as client:
+            capabilities = client.initialize_result.capabilities
+            assert capabilities.prompts is not None
+            assert capabilities.tools is None
+            assert capabilities.resources is None
+
+    async def test_init_with_resource_template_announces_resource_capability(self):
+        mcp = MCPServer("template-only")
+
+        @mcp.resource("resource://{city}/weather")
+        def weather(city: str) -> str:
+            return f"Weather for {city}"
+
+        async with Client(mcp) as client:
+            capabilities = client.initialize_result.capabilities
+            assert capabilities.resources is not None
+            assert capabilities.tools is None
+            assert capabilities.prompts is None
+
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
