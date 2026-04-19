@@ -397,6 +397,7 @@ def create_app(
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
+    stateless: bool = False,
 ) -> Starlette:  # pragma: no cover
     """Create a Starlette application for testing using the session manager.
 
@@ -404,6 +405,7 @@ def create_app(
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
         event_store: Optional event store for testing resumability.
         retry_interval: Retry interval in milliseconds for SSE polling.
+        stateless: If True, create a stateless Streamable HTTP server.
     """
     # Create server instance
     server = _create_server()
@@ -416,6 +418,7 @@ def create_app(
         app=server,
         event_store=event_store,
         json_response=is_json_response_enabled,
+        stateless=stateless,
         security_settings=security_settings,
         retry_interval=retry_interval,
     )
@@ -437,6 +440,7 @@ def run_server(
     is_json_response_enabled: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
+    stateless: bool = False,
 ) -> None:  # pragma: no cover
     """Run the test server.
 
@@ -445,9 +449,10 @@ def run_server(
         is_json_response_enabled: If True, use JSON responses instead of SSE streams.
         event_store: Optional event store for testing resumability.
         retry_interval: Retry interval in milliseconds for SSE polling.
+        stateless: If True, run the server in stateless mode.
     """
 
-    app = create_app(is_json_response_enabled, event_store, retry_interval)
+    app = create_app(is_json_response_enabled, event_store, retry_interval, stateless)
     # Configure server
     config = uvicorn.Config(
         app=app,
@@ -568,6 +573,34 @@ def basic_server_url(basic_server_port: int) -> str:
 def json_server_url(json_server_port: int) -> str:
     """Get the URL for the JSON response test server."""
     return f"http://127.0.0.1:{json_server_port}"
+
+
+@pytest.fixture
+def stateless_server_port() -> int:
+    """Find an available port for the stateless server."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def stateless_server(stateless_server_port: int) -> Generator[None, None, None]:
+    """Start a server in stateless mode."""
+    proc = multiprocessing.Process(target=run_server, kwargs={"port": stateless_server_port, "stateless": True}, daemon=True)
+    proc.start()
+
+    wait_for_server(stateless_server_port)
+
+    yield
+
+    proc.kill()
+    proc.join(timeout=2)
+
+
+@pytest.fixture
+def stateless_server_url(stateless_server_port: int) -> str:
+    """Get the URL for the stateless test server."""
+    return f"http://127.0.0.1:{stateless_server_port}"
 
 
 # Basic request validation tests
@@ -1041,6 +1074,20 @@ def test_get_validation(basic_server: None, basic_server_url: str):
     )
     assert response.status_code == 406
     assert "Not Acceptable" in response.text
+
+
+def test_get_method_not_allowed_in_stateless_mode(stateless_server: None, stateless_server_url: str):
+    """Test that stateless servers reject standalone GET SSE requests."""
+    response = requests.get(
+        f"{stateless_server_url}/mcp",
+        headers={
+            "Accept": "text/event-stream",
+        },
+    )
+
+    assert response.status_code == 405
+    assert response.headers.get("Allow") == "POST"
+    assert "Method Not Allowed" in response.text
 
 
 # Client-specific fixtures
