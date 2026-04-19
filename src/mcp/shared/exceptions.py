@@ -104,3 +104,6 @@ class UrlElicitationRequiredError(MCPError):
         raw_elicitations = cast(list[dict[str, Any]], data.get("elicitations", []))
         elicitations = [ElicitRequestURLParams.model_validate(e) for e in raw_elicitations]
         return cls(elicitations, error.message)
+
+    def __reduce__(self) -> tuple:
+        return (self.from_error, (self.error,))
