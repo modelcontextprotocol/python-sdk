@@ -10,6 +10,7 @@ from urllib.parse import unquote
 
 from pydantic import BaseModel, Field, validate_call
 
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
@@ -104,7 +105,7 @@ class ResourceTemplate(BaseModel):
         """Create a resource from the template with the given parameters.
 
         Raises:
-            ValueError: If creating the resource fails.
+            ResourceError: If creating the resource fails.
         """
         try:
             # Add context to params if needed
@@ -127,4 +128,4 @@ class ResourceTemplate(BaseModel):
                 fn=lambda: result,  # Capture result in closure
             )
         except Exception as e:
-            raise ValueError(f"Error creating resource from template: {e}")
+            raise ResourceError(f"Error creating resource from template: {e}")

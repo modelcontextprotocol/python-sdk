@@ -44,6 +44,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     Annotations,
     BlobResourceContents,
@@ -337,6 +338,8 @@ class MCPServer(Generic[LifespanResultT]):
             results = await self.read_resource(params.uri, context)
         except ResourceNotFoundError as err:
             raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
+        except ResourceError as err:
+            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -440,10 +443,7 @@ class MCPServer(Generic[LifespanResultT]):
         """Read a resource by URI."""
         if context is None:
             context = Context(mcp_server=self)
-        try:
-            resource = await self._resource_manager.get_resource(uri, context)
-        except ValueError:
-            raise ResourceNotFoundError(f"Unknown resource: {uri}")
+        resource = await self._resource_manager.get_resource(uri, context)
 
         try:
             content = await resource.read()
