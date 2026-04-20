@@ -248,3 +248,64 @@ async def test_server_handles_transport_close_with_pending_server_to_client_requ
             # Without the fixes: RuntimeError (dict mutation) or ClosedResourceError
             # (respond after write-stream close) escapes run_server and this hangs.
             await server_run_returned.wait()
+
+
+@pytest.mark.anyio
+async def test_anyio_cancel_scope_sends_cancelled_notification() -> None:
+    """Cancelling a call_tool via anyio cancel scope should automatically
+    send notifications/cancelled to the server, causing it to abort the handler."""
+
+    tool_started = anyio.Event()
+    handler_cancelled = anyio.Event()
+
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="slow_tool",
+                    description="A slow tool for testing cancellation",
+                    input_schema={},
+                )
+            ]
+        )
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if params.name == "slow_tool":
+            tool_started.set()
+            try:
+                await anyio.sleep_forever()
+            except anyio.get_cancelled_exc_class():
+                handler_cancelled.set()
+                raise
+        raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
+
+    server = Server(
+        "test-server",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+
+    async with Client(server) as client:
+        # Cancel the call_tool via anyio scope cancellation.
+        # send_request should automatically send notifications/cancelled.
+        async with anyio.create_task_group() as tg:
+
+            async def do_call() -> None:
+                with anyio.CancelScope() as scope:
+                    # Store scope so the outer task can cancel it
+                    do_call.scope = scope  # type: ignore[attr-defined]
+                    await client.call_tool("slow_tool", {})
+
+            tg.start_soon(do_call)
+
+            # Wait for the server handler to start
+            await tool_started.wait()
+
+            # Cancel the client-side scope — this should trigger auto-notification
+            do_call.scope.cancel()  # type: ignore[attr-defined]
+
+        # Give the server a moment to process the cancellation
+        await anyio.sleep(0.1)
+
+        # The server handler should have been cancelled via the notification
+        assert handler_cancelled.is_set(), "Server handler was not cancelled — notifications/cancelled was not sent"

@@ -23,6 +23,7 @@ from mcp.types import (
     INVALID_PARAMS,
     REQUEST_TIMEOUT,
     CancelledNotification,
+    CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -269,6 +270,7 @@ class BaseSession(
             # Store the callback for this request
             self._progress_callbacks[request_id] = progress_callback
 
+        request_sent = False
         try:
             target = request_data.get("params", {}).get("name")
             span_name = f"MCP send {request.method} {target}" if target else f"MCP send {request.method}"
@@ -284,6 +286,7 @@ class BaseSession(
 
                 jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
                 await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
+                request_sent = True
 
                 # request read timeout takes precedence over session read timeout
                 timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
@@ -300,6 +303,26 @@ class BaseSession(
                     raise MCPError.from_jsonrpc_error(response_or_error)
                 else:
                     return result_type.model_validate(response_or_error.result, by_name=False)
+
+        except anyio.get_cancelled_exc_class():
+            # Automatically notify the other side when a task/scope is cancelled,
+            # so the peer can abort work for a request nobody is waiting for.
+            if request_sent:
+                with anyio.CancelScope(shield=True):
+                    try:
+                        # Add a short timeout to prevent deadlock if the transport buffer is full
+                        with anyio.move_on_after(2.0):
+                            await self.send_notification(
+                                CancelledNotification(  # type: ignore[arg-type]
+                                    params=CancelledNotificationParams(
+                                        request_id=request_id,
+                                        reason="Task cancelled",
+                                    )
+                                )
+                            )
+                    except Exception:
+                        pass  # Transport may already be closed
+            raise
 
         finally:
             self._response_streams.pop(request_id, None)
