@@ -246,6 +246,26 @@ class Server(Generic[LifespanResultT]):
         """Check if a handler is registered for the given method."""
         return method in self._request_handlers or method in self._notification_handlers
 
+    # --- ServerRegistry protocol (consumed by ServerRunner) ------------------
+
+    def get_request_handler(self, method: str) -> Callable[..., Awaitable[Any]] | None:
+        """Return the handler for a request method, or ``None``."""
+        return self._request_handlers.get(method)
+
+    def get_notification_handler(self, method: str) -> Callable[..., Awaitable[Any]] | None:
+        """Return the handler for a notification method, or ``None``."""
+        return self._notification_handlers.get(method)
+
+    @property
+    def middleware(self) -> list[Any]:
+        """Context-tier middleware. Empty until the registry refactor adds registration."""
+        return []
+
+    @property
+    def connection_lifespan(self) -> None:
+        """Per-connection lifespan. ``None`` until the registry refactor adds it."""
+        return None
+
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities
