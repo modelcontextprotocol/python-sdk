@@ -158,9 +158,9 @@ async def _asyncio_background_tasks(
         for task in tasks:
             try:
                 await task
-            except asyncio.CancelledError:  # pragma: no cover - only if a task was still pending above
+            except asyncio.CancelledError:
                 pass
-            except anyio.ClosedResourceError:  # pragma: no cover - swallowed by reader/writer already
+            except anyio.ClosedResourceError:
                 pass
             except BaseException as exc:  # noqa: BLE001
                 if pending_exc is None:  # pragma: no branch
