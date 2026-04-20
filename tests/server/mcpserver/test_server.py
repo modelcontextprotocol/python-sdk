@@ -20,6 +20,7 @@ from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INTERNAL_ERROR,
     INVALID_PARAMS,
     AudioContent,
     BlobResourceContents,
@@ -749,6 +750,21 @@ class TestServerResources:
         async with Client(mcp) as client:
             with pytest.raises(MCPError, match="Error reading resource resource://failing"):
                 await client.read_resource("resource://failing")
+
+    async def test_read_resource_template_error(self):
+        """Template-creation failure must surface as INTERNAL_ERROR, not INVALID_PARAMS (not-found)."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://item/{item_id}")
+        def get_item(item_id: str) -> str:
+            raise RuntimeError("backend unavailable")
+
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError, match="Error creating resource from template") as exc_info:
+                await client.read_resource("resource://item/42")
+
+            assert exc_info.value.error.code == INTERNAL_ERROR
+            assert exc_info.value.error.code != INVALID_PARAMS
 
     async def test_binary_resource(self):
         mcp = MCPServer()

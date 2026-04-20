@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import AnyUrl
 
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.server.mcpserver.resources.templates import ResourceTemplate
 from mcp.server.mcpserver.utilities.logging import get_logger
@@ -90,12 +91,9 @@ class ResourceManager:
         # Then check templates
         for template in self._templates.values():
             if params := template.matches(uri_str):
-                try:
-                    return await template.create_resource(uri_str, params, context=context)
-                except Exception as e:  # pragma: no cover
-                    raise ValueError(f"Error creating resource from template: {e}")
+                return await template.create_resource(uri_str, params, context=context)
 
-        raise ValueError(f"Unknown resource: {uri}")
+        raise ResourceNotFoundError(f"Unknown resource: {uri}")
 
     def list_resources(self) -> list[Resource]:
         """List all registered resources."""
