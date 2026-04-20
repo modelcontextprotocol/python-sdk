@@ -44,11 +44,11 @@ async def test_context_exposes_lifespan_and_connection_and_forwards_base_context
         conn.__init__(server, has_standalone_channel=True)
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
-    ctx = captured[0]
-    assert ctx.lifespan.name == "app"
-    assert ctx.connection is conn
-    assert ctx.transport.kind == "direct"
-    assert ctx.can_send_request is True
+        ctx = captured[0]
+        assert ctx.lifespan.name == "app"
+        assert ctx.connection is conn
+        assert ctx.transport.kind == "direct"
+        assert ctx.can_send_request is True
 
 
 @pytest.mark.anyio
@@ -80,8 +80,8 @@ async def test_context_sample_round_trips_via_peer_mixin_on_base_context_outboun
     ) as (client, *_):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/call", None)
-    assert crec.requests[0][0] == "sampling/createMessage"
-    assert isinstance(results[0], CreateMessageResult)
+        assert crec.requests[0][0] == "sampling/createMessage"
+        assert isinstance(results[0], CreateMessageResult)
 
 
 @pytest.mark.anyio
@@ -104,7 +104,7 @@ async def test_context_send_request_with_spec_type_infers_result_via_typed_mixin
     ):
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
-    assert isinstance(results[0], ListRootsResult)
+        assert isinstance(results[0], ListRootsResult)
 
 
 @pytest.mark.anyio
@@ -126,9 +126,9 @@ async def test_context_log_sends_request_scoped_message_notification():
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
             await crec.notified.wait()
-    method, params = crec.notifications[0]
-    assert method == "notifications/message"
-    assert params is not None and params["level"] == "debug" and params["data"] == "hello"
+        method, params = crec.notifications[0]
+        assert method == "notifications/message"
+        assert params is not None and params["level"] == "debug" and params["data"] == "hello"
 
 
 @pytest.mark.anyio
@@ -150,7 +150,7 @@ async def test_context_log_includes_logger_and_meta_when_supplied():
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
             await crec.notified.wait()
-    _, params = crec.notifications[0]
-    assert params is not None
-    assert params["logger"] == "my.log"
-    assert params["_meta"] == {"traceId": "t"}
+        _, params = crec.notifications[0]
+        assert params is not None
+        assert params["logger"] == "my.log"
+        assert params["_meta"] == {"traceId": "t"}
