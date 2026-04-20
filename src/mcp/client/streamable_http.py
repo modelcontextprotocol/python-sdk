@@ -269,14 +269,22 @@ class StreamableHTTPTransport:
 
             if response.status_code == 404:  # pragma: no branch
                 if isinstance(message, JSONRPCRequest):  # pragma: no branch
-                    error_data = ErrorData(code=INVALID_REQUEST, message="Session terminated")
+                    error_data = ErrorData(
+                        code=INVALID_REQUEST,
+                        message="Session terminated",
+                        data={"http_status": response.status_code},
+                    )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
 
             if response.status_code >= 400:
                 if isinstance(message, JSONRPCRequest):
-                    error_data = ErrorData(code=INTERNAL_ERROR, message="Server returned an error response")
+                    error_data = ErrorData(
+                        code=INTERNAL_ERROR,
+                        message=f"Server returned an error response (HTTP {response.status_code})",
+                        data={"http_status": response.status_code},
+                    )
                     session_message = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
                     await ctx.read_stream_writer.send(session_message)
                 return
@@ -468,10 +476,14 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except httpx.HTTPError as exc:
+                            logger.exception("Error sending client message")
+                            await read_stream_writer.send(exc)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):

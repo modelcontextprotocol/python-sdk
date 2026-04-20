@@ -25,6 +25,7 @@ from mcp.server import Server, ServerRequestContext
 from mcp.server.sse import SseServerTransport
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -629,3 +630,172 @@ async def test_sse_session_cleanup_on_disconnect(server: None, server_url: str) 
             headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 404
+
+
+class _LongLivedSSEStream(httpx.AsyncByteStream):
+    """A streaming SSE body that emits one endpoint event then stays open.
+
+    This mirrors a real SSE server: the stream does not end after the endpoint
+    event, so the client's `sse_reader` keeps running while we exercise the
+    POST path. The stream unblocks when the outer task group is cancelled.
+    """
+
+    def __init__(self, endpoint_path: str) -> None:
+        self._endpoint_path = endpoint_path
+
+    async def __aiter__(self) -> AsyncGenerator[bytes, None]:
+        yield f"event: endpoint\ndata: {self._endpoint_path}\n\n".encode()
+        await anyio.sleep_forever()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("post_status", [401, 404, 500])
+async def test_sse_client_propagates_post_http_error_to_caller(post_status: int) -> None:
+    """Regression for https://github.com/modelcontextprotocol/python-sdk/issues/2110.
+
+    When the SSE POST endpoint returns a non-2xx HTTP status, the caller must
+    receive the HTTPStatusError via the read stream instead of hanging on an
+    indefinite wait for a response that will never arrive.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_LongLivedSSEStream("/messages/?session_id=test"),
+            )
+        return httpx.Response(post_status)
+
+    def mock_factory(
+        headers: dict[str, Any] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with sse_client("http://test/sse", httpx_client_factory=mock_factory) as (read_stream, write_stream):
+        request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params={})
+        await write_stream.send(SessionMessage(request))
+
+        with anyio.fail_after(3):
+            received = await read_stream.receive()
+        assert isinstance(received, httpx.HTTPStatusError)
+        assert received.response.status_code == post_status
+
+
+# ---- Integration tests against a real uvicorn MCP server (issue #2110) ----
+
+
+def make_failing_post_server_app(post_status: int) -> Starlette:  # pragma: no cover
+    """Starlette app with a real SSE GET endpoint but a POST that always fails.
+
+    Used by the integration test for issue #2110 — the SSE GET handshake is
+    the real `SseServerTransport`, so the client receives a genuine endpoint
+    event; the POST route is replaced so every client message fails with the
+    given status.
+    """
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"], allowed_origins=["http://127.0.0.1:*", "http://localhost:*"]
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
+    server = _create_server()
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await server.run(streams[0], streams[1], server.create_initialization_options())
+        return Response()
+
+    async def failing_post(request: Request) -> Response:
+        return Response(status_code=post_status, content=f"deliberate {post_status} for #2110".encode())
+
+    return Starlette(
+        routes=[
+            Route("/sse", endpoint=handle_sse),
+            Route("/messages/", endpoint=failing_post, methods=["POST"]),
+        ]
+    )
+
+
+def run_failing_post_server(server_port: int, post_status: int) -> None:  # pragma: no cover
+    app = make_failing_post_server_app(post_status)
+    uvicorn.Server(config=uvicorn.Config(app=app, host="127.0.0.1", port=server_port, log_level="error")).run()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("post_status", [401, 404, 500])
+async def test_sse_client_real_server_surfaces_post_http_error(server_port: int, post_status: int) -> None:
+    """End-to-end integration test for issue #2110.
+
+    Against a real uvicorn-hosted MCP server whose POST endpoint returns
+    401/404/500, the client must surface the error within a bounded timeout
+    rather than hanging forever. Before the fix, this test hit `fail_after(5)`
+    because `post_writer` swallowed the exception.
+    """
+    proc = multiprocessing.Process(
+        target=run_failing_post_server,
+        kwargs={"server_port": server_port, "post_status": post_status},
+        daemon=True,
+    )
+    proc.start()
+    try:
+        wait_for_server(server_port)
+        server_url = f"http://127.0.0.1:{server_port}"
+        with anyio.fail_after(5):
+            async with sse_client(server_url + "/sse") as (read_stream, write_stream):
+                request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params={})
+                await write_stream.send(SessionMessage(request))
+                received = await read_stream.receive()
+        assert isinstance(received, httpx.HTTPStatusError)
+        assert received.response.status_code == post_status
+    finally:
+        proc.kill()
+        proc.join(timeout=2)
+
+
+def make_sse_only_server_app() -> Starlette:  # pragma: no cover
+    """Starlette app with SSE GET but NO /messages/ POST route (all POSTs 404)."""
+    security_settings = TransportSecuritySettings(
+        allowed_hosts=["127.0.0.1:*", "localhost:*"],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+    )
+    sse = SseServerTransport("/messages/", security_settings=security_settings)
+    server = _create_server()
+
+    async def handle_sse(request: Request) -> Response:
+        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+            await server.run(streams[0], streams[1], server.create_initialization_options())
+        return Response()
+
+    return Starlette(routes=[Route("/sse", endpoint=handle_sse)])
+
+
+def run_sse_only_server(port: int) -> None:  # pragma: no cover
+    uvicorn.Server(
+        config=uvicorn.Config(app=make_sse_only_server_app(), host="127.0.0.1", port=port, log_level="error")
+    ).run()
+
+
+@pytest.mark.anyio
+async def test_sse_client_real_server_handles_no_route_match(server_port: int) -> None:
+    """End-to-end test: if the server has no POST route at all, httpx surfaces
+    the 404 to the caller via the read stream rather than hanging.
+
+    This catches the 'server is up but refusing POSTs' failure mode, which is
+    distinct from the deliberate-status test above.
+    """
+    proc = multiprocessing.Process(target=run_sse_only_server, kwargs={"port": server_port}, daemon=True)
+    proc.start()
+    try:
+        wait_for_server(server_port)
+        server_url = f"http://127.0.0.1:{server_port}"
+        with anyio.fail_after(5):
+            async with sse_client(server_url + "/sse") as (read_stream, write_stream):
+                request = types.JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params={})
+                await write_stream.send(SessionMessage(request))
+                received = await read_stream.receive()
+        assert isinstance(received, httpx.HTTPStatusError)
+        assert received.response.status_code == 404
+    finally:
+        proc.kill()
+        proc.join(timeout=2)
