@@ -2442,4 +2442,4 @@ async def test_streamable_http_client_real_server_surfaces_network_error(
             request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params={})
             await write_stream.send(SessionMessage(request))
             received = await read_stream.receive()
-    assert isinstance(received, httpx.ConnectError)
+            assert isinstance(received, httpx.ConnectError)
