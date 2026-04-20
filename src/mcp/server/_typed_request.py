@@ -1,13 +1,14 @@
-"""Shape-2 typed ``send_request`` for server-to-client requests.
+"""Typed ``send_request`` for server-to-client requests.
 
 `TypedServerRequestMixin` provides a typed `send_request(req) -> Result` over
 the host's raw `Outbound.send_raw_request`. Spec server-to-client request types
 have their result type inferred via per-type overloads; custom requests pass
 ``result_type=`` explicitly.
 
-A `HasResult[R]` protocol (one generic signature, mapping declared on the
-request type) is the cleaner long-term shape — see FOLLOWUPS.md. This per-spec
-overload set is used for now to avoid touching `mcp.types`.
+If the spec's request set grows substantially, consider declaring the result
+mapping on the request types themselves (a ``__mcp_result__`` ClassVar read via
+a structural protocol) so this overload ladder doesn't need maintaining
+per-host-class.
 """
 
 from typing import Any, TypeVar, overload

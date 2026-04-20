@@ -53,7 +53,7 @@ class Connection(TypedServerRequestMixin):
         self.protocol_version: str | None = None
         self.initialized: anyio.Event = anyio.Event()
         # TODO: make this generic (Connection[StateT]) once connection_lifespan
-        # wiring lands in ServerRunner — see FOLLOWUPS.md.
+        # wiring lands in ServerRunner.
         self.state: Any = None
 
     async def send_raw_request(
@@ -124,7 +124,7 @@ class Connection(TypedServerRequestMixin):
         Returns ``False`` if ``initialize`` hasn't completed yet.
         """
         # TODO: redesign — mirrors v1 ServerSession.check_client_capability
-        # verbatim for parity. See FOLLOWUPS.md.
+        # verbatim for parity.
         if self.client_capabilities is None:
             return False
         have = self.client_capabilities

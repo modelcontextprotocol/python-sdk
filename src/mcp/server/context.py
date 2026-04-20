@@ -42,8 +42,8 @@ class Context(BaseContext[TransportT], PeerMixin, TypedServerRequestMixin, Gener
     and `TypedServerRequestMixin` (typed ``send_request(req) -> Result``). Adds
     ``lifespan`` and ``connection``.
 
-    Constructed by `ServerRunner` (PR4) per inbound request and handed to the
-    user's handler.
+    Constructed by `ServerRunner` per inbound request and handed to the user's
+    handler.
     """
 
     def __init__(
