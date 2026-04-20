@@ -34,11 +34,11 @@ async def test_base_context_forwards_transport_and_cancel_requested():
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
-    bctx = captured[0]
-    assert bctx.transport.kind == "direct"
-    assert isinstance(bctx.cancel_requested, anyio.Event)
-    assert bctx.can_send_request is True
-    assert bctx.meta is None
+        bctx = captured[0]
+        assert bctx.transport.kind == "direct"
+        assert isinstance(bctx.cancel_requested, anyio.Event)
+        assert bctx.can_send_request is True
+        assert bctx.meta is None
 
 
 @pytest.mark.anyio
@@ -61,9 +61,9 @@ async def test_base_context_send_raw_request_and_notify_forward_to_dispatch_cont
         with anyio.fail_after(5):
             result = await client.send_raw_request("tools/call", None)
             await crec.notified.wait()
-    assert crec.requests == [("sampling/createMessage", {"x": 1})]
-    assert crec.notifications == [("notifications/message", {"level": "info"})]
-    assert result["sample"] == {"echoed": "sampling/createMessage", "params": {"x": 1}}
+        assert crec.requests == [("sampling/createMessage", {"x": 1})]
+        assert crec.notifications == [("notifications/message", {"level": "info"})]
+        assert result["sample"] == {"echoed": "sampling/createMessage", "params": {"x": 1}}
 
 
 @pytest.mark.anyio
@@ -81,7 +81,7 @@ async def test_base_context_report_progress_invokes_caller_on_progress():
     async with running_pair(direct_pair, server_on_request=server_on_request) as (client, *_):
         with anyio.fail_after(5):
             await client.send_raw_request("t", None, {"on_progress": on_progress})
-    assert received == [(0.5, 1.0, "halfway")]
+        assert received == [(0.5, 1.0, "halfway")]
 
 
 @pytest.mark.anyio
@@ -100,7 +100,7 @@ async def test_base_context_satisfies_outbound_so_peer_mixin_works():
     ) as (client, *_):
         with anyio.fail_after(5):
             await client.send_raw_request("t", None)
-    assert crec.requests == [("ping", None)]
+        assert crec.requests == [("ping", None)]
 
 
 @pytest.mark.anyio
