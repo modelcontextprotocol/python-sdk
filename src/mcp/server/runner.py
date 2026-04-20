@@ -17,17 +17,18 @@ it via additive methods so the existing ``Server.run()`` path is unaffected.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import partial, reduce
 from typing import Any, Generic, Protocol, cast
 
 from pydantic import BaseModel
 from typing_extensions import TypeVar
 
 from mcp.server.connection import Connection
-from mcp.server.context import Context
+from mcp.server.context import CallNext, Context, ContextMiddleware
 from mcp.server.lowlevel.server import NotificationOptions
-from mcp.shared.dispatcher import DispatchContext, Dispatcher
+from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
 from mcp.types import (
@@ -51,7 +52,7 @@ from mcp.types import (
     UnsubscribeRequestParams,
 )
 
-__all__ = ["ServerRegistry", "ServerRunner"]
+__all__ = ["CallNext", "ContextMiddleware", "ServerRegistry", "ServerRunner"]
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ Handler = Callable[..., Awaitable[Any]]
 so the existing `ServerRequestContext`-based handlers and the new
 `Context`-based handlers both fit during the transition.
 """
+
 
 _INIT_EXEMPT: frozenset[str] = frozenset({"ping"})
 
@@ -105,6 +107,9 @@ class ServerRegistry(Protocol):
     @property
     def version(self) -> str | None: ...
 
+    @property
+    def middleware(self) -> Sequence[ContextMiddleware[Any]]: ...
+
     def get_request_handler(self, method: str) -> Handler | None: ...
     def get_notification_handler(self, method: str) -> Handler | None: ...
     def get_capabilities(
@@ -131,6 +136,7 @@ class ServerRunner(Generic[LifespanT, ServerTransportT]):
     lifespan_state: LifespanT
     has_standalone_channel: bool
     stateless: bool = False
+    dispatch_middleware: list[DispatchMiddleware] = field(default_factory=list[DispatchMiddleware])
 
     connection: Connection = field(init=False)
     _initialized: bool = field(init=False)
@@ -138,6 +144,16 @@ class ServerRunner(Generic[LifespanT, ServerTransportT]):
     def __post_init__(self) -> None:
         self._initialized = self.stateless
         self.connection = Connection(self.dispatcher, has_standalone_channel=self.has_standalone_channel)
+
+    def _compose_on_request(self) -> OnRequest:
+        """Wrap `_on_request` in `dispatch_middleware`, outermost-first.
+
+        Dispatch-tier middleware sees raw ``(dctx, method, params) -> dict``
+        and wraps everything — initialize, METHOD_NOT_FOUND, validation
+        failures included. `run()` calls this once and hands the result to
+        `dispatcher.run()`.
+        """
+        return reduce(lambda h, mw: mw(h), reversed(self.dispatch_middleware), self._on_request)
 
     async def _on_request(
         self,
@@ -162,8 +178,10 @@ class ServerRunner(Generic[LifespanT, ServerTransportT]):
         # it to INVALID_PARAMS.
         typed_params = params_type.model_validate(params or {})
         ctx = self._make_context(dctx, typed_params)
-        result = await handler(ctx, typed_params)
-        return _dump_result(result)
+        call: CallNext = partial(handler, ctx, typed_params)
+        for mw in reversed(self.server.middleware):
+            call = partial(mw, ctx, method, typed_params, call)
+        return _dump_result(await call())
 
     async def _on_notify(
         self,
