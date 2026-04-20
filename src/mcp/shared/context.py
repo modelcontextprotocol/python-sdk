@@ -28,8 +28,8 @@ TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportCont
 class BaseContext(Generic[TransportT]):
     """Per-request context wrapping a `DispatchContext`.
 
-    `ServerRunner` (PR4) constructs one per inbound request and passes it to
-    the user's handler.
+    `ServerRunner` constructs one per inbound request and passes it to the
+    user's handler.
     """
 
     def __init__(self, dctx: DispatchContext[TransportT], meta: RequestParamsMeta | None = None) -> None:
