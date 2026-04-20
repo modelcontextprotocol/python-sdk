@@ -575,8 +575,7 @@ _QUIET_STDIN_STUB = textwrap.dedent(
 @pytest.mark.anyio
 @pytest.mark.parametrize("anyio_backend", ["asyncio"])
 async def test_stdio_client_supports_fifo_cleanup_on_asyncio(anyio_backend):
-    """
-    Regression for https://github.com/modelcontextprotocol/python-sdk/issues/577.
+    """Regression for https://github.com/modelcontextprotocol/python-sdk/issues/577.
 
     Prior to the fix, closing two ``stdio_client`` transports in the order
     they were opened (FIFO) crashed with::
@@ -613,8 +612,7 @@ async def test_stdio_client_supports_fifo_cleanup_on_asyncio(anyio_backend):
 @pytest.mark.anyio
 @pytest.mark.parametrize("anyio_backend", ["asyncio"])
 async def test_stdio_client_supports_lifo_cleanup_on_asyncio(anyio_backend):
-    """
-    Sanity check for the fix above: the historical LIFO cleanup path
+    """Sanity check for the fix above: the historical LIFO cleanup path
     must still work unchanged on asyncio.
     """
     params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
@@ -635,8 +633,7 @@ async def test_stdio_client_supports_lifo_cleanup_on_asyncio(anyio_backend):
 @pytest.mark.anyio
 @pytest.mark.parametrize("anyio_backend", ["asyncio"])
 async def test_stdio_client_shared_exit_stack_fifo_on_asyncio(anyio_backend):
-    """
-    The same story, but through a single ``AsyncExitStack`` that the
+    """The same story, but through a single ``AsyncExitStack`` that the
     caller then closes once. ExitStack runs callbacks in LIFO order on
     its own, so this case already worked — the test pins that behavior
     so a future refactor of the asyncio branch cannot silently break
@@ -652,8 +649,7 @@ async def test_stdio_client_shared_exit_stack_fifo_on_asyncio(anyio_backend):
 @pytest.mark.anyio
 @pytest.mark.parametrize("anyio_backend", ["asyncio"])
 async def test_stdio_client_reader_crash_propagates_on_asyncio(anyio_backend, monkeypatch):
-    """
-    Guardrail for the asyncio branch of #577: moving the reader/writer
+    """Guardrail for the asyncio branch of #577: moving the reader/writer
     out of an anyio task group must NOT silently swallow exceptions
     they raise. An anyio task group would have re-raised those through
     the async ``with`` block; the asyncio path has to reproduce that
