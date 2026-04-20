@@ -148,11 +148,8 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
         self._cancel_scope.cancel()
         self._completed = True  # Mark as completed so it's removed from in_flight
-        # Send an error response to indicate cancellation
-        await self._session._send_response(  # type: ignore[reportPrivateUsage]
-            request_id=self.request_id,
-            response=ErrorData(code=0, message="Request cancelled"),
-        )
+        # Per the MCP spec, receivers of cancellation notifications SHOULD NOT
+        # send a response for the cancelled request.
 
     @property
     def in_flight(self) -> bool:  # pragma: no cover

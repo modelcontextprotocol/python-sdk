@@ -66,10 +66,11 @@ async def test_server_remains_functional_after_cancel():
                 await client.session.send_request(
                     CallToolRequest(params=CallToolRequestParams(name="test_tool", arguments={})),
                     CallToolResult,
+                    request_read_timeout_seconds=3,
                 )
                 pytest.fail("First request should have been cancelled")  # pragma: no cover
             except MCPError:
-                pass  # Expected
+                pass  # Expected - request timed out since no response is sent for cancelled requests
 
         # Start first request
         async with anyio.create_task_group() as tg:
