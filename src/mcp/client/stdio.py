@@ -215,26 +215,67 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
     # design, and cross-task cleanup is fundamentally incompatible with
     # that model, so callers on trio still have to clean up LIFO.
     if sniffio.current_async_library() == "asyncio":
+
+        def _on_background_task_done(task: asyncio.Task[None]) -> None:
+            """
+            If a background reader/writer crashes while the caller is
+            still using the transport, close the memory streams so that
+            any in-flight user read wakes up with ``ClosedResourceError``
+            instead of hanging forever. An anyio task group would have
+            produced the same effect via scope cancellation — this
+            restores that observability on the asyncio path.
+            """
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is None:
+                return
+            logger.debug(
+                "stdio_client background task raised %s — closing streams to wake up caller",
+                type(exc).__name__,
+                exc_info=exc,
+            )
+            for stream in (read_stream_writer, write_stream):
+                try:
+                    stream.close()
+                except Exception:  # pragma: no cover
+                    pass
+
         async with process:
-            stdout_task = asyncio.create_task(stdout_reader())
-            stdin_task = asyncio.create_task(stdin_writer())
+            stdout_task: asyncio.Task[None] = asyncio.create_task(stdout_reader())
+            stdin_task: asyncio.Task[None] = asyncio.create_task(stdin_writer())
+            stdout_task.add_done_callback(_on_background_task_done)
+            stdin_task.add_done_callback(_on_background_task_done)
+            background_tasks = (stdout_task, stdin_task)
             try:
                 yield read_stream, write_stream
             finally:
                 try:
                     await _cleanup_process_and_streams()
                 finally:
-                    for task in (stdout_task, stdin_task):
+                    for task in background_tasks:
                         if not task.done():
                             task.cancel()
-                    for task in (stdout_task, stdin_task):
+                    # Collect results; swallow CancelledError (expected for
+                    # teardown) and anyio.ClosedResourceError (surfaced when
+                    # we closed the streams out from under the reader/writer
+                    # during cleanup). Re-raise anything else so a crash in
+                    # the background does not go unnoticed — matching the
+                    # exception propagation we'd get from an anyio task
+                    # group on the trio path.
+                    pending_exc: BaseException | None = None
+                    for task in background_tasks:
                         try:
                             await task
-                        except BaseException:  # noqa: BLE001, S110
-                            # Reader/writer cancellation or late I/O errors
-                            # surfaced after the streams were closed: those
-                            # are expected during teardown.
+                        except asyncio.CancelledError:
                             pass
+                        except anyio.ClosedResourceError:
+                            pass
+                        except BaseException as exc:  # noqa: BLE001
+                            if pending_exc is None:
+                                pending_exc = exc
+                    if pending_exc is not None:
+                        raise pending_exc
     else:
         async with anyio.create_task_group() as tg, process:
             tg.start_soon(stdout_reader)

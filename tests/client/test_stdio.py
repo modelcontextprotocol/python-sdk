@@ -647,3 +647,39 @@ async def test_stdio_client_shared_exit_stack_fifo_on_asyncio(anyio_backend):
     async with AsyncExitStack() as stack:
         await stack.enter_async_context(stdio_client(params))
         await stack.enter_async_context(stdio_client(params))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_reader_crash_propagates_on_asyncio(anyio_backend, monkeypatch):
+    """
+    Guardrail for the asyncio branch of #577: moving the reader/writer
+    out of an anyio task group must NOT silently swallow exceptions
+    they raise. An anyio task group would have re-raised those through
+    the async ``with`` block; the asyncio path has to reproduce that
+    contract by collecting the task results in ``__aexit__`` and
+    re-raising anything that isn't cancellation / closed-resource.
+    """
+    from mcp.client import stdio as stdio_mod
+
+    class _BoomTextStream:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("deliberate reader crash for #577 regression test")
+
+    monkeypatch.setattr(stdio_mod, "TextReceiveStream", _BoomTextStream)
+
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    with pytest.raises(RuntimeError, match="deliberate reader crash"):
+        async with stdio_client(params):
+            # Give the reader a chance to raise. The crash should close
+            # the streams out from under us, so we just wait a moment
+            # and then exit the context — the exception is surfaced on
+            # the way out.
+            await anyio.sleep(0.2)
