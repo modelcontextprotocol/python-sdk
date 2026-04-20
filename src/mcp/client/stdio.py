@@ -158,9 +158,9 @@ async def _asyncio_background_tasks(
         for task in tasks:
             try:
                 await task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # pragma: lax no cover - timing-dependent on teardown races
                 pass
-            except anyio.ClosedResourceError:
+            except anyio.ClosedResourceError:  # pragma: lax no cover - timing-dependent on teardown races
                 pass
             except BaseException as exc:  # noqa: BLE001
                 if pending_exc is None:  # pragma: no branch
