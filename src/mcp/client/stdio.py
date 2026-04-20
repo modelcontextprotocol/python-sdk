@@ -127,7 +127,7 @@ async def _asyncio_background_tasks(
     """
 
     def _on_done(task: asyncio.Task[None]) -> None:
-        if task.cancelled():
+        if task.cancelled():  # pragma: no cover - normal teardown exits reader/writer cleanly
             return
         exc = task.exception()
         if exc is None:
@@ -152,18 +152,18 @@ async def _asyncio_background_tasks(
         yield
     finally:
         for task in tasks:
-            if not task.done():
+            if not task.done():  # pragma: no cover - tasks normally exit via stream close
                 task.cancel()
         pending_exc: BaseException | None = None
         for task in tasks:
             try:
                 await task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # pragma: no cover - only if a task was still pending above
                 pass
-            except anyio.ClosedResourceError:
+            except anyio.ClosedResourceError:  # pragma: no cover - swallowed by reader/writer already
                 pass
             except BaseException as exc:  # noqa: BLE001
-                if pending_exc is None:
+                if pending_exc is None:  # pragma: no branch
                     pending_exc = exc
         if pending_exc is not None:
             raise pending_exc
