@@ -558,3 +558,92 @@ async def test_stdio_client_stdin_close_ignored():
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
         f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
     )
+
+
+# A stub MCP-ish server: exits cleanly as soon as stdin closes. We only need
+# the stdio_client to be able to stand the transport up; we do not exercise
+# any MCP protocol traffic in the FIFO-cleanup tests below.
+_QUIET_STDIN_STUB = textwrap.dedent(
+    """
+    import sys
+    for _ in sys.stdin:
+        pass
+    """
+)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_supports_fifo_cleanup_on_asyncio(anyio_backend):
+    """
+    Regression for https://github.com/modelcontextprotocol/python-sdk/issues/577.
+
+    Prior to the fix, closing two ``stdio_client`` transports in the order
+    they were opened (FIFO) crashed with::
+
+        RuntimeError: Attempted to exit a cancel scope that isn't the
+        current task's current cancel scope
+
+    because each stdio_client bound a task-group cancel scope to the
+    caller's task, and anyio enforces a strict LIFO stack on those
+    scopes. On asyncio the fix uses ``asyncio.create_task`` for the
+    reader / writer so the transports are independent and the cleanup
+    order no longer matters.
+
+    (Trio intentionally forbids orphan tasks — there is no equivalent
+    fix on that backend, so this test is asyncio-only.)
+    """
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    s1 = AsyncExitStack()
+    s2 = AsyncExitStack()
+
+    await s1.__aenter__()
+    await s2.__aenter__()
+
+    await s1.enter_async_context(stdio_client(params))
+    await s2.enter_async_context(stdio_client(params))
+
+    # Close in FIFO order — the opposite of what anyio's structured
+    # concurrency would normally require.
+    await s1.aclose()
+    await s2.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_supports_lifo_cleanup_on_asyncio(anyio_backend):
+    """
+    Sanity check for the fix above: the historical LIFO cleanup path
+    must still work unchanged on asyncio.
+    """
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    s1 = AsyncExitStack()
+    s2 = AsyncExitStack()
+    await s1.__aenter__()
+    await s2.__aenter__()
+
+    await s1.enter_async_context(stdio_client(params))
+    await s2.enter_async_context(stdio_client(params))
+
+    # LIFO cleanup — the last-opened transport closes first.
+    await s2.aclose()
+    await s1.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_stdio_client_shared_exit_stack_fifo_on_asyncio(anyio_backend):
+    """
+    The same story, but through a single ``AsyncExitStack`` that the
+    caller then closes once. ExitStack runs callbacks in LIFO order on
+    its own, so this case already worked — the test pins that behavior
+    so a future refactor of the asyncio branch cannot silently break
+    it.
+    """
+    params = StdioServerParameters(command=sys.executable, args=["-c", _QUIET_STDIN_STUB])
+
+    async with AsyncExitStack() as stack:
+        await stack.enter_async_context(stdio_client(params))
+        await stack.enter_async_context(stdio_client(params))

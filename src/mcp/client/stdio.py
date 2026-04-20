@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import sys
@@ -7,6 +8,7 @@ from typing import Literal, TextIO
 
 import anyio
 import anyio.lowlevel
+import sniffio
 from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
@@ -177,38 +179,70 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg, process:
-        tg.start_soon(stdout_reader)
-        tg.start_soon(stdin_writer)
-        try:
-            yield read_stream, write_stream
-        finally:
-            # MCP spec: stdio shutdown sequence
-            # 1. Close input stream to server
-            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
-            # 3. Send SIGKILL if still not exited
-            if process.stdin:  # pragma: no branch
-                try:
-                    await process.stdin.aclose()
-                except Exception:  # pragma: no cover
-                    # stdin might already be closed, which is fine
-                    pass
-
+    async def _cleanup_process_and_streams() -> None:
+        # MCP spec: stdio shutdown sequence
+        # 1. Close input stream to server
+        # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+        # 3. Send SIGKILL if still not exited
+        if process.stdin:  # pragma: no branch
             try:
-                # Give the process time to exit gracefully after stdin closes
-                with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
-                    await process.wait()
-            except TimeoutError:
-                # Process didn't exit from stdin closure, use platform-specific termination
-                # which handles SIGTERM -> SIGKILL escalation
-                await _terminate_process_tree(process)
-            except ProcessLookupError:  # pragma: no cover
-                # Process already exited, which is fine
+                await process.stdin.aclose()
+            except Exception:  # pragma: no cover
+                # stdin might already be closed, which is fine
                 pass
-            await read_stream.aclose()
-            await write_stream.aclose()
-            await read_stream_writer.aclose()
-            await write_stream_reader.aclose()
+
+        try:
+            # Give the process time to exit gracefully after stdin closes
+            with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
+                await process.wait()
+        except TimeoutError:
+            # Process didn't exit from stdin closure, use platform-specific termination
+            # which handles SIGTERM -> SIGKILL escalation
+            await _terminate_process_tree(process)
+        except ProcessLookupError:  # pragma: no cover
+            # Process already exited, which is fine
+            pass
+        await read_stream.aclose()
+        await write_stream.aclose()
+        await read_stream_writer.aclose()
+        await write_stream_reader.aclose()
+
+    # On asyncio we spawn the reader / writer with asyncio.create_task rather
+    # than an anyio task group, so their cancel scopes are not bound to the
+    # caller's task. That is what lets callers clean up multiple transports
+    # in arbitrary order — see #577. On structured-concurrency backends
+    # (trio), we keep the task group: orphan tasks are disallowed there by
+    # design, and cross-task cleanup is fundamentally incompatible with
+    # that model, so callers on trio still have to clean up LIFO.
+    if sniffio.current_async_library() == "asyncio":
+        async with process:
+            stdout_task = asyncio.create_task(stdout_reader())
+            stdin_task = asyncio.create_task(stdin_writer())
+            try:
+                yield read_stream, write_stream
+            finally:
+                try:
+                    await _cleanup_process_and_streams()
+                finally:
+                    for task in (stdout_task, stdin_task):
+                        if not task.done():
+                            task.cancel()
+                    for task in (stdout_task, stdin_task):
+                        try:
+                            await task
+                        except BaseException:  # noqa: BLE001, S110
+                            # Reader/writer cancellation or late I/O errors
+                            # surfaced after the streams were closed: those
+                            # are expected during teardown.
+                            pass
+    else:
+        async with anyio.create_task_group() as tg, process:
+            tg.start_soon(stdout_reader)
+            tg.start_soon(stdin_writer)
+            try:
+                yield read_stream, write_stream
+            finally:
+                await _cleanup_process_and_streams()
 
 
 def _get_executable_command(command: str) -> str:
