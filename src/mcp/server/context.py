@@ -30,8 +30,8 @@ class ServerRequestContext(RequestContext[ServerSession], Generic[LifespanContex
     close_standalone_sse_stream: CloseSSEStreamCallback | None = None
 
 
-LifespanT = TypeVar("LifespanT", default=Any)
-TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
+LifespanT = TypeVar("LifespanT", default=Any, covariant=True)
+TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext, covariant=True)
 
 
 class Context(BaseContext[TransportT], PeerMixin, TypedServerRequestMixin, Generic[LifespanT, TransportT]):

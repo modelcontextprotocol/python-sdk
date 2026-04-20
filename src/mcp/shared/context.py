@@ -22,7 +22,7 @@ from mcp.types import RequestParamsMeta
 
 __all__ = ["BaseContext"]
 
-TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext)
+TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext, covariant=True)
 
 
 class BaseContext(Generic[TransportT]):
