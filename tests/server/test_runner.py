@@ -8,6 +8,7 @@ init-gate, and that handlers receive a fully-built `Context`.
 from typing import Any
 
 import anyio
+import anyio.lowlevel
 import pytest
 
 from mcp.server.connection import Connection
@@ -131,6 +132,143 @@ async def test_runner_unknown_method_raises_method_not_found(server: SrvT):
             with pytest.raises(MCPError) as exc:
                 await client.send_raw_request("nonexistent/method", None)
             assert exc.value.error.code == METHOD_NOT_FOUND
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_initialized_sets_flag_and_connection_event(server: SrvT):
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(server=server, dispatcher=server_d, lifespan_state=None, has_standalone_channel=True)
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(server_d.run, runner._on_request, runner._on_notify)
+        with anyio.fail_after(5):
+            await client.notify("notifications/initialized", None)
+            await runner.connection.initialized.wait()
+        assert runner._initialized is True
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_routes_to_registered_handler(server: SrvT):
+    seen: list[tuple[Any, Any]] = []
+
+    async def on_roots_changed(ctx: Any, params: Any) -> None:
+        seen.append((ctx, params))
+
+    server._notification_handlers["notifications/roots/list_changed"] = on_roots_changed
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(server=server, dispatcher=server_d, lifespan_state=None, has_standalone_channel=True)
+    runner._initialized = True
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(server_d.run, runner._on_request, runner._on_notify)
+        with anyio.fail_after(5):
+            await client.notify("notifications/roots/list_changed", None)
+            # DirectDispatcher delivers synchronously; one yield is enough.
+            await anyio.lowlevel.checkpoint()
+        assert len(seen) == 1
+        assert isinstance(seen[0][0], Context)
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_on_notify_drops_before_init_and_unknown_methods(server: SrvT):
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(server=server, dispatcher=server_d, lifespan_state=None, has_standalone_channel=True)
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(server_d.run, runner._on_request, runner._on_notify)
+        with anyio.fail_after(5):
+            await client.notify("notifications/roots/list_changed", None)  # before init: dropped
+            await client.notify("notifications/initialized", None)
+            await client.notify("notifications/unknown", None)  # no handler: dropped
+        # No exception raised; both drops are silent.
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_dispatch_middleware_wraps_everything_including_initialize(server: SrvT):
+    seen_methods: list[str] = []
+
+    def trace_mw(next_on_request: Any) -> Any:
+        async def wrapped(dctx: Any, method: str, params: Any) -> Any:
+            seen_methods.append(method)
+            return await next_on_request(dctx, method, params)
+
+        return wrapped
+
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(
+        server=server,
+        dispatcher=server_d,
+        lifespan_state=None,
+        has_standalone_channel=True,
+        dispatch_middleware=[trace_mw],
+    )
+    c_req, c_notify = echo_handlers(Recorder())
+    on_req = runner._compose_on_request()
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(server_d.run, on_req, runner._on_notify)
+        with anyio.fail_after(5):
+            await client.send_raw_request("initialize", _initialize_params())
+            await client.send_raw_request("tools/list", None)
+        assert seen_methods == ["initialize", "tools/list"]
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_server_middleware_wraps_handlers_but_not_initialize(server: SrvT):
+    seen_methods: list[str] = []
+
+    async def ctx_mw(ctx: Any, method: str, params: Any, call_next: Any) -> Any:
+        seen_methods.append(method)
+        return await call_next()
+
+    server.middleware.append(ctx_mw)
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(server=server, dispatcher=server_d, lifespan_state=None, has_standalone_channel=True)
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(server_d.run, runner._on_request, runner._on_notify)
+        with anyio.fail_after(5):
+            await client.send_raw_request("initialize", _initialize_params())
+            await client.send_raw_request("ping", None)
+            await client.send_raw_request("tools/list", None)
+        # initialize NOT wrapped; ping and tools/list ARE wrapped.
+        assert seen_methods == ["ping", "tools/list"]
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_server_middleware_runs_outermost_first(server: SrvT):
+    order: list[str] = []
+
+    def make_mw(tag: str) -> Any:
+        async def mw(ctx: Any, method: str, params: Any, call_next: Any) -> Any:
+            order.append(f"{tag}-in")
+            result = await call_next()
+            order.append(f"{tag}-out")
+            return result
+
+        return mw
+
+    server.middleware.extend([make_mw("a"), make_mw("b")])
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(server=server, dispatcher=server_d, lifespan_state=None, has_standalone_channel=True)
+    runner._initialized = True
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(server_d.run, runner._on_request, runner._on_notify)
+        with anyio.fail_after(5):
+            await client.send_raw_request("tools/list", None)
+        assert order == ["a-in", "b-in", "b-out", "a-out"]
         tg.cancel_scope.cancel()
 
 

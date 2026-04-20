@@ -58,7 +58,7 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ServerRequestContext
+from mcp.server.context import ContextMiddleware, ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.models import InitializationOptions
@@ -199,6 +199,9 @@ class Server(Generic[LifespanResultT]):
         ] = {}
         self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
+        # Context-tier middleware consumed by `ServerRunner`. Additive; the
+        # existing `run()` path ignores it.
+        self.middleware: list[ContextMiddleware[LifespanResultT]] = []
         logger.debug("Initializing server %r", name)
 
         # Populate internal handler dicts from on_* kwargs
@@ -255,11 +258,6 @@ class Server(Generic[LifespanResultT]):
     def get_notification_handler(self, method: str) -> Callable[..., Awaitable[Any]] | None:
         """Return the handler for a notification method, or ``None``."""
         return self._notification_handlers.get(method)
-
-    @property
-    def middleware(self) -> list[Any]:
-        """Context-tier middleware. Empty until the registry refactor adds registration."""
-        return []
 
     @property
     def connection_lifespan(self) -> None:
