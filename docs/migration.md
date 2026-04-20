@@ -343,6 +343,10 @@ async def my_tool(x: int, ctx: Context) -> str:
 
 The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `ResourceTemplate.create_resource`, etc.) now require `context` as a positional argument.
 
+### `ResourceManager.get_resource()` and `ResourceTemplate.create_resource()` raise typed exceptions
+
+`ResourceManager.get_resource()` now raises `ResourceNotFoundError` (instead of `ValueError`) when no resource or template matches the URI. `ResourceTemplate.create_resource()` now raises `ResourceError` (instead of `ValueError`) when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver`). `MCPServer.read_resource()` continues to raise `ResourceError` and is unaffected.
+
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
 The following union types are no longer `RootModel` subclasses:

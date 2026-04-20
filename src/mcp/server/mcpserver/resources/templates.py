@@ -127,5 +127,7 @@ class ResourceTemplate(BaseModel):
                 meta=self.meta,
                 fn=lambda: result,  # Capture result in closure
             )
+        except ResourceError:
+            raise
         except Exception as e:
             raise ResourceError(f"Error creating resource from template: {e}")

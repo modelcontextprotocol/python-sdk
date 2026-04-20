@@ -12,7 +12,7 @@ from starlette.routing import Mount, Route
 from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
-from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver import Context, MCPServer, ResourceNotFoundError
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
@@ -730,6 +730,21 @@ class TestServerResources:
 
             assert exc_info.value.error.code == INTERNAL_ERROR
             assert exc_info.value.error.code != INVALID_PARAMS
+
+    async def test_read_resource_template_not_found(self):
+        """A template handler raising ResourceNotFoundError must surface as INVALID_PARAMS per SEP-2164."""
+        mcp = MCPServer()
+
+        @mcp.resource("resource://users/{user_id}")
+        def get_user(user_id: str) -> str:
+            raise ResourceNotFoundError(f"no user {user_id}")
+
+        async with Client(mcp) as client:
+            with pytest.raises(MCPError, match="no user 999") as exc_info:
+                await client.read_resource("resource://users/999")
+
+            assert exc_info.value.error.code == INVALID_PARAMS
+            assert exc_info.value.error.data == {"uri": "resource://users/999"}
 
     async def test_binary_resource(self):
         mcp = MCPServer()
