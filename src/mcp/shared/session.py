@@ -99,7 +99,8 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     def __enter__(self) -> RequestResponder[ReceiveRequestT, SendResultT]:
         """Enter the context manager, enabling request cancellation tracking."""
         self._entered = True
-        self._cancel_scope = anyio.CancelScope()
+        # Enter the scope created in __init__ so pre-entry cancel() targets
+        # the same scope the handler will later run under.
         self._cancel_scope.__enter__()
         return self
 
@@ -140,11 +141,12 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             )
 
     async def cancel(self) -> None:
-        """Cancel this request and mark it as completed."""
-        if not self._entered:  # pragma: no cover
-            raise RuntimeError("RequestResponder must be used as a context manager")
-        if not self._cancel_scope:  # pragma: no cover
-            raise RuntimeError("No active cancel scope")
+        """Cancel this request and mark it as completed.
+
+        Safe to call before the context manager has been entered.
+        """
+        if self._completed:
+            return
 
         self._cancel_scope.cancel()
         self._completed = True  # Mark as completed so it's removed from in_flight
@@ -157,6 +159,10 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     @property
     def in_flight(self) -> bool:  # pragma: no cover
         return not self._completed and not self.cancelled
+
+    @property
+    def completed(self) -> bool:
+        return self._completed
 
     @property
     def cancelled(self) -> bool:
@@ -184,6 +190,10 @@ class BaseSession(
     _in_flight: dict[RequestId, RequestResponder[ReceiveRequestT, SendResultT]]
     _progress_callbacks: dict[RequestId, ProgressFnT]
     _response_routers: list[ResponseRouter]
+
+    # When True, incoming requests are dispatched to the session's task group
+    # so handlers run concurrently with the receive loop.
+    _dispatch_requests_concurrently: bool = False
 
     def __init__(
         self,
@@ -348,6 +358,29 @@ class BaseSession(
     def _receive_notification_adapter(self) -> TypeAdapter[ReceiveNotificationT]:
         raise NotImplementedError
 
+    async def _dispatch_request(
+        self,
+        responder: RequestResponder[ReceiveRequestT, SendResultT],
+    ) -> None:
+        """Run the per-request handler chain, translating handler exceptions
+        into a JSON-RPC error response so they can't wedge the peer.
+        """
+        request_id = responder.request_id
+        try:
+            await self._received_request(responder)
+            if not responder.completed:
+                await self._handle_incoming(responder)
+        except Exception:
+            logging.warning("Request handler raised an exception", exc_info=True)
+            if not responder.completed:
+                error_response = JSONRPCError(
+                    jsonrpc="2.0",
+                    id=request_id,
+                    error=ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data=""),
+                )
+                await self._write_stream.send(SessionMessage(message=error_response))
+            self._in_flight.pop(request_id, None)
+
     async def _receive_loop(self) -> None:
         async with self._read_stream, self._write_stream:
             try:
@@ -370,10 +403,6 @@ class BaseSession(
                                 context=sender_context,
                             )
                             self._in_flight[responder.request_id] = responder
-                            await self._received_request(responder)
-
-                            if not responder._completed:  # type: ignore[reportPrivateUsage]
-                                await self._handle_incoming(responder)
                         except Exception:
                             # For request validation errors, send a proper JSON-RPC error
                             # response instead of crashing the server
@@ -386,6 +415,12 @@ class BaseSession(
                             )
                             session_message = SessionMessage(message=error_response)
                             await self._write_stream.send(session_message)
+                            return
+
+                        if self._dispatch_requests_concurrently:
+                            self._task_group.start_soon(self._dispatch_request, responder)
+                        else:
+                            await self._dispatch_request(responder)
 
                     elif isinstance(message.message, JSONRPCNotification):
                         try:

@@ -123,6 +123,9 @@ class ClientSession(
         experimental_task_handlers: ExperimentalTaskHandlers | None = None,
     ) -> None:
         super().__init__(read_stream, write_stream, read_timeout_seconds=read_timeout_seconds)
+        # Dispatch incoming server->client requests concurrently so a slow
+        # sampling/elicitation callback doesn't serialize other in-flight requests.
+        self._dispatch_requests_concurrently = True
         self._client_info = client_info or DEFAULT_CLIENT_INFO
         self._sampling_callback = sampling_callback or _default_sampling_callback
         self._sampling_capabilities = sampling_capabilities
