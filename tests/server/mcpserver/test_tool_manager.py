@@ -33,6 +33,27 @@ class TestAddTools:
         assert tool.parameters["properties"]["a"]["type"] == "integer"
         assert tool.parameters["properties"]["b"]["type"] == "integer"
 
+    def test_function_with_google_style_docstring(self):
+        """The summary becomes the description and Args populate parameter descriptions."""
+
+        def add_numbers(a: float, b: float) -> float:  # pragma: no cover
+            """Adds two numbers and returns the result.
+
+            Args:
+                a: The first number to add.
+                b: The second number to add.
+            """
+            return a + b
+
+        manager = ToolManager()
+        manager.add_tool(add_numbers)
+
+        tool = manager.get_tool("add_numbers")
+        assert tool is not None
+        assert tool.description == "Adds two numbers and returns the result."
+        assert tool.parameters["properties"]["a"]["description"] == "The first number to add."
+        assert tool.parameters["properties"]["b"]["description"] == "The second number to add."
+
     def test_init_with_tools(self, caplog: pytest.LogCaptureFixture):
         def sum(a: int, b: int) -> int:  # pragma: no cover
             return a + b
