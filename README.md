@@ -930,13 +930,16 @@ The `elicit()` method returns an `ElicitationResult` with:
 
 ### Sampling
 
-Tools can interact with LLMs through sampling (generating text):
+Tools can interact with LLMs through sampling (generating text). The server does
+not call a model directly through the SDK here; instead it sends a
+`sampling/createMessage` request to the connected client, and the client handles
+that request via its registered sampling callback:
 
 <!-- snippet-source examples/snippets/servers/sampling.py -->
 ```python
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
-from mcp.types import SamplingMessage, TextContent
+from mcp.types import ModelHint, ModelPreferences, SamplingMessage, TextContent
 
 mcp = FastMCP(name="Sampling Example")
 
@@ -954,6 +957,12 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
             )
         ],
         max_tokens=100,
+        model_preferences=ModelPreferences(
+            hints=[ModelHint(name="claude-3")],
+            intelligence_priority=0.8,
+            speed_priority=0.2,
+        ),
+        include_context="thisServer",
     )
 
     # Since we're not passing tools param, result.content is single content
@@ -964,6 +973,23 @@ async def generate_poem(topic: str, ctx: Context[ServerSession, None]) -> str:
 
 _Full example: [examples/snippets/servers/sampling.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/sampling.py)_
 <!-- /snippet-source -->
+
+Sampling requests are routed through the client:
+
+- `ctx.session.create_message(...)` asks the MCP client to perform sampling with
+  whatever LLMs the client has available.
+- On the client side, handle that request with `sampling_callback` on
+  `ClientSession` or `Client`.
+- `model_preferences` is advisory only. Use `hints` for model-name preferences
+  and the numeric priorities to express tradeoffs such as speed vs.
+  intelligence.
+- `include_context` is also advisory and can be `"none"`, `"thisServer"`, or
+  `"allServers"`. It only has an effect if the client advertises
+  `sampling.context` capability.
+- `RequestContext`/`ClientRequestContext` is callback metadata, not prompt
+  context. It gives your callback access to the client session plus request
+  metadata such as `request_id` and `meta`; the actual prompt payload is in
+  `CreateMessageRequestParams`.
 
 ### Logging and Notifications
 
@@ -2160,8 +2186,8 @@ import os
 from pydantic import AnyUrl
 
 from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.context import ClientRequestContext
 from mcp.client.stdio import stdio_client
-from mcp.shared.context import RequestContext
 
 # Create server parameters for stdio connection
 server_params = StdioServerParameters(
@@ -2173,9 +2199,11 @@ server_params = StdioServerParameters(
 
 # Optional: create a sampling callback
 async def handle_sampling_message(
-    context: RequestContext[ClientSession, None], params: types.CreateMessageRequestParams
+    context: ClientRequestContext, params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
+    print(f"Requested model preferences: {params.model_preferences}")
+    print(f"Requested include_context: {params.include_context}")
     return types.CreateMessageResult(
         role="assistant",
         content=types.TextContent(
@@ -2183,7 +2211,7 @@ async def handle_sampling_message(
             text="Hello, world! from model",
         ),
         model="gpt-3.5-turbo",
-        stopReason="endTurn",
+        stop_reason="endTurn",
     )
 
 

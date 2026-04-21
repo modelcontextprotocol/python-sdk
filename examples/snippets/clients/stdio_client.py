@@ -22,6 +22,8 @@ async def handle_sampling_message(
     context: ClientRequestContext, params: types.CreateMessageRequestParams
 ) -> types.CreateMessageResult:
     print(f"Sampling request: {params.messages}")
+    print(f"Requested model preferences: {params.model_preferences}")
+    print(f"Requested include_context: {params.include_context}")
     return types.CreateMessageResult(
         role="assistant",
         content=types.TextContent(
