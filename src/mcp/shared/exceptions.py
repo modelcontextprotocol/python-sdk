@@ -6,17 +6,16 @@ from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorDat
 
 
 def _restore_mcp_error(exc_type: type[MCPError], error: ErrorData) -> MCPError:
-    """Reconstruct a pickled MCPError or subclass from ErrorData."""
+    """Reconstruct a pickled MCPError (or subclass) from ErrorData.
+
+    Every MCPError subclass inherits :meth:`MCPError.from_error_data`, so the
+    generic path is sufficient. :class:`UrlElicitationRequiredError` needs its
+    specialized reconstructor because it interprets ``error.data`` as a list
+    of elicitations, not free-form data.
+    """
     if exc_type is UrlElicitationRequiredError:
         return exc_type.from_error(error)
-
-    if hasattr(exc_type, "from_error_data"):
-        return exc_type.from_error_data(error)
-
-    restored = exc_type.__new__(exc_type)
-    Exception.__init__(restored, error.code, error.message, error.data)
-    restored.error = error
-    return restored
+    return exc_type.from_error_data(error)
 
 
 class MCPError(Exception):
