@@ -87,6 +87,24 @@ class TokenStorage(Protocol):
         """Store client information."""
         ...
 
+    async def get_oauth_metadata(self) -> OAuthMetadata | None:
+        """Get stored authorization server metadata.
+
+        Optional: implementations may return ``None`` if metadata persistence
+        is not desired. Implementations that persist tokens across restarts
+        should also persist metadata so :meth:`OAuthClientProvider._refresh_token`
+        can resolve the correct token endpoint without rediscovering metadata
+        on every restart.
+        """
+        return None
+
+    async def set_oauth_metadata(self, metadata: OAuthMetadata) -> None:
+        """Store authorization server metadata.
+
+        Optional: no-op by default. See :meth:`get_oauth_metadata`.
+        """
+        return
+
 
 @dataclass
 class OAuthContext:
@@ -473,10 +491,19 @@ class OAuthClientProvider(httpx.Auth):
             self.context.clear_tokens()
             return False
 
-    async def _initialize(self) -> None:  # pragma: no cover
-        """Load stored tokens and client info."""
+    async def _initialize(self) -> None:
+        """Load stored tokens, client info, and authorization server metadata."""
         self.context.current_tokens = await self.context.storage.get_tokens()
         self.context.client_info = await self.context.storage.get_client_info()
+        # Restore authorization server metadata so ``_refresh_token`` can
+        # resolve the correct token endpoint without rediscovering it on
+        # every restart. ``getattr`` preserves backward compatibility with
+        # storage implementations predating ``get_oauth_metadata``: they
+        # return ``None`` and the refresh path falls back to the legacy
+        # ``<base_url>/token`` behaviour as before.
+        meta_getter = getattr(self.context.storage, "get_oauth_metadata", None)
+        if meta_getter is not None:
+            self.context.oauth_metadata = await meta_getter()
         self._initialized = True
 
     def _add_auth_header(self, request: httpx.Request) -> None:
@@ -507,7 +534,7 @@ class OAuthClientProvider(httpx.Auth):
         """HTTPX auth flow integration."""
         async with self.context.lock:
             if not self._initialized:
-                await self._initialize()  # pragma: no cover
+                await self._initialize()
 
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
@@ -572,6 +599,11 @@ class OAuthClientProvider(httpx.Auth):
                             break
                         if ok and asm:
                             self.context.oauth_metadata = asm
+                            # Persist so subsequent restarts can resolve the
+                            # correct token endpoint without rediscovery.
+                            meta_setter = getattr(self.context.storage, "set_oauth_metadata", None)
+                            if meta_setter is not None:
+                                await meta_setter(asm)
                             break
                         else:
                             logger.debug(f"OAuth metadata discovery failed: {url}")
@@ -612,7 +644,7 @@ class OAuthClientProvider(httpx.Auth):
                     # Step 5: Perform authorization and complete token exchange
                     token_response = yield await self._perform_authorization()
                     await self._handle_token_response(token_response)
-                except Exception:  # pragma: no cover
+                except Exception:
                     logger.exception("OAuth flow error")
                     raise
 
