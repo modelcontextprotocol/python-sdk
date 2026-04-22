@@ -502,9 +502,9 @@ class Server(Generic[LifespanResultT]):
                     response = err.error
                 except anyio.get_cancelled_exc_class():
                     if message.cancelled:
-                        # Client sent CancelledNotification; responder.cancel() already
-                        # sent an error response, so skip the duplicate.
-                        logger.info("Request %s cancelled - duplicate response suppressed", message.request_id)
+                        # Client sent CancelledNotification; per spec receivers must
+                        # not send a response for a cancelled request, so return.
+                        logger.info("Request %s cancelled", message.request_id)
                         return
                     # Transport-close cancellation from the TG in run(); re-raise so the
                     # TG swallows its own cancellation.
