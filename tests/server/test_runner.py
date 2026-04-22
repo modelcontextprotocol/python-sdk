@@ -14,7 +14,7 @@ import pytest
 from mcp.server.connection import Connection
 from mcp.server.context import Context
 from mcp.server.lowlevel.server import Server
-from mcp.server.runner import ServerRunner
+from mcp.server.runner import ServerRunner, otel_middleware
 from mcp.shared.direct_dispatcher import create_direct_dispatcher_pair
 from mcp.shared.exceptions import MCPError
 from mcp.shared.transport_context import TransportContext
@@ -269,6 +269,75 @@ async def test_runner_server_middleware_runs_outermost_first(server: SrvT):
         with anyio.fail_after(5):
             await client.send_raw_request("tools/list", None)
         assert order == ["a-in", "b-in", "b-out", "a-out"]
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_run_drives_dispatcher_end_to_end(server: SrvT):
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(server=server, dispatcher=server_d, lifespan_state=None, has_standalone_channel=True)
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(runner.run)
+        with anyio.fail_after(5):
+            init = await client.send_raw_request("initialize", _initialize_params())
+            tools = await client.send_raw_request("tools/list", None)
+        assert init["serverInfo"]["name"] == "test-server"
+        assert tools["tools"][0]["name"] == "t"
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_runner_run_applies_dispatch_middleware(server: SrvT):
+    seen: list[str] = []
+
+    def trace_mw(next_on_request: Any) -> Any:
+        async def wrapped(dctx: Any, method: str, params: Any) -> Any:
+            seen.append(method)
+            return await next_on_request(dctx, method, params)
+
+        return wrapped
+
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(
+        server=server,
+        dispatcher=server_d,
+        lifespan_state=None,
+        has_standalone_channel=True,
+        dispatch_middleware=[trace_mw],
+    )
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(runner.run)
+        with anyio.fail_after(5):
+            await client.send_raw_request("initialize", _initialize_params())
+            await client.send_raw_request("ping", None)
+        assert seen == ["initialize", "ping"]
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_otel_middleware_passes_through_result_and_survives_handler_error(server: SrvT):
+    client, server_d = create_direct_dispatcher_pair()
+    runner = ServerRunner(
+        server=server,
+        dispatcher=server_d,
+        lifespan_state=None,
+        has_standalone_channel=True,
+        dispatch_middleware=[otel_middleware],
+    )
+    c_req, c_notify = echo_handlers(Recorder())
+    async with anyio.create_task_group() as tg:
+        await tg.start(client.run, c_req, c_notify)
+        await tg.start(runner.run)
+        with anyio.fail_after(5):
+            await client.send_raw_request("initialize", _initialize_params())
+            tools = await client.send_raw_request("tools/list", None)
+            assert tools["tools"][0]["name"] == "t"
+            with pytest.raises(MCPError):
+                await client.send_raw_request("nonexistent/method", None)
         tg.cancel_scope.cancel()
 
 
