@@ -14,7 +14,12 @@ class ResourceError(MCPServerError):
 
 
 class ResourceNotFoundError(ResourceError):
-    """Resource does not exist."""
+    """Resource does not exist.
+
+    Raise this from a resource template handler to signal that the requested
+    instance does not exist; clients receive ``-32602`` (invalid params) per
+    SEP-2164.
+    """
 
 
 class ToolError(MCPServerError):
