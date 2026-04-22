@@ -345,7 +345,7 @@ The internal layers (`ToolManager.call_tool`, `Tool.run`, `Prompt.render`, `Reso
 
 ### `ResourceManager.get_resource()` and `ResourceTemplate.create_resource()` raise typed exceptions
 
-`ResourceManager.get_resource()` now raises `ResourceNotFoundError` (instead of `ValueError`) when no resource or template matches the URI. `ResourceTemplate.create_resource()` now raises `ResourceError` (instead of `ValueError`) when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver`). `MCPServer.read_resource()` continues to raise `ResourceError` and is unaffected.
+`ResourceManager.get_resource()` now raises `ResourceNotFoundError` (instead of `ValueError`) when no resource or template matches the URI. `ResourceTemplate.create_resource()` now raises `ResourceError` (instead of `ValueError`) when the template function fails. Neither subclasses `ValueError`, so callers catching `ValueError` should switch to `ResourceNotFoundError` / `ResourceError` (both importable from `mcp.server.mcpserver.exceptions`). `MCPServer.read_resource()` continues to raise `ResourceError` and is unaffected.
 
 ### Replace `RootModel` by union types with `TypeAdapter` validation
 
