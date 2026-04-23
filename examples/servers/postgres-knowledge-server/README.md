@@ -3,6 +3,7 @@
 A production-grade MCP server backed by PostgreSQL with authorization middleware.
 
 Demonstrates:
+
 - **Multi-tool MCP server** — knowledge store, task queue, file routing
 - **Authorization middleware** — filesystem-based identity gate (no ACL database)
 - **Postgres backend** — Unix socket connection, no host/port exposure
