@@ -22,8 +22,7 @@ import click
 import psycopg2
 import psycopg2.extras
 from mcp import types
-from mcp.server import Server
-from mcp.server import ServerRequestContext
+from mcp.server import Server, ServerRequestContext
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -74,7 +73,8 @@ def ensure_schema(conn):
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS knowledge_app ON knowledge(app_id)")
         cur.execute(
-            "CREATE INDEX IF NOT EXISTS knowledge_fts ON knowledge USING gin(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(body,'')))"
+            "CREATE INDEX IF NOT EXISTS knowledge_fts ON knowledge"
+            " USING gin(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(body,'')))"
         )
     conn.commit()
 
