@@ -413,3 +413,67 @@ def test_session_idle_timeout_rejects_non_positive():
 def test_session_idle_timeout_rejects_stateless():
     with pytest.raises(RuntimeError, match="not supported in stateless"):
         StreamableHTTPSessionManager(app=Server("test"), session_idle_timeout=30, stateless=True)
+
+
+def test_streamable_http_app_accepts_session_idle_timeout():
+    """session_idle_timeout is forwarded from streamable_http_app() to the session manager."""
+    app = Server("test-passthrough")
+    starlette_app = app.streamable_http_app(host="testserver", session_idle_timeout=30.0)
+    assert starlette_app is not None
+    assert app._session_manager is not None
+    assert app._session_manager.session_idle_timeout == 30.0
+
+
+@pytest.mark.anyio
+async def test_active_request_not_cancelled_by_idle_timeout():
+    """A request whose handler takes longer than session_idle_timeout must still complete."""
+    host = "testserver"
+    IDLE_TIMEOUT = 0.05  # 50 ms
+    HANDLER_SLEEP = 0.15  # 150 ms — longer than the timeout
+
+    tool_completed = False
+
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        nonlocal tool_completed
+        await anyio.sleep(HANDLER_SLEEP)
+        tool_completed = True
+        return ListToolsResult(tools=[])
+
+    app = Server("test-no-cancel", on_list_tools=handle_list_tools)
+    mcp_app = app.streamable_http_app(host=host, session_idle_timeout=IDLE_TIMEOUT)
+    async with (
+        mcp_app.router.lifespan_context(mcp_app),
+        httpx.ASGITransport(mcp_app) as transport,
+        httpx.AsyncClient(transport=transport) as http_client,
+        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
+    ):
+        result = await client.list_tools()
+        assert tool_completed, "Handler should have completed without being cancelled"
+        assert result.tools == []
+
+
+@pytest.mark.anyio
+async def test_idle_session_reaped_after_request_completes():
+    """After the last request finishes, idle reaping still works normally."""
+    host = "testserver"
+    IDLE_TIMEOUT = 0.05  # 50 ms
+
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[])
+
+    app = Server("test-reap-after-request", on_list_tools=handle_list_tools)
+    mcp_app = app.streamable_http_app(host=host, session_idle_timeout=IDLE_TIMEOUT)
+    async with (
+        mcp_app.router.lifespan_context(mcp_app),
+        httpx.ASGITransport(mcp_app) as transport,
+        httpx.AsyncClient(transport=transport) as http_client,
+        Client(streamable_http_client(f"http://{host}/mcp", http_client=http_client)) as client,
+    ):
+        await client.list_tools()
+        # Wait well past the idle timeout
+        await anyio.sleep(IDLE_TIMEOUT * 4)
+        session_manager = app._session_manager
+        assert session_manager is not None
+        assert len(session_manager._server_instances) == 0, (
+            "Session should have been reaped after idle timeout elapsed post-request"
+        )

@@ -270,6 +270,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = ...,
         event_store: EventStore | None = ...,
         retry_interval: int | None = ...,
+        session_idle_timeout: float | None = ...,
         transport_security: TransportSecuritySettings | None = ...,
     ) -> None: ...
 
@@ -889,6 +890,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        session_idle_timeout: float | None = None,
         transport_security: TransportSecuritySettings | None = None,
     ) -> None:
         """Run the server using StreamableHTTP transport."""
@@ -900,6 +902,7 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            session_idle_timeout=session_idle_timeout,
             transport_security=transport_security,
             host=host,
         )
@@ -1047,6 +1050,7 @@ class MCPServer(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        session_idle_timeout: float | None = None,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
     ) -> Starlette:
@@ -1057,6 +1061,7 @@ class MCPServer(Generic[LifespanResultT]):
             stateless_http=stateless_http,
             event_store=event_store,
             retry_interval=retry_interval,
+            session_idle_timeout=session_idle_timeout,
             transport_security=transport_security,
             host=host,
             auth=self.settings.auth,
