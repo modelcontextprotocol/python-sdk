@@ -38,6 +38,7 @@ SAFE_ROOT = Path(os.environ.get("WILLOW_SAFE_ROOT", Path.home() / "SAFE"))
 # Authorization gate
 # ---------------------------------------------------------------------------
 
+
 def authorized(app_id: str) -> bool:
     """Filesystem-based authorization: folder exists → access granted.
 
@@ -55,6 +56,7 @@ def authorized(app_id: str) -> bool:
 # Postgres helpers
 # ---------------------------------------------------------------------------
 
+
 def get_conn():
     return psycopg2.connect(dbname=PG_DB, user=PG_USER)
 
@@ -71,7 +73,9 @@ def ensure_schema(conn):
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS knowledge_app ON knowledge(app_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS knowledge_fts ON knowledge USING gin(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(body,'')))")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS knowledge_fts ON knowledge USING gin(to_tsvector('english', coalesce(title,'') || ' ' || coalesce(body,'')))"
+        )
     conn.commit()
 
 
