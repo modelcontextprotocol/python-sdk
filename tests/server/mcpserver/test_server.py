@@ -1516,3 +1516,102 @@ async def test_report_progress_passes_related_request_id():
         message="halfway",
         related_request_id="req-abc-123",
     )
+
+
+# ---------------------------------------------------------------------------
+# Capability filtering: MCPServer only advertises capabilities for primitives
+# that are actually registered, per the MCP schema spec.
+# ---------------------------------------------------------------------------
+
+
+def _get_caps(mcp: MCPServer) -> Any:
+    """Return the ServerCapabilities advertised by this MCPServer at run time."""
+    return mcp._lowlevel_server.create_initialization_options().capabilities  # type: ignore[reportPrivateUsage]
+
+
+def test_capabilities_empty_server():
+    mcp = MCPServer("test")
+    caps = _get_caps(mcp)
+    assert caps.tools is None
+    assert caps.resources is None
+    assert caps.prompts is None
+
+
+def test_capabilities_tool_only():
+    mcp = MCPServer("test")
+
+    @mcp.tool()
+    def echo(text: str) -> str:
+        return text
+
+    assert echo("hi") == "hi"
+    caps = _get_caps(mcp)
+    assert caps.tools is not None
+    assert caps.resources is None
+    assert caps.prompts is None
+
+
+def test_capabilities_resource_only():
+    mcp = MCPServer("test")
+
+    @mcp.resource("resource://data")
+    def get_data() -> str:
+        return "hello"
+
+    assert get_data() == "hello"
+    caps = _get_caps(mcp)
+    assert caps.tools is None
+    assert caps.resources is not None
+    assert caps.prompts is None
+
+
+def test_capabilities_resource_template_only():
+    mcp = MCPServer("test")
+
+    @mcp.resource("resource://{city}/weather")
+    def get_weather(city: str) -> str:
+        return f"weather for {city}"
+
+    assert get_weather("london") == "weather for london"
+    caps = _get_caps(mcp)
+    assert caps.tools is None
+    assert caps.resources is not None
+    assert caps.prompts is None
+
+
+def test_capabilities_prompt_only():
+    mcp = MCPServer("test")
+
+    @mcp.prompt()
+    def greet(name: str) -> str:
+        return f"Hello, {name}!"
+
+    assert greet("world") == "Hello, world!"
+    caps = _get_caps(mcp)
+    assert caps.tools is None
+    assert caps.resources is None
+    assert caps.prompts is not None
+
+
+def test_capabilities_all_registered():
+    mcp = MCPServer("test")
+
+    @mcp.tool()
+    def echo(text: str) -> str:
+        return text
+
+    @mcp.resource("resource://data")
+    def get_data() -> str:
+        return "hello"
+
+    @mcp.prompt()
+    def greet(name: str) -> str:
+        return f"Hello, {name}!"
+
+    assert echo("x") == "x"
+    assert get_data() == "hello"
+    assert greet("y") == "Hello, y!"
+    caps = _get_caps(mcp)
+    assert caps.tools is not None
+    assert caps.resources is not None
+    assert caps.prompts is not None

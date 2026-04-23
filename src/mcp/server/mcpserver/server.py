@@ -62,6 +62,7 @@ from mcp.types import (
     PaginatedRequestParams,
     ReadResourceRequestParams,
     ReadResourceResult,
+    ServerCapabilities,
     TextContent,
     TextResourceContents,
     ToolAnnotations,
@@ -167,6 +168,16 @@ class MCPServer(Generic[LifespanResultT]):
             resources=resources, warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
         )
         self._prompt_manager = PromptManager(warn_on_duplicate_prompts=self.settings.warn_on_duplicate_prompts)
+
+        def _filter_capabilities(caps: ServerCapabilities) -> ServerCapabilities:
+            if not self._tool_manager.list_tools():
+                caps.tools = None
+            if not (self._resource_manager.list_resources() or self._resource_manager.list_templates()):
+                caps.resources = None
+            if not self._prompt_manager.list_prompts():
+                caps.prompts = None
+            return caps
+
         self._lowlevel_server = Server(
             name=name or "mcp-server",
             title=title,
@@ -182,6 +193,7 @@ class MCPServer(Generic[LifespanResultT]):
             on_list_resource_templates=self._handle_list_resource_templates,
             on_list_prompts=self._handle_list_prompts,
             on_get_prompt=self._handle_get_prompt,
+            capability_filter=_filter_capabilities,
             # TODO(Marcelo): It seems there's a type mismatch between the lifespan type from an MCPServer and Server.
             # We need to create a Lifespan type that is a generic on the server type, like Starlette does.
             lifespan=(lifespan_wrapper(self, self.settings.lifespan) if self.settings.lifespan else default_lifespan),  # type: ignore
