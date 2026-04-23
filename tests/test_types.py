@@ -10,7 +10,6 @@ from mcp.types import (
     CreateMessageResultWithTools,
     ElicitRequestFormParams,
     FileInputDescriptor,
-    FileInputsCapability,
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
@@ -366,14 +365,14 @@ def test_list_tools_result_preserves_json_schema_2020_12_fields():
 
 
 def test_file_input_descriptor_roundtrip():
-    """FileInputDescriptor serializes maxSize camelCase and accepts MIME patterns."""
-    wire: dict[str, Any] = {"accept": ["image/png", "image/*"], "maxSize": 1048576}
+    """FileInputDescriptor serializes maxSize camelCase and accepts MIME + extension patterns."""
+    wire: dict[str, Any] = {"accept": ["image/png", "image/*", ".pdf"], "maxSize": 1048576}
     desc = FileInputDescriptor.model_validate(wire)
-    assert desc.accept == ["image/png", "image/*"]
+    assert desc.accept == ["image/png", "image/*", ".pdf"]
     assert desc.max_size == 1048576
 
     dumped = desc.model_dump(by_alias=True, exclude_none=True)
-    assert dumped == {"accept": ["image/png", "image/*"], "maxSize": 1048576}
+    assert dumped == {"accept": ["image/png", "image/*", ".pdf"], "maxSize": 1048576}
 
     # Both fields are optional; empty descriptor is valid
     empty = FileInputDescriptor.model_validate({})
@@ -382,89 +381,58 @@ def test_file_input_descriptor_roundtrip():
     assert empty.model_dump(by_alias=True, exclude_none=True) == {}
 
 
-def test_tool_with_input_files():
-    """Tool.inputFiles round-trips via wire-format camelCase alias."""
+def test_tool_input_schema_mcpfile_roundtrip():
+    """mcpFile keyword in Tool.input_schema survives roundtrip and parses as FileInputDescriptor."""
     wire: dict[str, Any] = {
-        "name": "upload_attachment",
-        "description": "Upload a file",
+        "name": "describe_image",
+        "description": "Describe the contents of an image.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "file": {"type": "string", "format": "uri"},
-                "note": {"type": "string"},
+                "image": {
+                    "type": "string",
+                    "format": "uri",
+                    "mcpFile": {"accept": ["image/png", "image/jpeg"], "maxSize": 5242880},
+                },
             },
-            "required": ["file"],
-        },
-        "inputFiles": {
-            "file": {"accept": ["application/pdf", "image/*"], "maxSize": 5242880},
+            "required": ["image"],
         },
     }
     tool = Tool.model_validate(wire)
-    assert tool.input_files is not None
-    assert set(tool.input_files.keys()) == {"file"}
-    assert isinstance(tool.input_files["file"], FileInputDescriptor)
-    assert tool.input_files["file"].accept == ["application/pdf", "image/*"]
-    assert tool.input_files["file"].max_size == 5242880
+    image_prop = tool.input_schema["properties"]["image"]
+    assert image_prop["mcpFile"] == {"accept": ["image/png", "image/jpeg"], "maxSize": 5242880}
+
+    desc = FileInputDescriptor.model_validate(image_prop["mcpFile"])
+    assert desc.accept == ["image/png", "image/jpeg"]
+    assert desc.max_size == 5242880
 
     dumped = tool.model_dump(by_alias=True, exclude_none=True)
-    assert "inputFiles" in dumped
-    assert "input_files" not in dumped
-    assert dumped["inputFiles"]["file"]["maxSize"] == 5242880
-    assert dumped["inputFiles"]["file"]["accept"] == ["application/pdf", "image/*"]
-
-    # input_files defaults to None and is omitted when absent
-    plain = Tool(name="echo", input_schema={"type": "object"})
-    assert plain.input_files is None
-    assert "inputFiles" not in plain.model_dump(by_alias=True, exclude_none=True)
+    assert dumped["inputSchema"]["properties"]["image"]["mcpFile"]["maxSize"] == 5242880
 
 
-def test_client_capabilities_with_file_inputs():
-    """ClientCapabilities.fileInputs round-trips as an empty capability object."""
-    caps = ClientCapabilities.model_validate({"fileInputs": {}})
-    assert caps.file_inputs is not None
-    assert isinstance(caps.file_inputs, FileInputsCapability)
-
-    dumped = caps.model_dump(by_alias=True, exclude_none=True)
-    assert dumped == {"fileInputs": {}}
-
-    # Absent by default
-    bare = ClientCapabilities.model_validate({})
-    assert bare.file_inputs is None
-    assert "fileInputs" not in bare.model_dump(by_alias=True, exclude_none=True)
-
-
-def test_elicit_form_params_with_requested_files():
-    """ElicitRequestFormParams.requestedFiles round-trips through the wire format."""
+def test_elicit_form_params_mcpfile_roundtrip():
+    """mcpFile keyword in requested_schema survives roundtrip and parses as FileInputDescriptor."""
     wire: dict[str, Any] = {
         "mode": "form",
-        "message": "Upload your documents",
+        "message": "Please select a profile photo.",
         "requestedSchema": {
             "type": "object",
             "properties": {
-                "resume": {"type": "string", "format": "uri"},
-                "samples": {
-                    "type": "array",
-                    "items": {"type": "string", "format": "uri"},
-                    "maxItems": 3,
+                "photo": {
+                    "type": "string",
+                    "format": "uri",
+                    "title": "Profile photo",
+                    "mcpFile": {"accept": ["image/*"], "maxSize": 2097152},
                 },
             },
-            "required": ["resume"],
-        },
-        "requestedFiles": {
-            "resume": {"accept": ["application/pdf"], "maxSize": 2097152},
-            "samples": {"accept": ["image/*"]},
+            "required": ["photo"],
         },
     }
     params = ElicitRequestFormParams.model_validate(wire)
-    assert params.requested_files is not None
-    assert isinstance(params.requested_files["resume"], FileInputDescriptor)
-    assert params.requested_files["resume"].max_size == 2097152
-    assert params.requested_files["samples"].accept == ["image/*"]
-    assert params.requested_files["samples"].max_size is None
+    photo_prop = params.requested_schema["properties"]["photo"]
+    desc = FileInputDescriptor.model_validate(photo_prop["mcpFile"])
+    assert desc.accept == ["image/*"]
+    assert desc.max_size == 2097152
 
     dumped = params.model_dump(by_alias=True, exclude_none=True)
-    assert "requestedFiles" in dumped
-    assert "requested_files" not in dumped
-    assert dumped["requestedFiles"]["resume"]["maxSize"] == 2097152
-    # samples had no maxSize; ensure it's excluded, not serialized as null
-    assert "maxSize" not in dumped["requestedFiles"]["samples"]
+    assert dumped["requestedSchema"]["properties"]["photo"]["mcpFile"]["maxSize"] == 2097152

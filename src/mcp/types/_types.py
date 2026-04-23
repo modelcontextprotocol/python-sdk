@@ -222,16 +222,6 @@ class SamplingToolsCapability(MCPModel):
     """
 
 
-class FileInputsCapability(MCPModel):
-    """Capability for declarative file inputs on tools and elicitation forms.
-
-    When a client declares this capability, servers may include ``input_files``
-    on Tool definitions and ``requested_files`` on form-mode elicitation
-    requests. Servers must not send those fields unless this capability is
-    present.
-    """
-
-
 class FormElicitationCapability(MCPModel):
     """Capability for form mode elicitation."""
 
@@ -333,8 +323,6 @@ class ClientCapabilities(MCPModel):
     """Present if the client supports listing roots."""
     tasks: ClientTasksCapability | None = None
     """Present if the client supports task-augmented requests."""
-    file_inputs: FileInputsCapability | None = None
-    """Present if the client supports declarative file inputs for tools and elicitation."""
 
 
 class PromptsCapability(MCPModel):
@@ -1163,24 +1151,34 @@ class ToolExecution(MCPModel):
 
 
 class FileInputDescriptor(MCPModel):
-    """Describes a single file input argument for a tool or elicitation form.
+    """Value of the ``mcpFile`` JSON Schema extension keyword.
 
-    Provides optional hints for client-side file picker filtering and validation.
-    All fields are advisory; servers must still validate inputs independently.
+    When present on a ``{"type": "string", "format": "uri"}`` property in a
+    :class:`Tool` ``input_schema`` or an elicitation ``requested_schema``, it
+    marks that property as a file input that clients SHOULD render as a native
+    file picker. Selected files are encoded as RFC 2397 data URIs.
+
+    Both fields are advisory; servers MUST still validate inputs independently.
     """
 
     accept: list[str] | None = None
-    """MIME type patterns the server will accept for this input.
+    """Media type patterns and/or file extensions the client SHOULD filter the
+    picker to.
 
-    Supports exact types (``"image/png"``) and wildcard subtypes (``"image/*"``).
-    If omitted, any file type is accepted.
+    Supports exact MIME types (``"image/png"``), wildcard subtypes
+    (``"image/*"``), and dot-prefixed extensions (``".pdf"``) following the same
+    grammar as the HTML ``accept`` attribute. Extension entries are picker hints
+    only; server-side validation compares MIME types. If omitted, any file type
+    is accepted.
     """
 
     max_size: int | None = None
-    """Maximum file size in bytes (decoded size, per file).
+    """Maximum decoded file size in bytes that the server will accept inline as
+    a data URI.
 
-    Servers should reject larger files with JSON-RPC ``-32602`` (Invalid Params)
-    and the structured reason ``"file_too_large"``.
+    Servers MUST reject larger payloads with the ``"file_too_large"`` structured
+    error reason. For files larger than this, servers obtain the file via
+    URL-mode elicitation instead of this property.
     """
 
 
@@ -1207,20 +1205,6 @@ class Tool(BaseMetadata):
     """
 
     execution: ToolExecution | None = None
-
-    input_files: dict[str, FileInputDescriptor] | None = None
-    """Declares which arguments in ``input_schema`` are file inputs.
-
-    Keys must match property names in ``input_schema["properties"]`` and the
-    corresponding schema properties must be ``{"type": "string", "format": "uri"}``
-    or an array thereof. Servers must not include this field unless the client
-    declared the ``file_inputs`` capability during initialization.
-
-    Clients should render a native file picker for these arguments and encode
-    selected files as RFC 2397 data URIs of the form
-    ``data:<mediatype>;name=<filename>;base64,<data>`` where the ``name=``
-    parameter (percent-encoded) carries the original filename.
-    """
 
 
 class ListToolsResult(PaginatedResult):
@@ -1695,20 +1679,6 @@ class ElicitRequestFormParams(RequestParams):
     """
     A restricted subset of JSON Schema defining the structure of the expected response.
     Only top-level properties are allowed, without nesting.
-    """
-
-    requested_files: dict[str, FileInputDescriptor] | None = None
-    """Declares which fields in ``requested_schema`` are file inputs.
-
-    Keys must match property names in ``requested_schema["properties"]`` and the
-    corresponding schema properties must be a string schema with ``format: "uri"``
-    or an array of such string schemas. Servers must not include this field unless
-    the client declared the ``file_inputs`` capability during initialization.
-
-    Clients should render a native file picker for these fields and encode
-    selected files as RFC 2397 data URIs of the form
-    ``data:<mediatype>;name=<filename>;base64,<data>`` where the ``name=``
-    parameter (percent-encoded) carries the original filename.
     """
 
 
