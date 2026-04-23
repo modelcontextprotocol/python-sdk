@@ -22,7 +22,8 @@ import click
 import psycopg2
 import psycopg2.extras
 from mcp import types
-from mcp.server import Server, ServerRequestContext
+from mcp.server import Server
+from mcp.server import ServerRequestContext
 
 # ---------------------------------------------------------------------------
 # Configuration
