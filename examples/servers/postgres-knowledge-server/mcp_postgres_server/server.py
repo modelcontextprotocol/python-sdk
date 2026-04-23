@@ -93,9 +93,9 @@ TOOLS = [
             "required": ["app_id", "id", "title", "body"],
             "properties": {
                 "app_id": {"type": "string", "description": "Authorized app identifier"},
-                "id":     {"type": "string", "description": "Unique record ID"},
-                "title":  {"type": "string", "description": "Record title"},
-                "body":   {"type": "string", "description": "Record content"},
+                "id": {"type": "string", "description": "Unique record ID"},
+                "title": {"type": "string", "description": "Record title"},
+                "body": {"type": "string", "description": "Record content"},
             },
         },
     ),
@@ -108,7 +108,7 @@ TOOLS = [
             "required": ["app_id", "id"],
             "properties": {
                 "app_id": {"type": "string"},
-                "id":     {"type": "string"},
+                "id": {"type": "string"},
             },
         },
     ),
@@ -121,8 +121,8 @@ TOOLS = [
             "required": ["app_id", "query"],
             "properties": {
                 "app_id": {"type": "string"},
-                "query":  {"type": "string"},
-                "limit":  {"type": "integer", "default": 10},
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "default": 10},
             },
         },
     ),
