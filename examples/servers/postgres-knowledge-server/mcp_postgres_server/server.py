@@ -16,6 +16,7 @@ Usage:
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import anyio
 import click
@@ -60,7 +61,7 @@ def get_conn():
     return psycopg2.connect(dbname=PG_DB, user=PG_USER)
 
 
-def ensure_schema(conn):
+def ensure_schema(conn: Any) -> None:
     with conn.cursor() as cur:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS knowledge (
@@ -142,7 +143,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
     if not authorized(app_id):
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Unauthorized: no SAFE folder for '{app_id}'")],
-            isError=True,
+            is_error=True,
         )
 
     try:
@@ -182,7 +183,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
         else:
             return types.CallToolResult(
                 content=[types.TextContent(type="text", text=f"Unknown tool: {params.name}")],
-                isError=True,
+                is_error=True,
             )
 
         conn.close()
@@ -191,7 +192,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequ
     except Exception as exc:
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=f"Error: {exc}")],
-            isError=True,
+            is_error=True,
         )
 
 
