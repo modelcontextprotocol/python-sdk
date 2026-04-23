@@ -173,6 +173,7 @@ class Server(Generic[LifespanResultT]):
             [ServerRequestContext[LifespanResultT], types.RequestParams | None],
             Awaitable[types.EmptyResult],
         ] = _ping_handler,
+        capability_filter: Callable[[types.ServerCapabilities], types.ServerCapabilities] | None = None,
         # Notification handlers
         on_roots_list_changed: Callable[
             [ServerRequestContext[LifespanResultT], types.NotificationParams | None],
@@ -198,6 +199,7 @@ class Server(Generic[LifespanResultT]):
             str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
         ] = {}
         self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
+        self._capability_filter = capability_filter
         self._session_manager: StreamableHTTPSessionManager | None = None
         logger.debug("Initializing server %r", name)
 
@@ -325,6 +327,8 @@ class Server(Generic[LifespanResultT]):
         )
         if self._experimental_handlers:
             self._experimental_handlers.update_capabilities(capabilities)
+        if self._capability_filter is not None:
+            capabilities = self._capability_filter(capabilities)
         return capabilities
 
     @property
