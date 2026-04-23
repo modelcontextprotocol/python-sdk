@@ -135,9 +135,7 @@ async def handle_list_tools(
     return types.ListToolsResult(tools=TOOLS)
 
 
-async def handle_call_tool(
-    ctx: ServerRequestContext, params: types.CallToolRequestParams
-) -> types.CallToolResult:
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
     args = params.arguments or {}
     app_id = args.get("app_id", "")
 
@@ -163,8 +161,9 @@ async def handle_call_tool(
 
         elif params.name == "knowledge_get":
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute("SELECT id, title, body, created FROM knowledge WHERE id=%s AND app_id=%s",
-                            (args["id"], app_id))
+                cur.execute(
+                    "SELECT id, title, body, created FROM knowledge WHERE id=%s AND app_id=%s", (args["id"], app_id)
+                )
                 row = cur.fetchone()
             result = dict(row) if row else {"error": "not_found"}
 
@@ -187,9 +186,7 @@ async def handle_call_tool(
             )
 
         conn.close()
-        return types.CallToolResult(
-            content=[types.TextContent(type="text", text=json.dumps(result, default=str))]
-        )
+        return types.CallToolResult(content=[types.TextContent(type="text", text=json.dumps(result, default=str))])
 
     except Exception as exc:
         return types.CallToolResult(
@@ -201,6 +198,7 @@ async def handle_call_tool(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 @click.command()
 def main():
