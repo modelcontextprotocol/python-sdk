@@ -92,7 +92,7 @@ class StdioServerParameters(BaseModel):
     Defaults to utf-8.
     """
 
-    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "replace"
     """
     The text encoding error handler.
 
