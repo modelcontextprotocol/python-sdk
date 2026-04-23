@@ -10,7 +10,7 @@ Demonstrates:
 
 ## Architecture
 
-```
+```text
 MCP Client (Claude Code, etc.)
         │ stdio
         ▼
