@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import pytest
@@ -221,7 +221,7 @@ async def test_server_session_initialize_with_older_protocol_version():
 
 
 class _ClosedWriteStream:
-    async def send(self, item):
+    async def send(self, item: SessionMessage) -> None:
         raise anyio.ClosedResourceError
 
 
@@ -229,7 +229,7 @@ class _OpenWriteStream:
     def __init__(self):
         self.items: list[SessionMessage] = []
 
-    async def send(self, item):
+    async def send(self, item: SessionMessage) -> None:
         self.items.append(item)
 
 
@@ -237,7 +237,7 @@ class _FakeResult:
     def __init__(self, payload: dict[str, Any]):
         self._payload = payload
 
-    def model_dump(self, **kwargs):
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         return dict(self._payload)
 
 
@@ -245,24 +245,24 @@ class _FakeNotification:
     def __init__(self, payload: dict[str, Any]):
         self._payload = payload
 
-    def model_dump(self, **kwargs):
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         return dict(self._payload)
 
 
 @pytest.mark.anyio
 async def test_base_session_send_response_ignores_closed_write_stream():
-    session = object.__new__(BaseSession)
+    session = cast(Any, object.__new__(BaseSession))
     session._write_stream = _ClosedWriteStream()
 
-    await BaseSession._send_response(session, 1, _FakeResult({"ok": True}))
+    await cast(Any, BaseSession)._send_response(session, 1, _FakeResult({"ok": True}))
 
 
 @pytest.mark.anyio
 async def test_base_session_send_notification_ignores_closed_write_stream():
-    session = object.__new__(BaseSession)
+    session = cast(Any, object.__new__(BaseSession))
     session._write_stream = _ClosedWriteStream()
 
-    await BaseSession.send_notification(
+    await cast(Any, BaseSession).send_notification(
         session,
         _FakeNotification({"method": "notifications/progress", "params": {"progress": 1}}),
     )
@@ -270,15 +270,16 @@ async def test_base_session_send_notification_ignores_closed_write_stream():
 
 @pytest.mark.anyio
 async def test_base_session_send_notification_still_writes_when_open():
-    session = object.__new__(BaseSession)
-    session._write_stream = _OpenWriteStream()
+    open_stream = _OpenWriteStream()
+    session = cast(Any, object.__new__(BaseSession))
+    session._write_stream = open_stream
 
-    await BaseSession.send_notification(
+    await cast(Any, BaseSession).send_notification(
         session,
         _FakeNotification({"method": "notifications/progress", "params": {"progress": 1}}),
     )
 
-    assert len(session._write_stream.items) == 1
+    assert len(open_stream.items) == 1
 
 
 @pytest.mark.anyio
