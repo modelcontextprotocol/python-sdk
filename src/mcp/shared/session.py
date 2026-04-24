@@ -38,6 +38,8 @@ SendRequestT = TypeVar("SendRequestT", ClientRequest, ServerRequest)
 SendResultT = TypeVar("SendResultT", ClientResult, ServerResult)
 SendNotificationT = TypeVar("SendNotificationT", ClientNotification, ServerNotification)
 ReceiveRequestT = TypeVar("ReceiveRequestT", ClientRequest, ServerRequest)
+
+logger = logging.getLogger(__name__)
 ReceiveResultT = TypeVar("ReceiveResultT", bound=BaseModel)
 ReceiveNotificationT = TypeVar("ReceiveNotificationT", ClientNotification, ServerNotification)
 
@@ -332,13 +334,16 @@ class BaseSession(
             message=JSONRPCMessage(jsonrpc_notification),
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
-        await self._write_stream.send(session_message)
+        try:
+            await self._write_stream.send(session_message)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("Notification dropped - transport closed")
+            return
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
             jsonrpc_error = JSONRPCError(jsonrpc="2.0", id=request_id, error=response)
             session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_error))
-            await self._write_stream.send(session_message)
         else:
             jsonrpc_response = JSONRPCResponse(
                 jsonrpc="2.0",
@@ -346,7 +351,12 @@ class BaseSession(
                 result=response.model_dump(by_alias=True, mode="json", exclude_none=True),
             )
             session_message = SessionMessage(message=JSONRPCMessage(jsonrpc_response))
+
+        try:
             await self._write_stream.send(session_message)
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            logger.debug("Response for %s dropped - transport closed", request_id)
+            return
 
     async def _receive_loop(self) -> None:
         async with (

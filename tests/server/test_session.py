@@ -11,7 +11,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
 from mcp.shared.message import SessionMessage
-from mcp.shared.session import RequestResponder
+from mcp.shared.session import BaseSession, RequestResponder
 from mcp.types import (
     ClientNotification,
     Completion,
@@ -218,6 +218,67 @@ async def test_server_session_initialize_with_older_protocol_version():
 
     assert received_initialized
     assert received_protocol_version == "2024-11-05"
+
+
+class _ClosedWriteStream:
+    async def send(self, item):
+        raise anyio.ClosedResourceError
+
+
+class _OpenWriteStream:
+    def __init__(self):
+        self.items: list[SessionMessage] = []
+
+    async def send(self, item):
+        self.items.append(item)
+
+
+class _FakeResult:
+    def __init__(self, payload: dict[str, Any]):
+        self._payload = payload
+
+    def model_dump(self, **kwargs):
+        return dict(self._payload)
+
+
+class _FakeNotification:
+    def __init__(self, payload: dict[str, Any]):
+        self._payload = payload
+
+    def model_dump(self, **kwargs):
+        return dict(self._payload)
+
+
+@pytest.mark.anyio
+async def test_base_session_send_response_ignores_closed_write_stream():
+    session = object.__new__(BaseSession)
+    session._write_stream = _ClosedWriteStream()
+
+    await BaseSession._send_response(session, 1, _FakeResult({"ok": True}))
+
+
+@pytest.mark.anyio
+async def test_base_session_send_notification_ignores_closed_write_stream():
+    session = object.__new__(BaseSession)
+    session._write_stream = _ClosedWriteStream()
+
+    await BaseSession.send_notification(
+        session,
+        _FakeNotification({"method": "notifications/progress", "params": {"progress": 1}}),
+    )
+
+
+@pytest.mark.anyio
+async def test_base_session_send_notification_still_writes_when_open():
+    session = object.__new__(BaseSession)
+    session._write_stream = _OpenWriteStream()
+
+    await BaseSession.send_notification(
+        session,
+        _FakeNotification({"method": "notifications/progress", "params": {"progress": 1}}),
+    )
+
+    assert len(session._write_stream.items) == 1
 
 
 @pytest.mark.anyio
