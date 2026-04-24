@@ -240,8 +240,6 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
         content = await response.aread()
         client_info = OAuthClientInformationFull.model_validate_json(content)
         return client_info
-        # self.context.client_info = client_info
-        # await self.context.storage.set_client_info(client_info)
     except ValidationError as e:  # pragma: no cover
         raise OAuthRegistrationError(f"Invalid registration response: {e}")
 
