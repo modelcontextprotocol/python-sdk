@@ -259,11 +259,6 @@ class Server(Generic[LifespanResultT]):
         """Return the handler for a notification method, or ``None``."""
         return self._notification_handlers.get(method)
 
-    @property
-    def connection_lifespan(self) -> None:
-        """Per-connection lifespan. ``None`` until the registry refactor adds it."""
-        return None
-
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
     # flags, and experimental_capabilities as a separate dict. Consider deriving capabilities

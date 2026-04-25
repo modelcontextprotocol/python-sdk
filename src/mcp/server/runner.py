@@ -145,13 +145,21 @@ def otel_middleware(next_on_request: OnRequest) -> OnRequest:
             case _:
                 parent = None
         span_name = f"MCP handle {method}{f' {target}' if target else ''}"
-        with otel_span(span_name, kind=SpanKind.SERVER, attributes={"mcp.method.name": method}, context=parent) as span:
+        with otel_span(
+            span_name,
+            kind=SpanKind.SERVER,
+            attributes={"mcp.method.name": method},
+            context=parent,
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
             try:
                 return await next_on_request(dctx, method, params)
             except MCPError as e:
                 span.set_status(StatusCode.ERROR, e.error.message)
                 raise
             except Exception as e:
+                span.record_exception(e)
                 span.set_status(StatusCode.ERROR, str(e))
                 raise
 
