@@ -73,6 +73,7 @@ dev = [
     "pillow>=12.0",
     "strict-no-cover",
     "logfire>=3.0.0",
+    "opentelemetry-sdk>=1.39.1",
 ]
 docs = [
     "mkdocs>=1.6.1",
