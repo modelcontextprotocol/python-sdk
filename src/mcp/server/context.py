@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Generic
+from typing import Any, Generic, Protocol
 
+from pydantic import BaseModel
 from typing_extensions import TypeVar
 
 from mcp.server._typed_request import TypedServerRequestMixin
@@ -81,3 +83,35 @@ class Context(BaseContext[TransportT], PeerMixin, TypedServerRequestMixin, Gener
         if meta:
             params["_meta"] = meta
         await self.notify("notifications/message", params)
+
+
+HandlerResult = BaseModel | dict[str, Any] | None
+"""What a request handler (or middleware) may return. `ServerRunner` serializes
+all three to a result dict."""
+
+CallNext = Callable[[], Awaitable[HandlerResult]]
+
+_MwLifespanT = TypeVar("_MwLifespanT", contravariant=True)
+
+
+class ContextMiddleware(Protocol[_MwLifespanT]):
+    """Context-tier middleware: ``(ctx, method, typed_params, call_next) -> result``.
+
+    Runs *inside* `ServerRunner._on_request` after params validation and
+    `Context` construction. Wraps registered handlers (including ``ping``) but
+    not ``initialize``, ``METHOD_NOT_FOUND``, or validation failures. Listed
+    outermost-first on `Server.middleware`.
+
+    `Server[L].middleware` holds `ContextMiddleware[L]`, so an app-specific
+    middleware sees `ctx.lifespan: L`. A reusable middleware (no app-specific
+    types) can be typed `ContextMiddleware[object]` — `Context` is covariant in
+    `LifespanT`, so it registers on any `Server[L]`.
+    """
+
+    async def __call__(
+        self,
+        ctx: Context[_MwLifespanT, TransportContext],
+        method: str,
+        params: BaseModel,
+        call_next: CallNext,
+    ) -> HandlerResult: ...
