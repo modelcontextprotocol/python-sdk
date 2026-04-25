@@ -3,32 +3,43 @@
 from collections.abc import Iterator
 
 import pytest
-from opentelemetry import trace
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-_span_exporter = InMemorySpanExporter()
+from logfire.testing import CaptureLogfire, TestExporter
+from opentelemetry.sdk.trace import ReadableSpan
 
 
-@pytest.fixture(scope="session")
-def _tracer_provider() -> TracerProvider:
-    """Install a real OTel SDK tracer provider once per test session.
+class SpanCapture:
+    """Thin adapter over logfire's `TestExporter` for asserting on MCP spans.
 
-    The runtime dependency is ``opentelemetry-api`` only, which yields no-op
-    ``NonRecordingSpan`` objects. Tests that need to assert on emitted spans
-    request the `spans` fixture, which depends on this one to make the global
-    tracer record into an in-memory exporter.
+    `finished()` returns the raw `ReadableSpan` objects emitted by the
+    ``mcp-python-sdk`` instrumentation scope, filtered to exclude logfire's
+    synthetic ``pending_span`` markers, so tests can assert directly on
+    `.name`, `.kind`, `.status`, `.attributes`, `.parent`, `.events`.
     """
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(_span_exporter))
-    trace.set_tracer_provider(provider)
-    return provider
+
+    def __init__(self, exporter: TestExporter) -> None:
+        self._exporter = exporter
+
+    def clear(self) -> None:
+        self._exporter.clear()
+
+    def finished(self) -> list[ReadableSpan]:
+        return [
+            s
+            for s in self._exporter.exported_spans
+            if s.instrumentation_scope is not None
+            and s.instrumentation_scope.name == "mcp-python-sdk"
+            and not (s.attributes and s.attributes.get("logfire.span_type") == "pending_span")
+        ]
 
 
 @pytest.fixture
-def spans(_tracer_provider: TracerProvider) -> Iterator[InMemorySpanExporter]:
-    """In-memory OTel span exporter, cleared before and after each test."""
-    _span_exporter.clear()
-    yield _span_exporter
-    _span_exporter.clear()
+def spans(capfire: CaptureLogfire) -> Iterator[SpanCapture]:
+    """In-memory MCP span capture, cleared before and after each test.
+
+    Backed by the project-level `capfire` override (see ``tests/conftest.py``)
+    so there is a single global tracer provider for the suite.
+    """
+    capture = SpanCapture(capfire.exporter)
+    capture.clear()
+    yield capture
+    capture.clear()
