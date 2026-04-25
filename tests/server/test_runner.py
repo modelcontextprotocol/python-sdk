@@ -13,7 +13,6 @@ from typing import Any
 import anyio
 import anyio.lowlevel
 import pytest
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind, StatusCode
 
 from mcp.server.connection import Connection
@@ -36,6 +35,7 @@ from mcp.types import (
 )
 
 from ..shared.test_dispatcher import Recorder, echo_handlers
+from .conftest import SpanCapture
 
 
 def _initialize_params() -> dict[str, Any]:
@@ -276,7 +276,7 @@ async def test_runner_stateless_skips_init_gate(server: SrvT):
 
 
 @pytest.mark.anyio
-async def test_otel_middleware_emits_server_span_with_method_and_target(server: SrvT, spans: InMemorySpanExporter):
+async def test_otel_middleware_emits_server_span_with_method_and_target(server: SrvT, spans: SpanCapture):
     async def call_tool(ctx: Any, params: Any) -> dict[str, Any]:
         return {"content": [], "isError": False}
 
@@ -285,7 +285,7 @@ async def test_otel_middleware_emits_server_span_with_method_and_target(server: 
         spans.clear()
         result = await client.send_raw_request("tools/call", {"name": "mytool", "arguments": {}})
     assert result == {"content": [], "isError": False}
-    [span] = spans.get_finished_spans()
+    [span] = spans.finished()
     assert span.name == "MCP handle tools/call mytool"
     assert span.kind == SpanKind.SERVER
     assert span.attributes is not None
@@ -294,13 +294,13 @@ async def test_otel_middleware_emits_server_span_with_method_and_target(server: 
 
 
 @pytest.mark.anyio
-async def test_otel_middleware_extracts_parent_context_from_meta(server: SrvT, spans: InMemorySpanExporter):
+async def test_otel_middleware_extracts_parent_context_from_meta(server: SrvT, spans: SpanCapture):
     parent_span_id = "b7ad6b7169203331"
     traceparent = f"00-0af7651916cd43dd8448eb211c80319c-{parent_span_id}-01"
     async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
         spans.clear()
         await client.send_raw_request("tools/list", {"_meta": {"traceparent": traceparent}})
-    [span] = spans.get_finished_spans()
+    [span] = spans.finished()
     assert span.parent is not None
     assert format(span.parent.span_id, "016x") == parent_span_id
     assert span.context is not None
@@ -308,13 +308,13 @@ async def test_otel_middleware_extracts_parent_context_from_meta(server: SrvT, s
 
 
 @pytest.mark.anyio
-async def test_otel_middleware_records_error_status_on_mcp_error(server: SrvT, spans: InMemorySpanExporter):
+async def test_otel_middleware_records_error_status_on_mcp_error(server: SrvT, spans: SpanCapture):
     async with connected_runner(server, dispatch_middleware=[otel_middleware]) as (client, _):
         spans.clear()
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("nonexistent/method", None)
         assert exc.value.error.code == METHOD_NOT_FOUND
-    [span] = spans.get_finished_spans()
+    [span] = spans.finished()
     assert span.status.status_code == StatusCode.ERROR
     assert span.status.description == "Method not found: nonexistent/method"
     # MCPError is a protocol-level response, not a crash — no traceback event.
@@ -322,7 +322,7 @@ async def test_otel_middleware_records_error_status_on_mcp_error(server: SrvT, s
 
 
 @pytest.mark.anyio
-async def test_otel_middleware_records_error_status_on_handler_exception(server: SrvT, spans: InMemorySpanExporter):
+async def test_otel_middleware_records_error_status_on_handler_exception(server: SrvT, spans: SpanCapture):
     async def failing(ctx: Any, params: Any) -> Any:
         raise ValueError("handler blew up")
 
@@ -332,7 +332,7 @@ async def test_otel_middleware_records_error_status_on_handler_exception(server:
         with pytest.raises(MCPError) as exc:
             await client.send_raw_request("tools/list", None)
         assert exc.value.error.code == INTERNAL_ERROR
-    [span] = spans.get_finished_spans()
+    [span] = spans.finished()
     assert span.status.status_code == StatusCode.ERROR
     assert span.status.description == "handler blew up"
     [event] = [e for e in span.events if e.name == "exception"]
