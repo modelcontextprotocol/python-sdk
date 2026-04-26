@@ -502,6 +502,44 @@ async def test_stdio_client_graceful_stdin_exit():
 
 
 @pytest.mark.anyio
+async def test_stdio_client_invalid_utf8():
+    """Malformed UTF-8 from the child must not crash the transport.
+
+    Invalid bytes are replaced with U+FFFD (default encoding_error_handler),
+    which fails JSON parsing and arrives as an in-stream exception.  The
+    following valid JSON-RPC line must still be delivered as a SessionMessage.
+    """
+    valid_line = '{"jsonrpc":"2.0","id":1,"method":"ping"}'
+    script = textwrap.dedent(
+        f"""
+        import sys, time
+        sys.stdout.buffer.write(b"\\xff\\xfe\\n")
+        sys.stdout.buffer.write({valid_line!r}.encode() + b"\\n")
+        sys.stdout.buffer.flush()
+        time.sleep(1)
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", script],
+    )
+
+    items: list[SessionMessage | Exception] = []
+
+    with anyio.fail_after(5.0):
+        async with stdio_client(server_params) as (read_stream, _write_stream):
+            async for item in read_stream:
+                items.append(item)
+                if len(items) >= 2:
+                    break
+
+    assert len(items) == 2
+    assert isinstance(items[0], Exception)
+    assert isinstance(items[1], SessionMessage)
+
+
+@pytest.mark.anyio
 async def test_stdio_client_stdin_close_ignored():
     """Test that when a process ignores stdin closure, the shutdown sequence
     properly escalates to SIGTERM.
