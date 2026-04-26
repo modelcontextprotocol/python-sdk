@@ -5,7 +5,12 @@ from typing import Any
 
 import pytest
 
-from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  # type: ignore[reportPrivateUsage]
+from mcp.cli.cli import (  # type: ignore[reportPrivateUsage]
+    _build_uv_command,
+    _get_npx_command,
+    _parse_file_path,
+    _resolve_env,
+)
 
 
 @pytest.mark.parametrize(
@@ -99,3 +104,33 @@ def test_get_npx_returns_none_when_npx_missing(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(subprocess, "run", always_fail)
     assert _get_npx_command() is None
+
+
+def test_resolve_env_returns_none_when_nothing_provided():
+    """No env file and no env vars should yield None."""
+    assert _resolve_env(None, []) is None
+
+
+def test_resolve_env_parses_inline_vars():
+    """Repeated KEY=VALUE flags should be parsed into a dict."""
+    assert _resolve_env(None, ["FOO=bar", "BAZ=qux"]) == {"FOO": "bar", "BAZ": "qux"}
+
+
+def test_resolve_env_handles_value_with_equals():
+    """Values containing '=' should be preserved (only the first '=' splits)."""
+    assert _resolve_env(None, ["DB_URL=postgres://u:p@host/db?x=1"]) == {"DB_URL": "postgres://u:p@host/db?x=1"}
+
+
+def test_resolve_env_loads_dotenv_file(tmp_path: Path):
+    """Values from a .env file should be loaded."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("FOO=from_file\nBAR=also_from_file\n")
+    assert _resolve_env(env_file, []) == {"FOO": "from_file", "BAR": "also_from_file"}
+
+
+def test_resolve_env_inline_vars_override_dotenv(tmp_path: Path):
+    """Inline -v flags should override values from --env-file."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("FOO=from_file\nBAR=keep_me\n")
+    result = _resolve_env(env_file, ["FOO=from_cli"])
+    assert result == {"FOO": "from_cli", "BAR": "keep_me"}
