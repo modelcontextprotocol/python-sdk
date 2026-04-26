@@ -134,3 +134,36 @@ def test_resolve_env_inline_vars_override_dotenv(tmp_path: Path):
     env_file.write_text("FOO=from_file\nBAR=keep_me\n")
     result = _resolve_env(env_file, ["FOO=from_cli"])
     assert result == {"FOO": "from_cli", "BAR": "keep_me"}
+
+
+def test_resolve_env_exits_when_dotenv_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """If python-dotenv isn't installed, asking to load a .env file should exit."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("FOO=bar\n")
+    monkeypatch.setattr("mcp.cli.cli.dotenv", None)
+    with pytest.raises(SystemExit) as exc:
+        _resolve_env(env_file, [])
+    assert exc.value.code == 1
+
+
+def test_resolve_env_exits_when_dotenv_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """OSError/ValueError from dotenv_values should be turned into a clean exit."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("FOO=bar\n")
+
+    class _FakeDotenv:
+        @staticmethod
+        def dotenv_values(_path: Path) -> dict[str, str]:
+            raise OSError("simulated read failure")
+
+    monkeypatch.setattr("mcp.cli.cli.dotenv", _FakeDotenv)
+    with pytest.raises(SystemExit) as exc:
+        _resolve_env(env_file, [])
+    assert exc.value.code == 1
+
+
+def test_resolve_env_exits_on_malformed_inline_var():
+    """A -v flag without '=' should exit cleanly instead of raising ValueError."""
+    with pytest.raises(SystemExit) as exc:
+        _resolve_env(None, ["NO_EQUALS_SIGN"])
+    assert exc.value.code == 1

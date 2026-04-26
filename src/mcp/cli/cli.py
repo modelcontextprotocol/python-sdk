@@ -53,7 +53,7 @@ def _get_npx_command():
     return "npx"  # On Unix-like systems, just use npx
 
 
-def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
+def _parse_env_var(env_var: str) -> tuple[str, str]:
     """Parse environment variable string in format KEY=VALUE."""
     if "=" not in env_var:
         logger.error(f"Invalid environment variable format: {env_var}. Must be KEY=VALUE")
