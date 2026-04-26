@@ -17,9 +17,10 @@ Example:
     ```
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
-from io import TextIOWrapper
+from io import TextIOWrapper, UnsupportedOperation
 
 import anyio
 import anyio.lowlevel
@@ -27,6 +28,20 @@ import anyio.lowlevel
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
+
+
+def _wrap_stdio_text_stream(stream: TextIOWrapper, mode: str, errors: str = "strict") -> anyio.AsyncFile[str]:
+    """Wrap a stdio text stream without closing the original handle on teardown."""
+    try:
+        wrapped_stream = TextIOWrapper(
+            os.fdopen(os.dup(stream.fileno()), mode, closefd=True),
+            encoding="utf-8",
+            errors=errors,
+        )
+    except (AttributeError, UnsupportedOperation):
+        wrapped_stream = TextIOWrapper(stream.buffer, encoding="utf-8", errors=errors)
+
+    return anyio.wrap_file(wrapped_stream)
 
 
 @asynccontextmanager
@@ -38,10 +53,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # standard process handles. Encoding of stdin/stdout as text streams on
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
+    close_stdin = stdin is None
+    close_stdout = stdout is None
+
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        stdin = _wrap_stdio_text_stream(sys.stdin, "rb", errors="replace")
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout = _wrap_stdio_text_stream(sys.stdout, "wb")
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
@@ -71,7 +89,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(stdin_reader)
-        tg.start_soon(stdout_writer)
-        yield read_stream, write_stream
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(stdin_reader)
+            tg.start_soon(stdout_writer)
+            yield read_stream, write_stream
+    finally:
+        if close_stdin:
+            await stdin.aclose()
+        if close_stdout:
+            await stdout.aclose()

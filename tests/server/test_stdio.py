@@ -1,5 +1,6 @@
 import io
 import sys
+import tempfile
 from io import TextIOWrapper
 
 import anyio
@@ -73,12 +74,15 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
     """
     # \xff\xfe are invalid UTF-8 start bytes.
     valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
-    raw_stdin = io.BytesIO(b"\xff\xfe\n" + valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    raw_stdin = tempfile.TemporaryFile("w+b")
+    raw_stdin.write(b"\xff\xfe\n" + valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    raw_stdin.seek(0)
+    raw_stdout = tempfile.TemporaryFile("w+b")
 
     # Replace sys.stdin with a wrapper whose .buffer is our raw bytes, so that
     # stdio_server()'s default path wraps it with errors='replace'.
     monkeypatch.setattr(sys, "stdin", TextIOWrapper(raw_stdin, encoding="utf-8"))
-    monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(raw_stdout, encoding="utf-8"))
 
     with anyio.fail_after(5):
         async with stdio_server() as (read_stream, write_stream):
@@ -92,3 +96,38 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+    sys.stdin.close()
+    sys.stdout.close()
+
+
+@pytest.mark.anyio
+async def test_stdio_server_does_not_close_process_stdio(monkeypatch: pytest.MonkeyPatch):
+    """Default stdio_server() teardown must not close the caller's stdio handles."""
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    raw_stdin = tempfile.TemporaryFile("w+b")
+    raw_stdin.write(valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    raw_stdin.seek(0)
+    raw_stdout = tempfile.TemporaryFile("w+b")
+
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(raw_stdin, encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(raw_stdout, encoding="utf-8"))
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            async with read_stream:  # pragma: no branch
+                received = await read_stream.receive()
+                assert isinstance(received, SessionMessage)
+                assert received.message == valid
+
+    assert not sys.stdin.closed
+    assert not sys.stdout.closed
+
+    sys.stdout.write("still-open")
+    sys.stdout.flush()
+    raw_stdout.seek(0)
+    assert raw_stdout.read() == b"still-open"
+
+    sys.stdin.close()
+    sys.stdout.close()
