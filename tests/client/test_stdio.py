@@ -528,7 +528,7 @@ async def test_stdio_client_invalid_utf8():
     items: list[SessionMessage | Exception] = []
 
     with anyio.fail_after(5.0):
-        async with stdio_client(server_params) as (read_stream, write_stream):
+        async with stdio_client(server_params) as (read_stream, _write_stream):
             async for item in read_stream:
                 items.append(item)
                 if len(items) >= 2:
