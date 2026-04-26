@@ -131,3 +131,25 @@ async def test_stdio_server_does_not_close_process_stdio(monkeypatch: pytest.Mon
 
     sys.stdin.close()
     sys.stdout.close()
+
+
+@pytest.mark.anyio
+async def test_stdio_server_falls_back_when_stream_has_no_fileno(monkeypatch: pytest.MonkeyPatch):
+    """Streams without a real fd (e.g. pytest capture, in-memory buffers) must
+    fall back to wrapping the underlying ``.buffer`` instead of crashing."""
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    stdin_buf = io.BytesIO(valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n")
+    stdout_buf = io.BytesIO()
+
+    # io.BytesIO raises UnsupportedOperation from .fileno(), forcing the
+    # buffer-wrapping fallback in _wrap_stdio_text_stream.
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(stdin_buf, encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(stdout_buf, encoding="utf-8"))
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            async with read_stream:  # pragma: no branch
+                received = await read_stream.receive()
+                assert isinstance(received, SessionMessage)
+                assert received.message == valid

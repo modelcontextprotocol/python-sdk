@@ -21,6 +21,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper, UnsupportedOperation
+from typing import TextIO
 
 import anyio
 import anyio.lowlevel
@@ -30,7 +31,7 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 
-def _wrap_stdio_text_stream(stream: TextIOWrapper, mode: str, errors: str = "strict") -> anyio.AsyncFile[str]:
+def _wrap_stdio_text_stream(stream: TextIO, mode: str, errors: str = "strict") -> anyio.AsyncFile[str]:
     """Wrap a stdio text stream without closing the original handle on teardown."""
     try:
         wrapped_stream = TextIOWrapper(
