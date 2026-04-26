@@ -56,7 +56,7 @@
     - [Streamable HTTP Transport](#streamable-http-transport)
       - [CORS Configuration for Browser-Based Clients](#cors-configuration-for-browser-based-clients)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
-      - [StreamableHTTP servers](#streamablehttp-servers)
+      - [Streamable HTTP servers](#streamablehttp-servers)
         - [Basic mounting](#basic-mounting)
         - [Host-based routing](#host-based-routing)
         - [Multiple servers with path configuration](#multiple-servers-with-path-configuration)
@@ -1387,16 +1387,16 @@ By default, SSE servers are mounted at `/sse` and Streamable HTTP servers are mo
 
 For more information on mounting applications in Starlette, see the [Starlette documentation](https://www.starlette.io/routing/#submounting-routes).
 
-#### StreamableHTTP servers
+#### Streamable HTTP servers
 
-You can mount the StreamableHTTP server to an existing ASGI server using the `streamable_http_app` method. This allows you to integrate the StreamableHTTP server with other ASGI applications.
+You can mount the Streamable HTTP server to an existing ASGI server using the `streamable_http_app` method. This allows you to integrate the Streamable HTTP server with other ASGI applications.
 
 ##### Basic mounting
 
 <!-- snippet-source examples/snippets/servers/streamable_http_basic_mounting.py -->
 ```python
 """
-Basic example showing how to mount StreamableHTTP server in Starlette.
+Basic example showing how to mount Streamable HTTP server in Starlette.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_basic_mounting:app --reload
@@ -1426,7 +1426,7 @@ async def lifespan(app: Starlette):
         yield
 
 
-# Mount the StreamableHTTP server to the existing ASGI server
+# Mount the Streamable HTTP server to the existing ASGI server
 app = Starlette(
     routes=[
         Mount("/", app=mcp.streamable_http_app()),
@@ -1443,7 +1443,7 @@ _Full example: [examples/snippets/servers/streamable_http_basic_mounting.py](htt
 <!-- snippet-source examples/snippets/servers/streamable_http_host_mounting.py -->
 ```python
 """
-Example showing how to mount StreamableHTTP server using Host-based routing.
+Example showing how to mount Streamable HTTP server using Host-based routing.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_host_mounting:app --reload
@@ -1490,7 +1490,7 @@ _Full example: [examples/snippets/servers/streamable_http_host_mounting.py](http
 <!-- snippet-source examples/snippets/servers/streamable_http_multiple_servers.py -->
 ```python
 """
-Example showing how to mount multiple StreamableHTTP servers with path configuration.
+Example showing how to mount multiple Streamable HTTP servers with path configuration.
 
 Run from the repository root:
     uvicorn examples.snippets.servers.streamable_http_multiple_servers:app --reload
