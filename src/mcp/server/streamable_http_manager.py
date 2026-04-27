@@ -152,6 +152,29 @@ class StreamableHTTPSessionManager:
 
     async def _handle_stateless_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process request in stateless mode - creating a new transport for each request."""
+        # In stateless mode, only POST is meaningful. GET (SSE stream) and DELETE
+        # (session termination) both require session state that stateless mode does
+        # not maintain, so reject them with 405 before creating a transport.
+        request = Request(scope, receive)
+        if request.method in ("GET", "DELETE"):
+            logger.debug(f"Stateless mode: rejecting {request.method} with 405")
+            error_response = JSONRPCError(
+                jsonrpc="2.0",
+                id=None,
+                error=ErrorData(
+                    code=INVALID_REQUEST,
+                    message=(f"Method Not Allowed: {request.method} is not supported in stateless mode"),
+                ),
+            )
+            response = Response(
+                content=error_response.model_dump_json(by_alias=True, exclude_unset=True),
+                status_code=HTTPStatus.METHOD_NOT_ALLOWED,
+                headers={"Allow": "POST"},
+                media_type="application/json",
+            )
+            await response(scope, receive, send)
+            return
+
         logger.debug("Stateless mode: Creating new transport for this request")
         # No session ID needed in stateless mode
         http_transport = StreamableHTTPServerTransport(
