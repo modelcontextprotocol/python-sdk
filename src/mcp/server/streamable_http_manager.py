@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 from collections.abc import AsyncIterator
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
@@ -136,6 +137,32 @@ class StreamableHTTPSessionManager:
                 # Clear any remaining server instances
                 self._server_instances.clear()
 
+    @contextlib.asynccontextmanager
+    async def _suspend_idle_timeout(self, transport: StreamableHTTPServerTransport) -> AsyncIterator[None]:
+        """Suspend the idle-timeout deadline while a request is in flight.
+
+        The idle timeout exists to reap sessions that receive no HTTP requests
+        for ``session_idle_timeout`` seconds; a request that is currently being
+        processed should not count as an idle session. While at least one
+        request is in flight we set the deadline to ``math.inf``; once the
+        last concurrent request completes we restore ``now + timeout``.
+        """
+        active = transport.idle_scope is not None and self.session_idle_timeout is not None
+        if active:
+            transport.idle_active_requests += 1
+            if transport.idle_active_requests == 1:
+                assert transport.idle_scope is not None
+                transport.idle_scope.deadline = math.inf
+        try:
+            yield
+        finally:
+            if active:
+                transport.idle_active_requests -= 1
+                if transport.idle_active_requests == 0:
+                    assert transport.idle_scope is not None
+                    assert self.session_idle_timeout is not None
+                    transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
+
     async def handle_request(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process ASGI request with proper session handling and transport setup.
 
@@ -196,10 +223,8 @@ class StreamableHTTPSessionManager:
         if request_mcp_session_id is not None and request_mcp_session_id in self._server_instances:
             transport = self._server_instances[request_mcp_session_id]
             logger.debug("Session already exists, handling request directly")
-            # Push back idle deadline on activity
-            if transport.idle_scope is not None and self.session_idle_timeout is not None:
-                transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout  # pragma: no cover
-            await transport.handle_request(scope, receive, send)
+            async with self._suspend_idle_timeout(transport):
+                await transport.handle_request(scope, receive, send)
             return
 
         if request_mcp_session_id is None:
@@ -267,7 +292,8 @@ class StreamableHTTPSessionManager:
                 await self._task_group.start(run_server)
 
                 # Handle the HTTP request and return the response
-                await http_transport.handle_request(scope, receive, send)
+                async with self._suspend_idle_timeout(http_transport):
+                    await http_transport.handle_request(scope, receive, send)
         else:
             # Unknown or expired session ID - return 404 per MCP spec
             # TODO: Align error code once spec clarifies
