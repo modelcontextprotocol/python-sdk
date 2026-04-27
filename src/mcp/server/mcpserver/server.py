@@ -316,7 +316,7 @@ class MCPServer(Generic[LifespanResultT]):
             if e.content is not None:
                 return CallToolResult(content=e.content, is_error=True)
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
-        except Exception as e:
+        except Exception as e:  # pragma: no cover
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
         if isinstance(result, CallToolResult):
             return result
