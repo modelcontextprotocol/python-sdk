@@ -31,7 +31,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -312,6 +312,10 @@ class MCPServer(Generic[LifespanResultT]):
             result = await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
             raise
+        except ToolError as e:
+            if e.content is not None:
+                return CallToolResult(content=e.content, is_error=True)
+            return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
         except Exception as e:
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
         if isinstance(result, CallToolResult):

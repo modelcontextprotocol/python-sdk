@@ -115,5 +115,8 @@ class Tool(BaseModel):
             # Re-raise UrlElicitationRequiredError so it can be properly handled
             # as an MCP error response with code -32042
             raise
+        except ToolError:
+            # Re-raise ToolError as-is to preserve any custom content
+            raise
         except Exception as e:
             raise ToolError(f"Error executing tool {self.name}: {e}") from e
