@@ -380,8 +380,17 @@ class StreamableHTTPTransport:
     ) -> None:
         """Reconnect with Last-Event-ID to resume stream after server disconnect."""
         # Bail if max retries exceeded
-        if attempt >= MAX_RECONNECTION_ATTEMPTS:  # pragma: no cover
-            logger.debug(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+        if attempt >= MAX_RECONNECTION_ATTEMPTS:
+            logger.warning(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
+            if isinstance(ctx.session_message.message, JSONRPCRequest):
+                error_data = ErrorData(
+                    code=INTERNAL_ERROR,
+                    message=f"SSE stream disconnected after {MAX_RECONNECTION_ATTEMPTS} reconnection attempts",
+                )
+                error_msg = SessionMessage(
+                    JSONRPCError(jsonrpc="2.0", id=ctx.session_message.message.id, error=error_data)
+                )
+                await ctx.read_stream_writer.send(error_msg)
             return
 
         # Always wait - use server value or default
@@ -404,12 +413,15 @@ class StreamableHTTPTransport:
                 # Track for potential further reconnection
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms
+                received_data = False
 
                 async for sse in event_source.aiter_sse():
                     if sse.id:  # pragma: no branch
                         reconnect_last_event_id = sse.id
                     if sse.retry is not None:
                         reconnect_retry_ms = sse.retry
+                    if sse.data:
+                        received_data = True
 
                     is_complete = await self._handle_sse_event(
                         sse,
@@ -421,9 +433,13 @@ class StreamableHTTPTransport:
                         await event_source.response.aclose()
                         return
 
-                # Stream ended again without response - reconnect again (reset attempt counter)
+                # Stream ended without response — reconnect.
+                # Reset attempt counter only when real data was received
+                # (server made progress). Otherwise increment to prevent
+                # infinite loops when server only sends priming events.
+                next_attempt = 0 if received_data else attempt + 1
                 logger.info("SSE stream disconnected, reconnecting...")
-                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, 0)
+                await self._handle_reconnection(ctx, reconnect_last_event_id, reconnect_retry_ms, next_attempt)
         except Exception as e:  # pragma: no cover
             logger.debug(f"Reconnection failed: {e}")
             # Try to reconnect again if we still have an event ID
