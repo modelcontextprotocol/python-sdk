@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 from collections.abc import Callable
 from contextlib import AsyncExitStack
@@ -7,10 +8,13 @@ from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from anyio.streams.memory import MemoryObjectSendStream
+from opentelemetry.trace import SpanKind
 from pydantic import BaseModel, TypeAdapter
 from typing_extensions import Self
 
+from mcp.shared._otel import inject_trace_context, otel_span
+from mcp.shared._stream_protocols import ReadStream, WriteStream
 from mcp.shared.exceptions import MCPError
 from mcp.shared.message import MessageMetadata, ServerMessageMetadata, SessionMessage
 from mcp.shared.response_router import ResponseRouter
@@ -79,11 +83,13 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         session: BaseSession[SendRequestT, SendNotificationT, SendResultT, ReceiveRequestT, ReceiveNotificationT],
         on_complete: Callable[[RequestResponder[ReceiveRequestT, SendResultT]], Any],
         message_metadata: MessageMetadata = None,
+        context: contextvars.Context | None = None,
     ) -> None:
         self.request_id = request_id
         self.request_meta = request_meta
         self.request = request
         self.message_metadata = message_metadata
+        self.context = context
         self._session = session
         self._completed = False
         self._cancel_scope = anyio.CancelScope()
@@ -105,7 +111,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
     ) -> None:
         """Exit the context manager, performing cleanup and notifying completion."""
         try:
-            if self._completed:  # pragma: no branch
+            if self._completed:
                 self._on_complete(self)
         finally:
             self._entered = False
@@ -181,8 +187,8 @@ class BaseSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
     ) -> None:
@@ -264,24 +270,36 @@ class BaseSession(
             self._progress_callbacks[request_id] = progress_callback
 
         try:
-            jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
-            await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
+            target = request_data.get("params", {}).get("name")
+            span_name = f"MCP send {request.method} {target}" if target else f"MCP send {request.method}"
 
-            # request read timeout takes precedence over session read timeout
-            timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
+            with otel_span(
+                span_name,
+                kind=SpanKind.CLIENT,
+                attributes={"mcp.method.name": request.method, "jsonrpc.request.id": request_id},
+            ):
+                # Inject W3C trace context into _meta (SEP-414).
+                meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})
+                inject_trace_context(meta)
 
-            try:
-                with anyio.fail_after(timeout):
-                    response_or_error = await response_stream_reader.receive()
-            except TimeoutError:
-                class_name = request.__class__.__name__
-                message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
-                raise MCPError(code=REQUEST_TIMEOUT, message=message)
+                jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
+                await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
-            if isinstance(response_or_error, JSONRPCError):
-                raise MCPError.from_jsonrpc_error(response_or_error)
-            else:
-                return result_type.model_validate(response_or_error.result, by_name=False)
+                # request read timeout takes precedence over session read timeout
+                timeout = request_read_timeout_seconds or self._session_read_timeout_seconds
+
+                try:
+                    with anyio.fail_after(timeout):
+                        response_or_error = await response_stream_reader.receive()
+                except TimeoutError:
+                    class_name = request.__class__.__name__
+                    message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
+                    raise MCPError(code=REQUEST_TIMEOUT, message=message)
+
+                if isinstance(response_or_error, JSONRPCError):
+                    raise MCPError.from_jsonrpc_error(response_or_error)
+                else:
+                    return result_type.model_validate(response_or_error.result, by_name=False)
 
         finally:
             self._response_streams.pop(request_id, None)
@@ -333,10 +351,10 @@ class BaseSession(
     async def _receive_loop(self) -> None:
         async with self._read_stream, self._write_stream:
             try:
-                async for message in self._read_stream:
-                    if isinstance(message, Exception):
-                        await self._handle_incoming(message)
-                    elif isinstance(message.message, JSONRPCRequest):
+
+                async def _handle_session_message(message: SessionMessage) -> None:
+                    sender_context: contextvars.Context | None = getattr(self._read_stream, "last_context", None)
+                    if isinstance(message.message, JSONRPCRequest):
                         try:
                             validated_request = self._receive_request_adapter.validate_python(
                                 message.message.model_dump(by_alias=True, mode="json", exclude_none=True),
@@ -349,6 +367,7 @@ class BaseSession(
                                 session=self,
                                 on_complete=lambda r: self._in_flight.pop(r.request_id, None),
                                 message_metadata=message.metadata,
+                                context=sender_context,
                             )
                             self._in_flight[responder.request_id] = responder
                             await self._received_request(responder)
@@ -406,6 +425,13 @@ class BaseSession(
                     else:  # Response or error
                         await self._handle_response(message)
 
+                async for message in self._read_stream:
+                    if isinstance(message, Exception):
+                        await self._handle_incoming(message)
+                        continue
+
+                    await _handle_session_message(message)
+
             except anyio.ClosedResourceError:
                 # This is expected when the client disconnects abruptly.
                 # Without this handler, the exception would propagate up and
@@ -418,7 +444,9 @@ class BaseSession(
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
-                for id, stream in self._response_streams.items():
+                # Snapshot: stream.send() wakes the waiter, whose finally pops
+                # from _response_streams before the next __next__() call.
+                for id, stream in list(self._response_streams.items()):
                     error = ErrorData(code=CONNECTION_CLOSED, message="Connection closed")
                     try:
                         await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))

@@ -542,8 +542,8 @@ async def test_client_capabilities_with_sampling_tools():
 
 
 @pytest.mark.anyio
-async def test_get_server_capabilities():
-    """Test that get_server_capabilities returns None before init and capabilities after"""
+async def test_initialize_result():
+    """Test that initialize_result is None before init and contains the full result after."""
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
 
@@ -553,6 +553,8 @@ async def test_get_server_capabilities():
         resources=types.ResourcesCapability(subscribe=True, list_changed=True),
         tools=types.ToolsCapability(list_changed=False),
     )
+    expected_server_info = Implementation(name="mock-server", version="0.1.0")
+    expected_instructions = "Use the tools wisely."
 
     async def mock_server():
         session_message = await client_to_server_receive.receive()
@@ -566,7 +568,8 @@ async def test_get_server_capabilities():
         result = InitializeResult(
             protocol_version=LATEST_PROTOCOL_VERSION,
             capabilities=expected_capabilities,
-            server_info=Implementation(name="mock-server", version="0.1.0"),
+            server_info=expected_server_info,
+            instructions=expected_instructions,
         )
 
         async with server_to_client_send:
@@ -592,21 +595,17 @@ async def test_get_server_capabilities():
         server_to_client_send,
         server_to_client_receive,
     ):
-        assert session.get_server_capabilities() is None
+        assert session.initialize_result is None
 
         tg.start_soon(mock_server)
         await session.initialize()
 
-        capabilities = session.get_server_capabilities()
-        assert capabilities is not None
-        assert capabilities == expected_capabilities
-        assert capabilities.logging is not None
-        assert capabilities.prompts is not None
-        assert capabilities.prompts.list_changed is True
-        assert capabilities.resources is not None
-        assert capabilities.resources.subscribe is True
-        assert capabilities.tools is not None
-        assert capabilities.tools.list_changed is False
+        result = session.initialize_result
+        assert result is not None
+        assert result.server_info == expected_server_info
+        assert result.capabilities == expected_capabilities
+        assert result.instructions == expected_instructions
+        assert result.protocol_version == LATEST_PROTOCOL_VERSION
 
 
 @pytest.mark.anyio

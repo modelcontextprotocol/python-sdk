@@ -25,8 +25,8 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "anyio>=4.5",
-    "httpx>=0.27.1",
+    "anyio>=4.9",
+    "httpx>=0.27.1,<1.0.0",
     "httpx-sse>=0.4",
     "pydantic>=2.12.0",
     "starlette>=0.48.0; python_version >= '3.14'",
@@ -40,6 +40,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "typing-extensions>=4.13.0",
     "typing-inspection>=0.4.1",
+    "opentelemetry-api>=1.28.0",
 ]
 
 [project.optional-dependencies]
@@ -71,10 +72,13 @@ dev = [
     "coverage[toml]>=7.10.7,<=7.13",
     "pillow>=12.0",
     "strict-no-cover",
+    "logfire>=3.0.0",
 ]
 docs = [
     "mkdocs>=1.6.1",
+    "mkdocs-gen-files>=0.5.0",
     "mkdocs-glightbox>=0.4.0",
+    "mkdocs-literate-nav>=0.6.1",
     "mkdocs-material[imaging]>=9.5.45",
     "mkdocstrings-python>=2.0.1",
 ]
@@ -181,7 +185,6 @@ filterwarnings = [
     # This should be fixed on Uvicorn's side.
     "ignore::DeprecationWarning:websockets",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
-    "ignore:Returning str or bytes.*:DeprecationWarning:mcp.server.lowlevel",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
 ]
@@ -217,13 +220,10 @@ skip_covered = true
 show_missing = true
 ignore_errors = true
 precision = 2
-exclude_lines = [
-    "pragma: no cover",
+exclude_also = [
     "pragma: lax no cover",
-    "if TYPE_CHECKING:",
     "@overload",
     "raise NotImplementedError",
-    "^\\s*\\.\\.\\.\\s*$",
 ]
 
 # https://coverage.readthedocs.io/en/latest/config.html#paths

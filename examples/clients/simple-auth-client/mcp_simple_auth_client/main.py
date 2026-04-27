@@ -18,7 +18,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
@@ -241,8 +241,8 @@ class SimpleAuthClient:
 
     async def _run_session(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
     ):
         """Run the MCP session with the given streams."""
         print("🤝 Initializing MCP session...")

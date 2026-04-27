@@ -5,10 +5,10 @@ from types import TracebackType
 from typing import Any, Protocol
 
 import anyio.lowlevel
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import TypeAdapter
 
 from mcp import types
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.experimental import ExperimentalClientFeatures
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.shared._context import RequestContext
@@ -112,8 +112,8 @@ class ClientSession(
 
     def __init__(
         self,
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-        write_stream: MemoryObjectSendStream[SessionMessage],
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
         read_timeout_seconds: float | None = None,
         sampling_callback: SamplingFnT | None = None,
         elicitation_callback: ElicitationFnT | None = None,
@@ -134,7 +134,7 @@ class ClientSession(
         self._logging_callback = logging_callback or _default_logging_callback
         self._message_handler = message_handler or _default_message_handler
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
-        self._server_capabilities: types.ServerCapabilities | None = None
+        self._initialize_result: types.InitializeResult | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
         self._entered = False
 
@@ -208,18 +208,19 @@ class ClientSession(
         if result.protocol_version not in SUPPORTED_PROTOCOL_VERSIONS:
             raise RuntimeError(f"Unsupported protocol version from the server: {result.protocol_version}")
 
-        self._server_capabilities = result.capabilities
+        self._initialize_result = result
 
         await self.send_notification(types.InitializedNotification())
 
         return result
 
-    def get_server_capabilities(self) -> types.ServerCapabilities | None:
-        """Return the server capabilities received during initialization.
+    @property
+    def initialize_result(self) -> types.InitializeResult | None:
+        """The server's InitializeResult. None until initialize() has been called.
 
-        Returns None if the session has not been initialized yet.
+        Contains server_info, capabilities, instructions, and the negotiated protocol_version.
         """
-        return self._server_capabilities
+        return self._initialize_result
 
     @property
     def experimental(self) -> ExperimentalClientFeatures:

@@ -1,16 +1,16 @@
 from contextlib import asynccontextmanager
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic_core import ValidationError
 from starlette.types import Receive, Scope, Send
 from starlette.websockets import WebSocket
 
 from mcp import types
+from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 
-@asynccontextmanager  # pragma: no cover
+@asynccontextmanager
 async def websocket_server(scope: Scope, receive: Receive, send: Send):
     """WebSocket server transport for MCP. This is an ASGI application, suitable for use
     with a framework like Starlette and a server like Hypercorn.
@@ -19,14 +19,8 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
     websocket = WebSocket(scope, receive, send)
     await websocket.accept(subprotocol="mcp")
 
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
-
-    write_stream: MemoryObjectSendStream[SessionMessage]
-    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
-
-    read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+    read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+    write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
     async def ws_reader():
         try:
@@ -34,13 +28,13 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
                 async for msg in websocket.iter_text():
                     try:
                         client_message = types.jsonrpc_message_adapter.validate_json(msg, by_name=False)
-                    except ValidationError as exc:
+                    except ValidationError as exc:  # pragma: no cover
                         await read_stream_writer.send(exc)
                         continue
 
                     session_message = SessionMessage(client_message)
                     await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await websocket.close()
 
     async def ws_writer():
@@ -49,7 +43,7 @@ async def websocket_server(scope: Scope, receive: Receive, send: Send):
                 async for session_message in write_stream_reader:
                     obj = session_message.message.model_dump_json(by_alias=True, exclude_unset=True)
                     await websocket.send_text(obj)
-        except anyio.ClosedResourceError:
+        except anyio.ClosedResourceError:  # pragma: no cover
             await websocket.close()
 
     async with anyio.create_task_group() as tg:
