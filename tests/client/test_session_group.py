@@ -5,9 +5,9 @@ import socket
 import sys
 from unittest import mock
 
-if sys.version_info < (3, 11):  # pragma: no cover
+if sys.version_info < (3, 11):  # pragma: lax no cover
     from exceptiongroup import BaseExceptionGroup
-else:  # pragma: no cover
+else:  # pragma: lax no cover
     BaseExceptionGroup = ExceptionGroup  # type: ignore # noqa: F821
 
 import httpx

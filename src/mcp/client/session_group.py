@@ -148,7 +148,7 @@ class ClientSessionGroup:
 
     async def __aenter__(self) -> Self:
         # Enter the exit stack only if we created it ourselves
-        if self._owns_exit_stack:  # pragma: no cover
+        if self._owns_exit_stack:
             await self._exit_stack.__aenter__()
         return self
 
@@ -161,13 +161,13 @@ class ClientSessionGroup:
         """Closes session exit stacks and main exit stack upon completion."""
 
         # Only close the main exit stack if we created it
-        if self._owns_exit_stack:  # pragma: no cover
+        if self._owns_exit_stack:
             await self._exit_stack.aclose()
 
         # Sequentially close session stacks to preserve AnyIO task contexts.
         # Concurrent teardown spawns task groups that cross cancel scopes, leading
         # to RuntimeError: Attempted to exit cancel scope in a different task.
-        for exit_stack in list(self._session_exit_stacks.values()):  # pragma: no cover
+        for exit_stack in list(self._session_exit_stacks.values()):
             await exit_stack.aclose()
 
     @property
