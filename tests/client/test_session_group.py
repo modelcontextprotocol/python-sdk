@@ -550,7 +550,7 @@ async def test_session_group_with_external_exit_stack(
 async def test_session_group_teardown_closes_session_stacks() -> None:
     """__aexit__ closes every session-level exit stack sequentially."""
     session = mock.MagicMock(spec=mcp.ClientSession)
-    session_stack = mock.MagicMock(spec=contextlib.AsyncExitStack)
+    session_stack = mock.AsyncMock()
 
     async with ClientSessionGroup() as group:
         group._session_exit_stacks[session] = session_stack
