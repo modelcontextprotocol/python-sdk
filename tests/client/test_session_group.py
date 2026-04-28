@@ -528,3 +528,32 @@ async def test_unreachable_streamable_http_error_is_catchable() -> None:
         "streamable-http server was masked by an anyio cancel-scope "
         f"RuntimeError. Got: {type(caught).__name__}: {caught}"
     )
+
+
+@pytest.mark.anyio
+async def test_session_group_with_external_exit_stack(
+    mock_exit_stack: mock.MagicMock,
+) -> None:
+    """__aenter__/__aexit__ skip stack management when given an external exit stack."""
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+
+    async with group:
+        pass  # __aenter__ covered; __aexit__ triggers next
+
+    # mock_exit_stack's own __aenter__/aclose should NOT be called by
+    # ClientSessionGroup — it's the caller's responsibility.
+    mock_exit_stack.__aenter__.assert_not_called()
+    mock_exit_stack.aclose.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_session_group_teardown_closes_session_stacks() -> None:
+    """__aexit__ closes every session-level exit stack sequentially."""
+    session = mock.MagicMock(spec=mcp.ClientSession)
+    session_stack = mock.MagicMock(spec=contextlib.AsyncExitStack)
+
+    async with ClientSessionGroup() as group:
+        group._session_exit_stacks[session] = session_stack
+
+    session_stack.aclose.assert_awaited_once()
+
