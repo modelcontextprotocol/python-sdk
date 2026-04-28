@@ -428,7 +428,7 @@ async def test_send_request_sends_cancelled_notification_on_timeout():
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
-        server_read, server_write = server_streams
+        server_read, _ = server_streams
 
         async def mock_server():
             async for message in server_read:
@@ -473,7 +473,7 @@ async def test_send_request_sends_cancelled_notification_on_caller_cancel():
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
-        server_read, server_write = server_streams
+        server_read, _ = server_streams
 
         async def mock_server():
             async for message in server_read:
