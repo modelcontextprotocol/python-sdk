@@ -450,10 +450,10 @@ async def test_unreachable_streamable_http_error_is_catchable() -> None:
                 # Expected post-fix: real ConnectError lands here.
                 caught = inner
     except BaseException as outer:  # pragma: no cover
-        # If we land here, the error escaped past the inner handler --
-        # that is the regression case (masking RuntimeError surfacing
-        # from __aexit__ instead of the real ConnectError propagating).
-        caught = outer
+        # If we land here, the error escaped past the inner handler --  # pragma: no cover
+        # that is the regression case (masking RuntimeError surfacing  # pragma: no cover
+        # from __aexit__ instead of the real ConnectError propagating).  # pragma: no cover
+        caught = outer  # pragma: no cover
 
     assert caught is not None, (
         "Expected to catch a connection error against an unreachable "

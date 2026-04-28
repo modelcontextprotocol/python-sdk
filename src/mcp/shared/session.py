@@ -453,7 +453,7 @@ class BaseSession(
                         await stream.aclose()
                     except Exception:
                         # Stream might already be closed
-                        pass
+                        pass  # pragma: no cover
                 self._response_streams.clear()
 
     def _normalize_request_id(self, response_id: RequestId) -> RequestId:

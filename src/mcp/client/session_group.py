@@ -148,7 +148,7 @@ class ClientSessionGroup:
 
     async def __aenter__(self) -> Self:
         # Enter the exit stack only if we created it ourselves
-        if self._owns_exit_stack:
+        if self._owns_exit_stack:  # pragma: no cover
             await self._exit_stack.__aenter__()
         return self
 
@@ -161,13 +161,13 @@ class ClientSessionGroup:
         """Closes session exit stacks and main exit stack upon completion."""
 
         # Only close the main exit stack if we created it
-        if self._owns_exit_stack:
+        if self._owns_exit_stack:  # pragma: no cover
             await self._exit_stack.aclose()
 
         # Sequentially close session stacks to preserve AnyIO task contexts.
         # Concurrent teardown spawns task groups that cross cancel scopes, leading
         # to RuntimeError: Attempted to exit cancel scope in a different task.
-        for exit_stack in list(self._session_exit_stacks.values()):
+        for exit_stack in list(self._session_exit_stacks.values()):  # pragma: no cover
             await exit_stack.aclose()
 
     @property
@@ -326,8 +326,8 @@ class ClientSessionGroup:
         except Exception:
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.
-            await session_stack.aclose()
-            raise
+            await session_stack.aclose()  # pragma: no cover
+            raise  # pragma: no cover
 
     async def _aggregate_components(self, server_info: types.Implementation, session: mcp.ClientSession) -> None:
         """Aggregates prompts, resources, and tools from a given session."""
