@@ -431,7 +431,7 @@ async def test_send_request_sends_cancelled_notification_on_timeout():
         server_read, _ = server_streams
 
         async def mock_server():
-            async for message in server_read:
+            async for message in server_read:  # pragma: no branch
                 assert isinstance(message, SessionMessage)
                 if isinstance(message.message, JSONRPCRequest):
                     pass
@@ -476,7 +476,7 @@ async def test_send_request_sends_cancelled_notification_on_caller_cancel():
         server_read, _ = server_streams
 
         async def mock_server():
-            async for message in server_read:
+            async for message in server_read:  # pragma: no branch
                 assert isinstance(message, SessionMessage)
                 if isinstance(message.message, JSONRPCRequest):
                     ev_request_sent.set()
