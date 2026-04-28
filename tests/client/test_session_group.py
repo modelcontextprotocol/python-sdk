@@ -556,4 +556,3 @@ async def test_session_group_teardown_closes_session_stacks() -> None:
         group._session_exit_stacks[session] = session_stack
 
     session_stack.aclose.assert_awaited_once()
-
