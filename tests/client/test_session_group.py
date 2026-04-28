@@ -8,7 +8,7 @@ from unittest import mock
 if sys.version_info < (3, 11):  # pragma: lax no cover
     from exceptiongroup import BaseExceptionGroup
 else:  # pragma: lax no cover
-    BaseExceptionGroup = ExceptionGroup
+    BaseExceptionGroup = ExceptionGroup  # type: ignore # noqa: F821
 
 import httpx
 import pytest
