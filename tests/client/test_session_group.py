@@ -442,18 +442,14 @@ async def test_unreachable_streamable_http_error_is_catchable() -> None:
 
     caught: BaseException | None = None
 
-    try:
-        async with ClientSessionGroup() as group:
-            try:
-                await group.connect_to_server(server_params)
-            except BaseException as inner:
-                # Expected post-fix: real ConnectError lands here.
-                caught = inner
-    except BaseException as outer:  # pragma: no cover
-        # If we land here, the error escaped past the inner handler --  # pragma: no cover
-        # that is the regression case (masking RuntimeError surfacing  # pragma: no cover
-        # from __aexit__ instead of the real ConnectError propagating).  # pragma: no cover
-        caught = outer  # pragma: no cover
+    async with ClientSessionGroup() as group:
+        try:
+            await group.connect_to_server(server_params)
+        except BaseException as inner:
+            # Pre-fix #915: the real ConnectError was masked by an anyio
+            # cancel-scope RuntimeError raised during __aexit__ teardown.
+            # Post-fix: the real exception propagates here and is catchable.
+            caught = inner
 
     assert caught is not None, (
         "Expected to catch a connection error against an unreachable "
