@@ -146,7 +146,7 @@ class ClientSessionGroup:
         self._session_exit_stacks = {}
         self._component_name_hook = component_name_hook
 
-    async def __aenter__(self) -> Self:  # pragma: no cover
+    async def __aenter__(self) -> Self:
         # Enter the exit stack only if we created it ourselves
         if self._owns_exit_stack:
             await self._exit_stack.__aenter__()
@@ -157,7 +157,7 @@ class ClientSessionGroup:
         _exc_type: type[BaseException] | None,
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
-    ) -> bool | None:  # pragma: no cover
+    ) -> bool | None:
         """Closes session exit stacks and main exit stack upon completion."""
 
         # Only close the main exit stack if we created it
@@ -323,7 +323,7 @@ class ClientSessionGroup:
             await self._exit_stack.enter_async_context(session_stack)
 
             return result.server_info, session
-        except Exception:  # pragma: no cover
+        except Exception:
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.
             await session_stack.aclose()

@@ -5,8 +5,10 @@ import socket
 import sys
 from unittest import mock
 
-if sys.version_info < (3, 11):
-    from exceptiongroup import BaseExceptionGroup  # pragma: no cover # noqa: A004
+if sys.version_info < (3, 11):  # pragma: lax no cover
+    from exceptiongroup import BaseExceptionGroup
+else:  # pragma: lax no cover
+    BaseExceptionGroup = ExceptionGroup
 
 import httpx
 import pytest
@@ -418,10 +420,10 @@ def _is_cancel_scope_runtime_error(exc: BaseException) -> bool:
             return False
         seen.add(id(e))
         if isinstance(e, RuntimeError) and "cancel scope" in str(e).lower():
-            return True  # pragma: no cover
+            return True
         if isinstance(e, BaseExceptionGroup):
-            if any(_walk(child) for child in e.exceptions):  # type: ignore # pragma: no cover
-                return True  # pragma: no cover
+            if any(_walk(child) for child in e.exceptions):  # type: ignore
+                return True
         return _walk(e.__cause__) or _walk(e.__context__)
 
     return _walk(exc)
@@ -447,7 +449,7 @@ async def test_unreachable_streamable_http_error_is_catchable() -> None:
             except BaseException as inner:
                 # Expected post-fix: real ConnectError lands here.
                 caught = inner
-    except BaseException as outer:  # pragma: no cover
+    except BaseException as outer:  # pragma: lax no cover
         # If we land here, the error escaped past the inner handler --
         # that is the regression case (masking RuntimeError surfacing
         # from __aexit__ instead of the real ConnectError propagating).
