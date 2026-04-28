@@ -429,6 +429,74 @@ def _is_cancel_scope_runtime_error(exc: BaseException) -> bool:
     return _walk(exc)
 
 
+def test_is_cancel_scope_direct_runtime_error() -> None:
+    """A bare RuntimeError mentioning 'cancel scope' is detected."""
+    exc = RuntimeError("Attempted to exit cancel scope in a different task")
+    assert _is_cancel_scope_runtime_error(exc)
+
+
+def test_is_cancel_scope_other_runtime_error_not_detected() -> None:
+    """A RuntimeError that doesn't mention cancel scope is not flagged."""
+    exc = RuntimeError("some unrelated error")
+    assert not _is_cancel_scope_runtime_error(exc)
+
+
+def test_is_cancel_scope_non_runtime_error_not_detected() -> None:
+    """A non-RuntimeError is never flagged as a cancel scope error."""
+    exc = ValueError("not a runtime error")
+    assert not _is_cancel_scope_runtime_error(exc)
+
+
+def test_is_cancel_scope_none_is_false() -> None:
+    """None returns False."""
+    assert not _is_cancel_scope_runtime_error(None)
+
+
+def test_is_cancel_scope_in_cause_chain() -> None:
+    """Cancel scope RuntimeError reached via __cause__ chain."""
+    inner = RuntimeError("Attempted to exit cancel scope in a different task")
+    outer = RuntimeError("outer error")
+    outer.__cause__ = inner
+    assert _is_cancel_scope_runtime_error(outer)
+
+
+def test_is_cancel_scope_in_context_chain() -> None:
+    """Cancel scope RuntimeError reached via __context__ chain."""
+    inner = RuntimeError("Attempted to exit cancel scope in a different task")
+    outer = RuntimeError("outer error")
+    outer.__context__ = inner
+    assert _is_cancel_scope_runtime_error(outer)
+
+
+def test_is_cancel_scope_in_exception_group() -> None:
+    """Cancel scope RuntimeError inside a BaseExceptionGroup is detected."""
+    cs_err = RuntimeError("Attempted to exit cancel scope in a different task")
+    group = BaseExceptionGroup("group", [cs_err])
+    assert _is_cancel_scope_runtime_error(group)
+
+
+def test_is_cancel_scope_exception_group_without_match() -> None:
+    """BaseExceptionGroup without any cancel scope error returns False."""
+    group = BaseExceptionGroup("group", [ValueError("nope"), TypeError("nope")])
+    assert not _is_cancel_scope_runtime_error(group)
+
+
+def test_is_cancel_scope_in_cause_of_group_child() -> None:
+    """Cancel scope found via __cause__ of a child inside an exception group."""
+    cs_err = RuntimeError("Attempted to exit cancel scope in a different task")
+    child = RuntimeError("child")
+    child.__cause__ = cs_err
+    group = BaseExceptionGroup("group", [child])
+    assert _is_cancel_scope_runtime_error(group)
+
+
+def test_is_cancel_scope_circular_reference_handled() -> None:
+    """Circular __cause__ chain does not infinite-loop."""
+    exc = RuntimeError("loop")
+    exc.__cause__ = exc
+    assert not _is_cancel_scope_runtime_error(exc)
+
+
 @pytest.mark.anyio
 async def test_unreachable_streamable_http_error_is_catchable() -> None:
     """Regression test for #915.
