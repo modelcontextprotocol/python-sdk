@@ -142,9 +142,9 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
     async def cancel(self) -> None:
         """Cancel this request and mark it as completed."""
-        if not self._entered:  # pragma: no cover
+        if not self._entered:
             raise RuntimeError("RequestResponder must be used as a context manager")
-        if not self._cancel_scope:  # pragma: no cover
+        if not self._cancel_scope:
             raise RuntimeError("No active cancel scope")
 
         self._cancel_scope.cancel()
@@ -423,7 +423,7 @@ class BaseSession(
                                 await self._handle_incoming(notification)
                         except Exception:
                             # For other validation errors, log and continue
-                            logging.warning(  # pragma: no cover
+                            logging.warning(
                                 f"Failed to validate notification:. Message was: {message.message}",
                                 exc_info=True,
                             )
