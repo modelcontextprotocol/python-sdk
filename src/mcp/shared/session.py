@@ -548,20 +548,22 @@ class BaseSession(
     async def _send_cancelled_notification(self, request_id: RequestId, reason: str) -> None:
         """Send a cancellation notification to the remote side (best-effort).
 
-        Uses a shielded cancel scope so the notification is delivered even
-        when called from inside a cancelled task.
+        Uses a shielded cancel scope with a timeout so the notification is
+        delivered even when called from inside a cancelled task, but does not
+        block shutdown if the write stream is unavailable.
         """
         try:
             with anyio.CancelScope(shield=True):
-                notification = CancelledNotification(
-                    method="notifications/cancelled",
-                    params=CancelledNotificationParams(request_id=request_id, reason=reason),
-                )
-                jsonrpc_notification = JSONRPCNotification(
-                    jsonrpc="2.0",
-                    **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
-                )
-                await self._write_stream.send(SessionMessage(message=jsonrpc_notification))
+                with anyio.fail_after(2):
+                    notification = CancelledNotification(
+                        method="notifications/cancelled",
+                        params=CancelledNotificationParams(request_id=request_id, reason=reason),
+                    )
+                    jsonrpc_notification = JSONRPCNotification(
+                        jsonrpc="2.0",
+                        **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                    await self._write_stream.send(SessionMessage(message=jsonrpc_notification))
         except Exception:
             logging.warning("Failed to send cancellation notification for request %s", request_id)
 
