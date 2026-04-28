@@ -382,7 +382,7 @@ class StreamableHTTPTransport:
         # Bail if max retries exceeded
         if attempt >= MAX_RECONNECTION_ATTEMPTS:
             logger.warning(f"Max reconnection attempts ({MAX_RECONNECTION_ATTEMPTS}) exceeded")
-            if isinstance(ctx.session_message.message, JSONRPCRequest):
+            if isinstance(ctx.session_message.message, JSONRPCRequest):  # pragma: no branch
                 error_data = ErrorData(
                     code=INTERNAL_ERROR,
                     message=f"SSE stream disconnected after {MAX_RECONNECTION_ATTEMPTS} reconnection attempts",
