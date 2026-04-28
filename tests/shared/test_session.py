@@ -433,9 +433,7 @@ async def test_send_request_sends_cancelled_notification_on_timeout():
         async def mock_server():
             async for message in server_read:  # pragma: no branch
                 assert isinstance(message, SessionMessage)
-                if isinstance(message.message, JSONRPCRequest):
-                    pass
-                elif isinstance(message.message, types.JSONRPCNotification):
+                if isinstance(message.message, types.JSONRPCNotification):
                     cancelled_notifications.append(message)
 
         async with (
@@ -480,7 +478,7 @@ async def test_send_request_sends_cancelled_notification_on_caller_cancel():
                 assert isinstance(message, SessionMessage)
                 if isinstance(message.message, JSONRPCRequest):
                     ev_request_sent.set()
-                elif isinstance(message.message, types.JSONRPCNotification):
+                if isinstance(message.message, types.JSONRPCNotification):
                     cancelled_notifications.append(message)
 
         async def make_request(client_session: ClientSession):
