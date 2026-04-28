@@ -1,4 +1,5 @@
 import contextlib
+import socket
 from unittest import mock
 
 import httpx
@@ -385,3 +386,73 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+def _free_tcp_port() -> int:
+    """Return a TCP port number not currently bound on localhost.
+
+    A small race window exists between this returning and the test
+    using the port, but it is acceptable here: the test only requires
+    that no streamable-http MCP server be listening at connect time.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _is_cancel_scope_runtime_error(exc: BaseException) -> bool:
+    """Walk *exc* and its cause/context/group chain looking for the
+    ``Attempted to exit cancel scope in a different task`` RuntimeError
+    that previously masked underlying connection errors (issue #915).
+    """
+    seen: set[int] = set()
+
+    def _walk(e: BaseException | None) -> bool:
+        if e is None or id(e) in seen:
+            return False
+        seen.add(id(e))
+        if isinstance(e, RuntimeError) and "cancel scope" in str(e).lower():
+            return True
+        if isinstance(e, BaseExceptionGroup):
+            if any(_walk(child) for child in e.exceptions):
+                return True
+        return _walk(e.__cause__) or _walk(e.__context__)
+
+    return _walk(exc)
+
+
+@pytest.mark.anyio
+async def test_unreachable_streamable_http_error_is_catchable() -> None:
+    """Regression test for #915.
+
+    Connecting ``ClientSessionGroup`` to an unbound local port must
+    raise a *catchable* connection error rather than being shadowed by
+    the AnyIO cancel-scope ``RuntimeError`` from concurrent teardown.
+    """
+    port = _free_tcp_port()
+    server_params = StreamableHttpParameters(url=f"http://127.0.0.1:{port}/mcp/")
+
+    caught: BaseException | None = None
+
+    try:
+        async with ClientSessionGroup() as group:
+            try:
+                await group.connect_to_server(server_params)
+            except BaseException as inner:  # noqa: BLE001
+                # Expected post-fix: real ConnectError lands here.
+                caught = inner
+    except BaseException as outer:  # noqa: BLE001
+        # If we land here, the error escaped past the inner handler --
+        # that is the regression case (masking RuntimeError surfacing
+        # from __aexit__ instead of the real ConnectError propagating).
+        caught = outer
+
+    assert caught is not None, (
+        "Expected to catch a connection error against an unreachable "
+        "streamable-http server, but no exception was raised."
+    )
+    assert not _is_cancel_scope_runtime_error(caught), (
+        "Regression of #915: connection error against an unreachable "
+        "streamable-http server was masked by an anyio cancel-scope "
+        f"RuntimeError. Got: {type(caught).__name__}: {caught}"
+    )
