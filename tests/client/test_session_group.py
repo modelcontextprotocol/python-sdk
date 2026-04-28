@@ -5,9 +5,9 @@ import socket
 import sys
 from unittest import mock
 
-if sys.version_info < (3, 11):  # pragma: lax no cover
+if sys.version_info < (3, 11):  # pragma: no cover
     from exceptiongroup import BaseExceptionGroup
-else:  # pragma: lax no cover
+else:  # pragma: no cover
     BaseExceptionGroup = ExceptionGroup  # type: ignore # noqa: F821
 
 import httpx
@@ -449,7 +449,7 @@ async def test_unreachable_streamable_http_error_is_catchable() -> None:
             except BaseException as inner:
                 # Expected post-fix: real ConnectError lands here.
                 caught = inner
-    except BaseException as outer:  # pragma: lax no cover
+    except BaseException as outer:  # pragma: no cover
         # If we land here, the error escaped past the inner handler --
         # that is the regression case (masking RuntimeError surfacing
         # from __aexit__ instead of the real ConnectError propagating).
