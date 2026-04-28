@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 import contextlib
 import socket
+import sys
 from unittest import mock
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import BaseExceptionGroup  # noqa: A004
 
 import httpx
 import pytest
@@ -414,7 +420,7 @@ def _is_cancel_scope_runtime_error(exc: BaseException) -> bool:
         if isinstance(e, RuntimeError) and "cancel scope" in str(e).lower():
             return True
         if isinstance(e, BaseExceptionGroup):
-            if any(_walk(child) for child in e.exceptions):
+            if any(_walk(child) for child in e.exceptions):  # type: ignore
                 return True
         return _walk(e.__cause__) or _walk(e.__context__)
 
@@ -438,10 +444,10 @@ async def test_unreachable_streamable_http_error_is_catchable() -> None:
         async with ClientSessionGroup() as group:
             try:
                 await group.connect_to_server(server_params)
-            except BaseException as inner:  # noqa: BLE001
+            except BaseException as inner:
                 # Expected post-fix: real ConnectError lands here.
                 caught = inner
-    except BaseException as outer:  # noqa: BLE001
+    except BaseException as outer:
         # If we land here, the error escaped past the inner handler --
         # that is the regression case (masking RuntimeError surfacing
         # from __aexit__ instead of the real ConnectError propagating).
