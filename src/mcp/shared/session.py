@@ -144,7 +144,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
         """Cancel this request and mark it as completed."""
         if not self._entered:
             raise RuntimeError("RequestResponder must be used as a context manager")
-        if not self._cancel_scope:
+        if not self._cancel_scope:  # pragma: no cover
             raise RuntimeError("No active cancel scope")
 
         self._cancel_scope.cancel()
