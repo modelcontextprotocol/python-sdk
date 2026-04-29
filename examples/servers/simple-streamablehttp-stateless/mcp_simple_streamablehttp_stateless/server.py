@@ -1,0 +1,116 @@
+import logging
+
+import anyio
+import click
+import uvicorn
+from mcp import types
+from mcp.server import Server, ServerRequestContext
+from starlette.middleware.cors import CORSMiddleware
+
+logger = logging.getLogger(__name__)
+
+
+async def handle_list_tools(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListToolsResult:
+    return types.ListToolsResult(
+        tools=[
+            types.Tool(
+                name="start-notification-stream",
+                description=("Sends a stream of notifications with configurable count and interval"),
+                input_schema={
+                    "type": "object",
+                    "required": ["interval", "count", "caller"],
+                    "properties": {
+                        "interval": {
+                            "type": "number",
+                            "description": "Interval between notifications in seconds",
+                        },
+                        "count": {
+                            "type": "number",
+                            "description": "Number of notifications to send",
+                        },
+                        "caller": {
+                            "type": "string",
+                            "description": ("Identifier of the caller to include in notifications"),
+                        },
+                    },
+                },
+            )
+        ]
+    )
+
+
+async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+    arguments = params.arguments or {}
+    interval = arguments.get("interval", 1.0)
+    count = arguments.get("count", 5)
+    caller = arguments.get("caller", "unknown")
+
+    # Send the specified number of notifications with the given interval
+    for i in range(count):
+        await ctx.session.send_log_message(
+            level="info",
+            data=f"Notification {i + 1}/{count} from caller: {caller}",
+            logger="notification_stream",
+            related_request_id=ctx.request_id,
+        )
+        if i < count - 1:  # Don't wait after the last notification
+            await anyio.sleep(interval)
+
+    return types.CallToolResult(
+        content=[
+            types.TextContent(
+                type="text",
+                text=(f"Sent {count} notifications with {interval}s interval for caller: {caller}"),
+            )
+        ]
+    )
+
+
+@click.command()
+@click.option("--port", default=3000, help="Port to listen on for HTTP")
+@click.option(
+    "--log-level",
+    default="INFO",
+    help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+)
+@click.option(
+    "--json-response",
+    is_flag=True,
+    default=False,
+    help="Enable JSON responses instead of SSE streams",
+)
+def main(
+    port: int,
+    log_level: str,
+    json_response: bool,
+) -> None:
+    # Configure logging
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    app = Server(
+        "mcp-streamable-http-stateless-demo",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+
+    starlette_app = app.streamable_http_app(
+        stateless_http=True,
+        json_response=json_response,
+        debug=True,
+    )
+
+    # Wrap ASGI application with CORS middleware to expose Mcp-Session-Id header
+    # for browser-based clients (ensures 500 errors get proper CORS headers)
+    starlette_app = CORSMiddleware(
+        starlette_app,
+        allow_origins=["*"],  # Note: streamable_http_app() enforces localhost-only Origin by default
+        allow_methods=["GET", "POST", "DELETE"],  # MCP streamable HTTP methods
+        expose_headers=["Mcp-Session-Id"],
+    )
+
+    uvicorn.run(starlette_app, host="127.0.0.1", port=port)

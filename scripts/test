@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -ex
+
+uv run --frozen coverage erase
+uv run --frozen coverage run -m pytest -n auto $@
+uv run --frozen coverage combine
+uv run --frozen coverage report
+# strict-no-cover spawns `uv run coverage json` internally without --frozen;
+# UV_FROZEN=1 propagates to that subprocess so it doesn't touch uv.lock.
+UV_FROZEN=1 uv run --frozen strict-no-cover

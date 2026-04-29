@@ -1,0 +1,69 @@
+fail_fast: true
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        types_or: [yaml, json5]
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.45.0
+    hooks:
+      - id: markdownlint
+        args:
+          [
+            "--fix",
+            "--config",
+            "pyproject.toml",
+            "--configPointer",
+            "/tool/markdown/lint",
+          ]
+        types: [markdown]
+
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: Ruff Format
+        entry: uv run --frozen ruff
+        args: [format]
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: ruff
+        name: Ruff
+        entry: uv run --frozen ruff
+        args: ["check", "--fix", "--exit-non-zero-on-fix"]
+        types: [python]
+        language: system
+        pass_filenames: false
+        exclude: ^README(\.v2)?\.md$
+      - id: pyright
+        name: pyright
+        entry: uv run --frozen pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: uv-lock-check
+        name: Check uv.lock is up to date
+        entry: uv lock --check
+        language: system
+        files: ^(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+      # TODO(Max): Drop this in v2.
+      - id: readme-v1-frozen
+        name: README.md is frozen (v1 docs)
+        entry: README.md is frozen at v1. Edit README.v2.md instead.
+        language: fail
+        files: ^README\.md$
+      - id: readme-snippets
+        name: Check README snippets are up to date
+        entry: uv run --frozen python scripts/update_readme_snippets.py --check
+        language: system
+        files: ^(README\.v2\.md|examples/.*\.py|scripts/update_readme_snippets\.py)$
+        pass_filenames: false
