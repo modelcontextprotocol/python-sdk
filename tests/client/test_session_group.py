@@ -402,7 +402,7 @@ async def test_client_session_group_streamable_http_connect_error_is_catchable()
     group = ClientSessionGroup()
     async with group:
         with mock.patch("mcp.client.session_group.create_mcp_http_client", side_effect=mock_client_factory):
-            with pytest.raises(MCPError, match="Transport error: All connection attempts failed"):
+            with pytest.raises(MCPError, match="Transport error: All connection attempts failed"):  # pragma: no branch
                 await group.connect_to_server(StreamableHttpParameters(url="http://localhost:3001/mcp/"))
 
     assert group.sessions == []

@@ -162,7 +162,9 @@ async def test_transport_error_sends_jsonrpc_error() -> None:
     async with httpx.AsyncClient(transport=httpx.MockTransport(raise_connect_error)) as client:
         async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
-                with pytest.raises(MCPError, match="Transport error: All connection attempts failed"):
+                with pytest.raises(
+                    MCPError, match="Transport error: All connection attempts failed"
+                ):  # pragma: no branch
                     await session.initialize()
 
 
