@@ -31,11 +31,11 @@ class _Lifespan:
 
 @pytest.mark.anyio
 async def test_context_exposes_lifespan_and_connection_and_forwards_base_context():
-    captured: list[Context[_Lifespan, TransportContext]] = []
+    captured: list[Context[_Lifespan]] = []
     conn = Connection.__new__(Connection)  # placeholder until running_pair gives us the dispatcher
 
     async def server_on_request(dctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        ctx: Context[_Lifespan, TransportContext] = Context(dctx, lifespan=_Lifespan("app"), connection=conn)
+        ctx: Context[_Lifespan] = Context(dctx, lifespan=_Lifespan("app"), connection=conn)
         captured.append(ctx)
         return {}
 
@@ -62,7 +62,7 @@ async def test_context_sample_round_trips_via_peer_mixin_on_base_context_outboun
     results: list[CreateMessageResult] = []
 
     async def server_on_request(dctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        ctx: Context[_Lifespan, TransportContext] = Context(
+        ctx: Context[_Lifespan] = Context(
             dctx, lifespan=_Lifespan("app"), connection=Connection(dctx, has_standalone_channel=True)
         )
         results.append(
@@ -92,7 +92,7 @@ async def test_context_send_request_with_spec_type_infers_result_via_typed_mixin
     results: list[ListRootsResult] = []
 
     async def server_on_request(dctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        ctx: Context[_Lifespan, TransportContext] = Context(
+        ctx: Context[_Lifespan] = Context(
             dctx, lifespan=_Lifespan("app"), connection=Connection(dctx, has_standalone_channel=True)
         )
         results.append(await ctx.send_request(ListRootsRequest()))
@@ -113,7 +113,7 @@ async def test_context_log_sends_request_scoped_message_notification():
     _, c_notify = echo_handlers(crec)
 
     async def server_on_request(dctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        ctx: Context[_Lifespan, TransportContext] = Context(
+        ctx: Context[_Lifespan] = Context(
             dctx, lifespan=_Lifespan("app"), connection=Connection(dctx, has_standalone_channel=True)
         )
         await ctx.log("debug", "hello")
@@ -137,7 +137,7 @@ async def test_context_log_includes_logger_and_meta_when_supplied():
     _, c_notify = echo_handlers(crec)
 
     async def server_on_request(dctx: DCtx, method: str, params: Mapping[str, Any] | None) -> dict[str, Any]:
-        ctx: Context[_Lifespan, TransportContext] = Context(
+        ctx: Context[_Lifespan] = Context(
             dctx, lifespan=_Lifespan("app"), connection=Connection(dctx, has_standalone_channel=True)
         )
         await ctx.log("info", "x", logger="my.log", meta={"traceId": "t"})

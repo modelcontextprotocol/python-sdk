@@ -41,11 +41,13 @@ import logging
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
 from importlib.metadata import version as importlib_version
 from typing import Any, Generic, cast
 
 import anyio
 from opentelemetry.trace import SpanKind, StatusCode
+from pydantic import BaseModel
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -58,7 +60,7 @@ from mcp.server.auth.middleware.bearer_auth import BearerAuthBackend, RequireAut
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, TokenVerifier
 from mcp.server.auth.routes import build_resource_metadata_url, create_auth_routes, create_protected_resource_routes
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.context import ContextMiddleware, ServerRequestContext
+from mcp.server.context import HandlerResult, ServerMiddleware, ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.lowlevel.experimental import ExperimentalHandlers
 from mcp.server.models import InitializationOptions
@@ -76,6 +78,30 @@ logger = logging.getLogger(__name__)
 
 LifespanResultT = TypeVar("LifespanResultT", default=Any)
 
+_ParamsT = TypeVar("_ParamsT", bound=BaseModel, default=BaseModel)
+
+RequestHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[HandlerResult]]
+"""A registered request handler: ``(ctx, params) -> result``."""
+
+NotificationHandler = Callable[[ServerRequestContext[LifespanResultT], _ParamsT], Awaitable[None]]
+"""A registered notification handler: ``(ctx, params) -> None``."""
+
+
+@dataclass(frozen=True, slots=True)
+class HandlerEntry(Generic[LifespanResultT]):
+    """A registered handler and the params model to validate incoming params against.
+
+    Stored in `Server._request_handlers` / `_notification_handlers` and consumed
+    by `ServerRunner` to validate, build `Context`, and invoke. The handler's
+    second-argument type is erased to ``Any`` in storage (each entry has a
+    different concrete params type and `Callable` parameters are contravariant);
+    the precise type is recoverable via `params_type`. The correlation is
+    enforced at registration time by `Server.add_request_handler`.
+    """
+
+    params_type: type[BaseModel]
+    handler: RequestHandler[LifespanResultT, Any]
+
 
 class NotificationOptions:
     def __init__(self, prompts_changed: bool = False, resources_changed: bool = False, tools_changed: bool = False):
@@ -85,7 +111,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
+async def lifespan(_: Server[Any]) -> AsyncIterator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
 
     Returns:
@@ -109,6 +135,8 @@ class Server(Generic[LifespanResultT]):
         instructions: str | None = None,
         website_url: str | None = None,
         icons: list[types.Icon] | None = None,
+        notification_options: NotificationOptions | None = None,
+        experimental_capabilities: dict[str, dict[str, Any]] | None = None,
         lifespan: Callable[
             [Server[LifespanResultT]],
             AbstractAsyncContextManager[LifespanResultT],
@@ -193,57 +221,77 @@ class Server(Generic[LifespanResultT]):
         self.website_url = website_url
         self.icons = icons
         self.lifespan = lifespan
-        self._request_handlers: dict[str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]]] = {}
-        self._notification_handlers: dict[
-            str, Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[None]]
-        ] = {}
+        self._notification_options = notification_options or NotificationOptions()
+        self._experimental_capabilities = experimental_capabilities or {}
+        self._request_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
+        self._notification_handlers: dict[str, HandlerEntry[LifespanResultT]] = {}
         self._experimental_handlers: ExperimentalHandlers[LifespanResultT] | None = None
         self._session_manager: StreamableHTTPSessionManager | None = None
         # Context-tier middleware consumed by `ServerRunner`. Additive; the
         # existing `run()` path ignores it.
-        self.middleware: list[ContextMiddleware[LifespanResultT]] = []
+        self.middleware: list[ServerMiddleware[LifespanResultT]] = []
         logger.debug("Initializing server %r", name)
 
-        # Populate internal handler dicts from on_* kwargs
-        self._request_handlers.update(
-            {
-                method: handler
-                for method, handler in {
-                    "ping": on_ping,
-                    "prompts/list": on_list_prompts,
-                    "prompts/get": on_get_prompt,
-                    "resources/list": on_list_resources,
-                    "resources/templates/list": on_list_resource_templates,
-                    "resources/read": on_read_resource,
-                    "resources/subscribe": on_subscribe_resource,
-                    "resources/unsubscribe": on_unsubscribe_resource,
-                    "tools/list": on_list_tools,
-                    "tools/call": on_call_tool,
-                    "logging/setLevel": on_set_logging_level,
-                    "completion/complete": on_completion,
-                }.items()
-                if handler is not None
-            }
+        _spec_requests: list[tuple[str, type[BaseModel], RequestHandler[LifespanResultT, Any] | None]] = [
+            ("ping", types.RequestParams, on_ping),
+            ("prompts/list", types.PaginatedRequestParams, on_list_prompts),
+            ("prompts/get", types.GetPromptRequestParams, on_get_prompt),
+            ("resources/list", types.PaginatedRequestParams, on_list_resources),
+            ("resources/templates/list", types.PaginatedRequestParams, on_list_resource_templates),
+            ("resources/read", types.ReadResourceRequestParams, on_read_resource),
+            ("resources/subscribe", types.SubscribeRequestParams, on_subscribe_resource),
+            ("resources/unsubscribe", types.UnsubscribeRequestParams, on_unsubscribe_resource),
+            ("tools/list", types.PaginatedRequestParams, on_list_tools),
+            ("tools/call", types.CallToolRequestParams, on_call_tool),
+            ("logging/setLevel", types.SetLevelRequestParams, on_set_logging_level),
+            ("completion/complete", types.CompleteRequestParams, on_completion),
+        ]
+        self._request_handlers.update({m: HandlerEntry(pt, h) for m, pt, h in _spec_requests if h is not None})
+
+        _spec_notifications: list[tuple[str, type[BaseModel], NotificationHandler[LifespanResultT, Any] | None]] = [
+            ("notifications/roots/list_changed", types.NotificationParams, on_roots_list_changed),
+            ("notifications/progress", types.ProgressNotificationParams, on_progress),
+        ]
+        self._notification_handlers.update(
+            {m: HandlerEntry(pt, h) for m, pt, h in _spec_notifications if h is not None}
         )
 
-        self._notification_handlers.update(
-            {
-                method: handler
-                for method, handler in {
-                    "notifications/roots/list_changed": on_roots_list_changed,
-                    "notifications/progress": on_progress,
-                }.items()
-                if handler is not None
-            }
-        )
+    def add_request_handler(
+        self,
+        method: str,
+        params_type: type[_ParamsT],
+        handler: RequestHandler[LifespanResultT, _ParamsT],
+    ) -> None:
+        """Register a request handler for ``method``.
+
+        ``params_type`` is the model incoming params are validated against
+        before the handler is invoked. It should subclass `RequestParams` so
+        ``_meta`` parses uniformly. Replaces any existing handler for the same
+        method (no collision guard against spec methods).
+        """
+        self._request_handlers[method] = HandlerEntry(params_type, handler)
+
+    def add_notification_handler(
+        self,
+        method: str,
+        params_type: type[_ParamsT],
+        handler: NotificationHandler[LifespanResultT, _ParamsT],
+    ) -> None:
+        """Register a notification handler for ``method``.
+
+        ``params_type`` should subclass `NotificationParams` so ``_meta``
+        parses uniformly. Replaces any existing handler.
+        """
+        self._notification_handlers[method] = HandlerEntry(params_type, handler)
 
     def _add_request_handler(
         self,
         method: str,
-        handler: Callable[[ServerRequestContext[LifespanResultT], Any], Awaitable[Any]],
+        handler: RequestHandler[LifespanResultT, Any],
     ) -> None:
-        """Add a request handler, silently replacing any existing handler for the same method."""
-        self._request_handlers[method] = handler
+        # TODO: remove once experimental tasks plumbing and remaining callers
+        # migrate to `add_request_handler` with an explicit params_type.
+        self.add_request_handler(method, types.RequestParams, handler)
 
     def _has_handler(self, method: str) -> bool:
         """Check if a handler is registered for the given method."""
@@ -251,13 +299,17 @@ class Server(Generic[LifespanResultT]):
 
     # --- ServerRegistry protocol (consumed by ServerRunner) ------------------
 
-    def get_request_handler(self, method: str) -> Callable[..., Awaitable[Any]] | None:
-        """Return the handler for a request method, or ``None``."""
+    def get_request_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
+        """Return the registered entry for a request method, or ``None``."""
         return self._request_handlers.get(method)
 
-    def get_notification_handler(self, method: str) -> Callable[..., Awaitable[Any]] | None:
-        """Return the handler for a notification method, or ``None``."""
+    def get_notification_handler(self, method: str) -> HandlerEntry[LifespanResultT] | None:
+        """Return the registered entry for a notification method, or ``None``."""
         return self._notification_handlers.get(method)
+
+    def capabilities(self) -> types.ServerCapabilities:
+        """Derive `ServerCapabilities` from registered handlers and constructor options."""
+        return self.get_capabilities(self._notification_options, self._experimental_capabilities)
 
     # TODO: Rethink capabilities API. Currently capabilities are derived from registered
     # handlers but require NotificationOptions to be passed externally for list_changed
@@ -474,7 +526,8 @@ class Server(Generic[LifespanResultT]):
             attributes={"mcp.method.name": req.method, "jsonrpc.request.id": message.request_id},
             context=parent_context,
         ) as span:
-            if handler := self._request_handlers.get(req.method):
+            if entry := self._request_handlers.get(req.method):
+                handler = entry.handler
                 logger.debug("Dispatching request of type %s", type(req).__name__)
 
                 try:
@@ -533,7 +586,8 @@ class Server(Generic[LifespanResultT]):
                 span.set_status(StatusCode.ERROR, response.message)
 
             try:
-                await message.respond(response)
+                # TODO: cast goes away when `_handle_request` is deleted.
+                await message.respond(cast(types.ServerResult | types.ErrorData, response))
             except (anyio.BrokenResourceError, anyio.ClosedResourceError):
                 # Transport closed between handler unblocking and respond. Happens
                 # when _receive_loop's finally wakes a handler blocked on
@@ -552,7 +606,8 @@ class Server(Generic[LifespanResultT]):
         session: ServerSession,
         lifespan_context: LifespanResultT,
     ) -> None:
-        if handler := self._notification_handlers.get(notify.method):
+        if entry := self._notification_handlers.get(notify.method):
+            handler = entry.handler
             logger.debug("Dispatching notification of type %s", type(notify).__name__)
 
             try:

@@ -33,10 +33,9 @@ class ServerRequestContext(RequestContext[ServerSession], Generic[LifespanContex
 
 
 LifespanT = TypeVar("LifespanT", default=Any, covariant=True)
-TransportT = TypeVar("TransportT", bound=TransportContext, default=TransportContext, covariant=True)
 
 
-class Context(BaseContext[TransportT], PeerMixin, TypedServerRequestMixin, Generic[LifespanT, TransportT]):
+class Context(BaseContext[TransportContext], PeerMixin, TypedServerRequestMixin, Generic[LifespanT]):
     """Server-side per-request context.
 
     Composes `BaseContext` (forwards to `DispatchContext`, satisfies `Outbound`),
@@ -50,7 +49,7 @@ class Context(BaseContext[TransportT], PeerMixin, TypedServerRequestMixin, Gener
 
     def __init__(
         self,
-        dctx: DispatchContext[TransportT],
+        dctx: DispatchContext[TransportContext],
         *,
         lifespan: LifespanT,
         connection: Connection,
@@ -94,7 +93,7 @@ CallNext = Callable[[], Awaitable[HandlerResult]]
 _MwLifespanT = TypeVar("_MwLifespanT", contravariant=True)
 
 
-class ContextMiddleware(Protocol[_MwLifespanT]):
+class ServerMiddleware(Protocol[_MwLifespanT]):
     """Context-tier middleware: ``(ctx, method, typed_params, call_next) -> result``.
 
     Runs *inside* `ServerRunner._on_request` after params validation and
@@ -102,15 +101,15 @@ class ContextMiddleware(Protocol[_MwLifespanT]):
     not ``initialize``, ``METHOD_NOT_FOUND``, or validation failures. Listed
     outermost-first on `Server.middleware`.
 
-    `Server[L].middleware` holds `ContextMiddleware[L]`, so an app-specific
-    middleware sees `ctx.lifespan: L`. A reusable middleware (no app-specific
-    types) can be typed `ContextMiddleware[object]` — `Context` is covariant in
-    `LifespanT`, so it registers on any `Server[L]`.
+    `Server[L].middleware` holds `ServerMiddleware[L]`, so an app-specific
+    middleware sees `ctx.lifespan: L`. A reusable middleware can be typed
+    `ServerMiddleware[object]` — `Context` is covariant in `LifespanT`, so it
+    registers on any `Server[L]`.
     """
 
     async def __call__(
         self,
-        ctx: Context[_MwLifespanT, TransportContext],
+        ctx: Context[_MwLifespanT],
         method: str,
         params: BaseModel,
         call_next: CallNext,
