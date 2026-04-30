@@ -113,6 +113,10 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
         Returns:
             The resource content as either text or bytes
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If template creation or resource reading fails.
         """
         assert self._mcp_server is not None, "Context is not available outside of a request"
         return await self._mcp_server.read_resource(uri, self)
