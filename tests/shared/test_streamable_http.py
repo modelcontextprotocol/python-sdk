@@ -26,6 +26,7 @@ from starlette.routing import Mount
 
 import mcp.types as types
 from mcp.client.session import ClientSession
+from mcp.client.streamable_http import RequestContext as ClientRequestContext
 from mcp.client.streamable_http import (
     StreamableHTTPTransport,
     streamable_http_client,
@@ -1893,6 +1894,56 @@ async def test_close_sse_stream_callback_not_provided_for_old_protocol_version()
     assert isinstance(session_msg_new.metadata, ServerMessageMetadata)
     assert session_msg_new.metadata.close_sse_stream is not None
     assert session_msg_new.metadata.close_standalone_sse_stream is not None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio", "trio"])
+async def test_post_writer_dispatches_each_concurrent_request_once(
+    anyio_backend: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: post_writer must dispatch each concurrent request exactly once.
+
+    Previously the loop body created a closure over the loop variable ctx and
+    passed it to tg.start_soon. Under trio, the loop could rebind ctx before the
+    spawned task ran, so one request was sent twice and another never sent. The
+    dropped request's caller then waits until timeout.
+    """
+    transport = StreamableHTTPTransport(url="http://localhost:8000/mcp")
+
+    n = 4
+    posted_ids: list[str | int] = []
+    all_posted = anyio.Event()
+
+    async def fake_post(self: StreamableHTTPTransport, ctx: ClientRequestContext) -> None:
+        request = ctx.session_message.message.root
+        assert isinstance(request, JSONRPCRequest)
+        posted_ids.append(request.id)
+        if len(posted_ids) == n:
+            all_posted.set()
+
+    monkeypatch.setattr(StreamableHTTPTransport, "_handle_post_request", fake_post)
+
+    write_send, write_recv = anyio.create_memory_object_stream[SessionMessage](n)
+    read_send, read_recv = anyio.create_memory_object_stream[SessionMessage | Exception](n)
+
+    async with httpx.AsyncClient() as client, anyio.create_task_group() as tg:
+        tg.start_soon(transport.post_writer, client, write_recv, read_send, write_send, lambda: None, tg)
+
+        async def send_one(i: int) -> None:
+            msg = JSONRPCMessage(root=JSONRPCRequest(jsonrpc="2.0", id=i, method="resources/read"))
+            await write_send.send(SessionMessage(message=msg))
+
+        async with anyio.create_task_group() as senders:
+            for i in range(n):
+                senders.start_soon(send_one, i)
+
+        with anyio.fail_after(5):
+            await all_posted.wait()
+
+        await write_send.aclose()
+
+    await read_recv.aclose()
+    assert sorted(posted_ids) == list(range(n))
 
 
 @pytest.mark.anyio

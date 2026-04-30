@@ -558,17 +558,13 @@ class StreamableHTTPTransport:
                         read_stream_writer=read_stream_writer,
                     )
 
-                    async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                    handler = self._handle_resumption_request if is_resumption else self._handle_post_request
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message.root, JSONRPCRequest):
-                        tg.start_soon(handle_request_async)
+                        tg.start_soon(handler, ctx)
                     else:
-                        await handle_request_async()
+                        await handler(ctx)
 
         except Exception:
             logger.exception("Error in post_writer")  # pragma: no cover
