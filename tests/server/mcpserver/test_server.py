@@ -751,36 +751,6 @@ class TestServerResources:
             with pytest.raises(MCPError, match="Error reading resource resource://failing"):
                 await client.read_resource("resource://failing")
 
-    async def test_read_resource_template_error(self):
-        """Template-creation failure must surface as INTERNAL_ERROR, not INVALID_PARAMS (not-found)."""
-        mcp = MCPServer()
-
-        @mcp.resource("resource://item/{item_id}")
-        def get_item(item_id: str) -> str:
-            raise RuntimeError("backend unavailable")
-
-        async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="Error creating resource from template") as exc_info:
-                await client.read_resource("resource://item/42")
-
-            assert exc_info.value.error.code == INTERNAL_ERROR
-            assert exc_info.value.error.code != INVALID_PARAMS
-
-    async def test_read_resource_template_not_found(self):
-        """A template handler raising ResourceNotFoundError must surface as INVALID_PARAMS per SEP-2164."""
-        mcp = MCPServer()
-
-        @mcp.resource("resource://users/{user_id}")
-        def get_user(user_id: str) -> str:
-            raise ResourceNotFoundError(f"no user {user_id}")
-
-        async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="no user 999") as exc_info:
-                await client.read_resource("resource://users/999")
-
-            assert exc_info.value.error.code == INVALID_PARAMS
-            assert exc_info.value.error.data == {"uri": "resource://users/999"}
-
     async def test_binary_resource(self):
         mcp = MCPServer()
 
@@ -1551,3 +1521,35 @@ async def test_report_progress_passes_related_request_id():
         message="halfway",
         related_request_id="req-abc-123",
     )
+
+
+async def test_read_resource_template_error():
+    """Template-creation failure must surface as INTERNAL_ERROR, not INVALID_PARAMS (not-found)."""
+    mcp = MCPServer()
+
+    @mcp.resource("resource://item/{item_id}")
+    def get_item(item_id: str) -> str:
+        raise RuntimeError("backend unavailable")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="Error creating resource from template") as exc_info:
+            await client.read_resource("resource://item/42")
+
+        assert exc_info.value.error.code == INTERNAL_ERROR
+        assert exc_info.value.error.code != INVALID_PARAMS
+
+
+async def test_read_resource_template_not_found():
+    """A template handler raising ResourceNotFoundError must surface as INVALID_PARAMS per SEP-2164."""
+    mcp = MCPServer()
+
+    @mcp.resource("resource://users/{user_id}")
+    def get_user(user_id: str) -> str:
+        raise ResourceNotFoundError(f"no user {user_id}")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="no user 999") as exc_info:
+            await client.read_resource("resource://users/999")
+
+        assert exc_info.value.error.code == INVALID_PARAMS
+        assert exc_info.value.error.data == {"uri": "resource://users/999"}

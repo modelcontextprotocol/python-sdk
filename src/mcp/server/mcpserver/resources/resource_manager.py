@@ -80,7 +80,12 @@ class ResourceManager:
         return template
 
     async def get_resource(self, uri: AnyUrl | str, context: Context[LifespanContextT, RequestT]) -> Resource:
-        """Get resource by URI, checking concrete resources first, then templates."""
+        """Get resource by URI, checking concrete resources first, then templates.
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If a matching template fails to create the resource.
+        """
         uri_str = str(uri)
         logger.debug("Getting resource", extra={"uri": uri_str})
 

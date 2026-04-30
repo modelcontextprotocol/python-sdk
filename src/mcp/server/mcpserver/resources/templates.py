@@ -15,8 +15,11 @@ from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.server.mcpserver.resources.types import FunctionResource, Resource
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.logging import get_logger
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.types import Annotations, Icon
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from mcp.server.context import LifespanContextT, RequestT
@@ -133,4 +136,5 @@ class ResourceTemplate(BaseModel):
         except ResourceError:
             raise
         except Exception as e:
-            raise ResourceError(f"Error creating resource from template: {e}")
+            logger.exception("Error creating resource from template")
+            raise ResourceError(f"Error creating resource from template: {e}") from e
