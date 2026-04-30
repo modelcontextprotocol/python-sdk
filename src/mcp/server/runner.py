@@ -10,17 +10,16 @@ typed params). One instance per client connection. It:
   `Context`, runs the middleware chain, returns the result dict
 * drives ``dispatcher.run()`` and the per-connection lifespan
 
-`ServerRunner` consumes any `ServerRegistry` — the lowlevel `Server` satisfies
-it via additive methods so the existing ``Server.run()`` path is unaffected.
+`ServerRunner` holds a `Server` directly — `Server` is the registry.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial, reduce
-from typing import Any, Generic, Protocol, cast
+from typing import Any, Generic, cast
 
 import anyio.abc
 from opentelemetry.trace import SpanKind, StatusCode
@@ -28,8 +27,8 @@ from pydantic import BaseModel
 from typing_extensions import TypeVar
 
 from mcp.server.connection import Connection
-from mcp.server.context import CallNext, Context, ContextMiddleware
-from mcp.server.lowlevel.server import NotificationOptions
+from mcp.server.context import CallNext, Context, ServerMiddleware
+from mcp.server.lowlevel.server import Server
 from mcp.shared._otel import extract_trace_context, otel_span
 from mcp.shared.dispatcher import DispatchContext, Dispatcher, DispatchMiddleware, OnRequest
 from mcp.shared.exceptions import MCPError
@@ -38,86 +37,19 @@ from mcp.types import (
     INVALID_REQUEST,
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
-    CallToolRequestParams,
-    CompleteRequestParams,
-    GetPromptRequestParams,
     Implementation,
     InitializeRequestParams,
     InitializeResult,
-    NotificationParams,
-    PaginatedRequestParams,
-    ProgressNotificationParams,
-    ReadResourceRequestParams,
-    RequestParams,
-    ServerCapabilities,
-    SetLevelRequestParams,
-    SubscribeRequestParams,
-    UnsubscribeRequestParams,
 )
 
-__all__ = ["CallNext", "ContextMiddleware", "ServerRegistry", "ServerRunner", "otel_middleware"]
+__all__ = ["CallNext", "ServerMiddleware", "ServerRunner", "otel_middleware"]
 
 logger = logging.getLogger(__name__)
 
 LifespanT = TypeVar("LifespanT", default=Any)
-ServerTransportT = TypeVar("ServerTransportT", bound=TransportContext, default=TransportContext)
-
-Handler = Callable[..., Awaitable[Any]]
-"""A request/notification handler: ``(ctx, params) -> result``. Typed loosely
-so the existing `ServerRequestContext`-based handlers and the new
-`Context`-based handlers both fit during the transition.
-"""
 
 
 _INIT_EXEMPT: frozenset[str] = frozenset({"ping"})
-
-# TODO: remove this lookup once `Server` stores (params_type, handler) in its
-# registry directly. This is scaffolding so ServerRunner can validate params
-# without changing the existing `_request_handlers` dict shape.
-_PARAMS_FOR_METHOD: dict[str, type[BaseModel]] = {
-    "ping": RequestParams,
-    "tools/list": PaginatedRequestParams,
-    "tools/call": CallToolRequestParams,
-    "prompts/list": PaginatedRequestParams,
-    "prompts/get": GetPromptRequestParams,
-    "resources/list": PaginatedRequestParams,
-    "resources/templates/list": PaginatedRequestParams,
-    "resources/read": ReadResourceRequestParams,
-    "resources/subscribe": SubscribeRequestParams,
-    "resources/unsubscribe": UnsubscribeRequestParams,
-    "logging/setLevel": SetLevelRequestParams,
-    "completion/complete": CompleteRequestParams,
-}
-"""Spec method → params model. Scaffolding while the lowlevel `Server`'s
-`_request_handlers` stores handler-only; the registry refactor should make this
-the registry's responsibility (or store params types alongside handlers)."""
-
-_PARAMS_FOR_NOTIFICATION: dict[str, type[BaseModel]] = {
-    "notifications/initialized": NotificationParams,
-    "notifications/roots/list_changed": NotificationParams,
-    "notifications/progress": ProgressNotificationParams,
-}
-
-
-class ServerRegistry(Protocol):
-    """The handler registry `ServerRunner` consumes.
-
-    The lowlevel `Server` satisfies this via additive methods.
-    """
-
-    @property
-    def name(self) -> str: ...
-    @property
-    def version(self) -> str | None: ...
-
-    @property
-    def middleware(self) -> Sequence[ContextMiddleware[Any]]: ...
-
-    def get_request_handler(self, method: str) -> Handler | None: ...
-    def get_notification_handler(self, method: str) -> Handler | None: ...
-    def get_capabilities(
-        self, notification_options: Any, experimental_capabilities: dict[str, dict[str, Any]]
-    ) -> ServerCapabilities: ...
 
 
 def otel_middleware(next_on_request: OnRequest) -> OnRequest:
@@ -177,11 +109,11 @@ def _dump_result(result: Any) -> dict[str, Any]:
 
 
 @dataclass
-class ServerRunner(Generic[LifespanT, ServerTransportT]):
+class ServerRunner(Generic[LifespanT]):
     """Per-connection orchestrator. One instance per client connection."""
 
-    server: ServerRegistry
-    dispatcher: Dispatcher[ServerTransportT]
+    server: Server[LifespanT]
+    dispatcher: Dispatcher[TransportContext]
     lifespan_state: LifespanT
     has_standalone_channel: bool
     stateless: bool = False
@@ -227,17 +159,15 @@ class ServerRunner(Generic[LifespanT, ServerTransportT]):
                 code=INVALID_REQUEST,
                 message=f"Received {method!r} before initialization was complete",
             )
-        handler = self.server.get_request_handler(method)
-        if handler is None:
+        entry = self.server.get_request_handler(method)
+        if entry is None:
             raise MCPError(code=METHOD_NOT_FOUND, message=f"Method not found: {method}")
-        # TODO: scaffolding — params_type comes from a static lookup until the
-        # registry stores it alongside the handler.
-        params_type = _PARAMS_FOR_METHOD.get(method, RequestParams)
         # ValidationError propagates; the dispatcher's exception boundary maps
         # it to INVALID_PARAMS.
-        typed_params = params_type.model_validate(params or {})
+        typed_params = entry.params_type.model_validate(params or {})
         ctx = self._make_context(dctx, typed_params)
-        call: CallNext = partial(handler, ctx, typed_params)
+        # TODO: cast goes away when `ServerRequestContext = Context` lands.
+        call: CallNext = partial(cast(Any, entry.handler), ctx, typed_params)
         for mw in reversed(self.server.middleware):
             call = partial(mw, ctx, method, typed_params, call)
         return _dump_result(await call())
@@ -255,24 +185,18 @@ class ServerRunner(Generic[LifespanT, ServerTransportT]):
         if not self._initialized:
             logger.debug("dropped %s: received before initialization", method)
             return
-        handler = self.server.get_notification_handler(method)
-        if handler is None:
+        entry = self.server.get_notification_handler(method)
+        if entry is None:
             logger.debug("no handler for notification %s", method)
             return
-        params_type = _PARAMS_FOR_NOTIFICATION.get(method, NotificationParams)
-        typed_params = params_type.model_validate(params or {})
+        typed_params = entry.params_type.model_validate(params or {})
         ctx = self._make_context(dctx, typed_params)
-        await handler(ctx, typed_params)
+        # TODO: cast goes away when `ServerRequestContext = Context` lands.
+        await cast(Any, entry.handler)(ctx, typed_params)
 
-    def _make_context(
-        self, dctx: DispatchContext[TransportContext], typed_params: BaseModel
-    ) -> Context[LifespanT, ServerTransportT]:
-        # `OnRequest` delivers `DispatchContext[TransportContext]`; this
-        # ServerRunner instance was constructed for a specific
-        # `ServerTransportT`, so the narrow is safe by construction.
-        narrowed = cast(DispatchContext[ServerTransportT], dctx)
+    def _make_context(self, dctx: DispatchContext[TransportContext], typed_params: BaseModel) -> Context[LifespanT]:
         meta = getattr(typed_params, "meta", None)
-        return Context(narrowed, lifespan=self.lifespan_state, connection=self.connection, meta=meta)
+        return Context(dctx, lifespan=self.lifespan_state, connection=self.connection, meta=meta)
 
     def _handle_initialize(self, params: Mapping[str, Any] | None) -> dict[str, Any]:
         init = InitializeRequestParams.model_validate(params or {})
@@ -289,7 +213,7 @@ class ServerRunner(Generic[LifespanT, ServerTransportT]):
         self.connection.initialized.set()
         result = InitializeResult(
             protocol_version=self.connection.protocol_version,
-            capabilities=self.server.get_capabilities(NotificationOptions(), {}),
+            capabilities=self.server.capabilities(),
             server_info=Implementation(name=self.server.name, version=self.server.version or "0.0.0"),
         )
         return _dump_result(result)
