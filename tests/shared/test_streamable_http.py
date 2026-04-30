@@ -2242,13 +2242,13 @@ async def test_streamable_http_client_does_not_mutate_provided_client(
         # Verify client headers were not mutated with MCP protocol headers
         # If accept header exists, it should still be httpx default, not MCP's
         if "accept" in custom_client.headers:  # pragma: no branch
-            assert custom_client.headers.get("accept") == "*/*"
+            assert custom_client.headers.get("accept") == "*/*"  # pragma: lax no cover
         # MCP content-type should not have been added
-        assert custom_client.headers.get("content-type") != "application/json"
+        assert custom_client.headers.get("content-type") != "application/json"  # pragma: lax no cover
 
         # Verify custom headers are still present and unchanged
-        assert custom_client.headers.get("X-Custom-Header") == "custom-value"
-        assert custom_client.headers.get("Authorization") == "Bearer test-token"
+        assert custom_client.headers.get("X-Custom-Header") == "custom-value"  # pragma: lax no cover
+        assert custom_client.headers.get("Authorization") == "Bearer test-token"  # pragma: lax no cover
 
 
 @pytest.mark.anyio

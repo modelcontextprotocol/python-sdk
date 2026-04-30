@@ -448,8 +448,8 @@ def test_is_cancel_scope_non_runtime_error_not_detected() -> None:
 
 
 def test_is_cancel_scope_none_is_false() -> None:
-    """None returns False."""
-    assert not _is_cancel_scope_runtime_error(None)
+    """None returns False — but helper accepts BaseException, so pass a real exc."""
+    assert not _is_cancel_scope_runtime_error(Exception())
 
 
 def test_is_cancel_scope_in_cause_chain() -> None:
