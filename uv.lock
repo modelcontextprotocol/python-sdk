@@ -1056,6 +1056,7 @@ name = "mcp-simple-chatbot"
 version = "0.1.0"
 source = { editable = "examples/clients/simple-chatbot" }
 dependencies = [
+    { name = "httpx" },
     { name = "mcp" },
     { name = "python-dotenv" },
     { name = "uvicorn" },
@@ -1070,6 +1071,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", editable = "." },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "uvicorn", specifier = ">=0.32.1" },
