@@ -1,5 +1,14 @@
+from __future__ import annotations
+
 import contextlib
+import socket
+import sys
 from unittest import mock
+
+if sys.version_info < (3, 11):  # pragma: lax no cover
+    from exceptiongroup import BaseExceptionGroup
+else:  # pragma: lax no cover
+    BaseExceptionGroup = ExceptionGroup  # type: ignore # noqa: F821
 
 import httpx
 import pytest
@@ -385,3 +394,165 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+def _free_tcp_port() -> int:
+    """Return a TCP port number not currently bound on localhost.
+
+    A small race window exists between this returning and the test
+    using the port, but it is acceptable here: the test only requires
+    that no streamable-http MCP server be listening at connect time.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _is_cancel_scope_runtime_error(exc: BaseException) -> bool:
+    """Walk *exc* and its cause/context/group chain looking for the
+    ``Attempted to exit cancel scope in a different task`` RuntimeError
+    that previously masked underlying connection errors (issue #915).
+    """
+    seen: set[int] = set()
+
+    def _walk(e: BaseException | None) -> bool:
+        if e is None or id(e) in seen:
+            return False
+        seen.add(id(e))
+        if isinstance(e, RuntimeError) and "cancel scope" in str(e).lower():
+            return True
+        if isinstance(e, BaseExceptionGroup):
+            if any(_walk(child) for child in e.exceptions):  # type: ignore
+                return True
+        return _walk(e.__cause__) or _walk(e.__context__)
+
+    return _walk(exc)
+
+
+def test_is_cancel_scope_direct_runtime_error() -> None:
+    """A bare RuntimeError mentioning 'cancel scope' is detected."""
+    exc = RuntimeError("Attempted to exit cancel scope in a different task")
+    assert _is_cancel_scope_runtime_error(exc)
+
+
+def test_is_cancel_scope_other_runtime_error_not_detected() -> None:
+    """A RuntimeError that doesn't mention cancel scope is not flagged."""
+    exc = RuntimeError("some unrelated error")
+    assert not _is_cancel_scope_runtime_error(exc)
+
+
+def test_is_cancel_scope_non_runtime_error_not_detected() -> None:
+    """A non-RuntimeError is never flagged as a cancel scope error."""
+    exc = ValueError("not a runtime error")
+    assert not _is_cancel_scope_runtime_error(exc)
+
+
+def test_is_cancel_scope_none_is_false() -> None:
+    """None returns False — but helper accepts BaseException, so pass a real exc."""
+    assert not _is_cancel_scope_runtime_error(Exception())
+
+
+def test_is_cancel_scope_in_cause_chain() -> None:
+    """Cancel scope RuntimeError reached via __cause__ chain."""
+    inner = RuntimeError("Attempted to exit cancel scope in a different task")
+    outer = RuntimeError("outer error")
+    outer.__cause__ = inner
+    assert _is_cancel_scope_runtime_error(outer)
+
+
+def test_is_cancel_scope_in_context_chain() -> None:
+    """Cancel scope RuntimeError reached via __context__ chain."""
+    inner = RuntimeError("Attempted to exit cancel scope in a different task")
+    outer = RuntimeError("outer error")
+    outer.__context__ = inner
+    assert _is_cancel_scope_runtime_error(outer)
+
+
+def test_is_cancel_scope_in_exception_group() -> None:
+    """Cancel scope RuntimeError inside a BaseExceptionGroup is detected."""
+    cs_err = RuntimeError("Attempted to exit cancel scope in a different task")
+    group = BaseExceptionGroup("group", [cs_err])
+    assert _is_cancel_scope_runtime_error(group)
+
+
+def test_is_cancel_scope_exception_group_without_match() -> None:
+    """BaseExceptionGroup without any cancel scope error returns False."""
+    group = BaseExceptionGroup("group", [ValueError("nope"), TypeError("nope")])
+    assert not _is_cancel_scope_runtime_error(group)
+
+
+def test_is_cancel_scope_in_cause_of_group_child() -> None:
+    """Cancel scope found via __cause__ of a child inside an exception group."""
+    cs_err = RuntimeError("Attempted to exit cancel scope in a different task")
+    child = RuntimeError("child")
+    child.__cause__ = cs_err
+    group = BaseExceptionGroup("group", [child])
+    assert _is_cancel_scope_runtime_error(group)
+
+
+def test_is_cancel_scope_circular_reference_handled() -> None:
+    """Circular __cause__ chain does not infinite-loop."""
+    exc = RuntimeError("loop")
+    exc.__cause__ = exc
+    assert not _is_cancel_scope_runtime_error(exc)
+
+
+@pytest.mark.anyio
+async def test_unreachable_streamable_http_error_is_catchable() -> None:
+    """Regression test for #915.
+
+    Connecting ``ClientSessionGroup`` to an unbound local port must
+    raise a *catchable* connection error rather than being shadowed by
+    the AnyIO cancel-scope ``RuntimeError`` from concurrent teardown.
+    """
+    port = _free_tcp_port()
+    server_params = StreamableHttpParameters(url=f"http://127.0.0.1:{port}/mcp/")
+
+    caught: BaseException | None = None
+
+    async with ClientSessionGroup() as group:
+        try:
+            await group.connect_to_server(server_params)
+        except BaseException as inner:
+            # Pre-fix #915: the real ConnectError was masked by an anyio
+            # cancel-scope RuntimeError raised during __aexit__ teardown.
+            # Post-fix: the real exception propagates here and is catchable.
+            caught = inner
+
+    assert caught is not None, (
+        "Expected to catch a connection error against an unreachable "
+        "streamable-http server, but no exception was raised."
+    )
+    assert not _is_cancel_scope_runtime_error(caught), (
+        "Regression of #915: connection error against an unreachable "
+        "streamable-http server was masked by an anyio cancel-scope "
+        f"RuntimeError. Got: {type(caught).__name__}: {caught}"
+    )
+
+
+@pytest.mark.anyio
+async def test_session_group_with_external_exit_stack(
+    mock_exit_stack: mock.MagicMock,
+) -> None:
+    """__aenter__/__aexit__ skip stack management when given an external exit stack."""
+    group = ClientSessionGroup(exit_stack=mock_exit_stack)
+
+    async with group:
+        pass  # __aenter__ covered; __aexit__ triggers next
+
+    # mock_exit_stack's own __aenter__/aclose should NOT be called by
+    # ClientSessionGroup — it's the caller's responsibility.
+    mock_exit_stack.__aenter__.assert_not_called()
+    mock_exit_stack.aclose.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_session_group_teardown_closes_session_stacks() -> None:
+    """__aexit__ closes every session-level exit stack sequentially."""
+    session = mock.MagicMock(spec=mcp.ClientSession)
+    session_stack = mock.AsyncMock()
+
+    async with ClientSessionGroup() as group:
+        group._session_exit_stacks[session] = session_stack
+
+    session_stack.aclose.assert_awaited_once()

@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, TypeAlias
 
-import anyio
 import httpx
 from pydantic import BaseModel, Field
 from typing_extensions import Self
@@ -147,7 +146,7 @@ class ClientSessionGroup:
         self._session_exit_stacks = {}
         self._component_name_hook = component_name_hook
 
-    async def __aenter__(self) -> Self:  # pragma: no cover
+    async def __aenter__(self) -> Self:
         # Enter the exit stack only if we created it ourselves
         if self._owns_exit_stack:
             await self._exit_stack.__aenter__()
@@ -158,17 +157,18 @@ class ClientSessionGroup:
         _exc_type: type[BaseException] | None,
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
-    ) -> bool | None:  # pragma: no cover
+    ) -> bool | None:
         """Closes session exit stacks and main exit stack upon completion."""
 
         # Only close the main exit stack if we created it
         if self._owns_exit_stack:
             await self._exit_stack.aclose()
 
-        # Concurrently close session stacks.
-        async with anyio.create_task_group() as tg:
-            for exit_stack in self._session_exit_stacks.values():
-                tg.start_soon(exit_stack.aclose)
+        # Sequentially close session stacks to preserve AnyIO task contexts.
+        # Concurrent teardown spawns task groups that cross cancel scopes, leading
+        # to RuntimeError: Attempted to exit cancel scope in a different task.
+        for exit_stack in list(self._session_exit_stacks.values()):
+            await exit_stack.aclose()
 
     @property
     def sessions(self) -> list[mcp.ClientSession]:
@@ -323,11 +323,11 @@ class ClientSessionGroup:
             await self._exit_stack.enter_async_context(session_stack)
 
             return result.server_info, session
-        except Exception:  # pragma: no cover
+        except Exception:
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.
-            await session_stack.aclose()
-            raise
+            await session_stack.aclose()  # pragma: no cover
+            raise  # pragma: no cover
 
     async def _aggregate_components(self, server_info: types.Implementation, session: mcp.ClientSession) -> None:
         """Aggregates prompts, resources, and tools from a given session."""

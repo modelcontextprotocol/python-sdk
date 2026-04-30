@@ -451,9 +451,9 @@ class BaseSession(
                     try:
                         await stream.send(JSONRPCError(jsonrpc="2.0", id=id, error=error))
                         await stream.aclose()
-                    except Exception:  # pragma: no cover
+                    except Exception:
                         # Stream might already be closed
-                        pass
+                        pass  # pragma: no cover
                 self._response_streams.clear()
 
     def _normalize_request_id(self, response_id: RequestId) -> RequestId:

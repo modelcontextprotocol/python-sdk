@@ -396,11 +396,19 @@ class StreamableHTTPServerTransport:
         """Check if the request accepts the required media types.
 
         Supports wildcard media types per RFC 7231, section 5.3.2:
+        - Missing Accept header matches any media type
         - */* matches any media type
         - application/* matches any application/ subtype
         - text/* matches any text/ subtype
         """
-        accept_header = request.headers.get("accept", "")
+        accept_header = request.headers.get("accept")
+
+        # RFC 7231, Section 5.3.2:
+        # A request without any Accept header field implies that the user agent
+        # will accept any media type in response.
+        if not accept_header:
+            return True, True
+
         accept_types = [media_type.strip().split(";")[0].strip().lower() for media_type in accept_header.split(",")]
 
         has_wildcard = "*/*" in accept_types

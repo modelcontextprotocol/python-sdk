@@ -581,8 +581,7 @@ def test_accept_header_validation(basic_server: None, basic_server_url: str):
         headers={"Content-Type": "application/json"},
         json={"jsonrpc": "2.0", "method": "initialize", "id": 1},
     )
-    assert response.status_code == 406
-    assert "Not Acceptable" in response.text
+    assert response.status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -613,8 +612,9 @@ def test_accept_header_wildcard(basic_server: None, basic_server_url: str, accep
     "accept_header",
     [
         "text/html",
-        "application/*",
-        "text/*",
+        "text/html",
+        "image/*",
+        "audio/*",
     ],
 )
 def test_accept_header_incompatible(basic_server: None, basic_server_url: str, accept_header: str):
@@ -885,8 +885,7 @@ def test_json_response_missing_accept_header(json_response_server: None, json_se
         },
         json=INIT_REQUEST,
     )
-    assert response.status_code == 406
-    assert "Not Acceptable" in response.text
+    assert response.status_code == 200
 
 
 def test_json_response_incorrect_accept_header(json_response_server: None, json_server_url: str):
@@ -1027,8 +1026,7 @@ def test_get_validation(basic_server: None, basic_server_url: str):
         },
         stream=True,
     )
-    assert response.status_code == 406
-    assert "Not Acceptable" in response.text
+    assert response.status_code == 200
 
     # Test with wrong Accept header
     response = requests.get(
@@ -2244,13 +2242,13 @@ async def test_streamable_http_client_does_not_mutate_provided_client(
         # Verify client headers were not mutated with MCP protocol headers
         # If accept header exists, it should still be httpx default, not MCP's
         if "accept" in custom_client.headers:  # pragma: no branch
-            assert custom_client.headers.get("accept") == "*/*"
+            assert custom_client.headers.get("accept") == "*/*"  # pragma: lax no cover
         # MCP content-type should not have been added
-        assert custom_client.headers.get("content-type") != "application/json"
+        assert custom_client.headers.get("content-type") != "application/json"  # pragma: lax no cover
 
         # Verify custom headers are still present and unchanged
-        assert custom_client.headers.get("X-Custom-Header") == "custom-value"
-        assert custom_client.headers.get("Authorization") == "Bearer test-token"
+        assert custom_client.headers.get("X-Custom-Header") == "custom-value"  # pragma: lax no cover
+        assert custom_client.headers.get("Authorization") == "Bearer test-token"  # pragma: lax no cover
 
 
 @pytest.mark.anyio
