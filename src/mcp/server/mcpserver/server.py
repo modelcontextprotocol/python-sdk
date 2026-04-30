@@ -449,7 +449,12 @@ class MCPServer(Generic[LifespanResultT]):
     async def read_resource(
         self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
     ) -> Iterable[ReadResourceContents]:
-        """Read a resource by URI."""
+        """Read a resource by URI.
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If template creation or resource reading fails.
+        """
         if context is None:
             context = Context(mcp_server=self)
         resource = await self._resource_manager.get_resource(uri, context)
