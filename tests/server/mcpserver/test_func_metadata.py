@@ -1036,11 +1036,18 @@ def test_structured_output_aliases():
     assert "field_first" not in meta.output_schema["properties"]
     assert "field_second" not in meta.output_schema["properties"]
 
-    # Check that the actual output uses aliases too
+    # Check that the actual output uses aliases too. ``convert_result``
+    # returns either a sequence, a CallToolResult, or a 2-tuple of
+    # (unstructured, structured) — for a model with an output schema the
+    # 2-tuple branch fires, so cast accordingly to keep pyright happy
+    # without runtime narrowing surprises.
+    from typing import cast
+
     result = ModelWithAliases(**{"first": "hello", "second": "world"})
-    converted = meta.convert_result(result)
-    assert isinstance(converted, tuple)
-    _, structured_content = converted
+    structured_content = cast(
+        "tuple[Any, dict[str, Any]]",
+        meta.convert_result(result),
+    )[1]
 
     # The structured content should use aliases to match the schema
     assert "first" in structured_content
@@ -1052,9 +1059,10 @@ def test_structured_output_aliases():
 
     # Also test the case where we have a model with defaults to ensure aliases work in all cases
     result_with_defaults = ModelWithAliases()  # Uses default None values
-    converted_defaults = meta.convert_result(result_with_defaults)
-    assert isinstance(converted_defaults, tuple)
-    _, structured_content_defaults = converted_defaults
+    structured_content_defaults = cast(
+        "tuple[Any, dict[str, Any]]",
+        meta.convert_result(result_with_defaults),
+    )[1]
 
     # Even with defaults, should use aliases in output
     assert "first" in structured_content_defaults
