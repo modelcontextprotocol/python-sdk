@@ -324,7 +324,7 @@ def run(
             help="Transport protocol to use (stdio or sse)",
         ),
     ] = None,
-) -> None:  # pragma: no cover
+) -> None:
     """Run an MCP server.
 
     The server can be specified in two ways:
@@ -359,7 +359,7 @@ def run(
 
         server.run(**kwargs)
 
-    except Exception:
+    except Exception:  # pragma: no cover
         logger.exception(
             "Failed to run server",
             extra={
