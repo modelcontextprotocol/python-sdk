@@ -44,7 +44,19 @@ def test_parse_file_exit_on_dir(tmp_path: Path):
         _parse_file_path(str(dir_path))
 
 
-def test_run_configures_logging_at_cli_entrypoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+@pytest.mark.parametrize(
+    ("transport", "expected_kwargs"),
+    [
+        (None, {}),
+        ("stdio", {"transport": "stdio"}),
+    ],
+)
+def test_run_configures_logging_at_cli_entrypoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    transport: str | None,
+    expected_kwargs: dict[str, str],
+):
     """The CLI owns process logging setup; importing or constructing the server does not."""
     file = tmp_path / "server.py"
     file.write_text("server = object()")
@@ -71,11 +83,11 @@ def test_run_configures_logging_at_cli_entrypoint(monkeypatch: pytest.MonkeyPatc
         fake_configure_logging,
     )
 
-    run(f"{file}:server", transport="stdio")
+    run(f"{file}:server", transport=transport)
 
     assert calls == [
         ("logging", "DEBUG"),
-        ("run", {"transport": "stdio"}),
+        ("run", expected_kwargs),
     ]
 
 
