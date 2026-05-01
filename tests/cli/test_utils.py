@@ -8,6 +8,7 @@ import pytest
 from mcp.cli.cli import (  # type: ignore[reportPrivateUsage]
     _build_uv_command,
     _get_npx_command,
+    _get_server_log_level,
     _parse_file_path,
     run,
 )
@@ -76,6 +77,16 @@ def test_run_configures_logging_at_cli_entrypoint(monkeypatch: pytest.MonkeyPatc
         ("logging", "DEBUG"),
         ("run", {"transport": "stdio"}),
     ]
+
+
+def test_get_server_log_level_defaults_invalid_setting():
+    class Settings:
+        log_level = "VERBOSE"
+
+    class Server:
+        settings = Settings()
+
+    assert _get_server_log_level(Server()) == "INFO"
 
 
 def test_build_uv_command_minimal():
