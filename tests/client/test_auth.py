@@ -1168,7 +1168,9 @@ class TestAuthFlow:
         assert oauth_provider.context.token_expiry_time is not None
 
     @pytest.mark.anyio
-    async def test_auth_flow_logs_and_reraises_oauth_errors(self, oauth_provider: OAuthClientProvider, caplog):
+    async def test_auth_flow_logs_and_reraises_oauth_errors(
+        self, oauth_provider: OAuthClientProvider, caplog: pytest.LogCaptureFixture
+    ):
         """OAuth flow failures should be logged and re-raised."""
         oauth_provider.context.current_tokens = None
         oauth_provider.context.token_expiry_time = None
