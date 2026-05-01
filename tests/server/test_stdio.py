@@ -2,6 +2,7 @@ import gc
 import io
 import sys
 from io import TextIOWrapper
+from pathlib import Path
 
 import anyio
 import pytest
@@ -96,7 +97,7 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.anyio
-async def test_stdio_server_does_not_close_standard_streams(monkeypatch: pytest.MonkeyPatch, tmp_path):
+async def test_stdio_server_does_not_close_standard_streams(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """Default stdio wrapping must not close the process stdin/stdout handles."""
     message = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
     stdin_path = tmp_path / "stdin.jsonl"

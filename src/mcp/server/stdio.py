@@ -19,8 +19,10 @@ Example:
 
 import os
 import sys
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from io import TextIOWrapper, UnsupportedOperation
+from typing import BinaryIO, Literal, Protocol
 
 import anyio
 import anyio.lowlevel
@@ -30,7 +32,19 @@ from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
 
 
-def _wrap_standard_stream(stream, mode: str, *, errors: str | None = None) -> tuple[anyio.AsyncFile[str], bool]:
+class _TextStreamWithBuffer(Protocol):
+    @property
+    def buffer(self) -> BinaryIO: ...
+
+    fileno: Callable[[], int]
+
+
+def _wrap_standard_stream(
+    stream: _TextStreamWithBuffer,
+    mode: Literal["rb", "wb"],
+    *,
+    errors: str | None = None,
+) -> tuple[anyio.AsyncFile[str], bool]:
     """Wrap a standard stream without taking ownership of the original handle."""
     try:
         fd = os.dup(stream.fileno())
