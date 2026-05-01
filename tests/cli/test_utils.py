@@ -86,6 +86,14 @@ def test_collect_env_vars_from_cli_values():
     assert _collect_env_vars(None, ["API_KEY=abc123", "EMPTY="]) == {"API_KEY": "abc123", "EMPTY": ""}
 
 
+def test_collect_env_vars_exits_on_invalid_cli_value():
+    """CLI env vars must use KEY=VALUE format."""
+    with pytest.raises(SystemExit) as exc_info:
+        _collect_env_vars(None, ["API_KEY"])
+
+    assert exc_info.value.code == 1
+
+
 def test_collect_env_vars_file_then_cli_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """CLI env vars should override values loaded from a .env file."""
     env_file = tmp_path / ".env"
