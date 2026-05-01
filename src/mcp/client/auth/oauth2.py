@@ -624,7 +624,7 @@ class OAuthClientProvider(httpx.Auth):
                     self._copy_user_agent_header(token_request, request)
                     token_response = yield token_request
                     await self._handle_token_response(token_response)
-                except Exception:  # pragma: no cover
+                except Exception:
                     logger.exception("OAuth flow error")
                     raise
 
