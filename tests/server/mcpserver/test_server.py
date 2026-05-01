@@ -1,4 +1,5 @@
 import base64
+import logging
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -46,6 +47,18 @@ pytestmark = pytest.mark.anyio
 
 
 class TestServer:
+    def test_create_server_does_not_configure_application_logging(self, monkeypatch: pytest.MonkeyPatch):
+        calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+        def fake_basic_config(*args: Any, **kwargs: Any) -> None:
+            calls.append((args, kwargs))
+
+        monkeypatch.setattr(logging, "basicConfig", fake_basic_config)
+
+        MCPServer("test")
+
+        assert calls == []
+
     async def test_create_server(self):
         mcp = MCPServer(
             title="MCPServer Server",
