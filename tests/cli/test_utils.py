@@ -5,7 +5,12 @@ from typing import Any
 
 import pytest
 
-from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  # type: ignore[reportPrivateUsage]
+from mcp.cli.cli import (  # type: ignore[reportPrivateUsage]
+    _build_uv_command,
+    _collect_env_vars,
+    _get_npx_command,
+    _parse_file_path,
+)
 
 
 @pytest.mark.parametrize(
@@ -67,6 +72,24 @@ def test_build_uv_command_adds_editable_and_packages():
         "run",
         "foo.py",
     ]
+
+
+def test_collect_env_vars_returns_none_without_inputs():
+    """Should not allocate an env block when no env sources were provided."""
+    assert _collect_env_vars(None, []) is None
+
+
+def test_collect_env_vars_from_cli_values():
+    """CLI env vars should be parsed as KEY=VALUE pairs."""
+    assert _collect_env_vars(None, ["API_KEY=abc123", "EMPTY="]) == {"API_KEY": "abc123", "EMPTY": ""}
+
+
+def test_collect_env_vars_file_then_cli_override(tmp_path: Path):
+    """CLI env vars should override values loaded from a .env file."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("API_KEY=file-value\nKEEP=from-file\n", encoding="utf-8")
+
+    assert _collect_env_vars(env_file, ["API_KEY=cli-value"]) == {"API_KEY": "cli-value", "KEEP": "from-file"}
 
 
 def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch):

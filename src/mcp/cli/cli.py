@@ -62,6 +62,30 @@ def _parse_env_var(env_var: str) -> tuple[str, str]:  # pragma: no cover
     return key.strip(), value.strip()
 
 
+def _collect_env_vars(env_file: Path | None, env_vars: list[str]) -> dict[str, str] | None:
+    """Collect environment variables from a .env file and CLI KEY=VALUE pairs."""
+    if not env_file and not env_vars:
+        return None
+
+    env_dict: dict[str, str] = {}
+    if env_file:
+        if dotenv:
+            try:
+                env_dict |= {k: v for k, v in dotenv.dotenv_values(env_file).items() if v is not None}
+            except (OSError, ValueError):
+                logger.exception("Failed to load .env file")
+                sys.exit(1)
+        else:
+            logger.error("python-dotenv is not installed. Cannot load .env file.")
+            sys.exit(1)
+
+    for env_var in env_vars:
+        key, value = _parse_env_var(env_var)
+        env_dict[key] = value
+
+    return env_dict
+
+
 def _build_uv_command(
     file_spec: str,
     with_editable: Path | None = None,
@@ -241,9 +265,30 @@ def dev(
             help="Additional packages to install",
         ),
     ] = [],
+    env_vars: Annotated[
+        list[str],
+        typer.Option(
+            "--env-var",
+            "-v",
+            help="Environment variables in KEY=VALUE format",
+        ),
+    ] = [],
+    env_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--env-file",
+            "-f",
+            help="Load environment variables from a .env file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=True,
+        ),
+    ] = None,
 ) -> None:  # pragma: no cover
     """Run an MCP server with the MCP Inspector."""
     file, server_object = _parse_file_path(file_spec)
+    env_dict = _collect_env_vars(env_file, env_vars)
 
     logger.debug(
         "Starting dev server",
@@ -252,6 +297,8 @@ def dev(
             "server_object": server_object,
             "with_editable": str(with_editable) if with_editable else None,
             "with_packages": with_packages,
+            "env_file": str(env_file) if env_file else None,
+            "env_vars": list(env_dict) if env_dict else [],
         },
     )
 
@@ -273,11 +320,14 @@ def dev(
 
         # Run the MCP Inspector command with shell=True on Windows
         shell = sys.platform == "win32"
+        process_env = dict(os.environ.items())
+        if env_dict:
+            process_env.update(env_dict)
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
             shell=shell,
-            env=dict(os.environ.items()),  # Convert to list of tuples for env update
+            env=process_env,
         )
         sys.exit(process.returncode)
     except subprocess.CalledProcessError as e:
@@ -452,26 +502,7 @@ def install(
     if server_dependencies:
         with_packages = list(set(with_packages + server_dependencies))
 
-    # Process environment variables if provided
-    env_dict: dict[str, str] | None = None
-    if env_file or env_vars:
-        env_dict = {}
-        # Load from .env file if specified
-        if env_file:
-            if dotenv:
-                try:
-                    env_dict |= {k: v for k, v in dotenv.dotenv_values(env_file).items() if v is not None}
-                except (OSError, ValueError):
-                    logger.exception("Failed to load .env file")
-                    sys.exit(1)
-            else:
-                logger.error("python-dotenv is not installed. Cannot load .env file.")
-                sys.exit(1)
-
-        # Add command line environment variables
-        for env_var in env_vars:
-            key, value = _parse_env_var(env_var)
-            env_dict[key] = value
+    env_dict = _collect_env_vars(env_file, env_vars)
 
     if claude.update_claude_config(
         file_spec,
