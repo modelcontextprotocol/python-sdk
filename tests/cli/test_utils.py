@@ -1,10 +1,12 @@
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+import mcp.cli.cli as cli
 from mcp.cli.cli import (  # type: ignore[reportPrivateUsage]
     _build_uv_command,
     _collect_env_vars,
@@ -84,10 +86,19 @@ def test_collect_env_vars_from_cli_values():
     assert _collect_env_vars(None, ["API_KEY=abc123", "EMPTY="]) == {"API_KEY": "abc123", "EMPTY": ""}
 
 
-def test_collect_env_vars_file_then_cli_override(tmp_path: Path):
+def test_collect_env_vars_file_then_cli_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """CLI env vars should override values loaded from a .env file."""
     env_file = tmp_path / ".env"
-    env_file.write_text("API_KEY=file-value\nKEEP=from-file\n", encoding="utf-8")
+    env_file.write_text("", encoding="utf-8")
+
+    def dotenv_values(_: Path) -> dict[str, str]:
+        return {"API_KEY": "file-value", "KEEP": "from-file"}
+
+    monkeypatch.setattr(
+        cli,
+        "dotenv",
+        SimpleNamespace(dotenv_values=dotenv_values),
+    )
 
     assert _collect_env_vars(env_file, ["API_KEY=cli-value"]) == {"API_KEY": "cli-value", "KEEP": "from-file"}
 
