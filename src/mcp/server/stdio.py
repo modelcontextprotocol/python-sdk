@@ -17,9 +17,10 @@ Example:
     ```
 """
 
+import os
 import sys
 from contextlib import asynccontextmanager
-from io import TextIOWrapper
+from io import TextIOWrapper, UnsupportedOperation
 
 import anyio
 import anyio.lowlevel
@@ -27,6 +28,17 @@ import anyio.lowlevel
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import SessionMessage
+
+
+def _wrap_standard_stream(stream, mode: str, *, errors: str | None = None) -> tuple[anyio.AsyncFile[str], bool]:
+    """Wrap a standard stream without taking ownership of the original handle."""
+    try:
+        fd = os.dup(stream.fileno())
+    except (AttributeError, OSError, UnsupportedOperation):
+        return anyio.wrap_file(TextIOWrapper(stream.buffer, encoding="utf-8", errors=errors)), False
+
+    binary = os.fdopen(fd, mode, closefd=True)
+    return anyio.wrap_file(TextIOWrapper(binary, encoding="utf-8", errors=errors)), True
 
 
 @asynccontextmanager
@@ -37,11 +49,14 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # Purposely not using context managers for these, as we don't want to close
     # standard process handles. Encoding of stdin/stdout as text streams on
     # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    # re-wrap duplicate file descriptors to ensure UTF-8 without taking
+    # ownership of the original standard streams.
+    close_stdin = False
+    close_stdout = False
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        stdin, close_stdin = _wrap_standard_stream(sys.stdin, "rb", errors="replace")
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout, close_stdout = _wrap_standard_stream(sys.stdout, "wb")
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
@@ -71,7 +86,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(stdin_reader)
-        tg.start_soon(stdout_writer)
-        yield read_stream, write_stream
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(stdin_reader)
+            tg.start_soon(stdout_writer)
+            yield read_stream, write_stream
+    finally:
+        if close_stdin:
+            await stdin.aclose()
+        if close_stdout:
+            await stdout.aclose()
