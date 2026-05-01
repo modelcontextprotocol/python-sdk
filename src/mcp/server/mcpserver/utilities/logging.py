@@ -24,16 +24,18 @@ def configure_logging(
     Args:
         level: The log level to use.
     """
-    handlers: list[logging.Handler] = []
-    try:
-        from rich.console import Console
-        from rich.logging import RichHandler
+    logger = logging.getLogger("mcp")
+    if not logger.handlers:
+        try:
+            from rich.console import Console
+            from rich.logging import RichHandler
 
-        handlers.append(RichHandler(console=Console(stderr=True), rich_tracebacks=True))
-    except ImportError:  # pragma: no cover
-        pass
+            handler: logging.Handler = RichHandler(console=Console(stderr=True), rich_tracebacks=True)
+        except ImportError:  # pragma: no cover
+            handler = logging.StreamHandler()
 
-    if not handlers:  # pragma: no cover
-        handlers.append(logging.StreamHandler())
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
 
-    logging.basicConfig(level=level, format="%(message)s", handlers=handlers)
+    logger.setLevel(level)
+    logger.propagate = True
