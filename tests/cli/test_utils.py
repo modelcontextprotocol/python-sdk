@@ -103,6 +103,38 @@ def test_collect_env_vars_file_then_cli_override(monkeypatch: pytest.MonkeyPatch
     assert _collect_env_vars(env_file, ["API_KEY=cli-value"]) == {"API_KEY": "cli-value", "KEEP": "from-file"}
 
 
+def test_collect_env_vars_exits_when_dotenv_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Should fail clearly when loading a .env file without python-dotenv."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(cli, "dotenv", None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _collect_env_vars(env_file, [])
+
+    assert exc_info.value.code == 1
+
+
+def test_collect_env_vars_exits_when_dotenv_load_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Should fail clearly when the .env file cannot be parsed or read."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+
+    def dotenv_values(_: Path) -> dict[str, str]:
+        raise ValueError("bad env")
+
+    monkeypatch.setattr(
+        cli,
+        "dotenv",
+        SimpleNamespace(dotenv_values=dotenv_values),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        _collect_env_vars(env_file, [])
+
+    assert exc_info.value.code == 1
+
+
 def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch):
     """Should return "npx" on unix-like systems."""
     monkeypatch.setattr(sys, "platform", "linux")

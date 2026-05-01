@@ -1174,9 +1174,6 @@ uv run mcp dev server.py
 # Add dependencies
 uv run mcp dev server.py --with pandas --with numpy
 
-# Load environment variables
-uv run mcp dev server.py --env-var API_KEY=abc123 --env-file .env
-
 # Mount local code
 uv run mcp dev server.py --with-editable .
 ```
