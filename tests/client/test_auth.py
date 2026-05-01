@@ -1168,6 +1168,57 @@ class TestAuthFlow:
         assert oauth_provider.context.token_expiry_time is not None
 
     @pytest.mark.anyio
+    async def test_auth_flow_logs_and_reraises_oauth_errors(self, oauth_provider: OAuthClientProvider, caplog):
+        """OAuth flow failures should be logged and re-raised."""
+        oauth_provider.context.current_tokens = None
+        oauth_provider.context.token_expiry_time = None
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="existing_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        oauth_provider._initialized = True
+        oauth_provider._perform_authorization = mock.AsyncMock(side_effect=RuntimeError("auth boom"))
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        await auth_flow.__anext__()
+
+        response = httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            },
+            request=test_request,
+        )
+        discovery_request = await auth_flow.asend(response)
+
+        discovery_response = httpx.Response(
+            200,
+            content=(
+                b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+            ),
+            request=discovery_request,
+        )
+        oauth_metadata_request = await auth_flow.asend(discovery_response)
+
+        oauth_metadata_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com", '
+                b'"authorization_endpoint": "https://auth.example.com/authorize", '
+                b'"token_endpoint": "https://auth.example.com/token"}'
+            ),
+            request=oauth_metadata_request,
+        )
+
+        with caplog.at_level("ERROR", logger="mcp.client.auth.oauth2"):
+            with pytest.raises(RuntimeError, match="auth boom"):
+                await auth_flow.asend(oauth_metadata_response)
+
+        assert "OAuth flow error" in caplog.text
+
+    @pytest.mark.anyio
     async def test_auth_flow_no_unnecessary_retry_after_oauth(
         self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
     ):
