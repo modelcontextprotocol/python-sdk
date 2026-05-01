@@ -273,6 +273,12 @@ class OAuthClientProvider(httpx.Auth):
         self._validate_resource_url_callback = validate_resource_url
         self._initialized = False
 
+    def _copy_user_agent_header(self, request: httpx.Request, source_request: httpx.Request) -> httpx.Request:
+        user_agent = source_request.headers.get("User-Agent")
+        if user_agent and "User-Agent" not in request.headers:
+            request.headers["User-Agent"] = user_agent
+        return request
+
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
         """Handle protected resource metadata discovery response.
 
@@ -515,6 +521,7 @@ class OAuthClientProvider(httpx.Auth):
             if not self.context.is_token_valid() and self.context.can_refresh_token():
                 # Try to refresh token
                 refresh_request = await self._refresh_token()  # pragma: no cover
+                self._copy_user_agent_header(refresh_request, request)  # pragma: no cover
                 refresh_response = yield refresh_request  # pragma: no cover
 
                 if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
@@ -539,6 +546,7 @@ class OAuthClientProvider(httpx.Auth):
 
                     for url in prm_discovery_urls:  # pragma: no branch
                         discovery_request = create_oauth_metadata_request(url)
+                        self._copy_user_agent_header(discovery_request, request)
 
                         discovery_response = yield discovery_request  # sending request
 
@@ -565,6 +573,7 @@ class OAuthClientProvider(httpx.Auth):
                     # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
                     for url in asm_discovery_urls:  # pragma: no branch
                         oauth_metadata_request = create_oauth_metadata_request(url)
+                        self._copy_user_agent_header(oauth_metadata_request, request)
                         oauth_metadata_response = yield oauth_metadata_request
 
                         ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
@@ -604,13 +613,16 @@ class OAuthClientProvider(httpx.Auth):
                                 self.context.client_metadata,
                                 self.context.get_authorization_base_url(self.context.server_url),
                             )
+                            self._copy_user_agent_header(registration_request, request)
                             registration_response = yield registration_request
                             client_information = await handle_registration_response(registration_response)
                             self.context.client_info = client_information
                             await self.context.storage.set_client_info(client_information)
 
                     # Step 5: Perform authorization and complete token exchange
-                    token_response = yield await self._perform_authorization()
+                    token_request = await self._perform_authorization()
+                    self._copy_user_agent_header(token_request, request)
+                    token_response = yield token_request
                     await self._handle_token_response(token_response)
                 except Exception:  # pragma: no cover
                     logger.exception("OAuth flow error")
@@ -635,7 +647,9 @@ class OAuthClientProvider(httpx.Auth):
                         )
 
                         # Step 2b: Perform (re-)authorization and token exchange
-                        token_response = yield await self._perform_authorization()
+                        token_request = await self._perform_authorization()
+                        self._copy_user_agent_header(token_request, request)
+                        token_response = yield token_request
                         await self._handle_token_response(token_response)
                     except Exception:  # pragma: no cover
                         logger.exception("OAuth flow error")
