@@ -142,7 +142,7 @@ class MCPServer(Generic[LifespanResultT]):
         tools: list[Tool] | None = None,
         resources: list[Resource] | None = None,
         debug: bool = False,
-        log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO",
+        log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "WARNING",
         warn_on_duplicate_resources: bool = True,
         warn_on_duplicate_tools: bool = True,
         warn_on_duplicate_prompts: bool = True,
