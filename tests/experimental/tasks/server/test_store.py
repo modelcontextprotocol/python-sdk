@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 
+import anyio
 import pytest
 
 from mcp.shared.exceptions import MCPError
@@ -326,6 +327,45 @@ async def test_wait_for_update_nonexistent_raises(store: InMemoryTaskStore) -> N
     """Test that wait_for_update raises for nonexistent task."""
     with pytest.raises(ValueError, match="not found"):
         await store.wait_for_update("nonexistent-task-id")
+
+
+@pytest.mark.anyio
+async def test_wait_for_update_concurrent_waiters(store: InMemoryTaskStore) -> None:
+    """Two concurrent waiters for the same task must both wake up."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+
+    woke: dict[str, bool] = {"a": False, "b": False}
+
+    async def waiter(name: str) -> None:
+        await store.wait_for_update(task.task_id)
+        woke[name] = True
+
+    async def updater() -> None:
+        await anyio.sleep(0.05)
+        await store.update_task(task.task_id, status="completed")
+
+    with anyio.fail_after(2):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(waiter, "a")
+            await anyio.sleep(0.01)  # ensure a registers first
+            tg.start_soon(waiter, "b")
+            tg.start_soon(updater)
+
+    assert woke["a"], "waiter a should have been woken"
+    assert woke["b"], "waiter b should have been woken"
+
+
+@pytest.mark.anyio
+async def test_wait_for_update_notify_before_wait(store: InMemoryTaskStore) -> None:
+    """If notify fires before wait, the signal must not be lost."""
+    task = await store.create_task(metadata=TaskMetadata(ttl=60000))
+
+    # Task completes before anyone waits
+    await store.update_task(task.task_id, status="completed")
+
+    # wait_for_update should return immediately (pending update consumed)
+    with anyio.fail_after(1):
+        await store.wait_for_update(task.task_id)
 
 
 @pytest.mark.anyio
