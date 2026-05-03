@@ -87,17 +87,10 @@ async def test_stdio_server_does_not_close_real_stdio(monkeypatch: pytest.Monkey
                 await write_stream.aclose()
                 await read_stream.aclose()
 
-        # os.fstat() raises OSError if the fd has been closed; success means the fd
-        # is still open.  A plain `is not None` check would be vacuously true, so we
-        # use try/except to make the intent explicit.
-        try:
-            os.fstat(real_stdin_fd)
-        except OSError:
-            pytest.fail("stdio_server() closed the real stdin file descriptor")
-        try:
-            os.fstat(real_stdout_fd)
-        except OSError:
-            pytest.fail("stdio_server() closed the real stdout file descriptor")
+        # os.fstat() raises OSError if the fd has been closed; successful calls
+        # prove stdio_server() did not close the real process descriptors.
+        os.fstat(real_stdin_fd)
+        os.fstat(real_stdout_fd)
         # The Python wrappers we set as sys.stdin/stdout must not be closed either.
         assert not sys.stdin.closed
         assert not sys.stdout.closed
