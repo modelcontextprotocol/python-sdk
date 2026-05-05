@@ -114,9 +114,11 @@ class TaskResultHandler:
                 # The stored result contains the actual payload data
                 # Per spec: tasks/result MUST include _meta with related-task metadata
                 related_task = RelatedTaskMetadata(task_id=task_id)
-                related_task_meta: dict[str, Any] = {RELATED_TASK_METADATA_KEY: related_task.model_dump(by_alias=True)}
+                related_task_meta: dict[str, Any] = {
+                    RELATED_TASK_METADATA_KEY: related_task.model_dump(by_alias=True, exclude_none=True)
+                }
                 if result is not None:
-                    result_data = result.model_dump(by_alias=True)
+                    result_data = result.model_dump(by_alias=True, mode="json", exclude_none=True)
                     existing_meta: dict[str, Any] = result_data.get("_meta") or {}
                     result_data["_meta"] = {**existing_meta, **related_task_meta}
                     return GetTaskPayloadResult.model_validate(result_data)
