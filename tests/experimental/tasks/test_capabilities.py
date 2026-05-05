@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp.shared.exceptions import McpError
+from mcp import MCPError
 from mcp.shared.experimental.tasks.capabilities import (
     check_tasks_capability,
     has_task_augmented_elicitation,
@@ -82,7 +82,7 @@ class TestCheckTasksCapability:
         """When sampling.createMessage is required but client doesn't have it."""
         required = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         client = ClientTasksCapability(
@@ -96,12 +96,12 @@ class TestCheckTasksCapability:
         """When sampling.createMessage is required and client has it."""
         required = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         client = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         assert check_tasks_capability(required, client) is True
@@ -111,13 +111,13 @@ class TestCheckTasksCapability:
         required = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
                 elicitation=TasksElicitationCapability(create=TasksCreateElicitationCapability()),
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability()),
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability()),
             )
         )
         client = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
                 elicitation=TasksElicitationCapability(create=TasksCreateElicitationCapability()),
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability()),
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability()),
             )
         )
         assert check_tasks_capability(required, client) is True
@@ -145,7 +145,7 @@ class TestCheckTasksCapability:
         )
         client = ClientTasksCapability(
             requests=ClientTasksRequestsCapability(
-                sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
             )
         )
         assert check_tasks_capability(required, client) is True
@@ -220,7 +220,7 @@ class TestHasTaskAugmentedSampling:
         caps = ClientCapabilities(
             tasks=ClientTasksCapability(
                 requests=ClientTasksRequestsCapability(
-                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                    sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
                 )
             )
         )
@@ -231,15 +231,15 @@ class TestRequireTaskAugmentedElicitation:
     """Tests for require_task_augmented_elicitation function."""
 
     def test_raises_when_none(self) -> None:
-        """Raises McpError when client_caps is None."""
-        with pytest.raises(McpError) as exc_info:
+        """Raises MCPError when client_caps is None."""
+        with pytest.raises(MCPError) as exc_info:
             require_task_augmented_elicitation(None)
         assert "task-augmented elicitation" in str(exc_info.value)
 
     def test_raises_when_missing(self) -> None:
-        """Raises McpError when capability is missing."""
+        """Raises MCPError when capability is missing."""
         caps = ClientCapabilities()
-        with pytest.raises(McpError) as exc_info:
+        with pytest.raises(MCPError) as exc_info:
             require_task_augmented_elicitation(caps)
         assert "task-augmented elicitation" in str(exc_info.value)
 
@@ -259,15 +259,15 @@ class TestRequireTaskAugmentedSampling:
     """Tests for require_task_augmented_sampling function."""
 
     def test_raises_when_none(self) -> None:
-        """Raises McpError when client_caps is None."""
-        with pytest.raises(McpError) as exc_info:
+        """Raises MCPError when client_caps is None."""
+        with pytest.raises(MCPError) as exc_info:
             require_task_augmented_sampling(None)
         assert "task-augmented sampling" in str(exc_info.value)
 
     def test_raises_when_missing(self) -> None:
-        """Raises McpError when capability is missing."""
+        """Raises MCPError when capability is missing."""
         caps = ClientCapabilities()
-        with pytest.raises(McpError) as exc_info:
+        with pytest.raises(MCPError) as exc_info:
             require_task_augmented_sampling(caps)
         assert "task-augmented sampling" in str(exc_info.value)
 
@@ -276,7 +276,7 @@ class TestRequireTaskAugmentedSampling:
         caps = ClientCapabilities(
             tasks=ClientTasksCapability(
                 requests=ClientTasksRequestsCapability(
-                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                    sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
                 )
             )
         )

@@ -1,11 +1,9 @@
-"""
-Tests for refactored OAuth client authentication implementation.
-"""
+"""Tests for refactored OAuth client authentication implementation."""
 
 import base64
 import time
 from unittest import mock
-from urllib.parse import unquote
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import httpx
 import pytest
@@ -13,6 +11,7 @@ from inline_snapshot import Is, snapshot
 from pydantic import AnyHttpUrl, AnyUrl
 
 from mcp.client.auth import OAuthClientProvider, PKCEParameters
+from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.client.auth.utils import (
     build_oauth_authorization_server_metadata_discovery_urls,
     build_protected_resource_metadata_discovery_urls,
@@ -27,6 +26,8 @@ from mcp.client.auth.utils import (
     is_valid_client_metadata_url,
     should_use_client_metadata_url,
 )
+from mcp.server.auth.routes import build_metadata
+from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -758,8 +759,6 @@ class TestProtectedResourceMetadata:
         content = request.content.decode()
         assert "resource=" in content
         # Check URL-encoded resource parameter
-        from urllib.parse import quote
-
         expected_resource = quote(oauth_provider.context.get_resource_url(), safe="")
         assert f"resource={expected_resource}" in content
 
@@ -818,6 +817,136 @@ class TestProtectedResourceMetadata:
         request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
+
+
+@pytest.mark.anyio
+async def test_validate_resource_rejects_mismatched_resource(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client must reject PRM resource that doesn't match server URL."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://evil.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    with pytest.raises(OAuthFlowError, match="does not match expected"):
+        await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_validate_resource_accepts_matching_resource(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Client must accept PRM resource that matches server URL."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise
+    await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_validate_resource_custom_callback(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Custom callback overrides default validation."""
+    callback_called_with: list[tuple[str, str | None]] = []
+
+    async def custom_validate(server_url: str, prm_resource: str | None) -> None:
+        callback_called_with.append((server_url, prm_resource))
+
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+        validate_resource_url=custom_validate,
+    )
+    provider._initialized = True
+
+    # This would normally fail default validation (different origin),
+    # but custom callback accepts it
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://evil.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    await provider._validate_resource_match(prm)
+    assert callback_called_with == snapshot([("https://api.example.com/v1/mcp", "https://evil.example.com/mcp")])
+
+
+@pytest.mark.anyio
+async def test_validate_resource_accepts_root_url_with_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Root URLs with trailing slash normalization should match."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise despite trailing slash difference
+    await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_validate_resource_accepts_server_url_with_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Server URL with trailing slash should match PRM resource."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp/",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    prm = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+    # Should not raise - both normalize to the same URL with trailing slash
+    await provider._validate_resource_match(prm)
+
+
+@pytest.mark.anyio
+async def test_get_resource_url_uses_canonical_when_prm_mismatches(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """get_resource_url falls back to canonical URL when PRM resource doesn't match."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com/v1/mcp",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+
+    # Set PRM with a resource that is NOT a parent of the server URL
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://other.example.com/mcp"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    # get_resource_url should return the canonical server URL, not the PRM resource
+    assert provider.context.get_resource_url() == snapshot("https://api.example.com/v1/mcp")
 
 
 class TestRegistrationResponse:
@@ -965,7 +1094,7 @@ class TestAuthFlow:
         # Send a successful discovery response with minimal protected resource metadata
         discovery_response = httpx.Response(
             200,
-            content=b'{"resource": "https://api.example.com/mcp", "authorization_servers": ["https://auth.example.com"]}',
+            content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
             request=discovery_request,
         )
 
@@ -1082,6 +1211,116 @@ class TestAuthFlow:
         assert request_yields == 1, f"Expected 1 request yield, got {request_yields}"
 
     @pytest.mark.anyio
+    async def test_token_exchange_accepts_201_status(
+        self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage
+    ):
+        """Test that token exchange accepts both 200 and 201 status codes."""
+        # Ensure no tokens are stored
+        oauth_provider.context.current_tokens = None
+        oauth_provider.context.token_expiry_time = None
+        oauth_provider._initialized = True
+
+        # Create a test request
+        test_request = httpx.Request("GET", "https://api.example.com/mcp")
+
+        # Mock the auth flow
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        # First request should be the original request without auth header
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+
+        # Send a 401 response to trigger the OAuth flow
+        response = httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            },
+            request=test_request,
+        )
+
+        # Next request should be to discover protected resource metadata
+        discovery_request = await auth_flow.asend(response)
+        assert discovery_request.method == "GET"
+        assert str(discovery_request.url) == "https://api.example.com/.well-known/oauth-protected-resource"
+
+        # Send a successful discovery response with minimal protected resource metadata
+        discovery_response = httpx.Response(
+            200,
+            content=b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}',
+            request=discovery_request,
+        )
+
+        # Next request should be to discover OAuth metadata
+        oauth_metadata_request = await auth_flow.asend(discovery_response)
+        assert oauth_metadata_request.method == "GET"
+        assert str(oauth_metadata_request.url).startswith("https://auth.example.com/")
+        assert "mcp-protocol-version" in oauth_metadata_request.headers
+
+        # Send a successful OAuth metadata response
+        oauth_metadata_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com", '
+                b'"authorization_endpoint": "https://auth.example.com/authorize", '
+                b'"token_endpoint": "https://auth.example.com/token", '
+                b'"registration_endpoint": "https://auth.example.com/register"}'
+            ),
+            request=oauth_metadata_request,
+        )
+
+        # Next request should be to register client
+        registration_request = await auth_flow.asend(oauth_metadata_response)
+        assert registration_request.method == "POST"
+        assert str(registration_request.url) == "https://auth.example.com/register"
+
+        # Send a successful registration response with 201 status
+        registration_response = httpx.Response(
+            201,
+            content=b'{"client_id": "test_client_id", "client_secret": "test_client_secret", "redirect_uris": ["http://localhost:3030/callback"]}',
+            request=registration_request,
+        )
+
+        # Mock the authorization process
+        oauth_provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
+
+        # Next request should be to exchange token
+        token_request = await auth_flow.asend(registration_response)
+        assert token_request.method == "POST"
+        assert str(token_request.url) == "https://auth.example.com/token"
+        assert "code=test_auth_code" in token_request.content.decode()
+
+        # Send a successful token response with 201 status code (test both 200 and 201 are accepted)
+        token_response = httpx.Response(
+            201,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600, '
+                b'"refresh_token": "new_refresh_token"}'
+            ),
+            request=token_request,
+        )
+
+        # Final request should be the original request with auth header
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+        assert final_request.method == "GET"
+        assert str(final_request.url) == "https://api.example.com/mcp"
+
+        # Send final success response to properly close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass  # Expected - generator should complete
+
+        # Verify tokens were stored
+        assert oauth_provider.context.current_tokens is not None
+        assert oauth_provider.context.current_tokens.access_token == "new_access_token"
+        assert oauth_provider.context.token_expiry_time is not None
+
+    @pytest.mark.anyio
     async def test_403_insufficient_scope_updates_scope_from_header(
         self,
         oauth_provider: OAuthClientProvider,
@@ -1116,8 +1355,6 @@ class TestAuthFlow:
                 "%3A", ":"
             ).replace("+", " ")
             # Extract state from redirect URL
-            from urllib.parse import parse_qs, urlparse
-
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
             captured_state = params.get("state", [None])[0]
@@ -1226,9 +1463,6 @@ def test_build_metadata(
     registration_endpoint: str,
     revocation_endpoint: str,
 ):
-    from mcp.server.auth.routes import build_metadata
-    from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-
     metadata = build_metadata(
         issuer_url=AnyHttpUrl(issuer_url),
         service_documentation_url=AnyHttpUrl(service_documentation_url),
@@ -1593,7 +1827,7 @@ class TestSEP985Discovery:
         final_response = httpx.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)
-        except StopAsyncIteration:  # pragma: no cover
+        except StopAsyncIteration:
             pass
 
     @pytest.mark.anyio
@@ -2025,6 +2259,360 @@ class TestCIMD:
         )
 
         final_request = await auth_flow.asend(token_response)
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass
+
+
+class TestSEP2207OfflineAccessScope:
+    """Test SEP-2207: offline_access scope augmentation for OIDC-flavored refresh tokens."""
+
+    def _make_as_metadata(self, scopes_supported: list[str] | None = None) -> OAuthMetadata:
+        return OAuthMetadata(
+            issuer=AnyHttpUrl("https://auth.example.com"),
+            authorization_endpoint=AnyHttpUrl("https://auth.example.com/authorize"),
+            token_endpoint=AnyHttpUrl("https://auth.example.com/token"),
+            scopes_supported=scopes_supported,
+        )
+
+    def _make_prm(self, scopes_supported: list[str] | None = None) -> ProtectedResourceMetadata:
+        return ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com/v1/mcp"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+            scopes_supported=scopes_supported,
+        )
+
+    def test_offline_access_added_when_as_supports_and_client_has_refresh_token(self):
+        """offline_access is appended when AS advertises it and client supports refresh_token grant."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write offline_access"
+
+    def test_offline_access_added_with_www_authenticate_scope(self):
+        """offline_access is appended even when scopes come from WWW-Authenticate header."""
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope="read write",
+            protected_resource_metadata=None,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write offline_access"
+
+    def test_offline_access_not_added_when_as_does_not_support(self):
+        """offline_access is not added when AS does not advertise it in scopes_supported."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_added_when_client_has_no_refresh_token_grant(self):
+        """offline_access is not added when client does not support refresh_token grant."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_duplicated_when_already_present(self):
+        """offline_access is not added again if it already appears in the selected scopes."""
+        prm = self._make_prm(scopes_supported=["read", "offline_access", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read offline_access write"
+
+    def test_offline_access_not_added_when_no_scopes_selected(self):
+        """offline_access is not added when no base scopes are available (None)."""
+        asm = self._make_as_metadata(scopes_supported=["offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=None,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        # When AS scopes are the only source and include offline_access,
+        # the base scope is "offline_access" and no duplication happens
+        assert scopes == "offline_access"
+
+    def test_offline_access_not_added_when_as_scopes_supported_is_none(self):
+        """offline_access is not added when AS scopes_supported is None."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=None)
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_added_when_no_as_metadata(self):
+        """offline_access is not added when AS metadata is not available."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=None,
+            client_grant_types=["authorization_code", "refresh_token"],
+        )
+        assert scopes == "read write"
+
+    def test_offline_access_not_added_when_no_grant_types_provided(self):
+        """offline_access is not added when client_grant_types is None."""
+        prm = self._make_prm(scopes_supported=["read", "write"])
+        asm = self._make_as_metadata(scopes_supported=["read", "write", "offline_access"])
+
+        scopes = get_client_metadata_scopes(
+            www_authenticate_scope=None,
+            protected_resource_metadata=prm,
+            authorization_server_metadata=asm,
+            client_grant_types=None,
+        )
+        assert scopes == "read write"
+
+    def test_default_client_metadata_includes_refresh_token_grant(self):
+        """Default OAuthClientMetadata includes refresh_token in grant_types (SEP-2207 guidance)."""
+        metadata = OAuthClientMetadata(redirect_uris=[AnyUrl("http://localhost:3030/callback")])
+        assert "refresh_token" in metadata.grant_types
+
+    @pytest.mark.anyio
+    async def test_auth_flow_adds_offline_access_when_as_advertises(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """E2E: auth flow includes offline_access in authorization request when AS advertises it."""
+
+        captured_auth_url: str | None = None
+        captured_state: str | None = None
+
+        async def redirect_handler(url: str) -> None:
+            nonlocal captured_auth_url, captured_state
+            captured_auth_url = url
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            captured_state = params.get("state", [None])[0]
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", captured_state
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        # Pre-set client info to skip DCR
+        provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # First request
+        request = await auth_flow.__anext__()
+        assert "Authorization" not in request.headers
+
+        # Send 401
+        response = httpx.Response(401, headers={}, request=test_request)
+
+        # PRM discovery
+        prm_request = await auth_flow.asend(response)
+        prm_response = httpx.Response(
+            200,
+            content=(
+                b'{"resource": "https://api.example.com/v1/mcp",'
+                b' "authorization_servers": ["https://auth.example.com"],'
+                b' "scopes_supported": ["read", "write"]}'
+            ),
+            request=prm_request,
+        )
+
+        # OAuth metadata discovery - AS advertises offline_access
+        oauth_request = await auth_flow.asend(prm_response)
+        oauth_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com",'
+                b' "authorization_endpoint": "https://auth.example.com/authorize",'
+                b' "token_endpoint": "https://auth.example.com/token",'
+                b' "scopes_supported": ["read", "write", "offline_access"]}'
+            ),
+            request=oauth_request,
+        )
+
+        # This triggers authorization, which calls redirect_handler
+        token_request = await auth_flow.asend(oauth_response)
+
+        # Verify the authorization URL included offline_access in the scope
+        assert captured_auth_url is not None
+        parsed = urlparse(captured_auth_url)
+        params = parse_qs(parsed.query)
+        scope_value = params["scope"][0]
+        scope_parts = scope_value.split()
+        assert "offline_access" in scope_parts
+        assert "read" in scope_parts
+        assert "write" in scope_parts
+
+        # OIDC requires prompt=consent when offline_access is requested
+        assert params["prompt"][0] == "consent"
+
+        # Complete the token exchange
+        token_response = httpx.Response(
+            200,
+            content=(
+                b'{"access_token": "new_access_token", "token_type": "Bearer",'
+                b' "expires_in": 3600, "refresh_token": "new_refresh_token"}'
+            ),
+            request=token_request,
+        )
+
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+
+        # Close the generator
+        final_response = httpx.Response(200, request=final_request)
+        try:
+            await auth_flow.asend(final_response)
+        except StopAsyncIteration:
+            pass
+
+    @pytest.mark.anyio
+    async def test_auth_flow_no_offline_access_when_as_does_not_advertise(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """E2E: auth flow does NOT include offline_access when AS doesn't advertise it."""
+
+        captured_auth_url: str | None = None
+        captured_state: str | None = None
+
+        async def redirect_handler(url: str) -> None:
+            nonlocal captured_auth_url, captured_state
+            captured_auth_url = url
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            captured_state = params.get("state", [None])[0]
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", captured_state
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+
+        provider.context.current_tokens = None
+        provider.context.token_expiry_time = None
+        provider._initialized = True
+
+        # Pre-set client info to skip DCR
+        provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = provider.async_auth_flow(test_request)
+
+        # First request
+        await auth_flow.__anext__()
+
+        # Send 401
+        response = httpx.Response(401, headers={}, request=test_request)
+
+        # PRM discovery
+        prm_request = await auth_flow.asend(response)
+        prm_response = httpx.Response(
+            200,
+            content=(
+                b'{"resource": "https://api.example.com/v1/mcp",'
+                b' "authorization_servers": ["https://auth.example.com"],'
+                b' "scopes_supported": ["read", "write"]}'
+            ),
+            request=prm_request,
+        )
+
+        # OAuth metadata discovery - AS does NOT advertise offline_access
+        oauth_request = await auth_flow.asend(prm_response)
+        oauth_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com",'
+                b' "authorization_endpoint": "https://auth.example.com/authorize",'
+                b' "token_endpoint": "https://auth.example.com/token",'
+                b' "scopes_supported": ["read", "write"]}'
+            ),
+            request=oauth_request,
+        )
+
+        # This triggers authorization, which calls redirect_handler
+        token_request = await auth_flow.asend(oauth_response)
+
+        # Verify the authorization URL does NOT include offline_access
+        assert captured_auth_url is not None
+        parsed = urlparse(captured_auth_url)
+        params = parse_qs(parsed.query)
+        scope_value = params["scope"][0]
+        scope_parts = scope_value.split()
+        assert "offline_access" not in scope_parts
+        assert "read" in scope_parts
+        assert "write" in scope_parts
+
+        # prompt=consent should NOT be present without offline_access
+        assert "prompt" not in params
+
+        # Complete the token exchange
+        token_response = httpx.Response(
+            200,
+            content=b'{"access_token": "new_access_token", "token_type": "Bearer", "expires_in": 3600}',
+            request=token_request,
+        )
+
+        final_request = await auth_flow.asend(token_response)
+        assert final_request.headers["Authorization"] == "Bearer new_access_token"
+
+        # Close the generator
         final_response = httpx.Response(200, request=final_request)
         try:
             await auth_flow.asend(final_response)

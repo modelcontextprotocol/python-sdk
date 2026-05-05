@@ -4,9 +4,7 @@ from pydantic import AnyHttpUrl, AnyUrl, BaseModel, Field, field_validator
 
 
 class OAuthToken(BaseModel):
-    """
-    See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
-    """
+    """See https://datatracker.ietf.org/doc/html/rfc6749#section-5.1"""
 
     access_token: str
     token_type: Literal["Bearer"] = "Bearer"
@@ -35,10 +33,8 @@ class InvalidRedirectUriError(Exception):
 
 
 class OAuthClientMetadata(BaseModel):
-    """
-    RFC 7591 OAuth 2.0 Dynamic Client Registration metadata.
+    """RFC 7591 OAuth 2.0 Dynamic Client Registration Metadata.
     See https://datatracker.ietf.org/doc/html/rfc7591#section-2
-    for the full specification.
     """
 
     redirect_uris: list[AnyUrl] | None = Field(..., min_length=1)
@@ -71,6 +67,24 @@ class OAuthClientMetadata(BaseModel):
     software_id: str | None = None
     software_version: str | None = None
 
+    @field_validator(
+        "client_uri",
+        "logo_uri",
+        "tos_uri",
+        "policy_uri",
+        "jwks_uri",
+        mode="before",
+    )
+    @classmethod
+    def _empty_string_optional_url_to_none(cls, v: object) -> object:
+        # RFC 7591 §2 marks these URL fields OPTIONAL. Some authorization servers
+        # echo omitted metadata back as "" instead of dropping the keys, which
+        # AnyHttpUrl would otherwise reject — throwing away an otherwise valid
+        # registration response. Treat "" as absent.
+        if v == "":
+            return None
+        return v
+
     def validate_scope(self, requested_scope: str | None) -> list[str] | None:
         if requested_scope is None:
             return None
@@ -94,8 +108,7 @@ class OAuthClientMetadata(BaseModel):
 
 
 class OAuthClientInformationFull(OAuthClientMetadata):
-    """
-    RFC 7591 OAuth 2.0 Dynamic Client Registration full response
+    """RFC 7591 OAuth 2.0 Dynamic Client Registration full response
     (client information plus metadata).
     """
 
@@ -106,8 +119,7 @@ class OAuthClientInformationFull(OAuthClientMetadata):
 
 
 class OAuthMetadata(BaseModel):
-    """
-    RFC 8414 OAuth 2.0 Authorization Server Metadata.
+    """RFC 8414 OAuth 2.0 Authorization Server Metadata.
     See https://datatracker.ietf.org/doc/html/rfc8414#section-2
     """
 
@@ -136,8 +148,7 @@ class OAuthMetadata(BaseModel):
 
 
 class ProtectedResourceMetadata(BaseModel):
-    """
-    RFC 9728 OAuth 2.0 Protected Resource Metadata.
+    """RFC 9728 OAuth 2.0 Protected Resource Metadata.
     See https://datatracker.ietf.org/doc/html/rfc9728#section-2
     """
 
@@ -151,9 +162,9 @@ class ProtectedResourceMetadata(BaseModel):
     resource_documentation: AnyHttpUrl | None = None
     resource_policy_uri: AnyHttpUrl | None = None
     resource_tos_uri: AnyHttpUrl | None = None
-    # tls_client_certificate_bound_access_tokens default is False, but ommited here for clarity
+    # tls_client_certificate_bound_access_tokens default is False, but omitted here for clarity
     tls_client_certificate_bound_access_tokens: bool | None = None
     authorization_details_types_supported: list[str] | None = None
     dpop_signing_alg_values_supported: list[str] | None = None
-    # dpop_bound_access_tokens_required default is False, but ommited here for clarity
+    # dpop_bound_access_tokens_required default is False, but omitted here for clarity
     dpop_bound_access_tokens_required: bool | None = None

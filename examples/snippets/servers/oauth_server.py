@@ -1,13 +1,12 @@
-"""
-Run from the repository root:
-    uv run examples/snippets/servers/oauth_server.py
+"""Run from the repository root:
+uv run examples/snippets/servers/oauth_server.py
 """
 
 from pydantic import AnyHttpUrl
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 class SimpleTokenVerifier(TokenVerifier):
@@ -17,10 +16,9 @@ class SimpleTokenVerifier(TokenVerifier):
         pass  # This is where you would implement actual token validation
 
 
-# Create FastMCP instance as a Resource Server
-mcp = FastMCP(
+# Create MCPServer instance as a Resource Server
+mcp = MCPServer(
     "Weather Service",
-    json_response=True,
     # Token verifier for authentication
     token_verifier=SimpleTokenVerifier(),
     # Auth settings for RFC 9728 Protected Resource Metadata
@@ -44,4 +42,4 @@ async def get_weather(city: str = "London") -> dict[str, str]:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", json_response=True)

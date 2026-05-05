@@ -1,10 +1,9 @@
-"""
-SSE Server Transport Module
+"""SSE Server Transport Module
 
 This module implements a Server-Sent Events (SSE) transport layer for MCP servers.
 
-Example usage:
-```
+Example:
+    ```python
     # Create an SSE transport at an endpoint
     sse = SseServerTransport("/messages/")
 
@@ -28,10 +27,10 @@ Example usage:
     # Create and run Starlette app
     starlette_app = Starlette(routes=routes)
     uvicorn.run(starlette_app, host="127.0.0.1", port=port)
-```
+    ```
 
-Note: The handle_sse function must return a Response to avoid a "TypeError: 'NoneType'
-object is not callable" error when client disconnects. The example above returns
+Note: The handle_sse function must return a Response to avoid a
+"TypeError: 'NoneType' object is not callable" error when client disconnects. The example above returns
 an empty Response() after the SSE connection ends to fix this.
 
 See SseServerTransport class documentation for more details.
@@ -44,27 +43,26 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 import anyio
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from pydantic import ValidationError
 from sse_starlette import EventSourceResponse
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
-import mcp.types as types
+from mcp import types
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,
     TransportSecuritySettings,
 )
+from mcp.shared._context_streams import ContextSendStream, create_context_streams
 from mcp.shared.message import ServerMessageMetadata, SessionMessage
 
 logger = logging.getLogger(__name__)
 
 
 class SseServerTransport:
-    """
-    SSE server transport for MCP. This class provides _two_ ASGI applications,
-    suitable to be used with a framework like Starlette and a server like Hypercorn:
+    """SSE server transport for MCP. This class provides two ASGI applications,
+    suitable for use with a framework like Starlette and a server like Hypercorn:
 
         1. connect_sse() is an ASGI application which receives incoming GET requests,
            and sets up a new SSE stream to send server messages to the client.
@@ -74,12 +72,11 @@ class SseServerTransport:
     """
 
     _endpoint: str
-    _read_stream_writers: dict[UUID, MemoryObjectSendStream[SessionMessage | Exception]]
+    _read_stream_writers: dict[UUID, ContextSendStream[SessionMessage | Exception]]
     _security: TransportSecurityMiddleware
 
     def __init__(self, endpoint: str, security_settings: TransportSecuritySettings | None = None) -> None:
-        """
-        Creates a new SSE server transport, which will direct the client to POST
+        """Creates a new SSE server transport, which will direct the client to POST
         messages to the relative path given.
 
         Args:
@@ -132,14 +129,9 @@ class SseServerTransport:
             raise ValueError("Request validation failed")
 
         logger.debug("Setting up SSE connection")
-        read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
-        read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
-        write_stream: MemoryObjectSendStream[SessionMessage]
-        write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
-
-        read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
-        write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
+        read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
+        write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
         session_id = uuid4()
         self._read_stream_writers[session_id] = read_stream_writer
@@ -173,15 +165,14 @@ class SseServerTransport:
                     await sse_stream_writer.send(
                         {
                             "event": "message",
-                            "data": session_message.message.model_dump_json(by_alias=True, exclude_none=True),
+                            "data": session_message.message.model_dump_json(by_alias=True, exclude_unset=True),
                         }
                     )
 
         async with anyio.create_task_group() as tg:
 
             async def response_wrapper(scope: Scope, receive: Receive, send: Send):
-                """
-                The EventSourceResponse returning signals a client close / disconnect.
+                """The EventSourceResponse returning signals a client close / disconnect.
                 In this case we close our side of the streams to signal the client that
                 the connection has been closed.
                 """
@@ -190,6 +181,7 @@ class SseServerTransport:
                 )
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
+                self._read_stream_writers.pop(session_id, None)
                 logging.debug(f"Client session disconnected {session_id}")
 
             logger.debug("Starting SSE response task")
@@ -231,7 +223,7 @@ class SseServerTransport:
         logger.debug(f"Received JSON: {body}")
 
         try:
-            message = types.JSONRPCMessage.model_validate_json(body)
+            message = types.jsonrpc_message_adapter.validate_json(body, by_name=False)
             logger.debug(f"Validated client message: {message}")
         except ValidationError as err:
             logger.exception("Failed to parse message")

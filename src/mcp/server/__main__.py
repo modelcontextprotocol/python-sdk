@@ -1,6 +1,7 @@
 import importlib.metadata
 import logging
 import sys
+import warnings
 
 import anyio
 
@@ -10,8 +11,6 @@ from mcp.server.stdio import stdio_server
 from mcp.types import ServerCapabilities
 
 if not sys.warnoptions:
-    import warnings
-
     warnings.simplefilter("ignore")
 
 logging.basicConfig(level=logging.INFO)

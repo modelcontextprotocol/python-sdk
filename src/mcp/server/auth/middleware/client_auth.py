@@ -13,23 +13,23 @@ from mcp.shared.auth import OAuthClientInformationFull
 
 class AuthenticationError(Exception):
     def __init__(self, message: str):
-        self.message = message  # pragma: no cover
+        self.message = message
 
 
 class ClientAuthenticator:
-    """
-    ClientAuthenticator is a callable which validates requests from a client
+    """ClientAuthenticator is a callable which validates requests from a client
     application, used to verify /token calls.
+
     If, during registration, the client requested to be issued a secret, the
     authenticator asserts that /token calls must be authenticated with
-    that same token.
+    that same secret.
+
     NOTE: clients can opt for no authentication during registration, in which case this
     logic is skipped.
     """
 
     def __init__(self, provider: OAuthAuthorizationServerProvider[Any, Any, Any]):
-        """
-        Initialize the dependency.
+        """Initialize the authenticator.
 
         Args:
             provider: Provider to look up client information
@@ -37,8 +37,7 @@ class ClientAuthenticator:
         self.provider = provider
 
     async def authenticate_request(self, request: Request) -> OAuthClientInformationFull:
-        """
-        Authenticate a client from an HTTP request.
+        """Authenticate a client from an HTTP request.
 
         Extracts client credentials from the appropriate location based on the
         client's registered authentication method and validates them.
@@ -86,7 +85,7 @@ class ClientAuthenticator:
 
         elif client.token_endpoint_auth_method == "client_secret_post":
             raw_form_data = form_data.get("client_secret")
-            # form_data.get() can return a UploadFile or None, so we need to check if it's a string
+            # form_data.get() can return an UploadFile or None, so we need to check if it's a string
             if isinstance(raw_form_data, str):
                 request_client_secret = str(raw_form_data)
 
@@ -99,15 +98,15 @@ class ClientAuthenticator:
 
         # If client from the store expects a secret, validate that the request provides
         # that secret
-        if client.client_secret:  # pragma: no branch
+        if client.client_secret:
             if not request_client_secret:
-                raise AuthenticationError("Client secret is required")  # pragma: no cover
+                raise AuthenticationError("Client secret is required")
 
             # hmac.compare_digest requires that both arguments are either bytes or a `str` containing
             # only ASCII characters. Since we do not control `request_client_secret`, we encode both
             # arguments to bytes.
             if not hmac.compare_digest(client.client_secret.encode(), request_client_secret.encode()):
-                raise AuthenticationError("Invalid client_secret")  # pragma: no cover
+                raise AuthenticationError("Invalid client_secret")
 
             if client.client_secret_expires_at and client.client_secret_expires_at < int(time.time()):
                 raise AuthenticationError("Client secret has expired")  # pragma: no cover

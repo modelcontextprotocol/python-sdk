@@ -51,22 +51,17 @@ def check_resource_allowed(requested_resource: str, configured_resource: str) ->
     if requested.scheme.lower() != configured.scheme.lower() or requested.netloc.lower() != configured.netloc.lower():
         return False
 
-    # Handle cases like requested=/foo and configured=/foo/
+    # Normalize trailing slashes before comparison so that
+    # "/foo" and "/foo/" are treated as equivalent.
     requested_path = requested.path
     configured_path = configured.path
-
-    # If requested path is shorter, it cannot be a child
-    if len(requested_path) < len(configured_path):
-        return False
-
-    # Check if the requested path starts with the configured path
-    # Ensure both paths end with / for proper comparison
-    # This ensures that paths like "/api123" don't incorrectly match "/api"
     if not requested_path.endswith("/"):
         requested_path += "/"
     if not configured_path.endswith("/"):
         configured_path += "/"
 
+    # Check hierarchical match: requested must start with configured path.
+    # The trailing-slash normalization ensures "/api123/" won't match "/api/".
     return requested_path.startswith(configured_path)
 
 

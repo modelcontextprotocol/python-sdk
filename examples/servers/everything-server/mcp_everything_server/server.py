@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-MCP Everything Server - Conformance Test Server
+"""MCP Everything Server - Conformance Test Server
 
 Server implementing all MCP features for conformance testing based on Conformance Server Specification.
 """
@@ -11,9 +10,9 @@ import json
 import logging
 
 import click
-from mcp.server.fastmcp import Context, FastMCP
-from mcp.server.fastmcp.prompts.base import UserMessage
-from mcp.server.session import ServerSession
+from mcp.server import ServerRequestContext
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.prompts.base import UserMessage
 from mcp.server.streamable_http import EventCallback, EventMessage, EventStore
 from mcp.types import (
     AudioContent,
@@ -21,15 +20,19 @@ from mcp.types import (
     CompletionArgument,
     CompletionContext,
     EmbeddedResource,
+    EmptyResult,
     ImageContent,
     JSONRPCMessage,
     PromptReference,
     ResourceTemplateReference,
     SamplingMessage,
+    SetLevelRequestParams,
+    SubscribeRequestParams,
     TextContent,
     TextResourceContents,
+    UnsubscribeRequestParams,
 )
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +84,8 @@ watched_resource_content = "Watched resource content"
 # Create event store for SSE resumability (SEP-1699)
 event_store = InMemoryEventStore()
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="mcp-conformance-test-server",
-    event_store=event_store,
-    retry_interval=100,  # 100ms retry interval for SSE polling
 )
 
 
@@ -98,13 +99,13 @@ def test_simple_text() -> str:
 @mcp.tool()
 def test_image_content() -> list[ImageContent]:
     """Tests image content response"""
-    return [ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png")]
+    return [ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png")]
 
 
 @mcp.tool()
 def test_audio_content() -> list[AudioContent]:
     """Tests audio content response"""
-    return [AudioContent(type="audio", data=TEST_AUDIO_BASE64, mimeType="audio/wav")]
+    return [AudioContent(type="audio", data=TEST_AUDIO_BASE64, mime_type="audio/wav")]
 
 
 @mcp.tool()
@@ -114,8 +115,8 @@ def test_embedded_resource() -> list[EmbeddedResource]:
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("test://embedded-resource"),
-                mimeType="text/plain",
+                uri="test://embedded-resource",
+                mime_type="text/plain",
                 text="This is an embedded resource content.",
             ),
         )
@@ -127,12 +128,12 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
     """Tests response with multiple content types (text, image, resource)"""
     return [
         TextContent(type="text", text="Multiple content types test:"),
-        ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png"),
+        ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png"),
         EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                uri=AnyUrl("test://mixed-content-resource"),
-                mimeType="application/json",
+                uri="test://mixed-content-resource",
+                mime_type="application/json",
                 text='{"test": "data", "value": 123}',
             ),
         ),
@@ -140,7 +141,7 @@ def test_multiple_content_types() -> list[TextContent | ImageContent | EmbeddedR
 
 
 @mcp.tool()
-async def test_tool_with_logging(ctx: Context[ServerSession, None]) -> str:
+async def test_tool_with_logging(ctx: Context) -> str:
     """Tests tool that emits log messages during execution"""
     await ctx.info("Tool execution started")
     await asyncio.sleep(0.05)
@@ -153,7 +154,7 @@ async def test_tool_with_logging(ctx: Context[ServerSession, None]) -> str:
 
 
 @mcp.tool()
-async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
+async def test_tool_with_progress(ctx: Context) -> str:
     """Tests tool that reports progress notifications"""
     await ctx.report_progress(progress=0, total=100, message="Completed step 0 of 100")
     await asyncio.sleep(0.05)
@@ -164,12 +165,14 @@ async def test_tool_with_progress(ctx: Context[ServerSession, None]) -> str:
     await ctx.report_progress(progress=100, total=100, message="Completed step 100 of 100")
 
     # Return progress token as string
-    progress_token = ctx.request_context.meta.progressToken if ctx.request_context and ctx.request_context.meta else 0
+    progress_token = (
+        ctx.request_context.meta.get("progress_token") if ctx.request_context and ctx.request_context.meta else 0
+    )
     return str(progress_token)
 
 
 @mcp.tool()
-async def test_sampling(prompt: str, ctx: Context[ServerSession, None]) -> str:
+async def test_sampling(prompt: str, ctx: Context) -> str:
     """Tests server-initiated sampling (LLM completion request)"""
     try:
         # Request sampling from client
@@ -194,7 +197,7 @@ class UserResponse(BaseModel):
 
 
 @mcp.tool()
-async def test_elicitation(message: str, ctx: Context[ServerSession, None]) -> str:
+async def test_elicitation(message: str, ctx: Context) -> str:
     """Tests server-initiated elicitation (user input request)"""
     try:
         # Request user input from client
@@ -226,7 +229,7 @@ class SEP1034DefaultsSchema(BaseModel):
 
 
 @mcp.tool()
-async def test_elicitation_sep1034_defaults(ctx: Context[ServerSession, None]) -> str:
+async def test_elicitation_sep1034_defaults(ctx: Context) -> str:
     """Tests elicitation with default values for all primitive types (SEP-1034)"""
     try:
         # Request user input with defaults for all primitive types
@@ -285,7 +288,7 @@ class EnumSchemasTestSchema(BaseModel):
 
 
 @mcp.tool()
-async def test_elicitation_sep1330_enums(ctx: Context[ServerSession, None]) -> str:
+async def test_elicitation_sep1330_enums(ctx: Context) -> str:
     """Tests elicitation with enum schema variations per SEP-1330"""
     try:
         result = await ctx.elicit(
@@ -309,7 +312,7 @@ def test_error_handling() -> str:
 
 
 @mcp.tool()
-async def test_reconnection(ctx: Context[ServerSession, None]) -> str:
+async def test_reconnection(ctx: Context) -> str:
     """Tests SSE polling by closing stream mid-call (SEP-1699)"""
     await ctx.info("Before disconnect")
 
@@ -372,8 +375,8 @@ def test_prompt_with_embedded_resource(resourceUri: str) -> list[UserMessage]:
             content=EmbeddedResource(
                 type="resource",
                 resource=TextResourceContents(
-                    uri=AnyUrl(resourceUri),
-                    mimeType="text/plain",
+                    uri=resourceUri,
+                    mime_type="text/plain",
                     text="Embedded resource content for testing.",
                 ),
             ),
@@ -386,36 +389,37 @@ def test_prompt_with_embedded_resource(resourceUri: str) -> list[UserMessage]:
 def test_prompt_with_image() -> list[UserMessage]:
     """A prompt that includes image content"""
     return [
-        UserMessage(role="user", content=ImageContent(type="image", data=TEST_IMAGE_BASE64, mimeType="image/png")),
+        UserMessage(role="user", content=ImageContent(type="image", data=TEST_IMAGE_BASE64, mime_type="image/png")),
         UserMessage(role="user", content=TextContent(type="text", text="Please analyze the image above.")),
     ]
 
 
 # Custom request handlers
-# TODO(felix): Add public APIs to FastMCP for subscribe_resource, unsubscribe_resource,
-# and set_logging_level to avoid accessing protected _mcp_server attribute.
-@mcp._mcp_server.set_logging_level()  # pyright: ignore[reportPrivateUsage]
-async def handle_set_logging_level(level: str) -> None:
+# TODO(felix): Add public APIs to MCPServer for subscribe_resource, unsubscribe_resource,
+# and set_logging_level to avoid accessing protected _lowlevel_server attribute.
+async def handle_set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
     """Handle logging level changes"""
-    logger.info(f"Log level set to: {level}")
-    # In a real implementation, you would adjust the logging level here
-    # For conformance testing, we just acknowledge the request
+    logger.info(f"Log level set to: {params.level}")
+    return EmptyResult()
 
 
-async def handle_subscribe(uri: AnyUrl) -> None:
+async def handle_subscribe(ctx: ServerRequestContext, params: SubscribeRequestParams) -> EmptyResult:
     """Handle resource subscription"""
-    resource_subscriptions.add(str(uri))
-    logger.info(f"Subscribed to resource: {uri}")
+    resource_subscriptions.add(str(params.uri))
+    logger.info(f"Subscribed to resource: {params.uri}")
+    return EmptyResult()
 
 
-async def handle_unsubscribe(uri: AnyUrl) -> None:
+async def handle_unsubscribe(ctx: ServerRequestContext, params: UnsubscribeRequestParams) -> EmptyResult:
     """Handle resource unsubscription"""
-    resource_subscriptions.discard(str(uri))
-    logger.info(f"Unsubscribed from resource: {uri}")
+    resource_subscriptions.discard(str(params.uri))
+    logger.info(f"Unsubscribed from resource: {params.uri}")
+    return EmptyResult()
 
 
-mcp._mcp_server.subscribe_resource()(handle_subscribe)  # pyright: ignore[reportPrivateUsage]
-mcp._mcp_server.unsubscribe_resource()(handle_unsubscribe)  # pyright: ignore[reportPrivateUsage]
+mcp._lowlevel_server._add_request_handler("logging/setLevel", handle_set_logging_level)  # pyright: ignore[reportPrivateUsage]
+mcp._lowlevel_server._add_request_handler("resources/subscribe", handle_subscribe)  # pyright: ignore[reportPrivateUsage]
+mcp._lowlevel_server._add_request_handler("resources/unsubscribe", handle_unsubscribe)  # pyright: ignore[reportPrivateUsage]
 
 
 @mcp.completion()
@@ -427,7 +431,7 @@ async def _handle_completion(
     """Handle completion requests"""
     # Basic completion support - returns empty array for conformance
     # Real implementations would provide contextual suggestions
-    return Completion(values=[], total=0, hasMore=False)
+    return Completion(values=[], total=0, has_more=False)
 
 
 # CLI
@@ -448,8 +452,12 @@ def main(port: int, log_level: str) -> int:
     logger.info(f"Starting MCP Everything Server on port {port}")
     logger.info(f"Endpoint will be: http://localhost:{port}/mcp")
 
-    mcp.settings.port = port
-    mcp.run(transport="streamable-http")
+    mcp.run(
+        transport="streamable-http",
+        port=port,
+        event_store=event_store,
+        retry_interval=100,  # 100ms retry interval for SSE polling
+    )
 
     return 0
 

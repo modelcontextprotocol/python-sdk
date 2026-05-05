@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A simple OAuth client for the MCP simple-auth server"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Anthropic" }]
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 keywords = ["mcp", "oauth", "client", "auth"]
 license = { text = "MIT" }
 classifiers = [

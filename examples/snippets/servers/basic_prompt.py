@@ -1,7 +1,7 @@
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.prompts import base
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.prompts import base
 
-mcp = FastMCP(name="Prompt Example")
+mcp = MCPServer(name="Prompt Example")
 
 
 @mcp.prompt(title="Code Review")

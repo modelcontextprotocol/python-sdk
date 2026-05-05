@@ -1,10 +1,8 @@
 import pytest
-from pydantic import AnyUrl
 
-from mcp.server.fastmcp import FastMCP
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as client_session,
-)
+from mcp import Client
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ResourceError
 from mcp.types import (
     ListResourceTemplatesResult,
     TextResourceContents,
@@ -14,7 +12,7 @@ from mcp.types import (
 @pytest.mark.anyio
 async def test_resource_template_edge_cases():
     """Test server-side resource template validation"""
-    mcp = FastMCP("Demo")
+    mcp = MCPServer("Demo")
 
     # Test case 1: Template with multiple parameters
     @mcp.resource("resource://users/{user_id}/posts/{post_id}")
@@ -57,17 +55,17 @@ async def test_resource_template_edge_cases():
     assert result_list[0].mime_type == "text/plain"
 
     # Verify invalid parameters raise error
-    with pytest.raises(ValueError, match="Unknown resource"):
+    with pytest.raises(ResourceError, match="Unknown resource"):
         await mcp.read_resource("resource://users/123/posts")  # Missing post_id
 
-    with pytest.raises(ValueError, match="Unknown resource"):
+    with pytest.raises(ResourceError, match="Unknown resource"):
         await mcp.read_resource("resource://users/123/posts/456/extra")  # Extra path component
 
 
 @pytest.mark.anyio
 async def test_resource_template_client_interaction():
     """Test client-side resource template interaction"""
-    mcp = FastMCP("Demo")
+    mcp = MCPServer("Demo")
 
     # Register some templated resources
     @mcp.resource("resource://users/{user_id}/posts/{post_id}")
@@ -78,37 +76,34 @@ async def test_resource_template_client_interaction():
     def get_user_profile(user_id: str) -> str:
         return f"Profile for user {user_id}"
 
-    async with client_session(mcp._mcp_server) as session:
-        # Initialize the session
-        await session.initialize()
-
+    async with Client(mcp) as session:
         # List available resources
         resources = await session.list_resource_templates()
         assert isinstance(resources, ListResourceTemplatesResult)
-        assert len(resources.resourceTemplates) == 2
+        assert len(resources.resource_templates) == 2
 
         # Verify resource templates are listed correctly
-        templates = [r.uriTemplate for r in resources.resourceTemplates]
+        templates = [r.uri_template for r in resources.resource_templates]
         assert "resource://users/{user_id}/posts/{post_id}" in templates
         assert "resource://users/{user_id}/profile" in templates
 
         # Read a resource with valid parameters
-        result = await session.read_resource(AnyUrl("resource://users/123/posts/456"))
+        result = await session.read_resource("resource://users/123/posts/456")
         contents = result.contents[0]
         assert isinstance(contents, TextResourceContents)
         assert contents.text == "Post 456 by user 123"
-        assert contents.mimeType == "text/plain"
+        assert contents.mime_type == "text/plain"
 
         # Read another resource with valid parameters
-        result = await session.read_resource(AnyUrl("resource://users/789/profile"))
+        result = await session.read_resource("resource://users/789/profile")
         contents = result.contents[0]
         assert isinstance(contents, TextResourceContents)
         assert contents.text == "Profile for user 789"
-        assert contents.mimeType == "text/plain"
+        assert contents.mime_type == "text/plain"
 
         # Verify invalid resource URIs raise appropriate errors
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(AnyUrl("resource://users/123/posts"))  # Missing post_id
+            await session.read_resource("resource://users/123/posts")  # Missing post_id
 
         with pytest.raises(Exception):  # Specific exception type may vary
-            await session.read_resource(AnyUrl("resource://users/123/invalid"))  # Invalid template
+            await session.read_resource("resource://users/123/invalid")  # Invalid template

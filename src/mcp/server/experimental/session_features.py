@@ -1,5 +1,4 @@
-"""
-Experimental server session features for server→client task operations.
+"""Experimental server session features for server→client task operations.
 
 This module provides the server-side equivalent of ExperimentalClientFeatures,
 allowing the server to send task-augmented requests to the client and poll for results.
@@ -10,7 +9,7 @@ WARNING: These APIs are experimental and may change without notice.
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import mcp.types as types
+from mcp import types
 from mcp.server.validation import validate_sampling_tools, validate_tool_use_result_messages
 from mcp.shared.experimental.tasks.capabilities import (
     require_task_augmented_elicitation,
@@ -25,8 +24,7 @@ ResultT = TypeVar("ResultT", bound=types.Result)
 
 
 class ExperimentalServerSessionFeatures:
-    """
-    Experimental server session features for server→client task operations.
+    """Experimental server session features for server→client task operations.
 
     This provides the server-side equivalent of ExperimentalClientFeatures,
     allowing the server to send task-augmented requests to the client and
@@ -42,8 +40,7 @@ class ExperimentalServerSessionFeatures:
         self._session = session
 
     async def get_task(self, task_id: str) -> types.GetTaskResult:
-        """
-        Send tasks/get to the client to get task status.
+        """Send tasks/get to the client to get task status.
 
         Args:
             task_id: The task identifier
@@ -52,7 +49,7 @@ class ExperimentalServerSessionFeatures:
             GetTaskResult containing the task status
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskRequest(params=types.GetTaskRequestParams(taskId=task_id))),
+            types.GetTaskRequest(params=types.GetTaskRequestParams(task_id=task_id)),
             types.GetTaskResult,
         )
 
@@ -61,8 +58,7 @@ class ExperimentalServerSessionFeatures:
         task_id: str,
         result_type: type[ResultT],
     ) -> ResultT:
-        """
-        Send tasks/result to the client to retrieve the final result.
+        """Send tasks/result to the client to retrieve the final result.
 
         Args:
             task_id: The task identifier
@@ -72,13 +68,12 @@ class ExperimentalServerSessionFeatures:
             The task result, validated against result_type
         """
         return await self._session.send_request(
-            types.ServerRequest(types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(taskId=task_id))),
+            types.GetTaskPayloadRequest(params=types.GetTaskPayloadRequestParams(task_id=task_id)),
             result_type,
         )
 
     async def poll_task(self, task_id: str) -> AsyncIterator[types.GetTaskResult]:
-        """
-        Poll a client task until it reaches terminal status.
+        """Poll a client task until it reaches terminal status.
 
         Yields GetTaskResult for each poll, allowing the caller to react to
         status changes. Exits when task reaches a terminal status.
@@ -97,12 +92,11 @@ class ExperimentalServerSessionFeatures:
     async def elicit_as_task(
         self,
         message: str,
-        requestedSchema: types.ElicitRequestedSchema,
+        requested_schema: types.ElicitRequestedSchema,
         *,
         ttl: int = 60000,
     ) -> types.ElicitResult:
-        """
-        Send a task-augmented elicitation to the client and poll until complete.
+        """Send a task-augmented elicitation to the client and poll until complete.
 
         The client will create a local task, process the elicitation asynchronously,
         and return the result when ready. This method handles the full flow:
@@ -113,32 +107,30 @@ class ExperimentalServerSessionFeatures:
 
         Args:
             message: The message to present to the user
-            requestedSchema: Schema defining the expected response
+            requested_schema: Schema defining the expected response
             ttl: Task time-to-live in milliseconds
 
         Returns:
             The client's elicitation response
 
         Raises:
-            McpError: If client doesn't support task-augmented elicitation
+            MCPError: If client doesn't support task-augmented elicitation
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
         require_task_augmented_elicitation(client_caps)
 
         create_result = await self._session.send_request(
-            types.ServerRequest(
-                types.ElicitRequest(
-                    params=types.ElicitRequestFormParams(
-                        message=message,
-                        requestedSchema=requestedSchema,
-                        task=types.TaskMetadata(ttl=ttl),
-                    )
+            types.ElicitRequest(
+                params=types.ElicitRequestFormParams(
+                    message=message,
+                    requested_schema=requested_schema,
+                    task=types.TaskMetadata(ttl=ttl),
                 )
             ),
             types.CreateTaskResult,
         )
 
-        task_id = create_result.task.taskId
+        task_id = create_result.task.task_id
 
         async for _ in self.poll_task(task_id):
             pass
@@ -160,8 +152,7 @@ class ExperimentalServerSessionFeatures:
         tools: list[types.Tool] | None = None,
         tool_choice: types.ToolChoice | None = None,
     ) -> types.CreateMessageResult:
-        """
-        Send a task-augmented sampling request and poll until complete.
+        """Send a task-augmented sampling request and poll until complete.
 
         The client will create a local task, process the sampling request
         asynchronously, and return the result when ready.
@@ -183,7 +174,7 @@ class ExperimentalServerSessionFeatures:
             The sampling result from the client
 
         Raises:
-            McpError: If client doesn't support task-augmented sampling or tools
+            MCPError: If client doesn't support task-augmented sampling or tools
             ValueError: If tool_use or tool_result message structure is invalid
         """
         client_caps = self._session.client_params.capabilities if self._session.client_params else None
@@ -192,27 +183,25 @@ class ExperimentalServerSessionFeatures:
         validate_tool_use_result_messages(messages)
 
         create_result = await self._session.send_request(
-            types.ServerRequest(
-                types.CreateMessageRequest(
-                    params=types.CreateMessageRequestParams(
-                        messages=messages,
-                        maxTokens=max_tokens,
-                        systemPrompt=system_prompt,
-                        includeContext=include_context,
-                        temperature=temperature,
-                        stopSequences=stop_sequences,
-                        metadata=metadata,
-                        modelPreferences=model_preferences,
-                        tools=tools,
-                        toolChoice=tool_choice,
-                        task=types.TaskMetadata(ttl=ttl),
-                    )
+            types.CreateMessageRequest(
+                params=types.CreateMessageRequestParams(
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    system_prompt=system_prompt,
+                    include_context=include_context,
+                    temperature=temperature,
+                    stop_sequences=stop_sequences,
+                    metadata=metadata,
+                    model_preferences=model_preferences,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    task=types.TaskMetadata(ttl=ttl),
                 )
             ),
             types.CreateTaskResult,
         )
 
-        task_id = create_result.task.taskId
+        task_id = create_result.task.task_id
 
         async for _ in self.poll_task(task_id):
             pass

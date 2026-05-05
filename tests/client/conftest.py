@@ -4,15 +4,15 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from anyio.streams.memory import MemoryObjectSendStream
 
 import mcp.shared.memory
+from mcp.client._transport import WriteStream
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCNotification, JSONRPCRequest
 
 
 class SpyMemoryObjectSendStream:
-    def __init__(self, original_stream: MemoryObjectSendStream[SessionMessage]):
+    def __init__(self, original_stream: WriteStream[SessionMessage]):
         self.original_stream = original_stream
         self.sent_messages: list[SessionMessage] = []
 
@@ -40,38 +40,36 @@ class StreamSpyCollection:
         self.client.sent_messages.clear()
         self.server.sent_messages.clear()
 
-    def get_client_requests(self, method: str | None = None) -> list[JSONRPCRequest]:  # pragma: no cover
+    def get_client_requests(self, method: str | None = None) -> list[JSONRPCRequest]:
         """Get client-sent requests, optionally filtered by method."""
         return [
-            req.message.root
+            req.message
             for req in self.client.sent_messages
-            if isinstance(req.message.root, JSONRPCRequest) and (method is None or req.message.root.method == method)
+            if isinstance(req.message, JSONRPCRequest) and (method is None or req.message.method == method)
         ]
 
     def get_server_requests(self, method: str | None = None) -> list[JSONRPCRequest]:  # pragma: no cover
         """Get server-sent requests, optionally filtered by method."""
         return [  # pragma: no cover
-            req.message.root
+            req.message
             for req in self.server.sent_messages
-            if isinstance(req.message.root, JSONRPCRequest) and (method is None or req.message.root.method == method)
+            if isinstance(req.message, JSONRPCRequest) and (method is None or req.message.method == method)
         ]
 
     def get_client_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:  # pragma: no cover
         """Get client-sent notifications, optionally filtered by method."""
         return [
-            notif.message.root
+            notif.message
             for notif in self.client.sent_messages
-            if isinstance(notif.message.root, JSONRPCNotification)
-            and (method is None or notif.message.root.method == method)
+            if isinstance(notif.message, JSONRPCNotification) and (method is None or notif.message.method == method)
         ]
 
     def get_server_notifications(self, method: str | None = None) -> list[JSONRPCNotification]:  # pragma: no cover
         """Get server-sent notifications, optionally filtered by method."""
         return [
-            notif.message.root
+            notif.message
             for notif in self.server.sent_messages
-            if isinstance(notif.message.root, JSONRPCNotification)
-            and (method is None or notif.message.root.method == method)
+            if isinstance(notif.message, JSONRPCNotification) and (method is None or notif.message.method == method)
         ]
 
 
@@ -79,7 +77,8 @@ class StreamSpyCollection:
 def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
     """Fixture that provides spies for both client and server write streams.
 
-    Example usage:
+    Example:
+        ```python
         async def test_something(stream_spy):
             # ... set up server and client ...
 
@@ -94,6 +93,7 @@ def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
 
             # Clear for the next operation
             spies.clear()
+        ```
     """
     client_spy = None
     server_spy = None
@@ -123,11 +123,13 @@ def stream_spy() -> Generator[Callable[[], StreamSpyCollection], None, None]:
             yield (client_read, spy_client_write), (server_read, spy_server_write)
 
     # Apply the patch for the duration of the test
+    # Patch both locations since InMemoryTransport imports it directly
     with patch("mcp.shared.memory.create_client_server_memory_streams", patched_create_streams):
-        # Return a collection with helper methods
-        def get_spy_collection() -> StreamSpyCollection:
-            assert client_spy is not None, "client_spy was not initialized"
-            assert server_spy is not None, "server_spy was not initialized"
-            return StreamSpyCollection(client_spy, server_spy)
+        with patch("mcp.client._memory.create_client_server_memory_streams", patched_create_streams):
+            # Return a collection with helper methods
+            def get_spy_collection() -> StreamSpyCollection:
+                assert client_spy is not None, "client_spy was not initialized"
+                assert server_spy is not None, "server_spy was not initialized"
+                return StreamSpyCollection(client_spy, server_spy)
 
-        yield get_spy_collection
+            yield get_spy_collection

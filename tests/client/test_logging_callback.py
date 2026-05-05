@@ -2,10 +2,8 @@ from typing import Literal
 
 import pytest
 
-import mcp.types as types
-from mcp.shared.memory import (
-    create_connected_server_and_client_session as create_session,
-)
+from mcp import Client, types
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.shared.session import RequestResponder
 from mcp.types import (
     LoggingMessageNotificationParams,
@@ -23,9 +21,7 @@ class LoggingCollector:
 
 @pytest.mark.anyio
 async def test_logging_callback():
-    from mcp.server.fastmcp import FastMCP
-
-    server = FastMCP("test")
+    server = MCPServer("test")
     logging_collector = LoggingCollector()
 
     # Create a simple test tool
@@ -37,12 +33,22 @@ async def test_logging_callback():
     # Create a function that can send a log notification
     @server.tool("test_tool_with_log")
     async def test_tool_with_log(
-        message: str, level: Literal["debug", "info", "warning", "error"], logger: str
+        message: str, level: Literal["debug", "info", "warning", "error"], logger: str, ctx: Context
     ) -> bool:
         """Send a log notification to the client."""
-        await server.get_context().log(
+        await ctx.log(level=level, data=message, logger_name=logger)
+        return True
+
+    @server.tool("test_tool_with_log_dict")
+    async def test_tool_with_log_dict(
+        level: Literal["debug", "info", "warning", "error"],
+        logger: str,
+        ctx: Context,
+    ) -> bool:
+        """Send a log notification with a dict payload."""
+        await ctx.log(
             level=level,
-            message=message,
+            data={"message": "Test log message", "extra_string": "example", "extra_dict": {"a": 1, "b": 2, "c": 3}},
             logger_name=logger,
         )
         return True
@@ -54,19 +60,19 @@ async def test_logging_callback():
         if isinstance(message, Exception):  # pragma: no cover
             raise message
 
-    async with create_session(
-        server._mcp_server,
+    async with Client(
+        server,
         logging_callback=logging_collector,
         message_handler=message_handler,
-    ) as client_session:
+    ) as client:
         # First verify our test tool works
-        result = await client_session.call_tool("test_tool", {})
-        assert result.isError is False
+        result = await client.call_tool("test_tool", {})
+        assert result.is_error is False
         assert isinstance(result.content[0], TextContent)
         assert result.content[0].text == "true"
 
         # Now send a log message via our tool
-        log_result = await client_session.call_tool(
+        log_result = await client.call_tool(
             "test_tool_with_log",
             {
                 "message": "Test log message",
@@ -74,10 +80,27 @@ async def test_logging_callback():
                 "logger": "test_logger",
             },
         )
-        assert log_result.isError is False
-        assert len(logging_collector.log_messages) == 1
+        log_result_with_dict = await client.call_tool(
+            "test_tool_with_log_dict",
+            {
+                "level": "info",
+                "logger": "test_logger",
+            },
+        )
+        assert log_result.is_error is False
+        assert log_result_with_dict.is_error is False
+        assert len(logging_collector.log_messages) == 2
         # Create meta object with related_request_id added dynamically
         log = logging_collector.log_messages[0]
         assert log.level == "info"
         assert log.logger == "test_logger"
         assert log.data == "Test log message"
+
+        log_with_dict = logging_collector.log_messages[1]
+        assert log_with_dict.level == "info"
+        assert log_with_dict.logger == "test_logger"
+        assert log_with_dict.data == {
+            "message": "Test log message",
+            "extra_string": "example",
+            "extra_dict": {"a": 1, "b": 2, "c": 3},
+        }

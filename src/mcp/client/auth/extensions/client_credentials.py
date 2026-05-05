@@ -1,5 +1,4 @@
-"""
-OAuth client credential extensions for MCP.
+"""OAuth client credential extensions for MCP.
 
 Provides OAuth providers for machine-to-machine authentication flows:
 - ClientCredentialsOAuthProvider: For client_credentials with client_id + client_secret
@@ -9,6 +8,7 @@ Provides OAuth providers for machine-to-machine authentication flows:
 """
 
 import time
+import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import uuid4
@@ -409,8 +409,6 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         timeout: float = 300.0,
         jwt_parameters: JWTParameters | None = None,
     ) -> None:
-        import warnings
-
         warnings.warn(
             "RFC7523OAuthClientProvider is deprecated. Use ClientCredentialsOAuthProvider "
             "or PrivateKeyJWTOAuthProvider instead.",
@@ -452,7 +450,7 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
         # When using private_key_jwt, in a client_credentials flow, we use RFC 7523 Section 2.2
         token_data["client_assertion"] = assertion
         token_data["client_assertion_type"] = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
-        # We need to set the audience to the resource server, the audience is difference from the one in claims
+        # We need to set the audience to the resource server, the audience is different from the one in claims
         # it represents the resource server that will validate the token
         token_data["audience"] = self.context.get_resource_url()
 

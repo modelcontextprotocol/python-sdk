@@ -1,5 +1,4 @@
-"""
-TaskSupport - Configuration for experimental task support.
+"""TaskSupport - Configuration for experimental task support.
 
 This module provides the TaskSupport class which encapsulates all the
 infrastructure needed for task-augmented requests: store, queue, and handler.
@@ -21,8 +20,7 @@ from mcp.shared.experimental.tasks.store import TaskStore
 
 @dataclass
 class TaskSupport:
-    """
-    Configuration for experimental task support.
+    """Configuration for experimental task support.
 
     Encapsulates the task store, message queue, result handler, and task group
     for spawning background work.
@@ -33,14 +31,20 @@ class TaskSupport:
     - Manages a task group for background task execution
 
     Example:
-        # Simple in-memory setup
-        server.experimental.enable_tasks()
+        Simple in-memory setup:
 
-        # Custom store/queue for distributed systems
+        ```python
+        server.experimental.enable_tasks()
+        ```
+
+        Custom store/queue for distributed systems:
+
+        ```python
         server.experimental.enable_tasks(
             store=RedisTaskStore(redis_url),
             queue=RedisTaskMessageQueue(redis_url),
         )
+        ```
     """
 
     store: TaskStore
@@ -65,8 +69,7 @@ class TaskSupport:
 
     @asynccontextmanager
     async def run(self) -> AsyncIterator[None]:
-        """
-        Run the task support lifecycle.
+        """Run the task support lifecycle.
 
         This creates a task group for spawning background task work.
         Called automatically by Server.run().
@@ -84,8 +87,7 @@ class TaskSupport:
                 self._task_group = None
 
     def configure_session(self, session: ServerSession) -> None:
-        """
-        Configure a session for task support.
+        """Configure a session for task support.
 
         This registers the result handler as a response router so that
         responses to queued requests (elicitation, sampling) are routed
@@ -100,8 +102,7 @@ class TaskSupport:
 
     @classmethod
     def in_memory(cls) -> "TaskSupport":
-        """
-        Create in-memory task support.
+        """Create in-memory task support.
 
         Suitable for development, testing, and single-process servers.
         For distributed systems, provide custom store and queue implementations.

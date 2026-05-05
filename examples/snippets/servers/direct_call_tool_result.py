@@ -4,10 +4,10 @@ from typing import Annotated
 
 from pydantic import BaseModel
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent
 
-mcp = FastMCP("CallToolResult Example")
+mcp = MCPServer("CallToolResult Example")
 
 
 class ValidationModel(BaseModel):
@@ -31,7 +31,7 @@ def validated_tool() -> Annotated[CallToolResult, ValidationModel]:
     """Return CallToolResult with structured output validation."""
     return CallToolResult(
         content=[TextContent(type="text", text="Validated response")],
-        structuredContent={"status": "success", "data": {"result": 42}},
+        structured_content={"status": "success", "data": {"result": 42}},
         _meta={"internal": "metadata"},
     )
 

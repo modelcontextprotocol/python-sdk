@@ -337,7 +337,7 @@ if __name__ == "__main__":
 Handle task errors gracefully:
 
 ```python
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 try:
     result = await session.experimental.call_tool_as_task("my_tool", args)
@@ -349,8 +349,8 @@ try:
 
     final = await session.experimental.get_task_result(task_id, CallToolResult)
 
-except McpError as e:
-    print(f"MCP error: {e.error.message}")
+except MCPError as e:
+    print(f"MCP error: {e.message}")
 except Exception as e:
     print(f"Error: {e}")
 ```

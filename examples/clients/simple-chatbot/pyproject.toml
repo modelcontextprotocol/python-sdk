@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A simple CLI chatbot using the Model Context Protocol (MCP)"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Edoardo Cilia" }]
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
 keywords = ["mcp", "llm", "chatbot", "cli"]
 license = { text = "MIT" }
 classifiers = [
@@ -16,7 +16,6 @@ classifiers = [
 ]
 dependencies = [
     "python-dotenv>=1.0.0",
-    "requests>=2.31.0",
     "mcp",
     "uvicorn>=0.32.1",
 ]

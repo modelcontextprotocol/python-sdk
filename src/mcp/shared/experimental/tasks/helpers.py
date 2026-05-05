@@ -1,5 +1,4 @@
-"""
-Helper functions for pure task management.
+"""Helper functions for pure task management.
 
 These helpers work with pure TaskContext and don't require server dependencies.
 For server-integrated task helpers, use mcp.server.experimental.
@@ -10,7 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.context import TaskContext
 from mcp.shared.experimental.tasks.store import TaskStore
 from mcp.types import (
@@ -20,7 +19,6 @@ from mcp.types import (
     TASK_STATUS_FAILED,
     TASK_STATUS_WORKING,
     CancelTaskResult,
-    ErrorData,
     Task,
     TaskMetadata,
     TaskStatus,
@@ -36,8 +34,7 @@ RELATED_TASK_METADATA_KEY = "io.modelcontextprotocol/related-task"
 
 
 def is_terminal(status: TaskStatus) -> bool:
-    """
-    Check if a task status represents a terminal state.
+    """Check if a task status represents a terminal state.
 
     Terminal states are those where the task has finished and will not change.
 
@@ -54,8 +51,7 @@ async def cancel_task(
     store: TaskStore,
     task_id: str,
 ) -> CancelTaskResult:
-    """
-    Cancel a task with spec-compliant validation.
+    """Cancel a task with spec-compliant validation.
 
     Per spec: "Receivers MUST reject cancellation of terminal status tasks
     with -32602 (Invalid params)"
@@ -71,31 +67,22 @@ async def cancel_task(
         CancelTaskResult with the cancelled task state
 
     Raises:
-        McpError: With INVALID_PARAMS (-32602) if:
+        MCPError: With INVALID_PARAMS (-32602) if:
             - Task does not exist
             - Task is already in a terminal state (completed, failed, cancelled)
 
     Example:
-        @server.experimental.cancel_task()
-        async def handle_cancel(request: CancelTaskRequest) -> CancelTaskResult:
-            return await cancel_task(store, request.params.taskId)
+        ```python
+        async def handle_cancel(ctx, params: CancelTaskRequestParams) -> CancelTaskResult:
+            return await cancel_task(store, params.task_id)
+        ```
     """
     task = await store.get_task(task_id)
     if task is None:
-        raise McpError(
-            ErrorData(
-                code=INVALID_PARAMS,
-                message=f"Task not found: {task_id}",
-            )
-        )
+        raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
     if is_terminal(task.status):
-        raise McpError(
-            ErrorData(
-                code=INVALID_PARAMS,
-                message=f"Cannot cancel task in terminal state '{task.status}'",
-            )
-        )
+        raise MCPError(code=INVALID_PARAMS, message=f"Cannot cancel task in terminal state '{task.status}'")
 
     # Update task to cancelled status
     cancelled_task = await store.update_task(task_id, status=TASK_STATUS_CANCELLED)
@@ -111,8 +98,7 @@ def create_task_state(
     metadata: TaskMetadata,
     task_id: str | None = None,
 ) -> Task:
-    """
-    Create a Task object with initial state.
+    """Create a Task object with initial state.
 
     This is a helper for TaskStore implementations.
 
@@ -125,12 +111,12 @@ def create_task_state(
     """
     now = datetime.now(timezone.utc)
     return Task(
-        taskId=task_id or generate_task_id(),
+        task_id=task_id or generate_task_id(),
         status=TASK_STATUS_WORKING,
-        createdAt=now,
-        lastUpdatedAt=now,
+        created_at=now,
+        last_updated_at=now,
         ttl=metadata.ttl,
-        pollInterval=500,  # Default 500ms poll interval
+        poll_interval=500,  # Default 500ms poll interval
     )
 
 
@@ -139,8 +125,7 @@ async def task_execution(
     task_id: str,
     store: TaskStore,
 ) -> AsyncIterator[TaskContext]:
-    """
-    Context manager for safe task execution (pure, no server dependencies).
+    """Context manager for safe task execution (pure, no server dependencies).
 
     Loads a task from the store and provides a TaskContext for the work.
     If an unhandled exception occurs, the task is automatically marked as failed

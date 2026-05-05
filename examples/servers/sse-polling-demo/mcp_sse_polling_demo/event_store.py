@@ -1,5 +1,4 @@
-"""
-In-memory event store for demonstrating resumability functionality.
+"""In-memory event store for demonstrating resumability functionality.
 
 This is a simple implementation intended for examples and testing,
 not for production use where a persistent storage solution would be more appropriate.
@@ -26,8 +25,7 @@ class EventEntry:
 
 
 class InMemoryEventStore(EventStore):
-    """
-    Simple in-memory implementation of the EventStore interface for resumability.
+    """Simple in-memory implementation of the EventStore interface for resumability.
     This is primarily intended for examples and testing, not for production use
     where a persistent storage solution would be more appropriate.
 

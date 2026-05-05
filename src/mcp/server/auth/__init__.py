@@ -1,3 +1,1 @@
-"""
-MCP OAuth server authorization components.
-"""
+"""MCP OAuth server authorization components."""

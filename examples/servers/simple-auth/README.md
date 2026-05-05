@@ -31,10 +31,10 @@ uv run mcp-simple-auth-as --port=9000
 cd examples/servers/simple-auth
 
 # Start Resource Server on port 8001, connected to Authorization Server
-uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --transport=streamable-http
 
 # With RFC 8707 strict resource validation (recommended for production)
-uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000  --transport=streamable-http --oauth-strict
+uv run mcp-simple-auth-rs --port=8001 --auth-server=http://localhost:9000 --transport=streamable-http --oauth-strict
 
 ```
 
@@ -84,8 +84,9 @@ For backwards compatibility with older MCP implementations, a legacy server is p
 ### Running the Legacy Server
 
 ```bash
-# Start legacy authorization server on port 8002
-uv run mcp-simple-auth-legacy --port=8002
+# Start legacy server on port 8000 (the default)
+cd examples/servers/simple-auth
+uv run mcp-simple-auth-legacy --port=8000 --transport=streamable-http
 ```
 
 **Differences from the new architecture:**
@@ -101,7 +102,7 @@ uv run mcp-simple-auth-legacy --port=8002
 ```bash
 # Test with client (will automatically fall back to legacy discovery)
 cd examples/clients/simple-auth-client
-MCP_SERVER_PORT=8002 MCP_TRANSPORT_TYPE=streamable-http uv run mcp-simple-auth-client
+MCP_SERVER_PORT=8000 MCP_TRANSPORT_TYPE=streamable-http uv run mcp-simple-auth-client
 ```
 
 The client will:

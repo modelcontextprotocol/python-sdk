@@ -1,4 +1,3 @@
-import logging
 import re
 from urllib.parse import urljoin, urlparse
 
@@ -16,12 +15,9 @@ from mcp.shared.auth import (
 )
 from mcp.types import LATEST_PROTOCOL_VERSION
 
-logger = logging.getLogger(__name__)
-
 
 def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
-    """
-    Extract field from WWW-Authenticate header.
+    """Extract field from WWW-Authenticate header.
 
     Returns:
         Field value if found in WWW-Authenticate header, None otherwise
@@ -42,8 +38,7 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
 
 
 def extract_scope_from_www_auth(response: Response) -> str | None:
-    """
-    Extract scope parameter from WWW-Authenticate header as per RFC6750.
+    """Extract scope parameter from WWW-Authenticate header as per RFC 6750.
 
     Returns:
         Scope string if found in WWW-Authenticate header, None otherwise
@@ -52,8 +47,7 @@ def extract_scope_from_www_auth(response: Response) -> str | None:
 
 
 def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
-    """
-    Extract protected resource metadata URL from WWW-Authenticate header as per RFC9728.
+    """Extract protected resource metadata URL from WWW-Authenticate header as per RFC 9728.
 
     Returns:
         Resource metadata URL if found in WWW-Authenticate header, None otherwise
@@ -65,8 +59,7 @@ def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
 
 
 def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, server_url: str) -> list[str]:
-    """
-    Build ordered list of URLs to try for protected resource metadata discovery.
+    """Build ordered list of URLs to try for protected resource metadata discovery.
 
     Per SEP-985, the client MUST:
     1. Try resource_metadata from WWW-Authenticate header (if present)
@@ -74,8 +67,8 @@ def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, s
     3. Fall back to root-based well-known URI: /.well-known/oauth-protected-resource
 
     Args:
-        www_auth_url: optional resource_metadata url extracted from the WWW-Authenticate header
-        server_url: server url
+        www_auth_url: Optional resource_metadata URL extracted from the WWW-Authenticate header
+        server_url: Server URL
 
     Returns:
         Ordered list of URLs to try for discovery
@@ -106,32 +99,43 @@ def get_client_metadata_scopes(
     www_authenticate_scope: str | None,
     protected_resource_metadata: ProtectedResourceMetadata | None,
     authorization_server_metadata: OAuthMetadata | None = None,
+    client_grant_types: list[str] | None = None,
 ) -> str | None:
-    """Select scopes as outlined in the 'Scope Selection Strategy' in the MCP spec."""
-    # Per MCP spec, scope selection priority order:
-    # 1. Use scope from WWW-Authenticate header (if provided)
-    # 2. Use all scopes from PRM scopes_supported (if available)
-    # 3. Omit scope parameter if neither is available
+    """Select effective scopes and augment for refresh token support."""
+    selected_scope: str | None = None
 
+    # MCP spec scope selection priority:
+    #   1. WWW-Authenticate header scope
+    #   2. PRM scopes_supported
+    #   3. AS scopes_supported (SDK fallback)
+    #   4. Omit scope parameter
     if www_authenticate_scope is not None:
-        # Priority 1: WWW-Authenticate header scope
-        return www_authenticate_scope
+        selected_scope = www_authenticate_scope
     elif protected_resource_metadata is not None and protected_resource_metadata.scopes_supported is not None:
-        # Priority 2: PRM scopes_supported
-        return " ".join(protected_resource_metadata.scopes_supported)
+        selected_scope = " ".join(protected_resource_metadata.scopes_supported)
     elif authorization_server_metadata is not None and authorization_server_metadata.scopes_supported is not None:
-        return " ".join(authorization_server_metadata.scopes_supported)  # pragma: no cover
-    else:
-        # Priority 3: Omit scope parameter
-        return None
+        selected_scope = " ".join(authorization_server_metadata.scopes_supported)
+
+    # SEP-2207: append offline_access when the AS supports it and the client can use refresh tokens
+    if (
+        selected_scope is not None
+        and authorization_server_metadata is not None
+        and authorization_server_metadata.scopes_supported is not None
+        and "offline_access" in authorization_server_metadata.scopes_supported
+        and client_grant_types is not None
+        and "refresh_token" in client_grant_types
+        and "offline_access" not in selected_scope.split()
+    ):
+        selected_scope = f"{selected_scope} offline_access"
+
+    return selected_scope
 
 
 def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: str | None, server_url: str) -> list[str]:
-    """
-    Generate ordered list of (url, type) tuples for discovery attempts.
+    """Generate an ordered list of URLs for authorization server metadata discovery.
 
     Args:
-        auth_server_url: URL for the OAuth Authorization Metadata URL if found, otherwise None
+        auth_server_url: OAuth Authorization Server Metadata URL if found, otherwise None
         server_url: URL for the MCP server, used as a fallback if auth_server_url is None
     """
 
@@ -173,13 +177,12 @@ def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: st
 async def handle_protected_resource_response(
     response: Response,
 ) -> ProtectedResourceMetadata | None:
-    """
-    Handle protected resource metadata discovery response.
+    """Handle protected resource metadata discovery response.
 
     Per SEP-985, supports fallback when discovery fails at one URL.
 
     Returns:
-        True if metadata was successfully discovered, False if we should try next URL
+        ProtectedResourceMetadata if successfully discovered, None if we should try next URL
     """
     if response.status_code == 200:
         try:
@@ -215,7 +218,7 @@ def create_oauth_metadata_request(url: str) -> Request:
 def create_client_registration_request(
     auth_server_metadata: OAuthMetadata | None, client_metadata: OAuthClientMetadata, auth_base_url: str
 ) -> Request:
-    """Build registration request or skip if already registered."""
+    """Build a client registration request."""
 
     if auth_server_metadata and auth_server_metadata.registration_endpoint:
         registration_url = str(auth_server_metadata.registration_endpoint)
@@ -270,7 +273,7 @@ def should_use_client_metadata_url(
     """Determine if URL-based client ID (CIMD) should be used instead of DCR.
 
     URL-based client IDs should be used when:
-    1. The server advertises client_id_metadata_document_supported=true
+    1. The server advertises client_id_metadata_document_supported=True
     2. The client has a valid client_metadata_url configured
 
     Args:
@@ -315,7 +318,7 @@ def create_client_info_from_metadata_url(
 async def handle_token_response_scopes(
     response: Response,
 ) -> OAuthToken:
-    """Parse and validate token response with optional scope validation.
+    """Parse and validate a token response.
 
     Parses token response JSON. Callers should check response.status_code before calling.
 

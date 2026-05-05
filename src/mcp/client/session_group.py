@@ -1,25 +1,22 @@
-"""
-SessionGroup concurrently manages multiple MCP session connections.
+"""SessionGroup concurrently manages multiple MCP session connections.
 
 Tools, resources, and prompts are aggregated across servers. Servers may
 be connected to or disconnected from at any point after initialization.
 
-This abstractions can handle naming collisions using a custom user-provided
-hook.
+This abstraction can handle naming collisions using a custom user-provided hook.
 """
 
 import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import timedelta
 from types import TracebackType
-from typing import Any, TypeAlias, overload
+from typing import Any, TypeAlias
 
 import anyio
 import httpx
-from pydantic import BaseModel
-from typing_extensions import Self, deprecated
+from pydantic import BaseModel, Field
+from typing_extensions import Self
 
 import mcp
 from mcp import types
@@ -28,12 +25,12 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.session import ProgressFnT
 
 
 class SseServerParameters(BaseModel):
-    """Parameters for intializing a sse_client."""
+    """Parameters for initializing an sse_client."""
 
     # The endpoint URL.
     url: str
@@ -41,15 +38,15 @@ class SseServerParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: float = 5
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 5.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: float = 60 * 5
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
 
 class StreamableHttpParameters(BaseModel):
-    """Parameters for intializing a streamable_http_client."""
+    """Parameters for initializing a streamable_http_client."""
 
     # The endpoint URL.
     url: str
@@ -57,11 +54,11 @@ class StreamableHttpParameters(BaseModel):
     # Optional headers to include in requests.
     headers: dict[str, Any] | None = None
 
-    # HTTP timeout for regular operations.
-    timeout: timedelta = timedelta(seconds=30)
+    # HTTP timeout for regular operations (in seconds).
+    timeout: float = 30.0
 
-    # Timeout for SSE read operations.
-    sse_read_timeout: timedelta = timedelta(seconds=60 * 5)
+    # Timeout for SSE read operations (in seconds).
+    sse_read_timeout: float = 300.0
 
     # Close the client session when the transport closes.
     terminate_on_close: bool = True
@@ -70,13 +67,13 @@ class StreamableHttpParameters(BaseModel):
 ServerParameters: TypeAlias = StdioServerParameters | SseServerParameters | StreamableHttpParameters
 
 
-# Use dataclass instead of pydantic BaseModel
-# because pydantic BaseModel cannot handle Protocol fields.
+# Use dataclass instead of Pydantic BaseModel
+# because Pydantic BaseModel cannot handle Protocol fields.
 @dataclass
 class ClientSessionParameters:
     """Parameters for establishing a client session to an MCP server."""
 
-    read_timeout_seconds: timedelta | None = None
+    read_timeout_seconds: float | None = None
     sampling_callback: SamplingFnT | None = None
     elicitation_callback: ElicitationFnT | None = None
     list_roots_callback: ListRootsFnT | None = None
@@ -94,21 +91,22 @@ class ClientSessionGroup:
     For auxiliary handlers, such as resource subscription, this is delegated to
     the client and can be accessed via the session.
 
-    Example Usage:
+    Example:
+        ```python
         name_fn = lambda name, server_info: f"{(server_info.name)}_{name}"
         async with ClientSessionGroup(component_name_hook=name_fn) as group:
             for server_param in server_params:
                 await group.connect_to_server(server_param)
             ...
-
+        ```
     """
 
     class _ComponentNames(BaseModel):
         """Used for reverse index to find components."""
 
-        prompts: set[str] = set()
-        resources: set[str] = set()
-        tools: set[str] = set()
+        prompts: set[str] = Field(default_factory=set)
+        resources: set[str] = Field(default_factory=set)
+        tools: set[str] = Field(default_factory=set)
 
     # Standard MCP components.
     _prompts: dict[str, types.Prompt]
@@ -121,9 +119,9 @@ class ClientSessionGroup:
     _exit_stack: contextlib.AsyncExitStack
     _session_exit_stacks: dict[mcp.ClientSession, contextlib.AsyncExitStack]
 
-    # Optional fn consuming (component_name, serverInfo) for custom names.
-    # This is provide a means to mitigate naming conflicts across servers.
-    # Example: (tool_name, serverInfo) => "{result.serverInfo.name}.{tool_name}"
+    # Optional fn consuming (component_name, server_info) for custom names.
+    # This is to provide a means to mitigate naming conflicts across servers.
+    # Example: (tool_name, server_info) => "{result.server_info.name}.{tool_name}"
     _ComponentNameHook: TypeAlias = Callable[[str, types.Implementation], str]
     _component_name_hook: _ComponentNameHook | None
 
@@ -192,45 +190,21 @@ class ClientSessionGroup:
         """Returns the tools as a dictionary of names to tools."""
         return self._tools
 
-    @overload
-    async def call_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressFnT | None = None,
-        *,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
-    @overload
-    @deprecated("The 'args' parameter is deprecated. Use 'arguments' instead.")
-    async def call_tool(
-        self,
-        name: str,
-        *,
-        args: dict[str, Any],
-        read_timeout_seconds: timedelta | None = None,
-        progress_callback: ProgressFnT | None = None,
-        meta: dict[str, Any] | None = None,
-    ) -> types.CallToolResult: ...
-
     async def call_tool(
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        read_timeout_seconds: timedelta | None = None,
+        read_timeout_seconds: float | None = None,
         progress_callback: ProgressFnT | None = None,
         *,
-        meta: dict[str, Any] | None = None,
-        args: dict[str, Any] | None = None,
+        meta: types.RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
         """Executes a tool given its name and arguments."""
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
         return await session.call_tool(
             session_tool_name,
-            arguments if args is None else args,
+            arguments=arguments,
             read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
             meta=meta,
@@ -243,29 +217,27 @@ class ClientSessionGroup:
         session_known_for_stack = session in self._session_exit_stacks
 
         if not session_known_for_components and not session_known_for_stack:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message="Provided session is not managed or already disconnected.",
-                )
+            raise MCPError(
+                code=types.INVALID_PARAMS,
+                message="Provided session is not managed or already disconnected.",
             )
 
-        if session_known_for_components:  # pragma: no cover
+        if session_known_for_components:  # pragma: no branch
             component_names = self._sessions.pop(session)  # Pop from _sessions tracking
 
             # Remove prompts associated with the session.
             for name in component_names.prompts:
-                if name in self._prompts:
+                if name in self._prompts:  # pragma: no branch
                     del self._prompts[name]
             # Remove resources associated with the session.
             for name in component_names.resources:
-                if name in self._resources:
+                if name in self._resources:  # pragma: no branch
                     del self._resources[name]
             # Remove tools associated with the session.
             for name in component_names.tools:
-                if name in self._tools:
+                if name in self._tools:  # pragma: no branch
                     del self._tools[name]
-                if name in self._tool_to_session:
+                if name in self._tool_to_session:  # pragma: no branch
                     del self._tool_to_session[name]
 
         # Clean up the session's resources via its dedicated exit stack
@@ -314,8 +286,8 @@ class ClientSessionGroup:
                 httpx_client = create_mcp_http_client(
                     headers=server_params.headers,
                     timeout=httpx.Timeout(
-                        server_params.timeout.total_seconds(),
-                        read=server_params.sse_read_timeout.total_seconds(),
+                        server_params.timeout,
+                        read=server_params.sse_read_timeout,
                     ),
                 )
                 await session_stack.enter_async_context(httpx_client)
@@ -325,7 +297,7 @@ class ClientSessionGroup:
                     http_client=httpx_client,
                     terminate_on_close=server_params.terminate_on_close,
                 )
-                read, write, _ = await session_stack.enter_async_context(client)
+                read, write = await session_stack.enter_async_context(client)
 
             session = await session_stack.enter_async_context(
                 mcp.ClientSession(
@@ -350,7 +322,7 @@ class ClientSessionGroup:
             # main _exit_stack.
             await self._exit_stack.enter_async_context(session_stack)
 
-            return result.serverInfo, session
+            return result.server_info, session
         except Exception:  # pragma: no cover
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.
@@ -379,7 +351,7 @@ class ClientSessionGroup:
                 name = self._component_name(prompt.name, server_info)
                 prompts_temp[name] = prompt
                 component_names.prompts.add(name)
-        except McpError as err:  # pragma: no cover
+        except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch prompts: {err}")
 
         # Query the server for its resources and aggregate to list.
@@ -389,7 +361,7 @@ class ClientSessionGroup:
                 name = self._component_name(resource.name, server_info)
                 resources_temp[name] = resource
                 component_names.resources.add(name)
-        except McpError as err:  # pragma: no cover
+        except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch resources: {err}")
 
         # Query the server for its tools and aggregate to list.
@@ -400,7 +372,7 @@ class ClientSessionGroup:
                 tools_temp[name] = tool
                 tool_to_session_temp[name] = session
                 component_names.tools.add(name)
-        except McpError as err:  # pragma: no cover
+        except MCPError as err:  # pragma: no cover
             logging.warning(f"Could not fetch tools: {err}")
 
         # Clean up exit stack for session if we couldn't retrieve anything
@@ -411,28 +383,19 @@ class ClientSessionGroup:
         # Check for duplicates.
         matching_prompts = prompts_temp.keys() & self._prompts.keys()
         if matching_prompts:
-            raise McpError(  # pragma: no cover
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"{matching_prompts} already exist in group prompts.",
-                )
+            raise MCPError(  # pragma: no cover
+                code=types.INVALID_PARAMS,
+                message=f"{matching_prompts} already exist in group prompts.",
             )
         matching_resources = resources_temp.keys() & self._resources.keys()
         if matching_resources:
-            raise McpError(  # pragma: no cover
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"{matching_resources} already exist in group resources.",
-                )
+            raise MCPError(  # pragma: no cover
+                code=types.INVALID_PARAMS,
+                message=f"{matching_resources} already exist in group resources.",
             )
         matching_tools = tools_temp.keys() & self._tools.keys()
         if matching_tools:
-            raise McpError(
-                types.ErrorData(
-                    code=types.INVALID_PARAMS,
-                    message=f"{matching_tools} already exist in group tools.",
-                )
-            )
+            raise MCPError(code=types.INVALID_PARAMS, message=f"{matching_tools} already exist in group tools.")
 
         # Aggregate components.
         self._sessions[session] = component_names

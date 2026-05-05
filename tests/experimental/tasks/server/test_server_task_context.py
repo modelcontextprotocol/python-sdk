@@ -8,7 +8,7 @@ import pytest
 
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.experimental.task_result_handler import TaskResultHandler
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.experimental.tasks.message_queue import InMemoryTaskMessageQueue
 from mcp.types import (
@@ -45,7 +45,7 @@ async def test_server_task_context_properties() -> None:
     )
 
     assert ctx.task_id == "test-123"
-    assert ctx.task.taskId == "test-123"
+    assert ctx.task.task_id == "test-123"
     assert ctx.is_cancelled is False
 
     store.cleanup()
@@ -164,7 +164,7 @@ async def test_server_task_context_fail_with_notify() -> None:
 
 @pytest.mark.anyio
 async def test_elicit_raises_when_client_lacks_capability() -> None:
-    """Test that elicit() raises McpError when client doesn't support elicitation."""
+    """Test that elicit() raises MCPError when client doesn't support elicitation."""
     store = InMemoryTaskStore()
     mock_session = Mock()
     mock_session.check_client_capability = Mock(return_value=False)
@@ -180,8 +180,8 @@ async def test_elicit_raises_when_client_lacks_capability() -> None:
         handler=handler,
     )
 
-    with pytest.raises(McpError) as exc_info:
-        await ctx.elicit(message="Test?", requestedSchema={"type": "object"})
+    with pytest.raises(MCPError) as exc_info:
+        await ctx.elicit(message="Test?", requested_schema={"type": "object"})
 
     assert "elicitation capability" in exc_info.value.error.message
     mock_session.check_client_capability.assert_called_once()
@@ -190,7 +190,7 @@ async def test_elicit_raises_when_client_lacks_capability() -> None:
 
 @pytest.mark.anyio
 async def test_create_message_raises_when_client_lacks_capability() -> None:
-    """Test that create_message() raises McpError when client doesn't support sampling."""
+    """Test that create_message() raises MCPError when client doesn't support sampling."""
     store = InMemoryTaskStore()
     mock_session = Mock()
     mock_session.check_client_capability = Mock(return_value=False)
@@ -206,7 +206,7 @@ async def test_create_message_raises_when_client_lacks_capability() -> None:
         handler=handler,
     )
 
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await ctx.create_message(messages=[], max_tokens=100)
 
     assert "sampling capability" in exc_info.value.error.message
@@ -232,7 +232,7 @@ async def test_elicit_raises_without_handler() -> None:
     )
 
     with pytest.raises(RuntimeError, match="handler is required"):
-        await ctx.elicit(message="Test?", requestedSchema={"type": "object"})
+        await ctx.elicit(message="Test?", requested_schema={"type": "object"})
 
     store.cleanup()
 
@@ -320,22 +320,22 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
         nonlocal elicit_result
         elicit_result = await ctx.elicit(
             message="Test?",
-            requestedSchema={"type": "object"},
+            requested_schema={"type": "object"},
         )
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_elicit)
 
         # Wait for request to be queued
-        await queue.wait_for_message(task.taskId)
+        await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.taskId)
+        updated_task = await store.get_task(task.task_id)
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
         # Dequeue and simulate response
-        msg = await queue.dequeue(task.taskId)
+        msg = await queue.dequeue(task.task_id)
         assert msg is not None
         assert msg.resolver is not None
 
@@ -348,7 +348,7 @@ async def test_elicit_queues_request_and_waits_for_response() -> None:
     assert elicit_result.content == {"name": "Alice"}
 
     # Verify task is back to working
-    final_task = await store.get_task(task.taskId)
+    final_task = await store.get_task(task.task_id)
     assert final_task is not None
     assert final_task.status == "working"
 
@@ -396,15 +396,15 @@ async def test_elicit_url_queues_request_and_waits_for_response() -> None:
         tg.start_soon(run_elicit_url)
 
         # Wait for request to be queued
-        await queue.wait_for_message(task.taskId)
+        await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.taskId)
+        updated_task = await store.get_task(task.task_id)
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
         # Dequeue and simulate response
-        msg = await queue.dequeue(task.taskId)
+        msg = await queue.dequeue(task.task_id)
         assert msg is not None
         assert msg.resolver is not None
 
@@ -416,7 +416,7 @@ async def test_elicit_url_queues_request_and_waits_for_response() -> None:
     assert elicit_result.action == "accept"
 
     # Verify task is back to working
-    final_task = await store.get_task(task.taskId)
+    final_task = await store.get_task(task.task_id)
     assert final_task is not None
     assert final_task.status == "working"
 
@@ -463,15 +463,15 @@ async def test_create_message_queues_request_and_waits_for_response() -> None:
         tg.start_soon(run_sampling)
 
         # Wait for request to be queued
-        await queue.wait_for_message(task.taskId)
+        await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.taskId)
+        updated_task = await store.get_task(task.task_id)
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
         # Dequeue and simulate response
-        msg = await queue.dequeue(task.taskId)
+        msg = await queue.dequeue(task.task_id)
         assert msg is not None
         assert msg.resolver is not None
 
@@ -491,7 +491,7 @@ async def test_create_message_queues_request_and_waits_for_response() -> None:
     assert sampling_result.model == "test-model"
 
     # Verify task is back to working
-    final_task = await store.get_task(task.taskId)
+    final_task = await store.get_task(task.task_id)
     assert final_task is not None
     assert final_task.status == "working"
 
@@ -534,7 +534,7 @@ async def test_elicit_restores_status_on_cancellation() -> None:
             try:
                 await ctx.elicit(
                     message="Test?",
-                    requestedSchema={"type": "object"},
+                    requested_schema={"type": "object"},
                 )
             except anyio.get_cancelled_exc_class():
                 cancelled_error_raised = True
@@ -543,15 +543,15 @@ async def test_elicit_restores_status_on_cancellation() -> None:
         tg.start_soon(do_elicit)
 
         # Wait for request to be queued
-        await queue.wait_for_message(task.taskId)
+        await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.taskId)
+        updated_task = await store.get_task(task.task_id)
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
         # Get the queued message and set cancellation exception on its resolver
-        msg = await queue.dequeue(task.taskId)
+        msg = await queue.dequeue(task.task_id)
         assert msg is not None
         assert msg.resolver is not None
 
@@ -559,7 +559,7 @@ async def test_elicit_restores_status_on_cancellation() -> None:
         msg.resolver.set_exception(asyncio.CancelledError())
 
     # Verify task is back to working after cancellation
-    final_task = await store.get_task(task.taskId)
+    final_task = await store.get_task(task.task_id)
     assert final_task is not None
     assert final_task.status == "working"
     assert cancelled_error_raised
@@ -612,15 +612,15 @@ async def test_create_message_restores_status_on_cancellation() -> None:
         tg.start_soon(do_sampling)
 
         # Wait for request to be queued
-        await queue.wait_for_message(task.taskId)
+        await queue.wait_for_message(task.task_id)
 
         # Verify task is in input_required status
-        updated_task = await store.get_task(task.taskId)
+        updated_task = await store.get_task(task.task_id)
         assert updated_task is not None
         assert updated_task.status == "input_required"
 
         # Get the queued message and set cancellation exception on its resolver
-        msg = await queue.dequeue(task.taskId)
+        msg = await queue.dequeue(task.task_id)
         assert msg is not None
         assert msg.resolver is not None
 
@@ -628,7 +628,7 @@ async def test_create_message_restores_status_on_cancellation() -> None:
         msg.resolver.set_exception(asyncio.CancelledError())
 
     # Verify task is back to working after cancellation
-    final_task = await store.get_task(task.taskId)
+    final_task = await store.get_task(task.task_id)
     assert final_task is not None
     assert final_task.status == "working"
     assert cancelled_error_raised
@@ -646,7 +646,7 @@ async def test_elicit_as_task_raises_without_handler() -> None:
     # Create mock session with proper client capabilities
     mock_session = Mock()
     mock_session.client_params = InitializeRequestParams(
-        protocolVersion="2025-01-01",
+        protocol_version="2025-01-01",
         capabilities=ClientCapabilities(
             tasks=ClientTasksCapability(
                 requests=ClientTasksRequestsCapability(
@@ -654,7 +654,7 @@ async def test_elicit_as_task_raises_without_handler() -> None:
                 )
             )
         ),
-        clientInfo=Implementation(name="test", version="1.0"),
+        client_info=Implementation(name="test", version="1.0"),
     )
 
     ctx = ServerTaskContext(
@@ -666,7 +666,7 @@ async def test_elicit_as_task_raises_without_handler() -> None:
     )
 
     with pytest.raises(RuntimeError, match="handler is required for elicit_as_task"):
-        await ctx.elicit_as_task(message="Test?", requestedSchema={"type": "object"})
+        await ctx.elicit_as_task(message="Test?", requested_schema={"type": "object"})
 
     store.cleanup()
 
@@ -681,15 +681,15 @@ async def test_create_message_as_task_raises_without_handler() -> None:
     # Create mock session with proper client capabilities
     mock_session = Mock()
     mock_session.client_params = InitializeRequestParams(
-        protocolVersion="2025-01-01",
+        protocol_version="2025-01-01",
         capabilities=ClientCapabilities(
             tasks=ClientTasksCapability(
                 requests=ClientTasksRequestsCapability(
-                    sampling=TasksSamplingCapability(createMessage=TasksCreateMessageCapability())
+                    sampling=TasksSamplingCapability(create_message=TasksCreateMessageCapability())
                 )
             )
         ),
-        clientInfo=Implementation(name="test", version="1.0"),
+        client_info=Implementation(name="test", version="1.0"),
     )
 
     ctx = ServerTaskContext(

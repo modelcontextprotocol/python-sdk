@@ -1,5 +1,4 @@
-"""
-OAuth2 Authentication implementation for HTTPX.
+"""OAuth2 Authentication implementation for HTTPX.
 
 Implements authorization code flow with PKCE and automatic token refresh.
 """
@@ -193,7 +192,7 @@ class OAuthContext:
             headers = {}  # pragma: no cover
 
         if not self.client_info:
-            return data, headers  # pragma: no cover
+            return data, headers
 
         auth_method = self.client_info.token_endpoint_auth_method
 
@@ -206,8 +205,9 @@ class OAuthContext:
             headers["Authorization"] = f"Basic {encoded_credentials}"
             # Don't include client_secret in body for basic auth
             data = {k: v for k, v in data.items() if k != "client_secret"}
-        elif auth_method == "client_secret_post" and self.client_info.client_secret:
-            # Include client_secret in request body
+        elif auth_method == "client_secret_post" and self.client_info.client_id and self.client_info.client_secret:
+            # Include client_id and client_secret in request body (RFC 6749 §2.3.1)
+            data["client_id"] = self.client_info.client_id
             data["client_secret"] = self.client_info.client_secret
         # For auth_method == "none", don't add any client_secret
 
@@ -215,8 +215,8 @@ class OAuthContext:
 
 
 class OAuthClientProvider(httpx.Auth):
-    """
-    OAuth2 authentication for httpx.
+    """OAuth2 authentication for httpx.
+
     Handles OAuth flow with automatic client registration and token storage.
     """
 
@@ -231,6 +231,7 @@ class OAuthClientProvider(httpx.Auth):
         callback_handler: Callable[[], Awaitable[tuple[str, str | None]]] | None = None,
         timeout: float = 300.0,
         client_metadata_url: str | None = None,
+        validate_resource_url: Callable[[str, str | None], Awaitable[None]] | None = None,
     ):
         """Initialize OAuth2 authentication.
 
@@ -242,9 +243,13 @@ class OAuthClientProvider(httpx.Auth):
             callback_handler: Handler for authorization callbacks.
             timeout: Timeout for the OAuth flow.
             client_metadata_url: URL-based client ID. When provided and the server
-                advertises client_id_metadata_document_supported=true, this URL will be
+                advertises client_id_metadata_document_supported=True, this URL will be
                 used as the client_id instead of performing dynamic client registration.
                 Must be a valid HTTPS URL with a non-root pathname.
+            validate_resource_url: Optional callback to override resource URL validation.
+                Called with (server_url, prm_resource) where prm_resource is the resource
+                from Protected Resource Metadata (or None if not present). If not provided,
+                default validation rejects mismatched resources per RFC 8707.
 
         Raises:
             ValueError: If client_metadata_url is provided but not a valid HTTPS URL
@@ -265,11 +270,11 @@ class OAuthClientProvider(httpx.Auth):
             timeout=timeout,
             client_metadata_url=client_metadata_url,
         )
+        self._validate_resource_url_callback = validate_resource_url
         self._initialized = False
 
     async def _handle_protected_resource_response(self, response: httpx.Response) -> bool:
-        """
-        Handle protected resource metadata discovery response.
+        """Handle protected resource metadata discovery response.
 
         Per SEP-985, supports fallback when discovery fails at one URL.
 
@@ -315,7 +320,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthFlowError("No callback handler provided for authorization code grant")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.authorization_endpoint:
-            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)  # pragma: no cover
+            auth_endpoint = str(self.context.oauth_metadata.authorization_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             auth_endpoint = urljoin(auth_base_url, "/authorize")
@@ -338,10 +343,15 @@ class OAuthClientProvider(httpx.Auth):
 
         # Only include resource param if conditions are met
         if self.context.should_include_resource_param(self.context.protocol_version):
-            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707  # pragma: no cover
+            auth_params["resource"] = self.context.get_resource_url()  # RFC 8707
 
         if self.context.client_metadata.scope:  # pragma: no branch
             auth_params["scope"] = self.context.client_metadata.scope
+
+            # OIDC requires prompt=consent when offline_access is requested
+            # https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
+            if "offline_access" in self.context.client_metadata.scope.split():
+                auth_params["prompt"] = "consent"
 
         authorization_url = f"{auth_endpoint}?{urlencode(auth_params)}"
         await self.context.redirect_handler(authorization_url)
@@ -399,7 +409,7 @@ class OAuthClientProvider(httpx.Auth):
 
     async def _handle_token_response(self, response: httpx.Response) -> None:
         """Handle token exchange response."""
-        if response.status_code != 200:
+        if response.status_code not in {200, 201}:
             body = await response.aread()  # pragma: no cover
             body_text = body.decode("utf-8")  # pragma: no cover
             raise OAuthTokenError(f"Token exchange failed ({response.status_code}): {body_text}")  # pragma: no cover
@@ -421,7 +431,7 @@ class OAuthClientProvider(httpx.Auth):
             raise OAuthTokenError("No client info available")  # pragma: no cover
 
         if self.context.oauth_metadata and self.context.oauth_metadata.token_endpoint:
-            token_url = str(self.context.oauth_metadata.token_endpoint)  # pragma: no cover
+            token_url = str(self.context.oauth_metadata.token_endpoint)
         else:
             auth_base_url = self.context.get_authorization_base_url(self.context.server_url)
             token_url = urljoin(auth_base_url, "/token")
@@ -479,6 +489,20 @@ class OAuthClientProvider(httpx.Auth):
         metadata = OAuthMetadata.model_validate_json(content)
         self.context.oauth_metadata = metadata
 
+    async def _validate_resource_match(self, prm: ProtectedResourceMetadata) -> None:
+        """Validate that PRM resource matches the server URL per RFC 8707."""
+        prm_resource = str(prm.resource) if prm.resource else None
+
+        if self._validate_resource_url_callback is not None:
+            await self._validate_resource_url_callback(self.context.server_url, prm_resource)
+            return
+
+        if not prm_resource:
+            return  # pragma: no cover
+        default_resource = resource_url_from_server_url(self.context.server_url)
+        if not check_resource_allowed(requested_resource=default_resource, configured_resource=prm_resource):
+            raise OAuthFlowError(f"Protected resource {prm_resource} does not match expected {default_resource}")
+
     async def async_auth_flow(self, request: httpx.Request) -> AsyncGenerator[httpx.Request, httpx.Response]:
         """HTTPX auth flow integration."""
         async with self.context.lock:
@@ -520,6 +544,8 @@ class OAuthClientProvider(httpx.Auth):
 
                         prm = await handle_protected_resource_response(discovery_response)
                         if prm:
+                            # Validate PRM resource matches server URL (RFC 8707)
+                            await self._validate_resource_match(prm)
                             self.context.protected_resource_metadata = prm
 
                             # todo: try all authorization_servers to find the OASM
@@ -537,7 +563,7 @@ class OAuthClientProvider(httpx.Auth):
                     )
 
                     # Step 2: Discover OAuth Authorization Server Metadata (OASM) (with fallback for legacy servers)
-                    for url in asm_discovery_urls:  # pragma: no cover
+                    for url in asm_discovery_urls:  # pragma: no branch
                         oauth_metadata_request = create_oauth_metadata_request(url)
                         oauth_metadata_response = yield oauth_metadata_request
 
@@ -555,6 +581,7 @@ class OAuthClientProvider(httpx.Auth):
                         extract_scope_from_www_auth(response),
                         self.context.protected_resource_metadata,
                         self.context.oauth_metadata,
+                        self.context.client_metadata.grant_types,
                     )
 
                     # Step 4: Register client or use URL-based client ID (CIMD)
@@ -601,7 +628,10 @@ class OAuthClientProvider(httpx.Auth):
                     try:
                         # Step 2a: Update the required scopes
                         self.context.client_metadata.scope = get_client_metadata_scopes(
-                            extract_scope_from_www_auth(response), self.context.protected_resource_metadata
+                            extract_scope_from_www_auth(response),
+                            self.context.protected_resource_metadata,
+                            self.context.oauth_metadata,
+                            self.context.client_metadata.grant_types,
                         )
 
                         # Step 2b: Perform (re-)authorization and token exchange

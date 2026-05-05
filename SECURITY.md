@@ -1,15 +1,21 @@
 # Security Policy
 
-Thank you for helping us keep the SDKs and systems they interact with secure.
+Thank you for helping keep the Model Context Protocol and its ecosystem secure.
 
 ## Reporting Security Issues
 
-This SDK is maintained by [Anthropic](https://www.anthropic.com/) as part of the Model Context Protocol project.
+If you discover a security vulnerability in this repository, please report it through
+the [GitHub Security Advisory process](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
+for this repository.
 
-The security of our systems and user data is Anthropic’s top priority. We appreciate the work of security researchers acting in good faith in identifying and reporting potential vulnerabilities.
+Please **do not** report security vulnerabilities through public GitHub issues, discussions,
+or pull requests.
 
-Our security program is managed on HackerOne and we ask that any validated vulnerability in this functionality be reported through their [submission form](https://hackerone.com/anthropic-vdp/reports/new?type=team&report_type=vulnerability).
+## What to Include
 
-## Vulnerability Disclosure Program
+To help us triage and respond quickly, please include:
 
-Our Vulnerability Program Guidelines are defined on our [HackerOne program page](https://hackerone.com/anthropic-vdp).
+- A description of the vulnerability
+- Steps to reproduce the issue
+- The potential impact
+- Any suggested fixes (optional)

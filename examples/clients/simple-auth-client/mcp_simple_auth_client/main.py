@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""
-Simple MCP client example with OAuth authentication support.
+"""Simple MCP client example with OAuth authentication support.
 
 This client connects to an MCP server using streamable HTTP transport with OAuth.
 
 """
 
+from __future__ import annotations as _annotations
+
 import asyncio
 import os
+import socketserver
 import threading
 import time
 import webbrowser
@@ -16,11 +18,13 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+from mcp.client._transport import ReadStream, WriteStream
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.message import SessionMessage
 
 
 class InMemoryTokenStorage(TokenStorage):
@@ -46,7 +50,13 @@ class InMemoryTokenStorage(TokenStorage):
 class CallbackHandler(BaseHTTPRequestHandler):
     """Simple HTTP handler to capture OAuth callback."""
 
-    def __init__(self, request, client_address, server, callback_data):
+    def __init__(
+        self,
+        request: Any,
+        client_address: tuple[str, int],
+        server: socketserver.BaseServer,
+        callback_data: dict[str, Any],
+    ):
         """Initialize with callback data storage."""
         self.callback_data = callback_data
         super().__init__(request, client_address, server)
@@ -91,15 +101,14 @@ class CallbackHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def log_message(self, format, *args):
+    def log_message(self, format: str, *args: Any):
         """Suppress default logging."""
-        pass
 
 
 class CallbackServer:
     """Simple server to handle OAuth callbacks."""
 
-    def __init__(self, port=3000):
+    def __init__(self, port: int = 3000):
         self.port = port
         self.server = None
         self.thread = None
@@ -110,7 +119,12 @@ class CallbackServer:
         callback_data = self.callback_data
 
         class DataCallbackHandler(CallbackHandler):
-            def __init__(self, request, client_address, server):
+            def __init__(
+                self,
+                request: BaseHTTPRequestHandler,
+                client_address: tuple[str, int],
+                server: socketserver.BaseServer,
+            ):
                 super().__init__(request, client_address, server, callback_data)
 
         return DataCallbackHandler
@@ -131,7 +145,7 @@ class CallbackServer:
         if self.thread:
             self.thread.join(timeout=1)
 
-    def wait_for_callback(self, timeout=300):
+    def wait_for_callback(self, timeout: int = 300):
         """Wait for OAuth callback with timeout."""
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -207,17 +221,17 @@ class SimpleAuthClient:
                 async with sse_client(
                     url=self.server_url,
                     auth=oauth_auth,
-                    timeout=60,
+                    timeout=60.0,
                 ) as (read_stream, write_stream):
-                    await self._run_session(read_stream, write_stream, None)
+                    await self._run_session(read_stream, write_stream)
             else:
                 print("📡 Opening StreamableHTTP transport connection with auth...")
                 async with httpx.AsyncClient(auth=oauth_auth, follow_redirects=True) as custom_client:
-                    async with streamable_http_client(
-                        url=self.server_url,
-                        http_client=custom_client,
-                    ) as (read_stream, write_stream, get_session_id):
-                        await self._run_session(read_stream, write_stream, get_session_id)
+                    async with streamable_http_client(url=self.server_url, http_client=custom_client) as (
+                        read_stream,
+                        write_stream,
+                    ):
+                        await self._run_session(read_stream, write_stream)
 
         except Exception as e:
             print(f"❌ Failed to connect: {e}")
@@ -225,7 +239,11 @@ class SimpleAuthClient:
 
             traceback.print_exc()
 
-    async def _run_session(self, read_stream, write_stream, get_session_id):
+    async def _run_session(
+        self,
+        read_stream: ReadStream[SessionMessage | Exception],
+        write_stream: WriteStream[SessionMessage],
+    ):
         """Run the MCP session with the given streams."""
         print("🤝 Initializing MCP session...")
         async with ClientSession(read_stream, write_stream) as session:
@@ -235,10 +253,6 @@ class SimpleAuthClient:
             print("✨ Session initialization complete!")
 
             print(f"\n✅ Connected to MCP server at {self.server_url}")
-            if get_session_id:
-                session_id = get_session_id()
-                if session_id:
-                    print(f"Session ID: {session_id}")
 
             # Run interactive loop
             await self.interactive_loop()
@@ -314,7 +328,7 @@ class SimpleAuthClient:
                         continue
 
                     # Parse arguments (simple JSON-like format)
-                    arguments = {}
+                    arguments: dict[str, Any] = {}
                     if len(parts) > 2:
                         import json
 

@@ -96,7 +96,7 @@ class TokenVerifier(Protocol):
         """Verify a bearer token and return access info if valid."""
 
 
-# NOTE: FastMCP doesn't render any of these types in the user response, so it's
+# NOTE: MCPServer doesn't render any of these types in the user response, so it's
 # OK to add fields to subclasses which should not be exposed externally.
 AuthorizationCodeT = TypeVar("AuthorizationCodeT", bound=AuthorizationCode)
 RefreshTokenT = TypeVar("RefreshTokenT", bound=RefreshToken)
@@ -105,8 +105,7 @@ AccessTokenT = TypeVar("AccessTokenT", bound=AccessToken)
 
 class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, RefreshTokenT, AccessTokenT]):
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        """
-        Retrieves client information by client ID.
+        """Retrieves client information by client ID.
 
         Implementors MAY raise NotImplementedError if dynamic client registration is
         disabled in ClientRegistrationOptions.
@@ -119,8 +118,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         """
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
-        """
-        Saves client information as part of registering it.
+        """Saves client information as part of registering it.
 
         Implementors MAY raise NotImplementedError if dynamic client registration is
         disabled in ClientRegistrationOptions.
@@ -133,9 +131,9 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         """
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
-        """
-        Called as part of the /authorize endpoint, and returns a URL that the client
+        """Handle the /authorize endpoint and return a URL that the client
         will be redirected to.
+
         Many MCP implementations will redirect to a third-party provider to perform
         a second OAuth exchange with that provider. In this sort of setup, the client
         has an OAuth connection with the MCP server, and the MCP server has an OAuth
@@ -154,7 +152,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         |            |
         +------------+
 
-        Implementations will need to define another handler on the MCP server return
+        Implementations will need to define another handler on the MCP server's return
         flow to perform the second redirect, and generate and store an authorization
         code as part of completing the OAuth authorization step.
 
@@ -178,23 +176,21 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
     ) -> AuthorizationCodeT | None:
-        """
-        Loads an AuthorizationCode by its code.
+        """Loads an AuthorizationCode by its code.
 
         Args:
             client: The client that requested the authorization code.
             authorization_code: The authorization code to get the challenge for.
 
         Returns:
-            The AuthorizationCode, or None if not found
+            The AuthorizationCode, or None if not found.
         """
         ...
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCodeT
     ) -> OAuthToken:
-        """
-        Exchanges an authorization code for an access token and refresh token.
+        """Exchanges an authorization code for an access token and refresh token.
 
         Args:
             client: The client exchanging the authorization code.
@@ -204,13 +200,12 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             The OAuth token, containing access and refresh tokens.
 
         Raises:
-            TokenError: If the request is invalid
+            TokenError: If the request is invalid.
         """
         ...
 
     async def load_refresh_token(self, client: OAuthClientInformationFull, refresh_token: str) -> RefreshTokenT | None:
-        """
-        Loads a RefreshToken by its token string.
+        """Loads a RefreshToken by its token string.
 
         Args:
             client: The client that is requesting to load the refresh token.
@@ -227,8 +222,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         refresh_token: RefreshTokenT,
         scopes: list[str],
     ) -> OAuthToken:
-        """
-        Exchanges a refresh token for an access token and refresh token.
+        """Exchanges a refresh token for an access token and refresh token.
 
         Implementations SHOULD rotate both the access token and refresh token.
 
@@ -241,27 +235,25 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
             The OAuth token, containing access and refresh tokens.
 
         Raises:
-            TokenError: If the request is invalid
+            TokenError: If the request is invalid.
         """
         ...
 
     async def load_access_token(self, token: str) -> AccessTokenT | None:
-        """
-        Loads an access token by its token.
+        """Loads an access token by its token string.
 
         Args:
             token: The access token to verify.
 
         Returns:
-            The AuthInfo, or None if the token is invalid.
+            The access token, or None if the token is invalid.
         """
 
     async def revoke_token(
         self,
         token: AccessTokenT | RefreshTokenT,
     ) -> None:
-        """
-        Revokes an access or refresh token.
+        """Revokes an access or refresh token.
 
         If the given token is invalid or already revoked, this method should do nothing.
 
@@ -270,7 +262,7 @@ class OAuthAuthorizationServerProvider(Protocol, Generic[AuthorizationCodeT, Ref
         provided.
 
         Args:
-            token: the token to revoke
+            token: The token to revoke.
         """
 
 

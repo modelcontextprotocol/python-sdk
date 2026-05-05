@@ -1,6 +1,4 @@
-"""
-Windows-specific functionality for stdio client operations.
-"""
+"""Windows-specific functionality for stdio client operations."""
 
 import logging
 import shutil
@@ -34,8 +32,7 @@ JobHandle = int
 
 
 def get_windows_executable_command(command: str) -> str:
-    """
-    Get the correct executable command normalized for Windows.
+    """Get the correct executable command normalized for Windows.
 
     On Windows, commands might exist with specific extensions (.exe, .cmd, etc.)
     that need to be located for proper execution.
@@ -66,8 +63,7 @@ def get_windows_executable_command(command: str) -> str:
 
 
 class FallbackProcess:
-    """
-    A fallback process wrapper for Windows to handle async I/O
+    """A fallback process wrapper for Windows to handle async I/O
     when using subprocess.Popen, which provides sync-only FileIO objects.
 
     This wraps stdin and stdout into async-compatible
@@ -127,6 +123,11 @@ class FallbackProcess:
         """Return the process ID."""
         return self.popen.pid
 
+    @property
+    def returncode(self) -> int | None:
+        """Return the exit code, or ``None`` if the process has not yet terminated."""
+        return self.popen.returncode
+
 
 # ------------------------
 # Updated function
@@ -140,12 +141,11 @@ async def create_windows_process(
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> Process | FallbackProcess:
-    """
-    Creates a subprocess in a Windows-compatible way with Job Object support.
+    """Creates a subprocess in a Windows-compatible way with Job Object support.
 
-    Attempt to use anyio's open_process for async subprocess creation.
-    In some cases this will throw NotImplementedError on Windows, e.g.
-    when using the SelectorEventLoop which does not support async subprocesses.
+    Attempts to use anyio's open_process for async subprocess creation.
+    In some cases this will throw NotImplementedError on Windows, e.g.,
+    when using the SelectorEventLoop, which does not support async subprocesses.
     In that case, we fall back to using subprocess.Popen.
 
     The process is automatically added to a Job Object to ensure all child
@@ -199,8 +199,7 @@ async def _create_windows_fallback_process(
     errlog: TextIO | None = sys.stderr,
     cwd: Path | str | None = None,
 ) -> FallbackProcess:
-    """
-    Create a subprocess using subprocess.Popen as a fallback when anyio fails.
+    """Create a subprocess using subprocess.Popen as a fallback when anyio fails.
 
     This function wraps the sync subprocess.Popen in an async-compatible interface.
     """
@@ -231,9 +230,7 @@ async def _create_windows_fallback_process(
 
 
 def _create_job_object() -> int | None:
-    """
-    Create a Windows Job Object configured to terminate all processes when closed.
-    """
+    """Create a Windows Job Object configured to terminate all processes when closed."""
     if sys.platform != "win32" or not win32job:
         return None
 
@@ -250,9 +247,9 @@ def _create_job_object() -> int | None:
 
 
 def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: JobHandle | None) -> None:
-    """
-    Try to assign a process to a job object. If assignment fails
-    for any reason, the job handle is closed.
+    """Try to assign a process to a job object.
+
+    If assignment fails for any reason, the job handle is closed.
     """
     if not job:
         return
@@ -279,8 +276,7 @@ def _maybe_assign_process_to_job(process: Process | FallbackProcess, job: JobHan
 
 
 async def terminate_windows_process_tree(process: Process | FallbackProcess, timeout_seconds: float = 2.0) -> None:
-    """
-    Terminate a process and all its children on Windows.
+    """Terminate a process and all its children on Windows.
 
     If the process has an associated job object, it will be terminated.
     Otherwise, falls back to basic process termination.
@@ -318,13 +314,12 @@ async def terminate_windows_process_tree(process: Process | FallbackProcess, tim
     "Process termination is now handled internally by the stdio_client context manager."
 )
 async def terminate_windows_process(process: Process | FallbackProcess):
-    """
-    Terminate a Windows process.
+    """Terminate a Windows process.
 
     Note: On Windows, terminating a process with process.terminate() doesn't
     always guarantee immediate process termination.
-    So we give it 2s to exit, or we call process.kill()
-    which sends a SIGKILL equivalent signal.
+    If the process does not exit within 2 seconds, process.kill() is called
+    to send a SIGKILL-equivalent signal.
 
     Args:
         process: The process to terminate

@@ -2,57 +2,92 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData
+from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 
-class McpError(Exception):
-    """
-    Exception type raised when an error arrives over an MCP connection.
-    """
+class MCPError(Exception):
+    """Exception type raised when an error arrives over an MCP connection."""
 
     error: ErrorData
 
-    def __init__(self, error: ErrorData):
-        """Initialize McpError."""
-        super().__init__(error.message)
-        self.error = error
+    def __init__(self, code: int, message: str, data: Any = None):
+        super().__init__(code, message, data)
+        if data is not None:
+            self.error = ErrorData(code=code, message=message, data=data)
+        else:
+            self.error = ErrorData(code=code, message=message)
+
+    @property
+    def code(self) -> int:
+        return self.error.code
+
+    @property
+    def message(self) -> str:
+        return self.error.message
+
+    @property
+    def data(self) -> Any:
+        return self.error.data  # pragma: no cover
+
+    @classmethod
+    def from_jsonrpc_error(cls, error: JSONRPCError) -> MCPError:
+        return cls.from_error_data(error.error)
+
+    @classmethod
+    def from_error_data(cls, error: ErrorData) -> MCPError:
+        return cls(code=error.code, message=error.message, data=error.data)
+
+    def __str__(self) -> str:
+        return self.message
 
 
-class UrlElicitationRequiredError(McpError):
+class StatelessModeNotSupported(RuntimeError):
+    """Raised when attempting to use a method that is not supported in stateless mode.
+
+    Server-to-client requests (sampling, elicitation, list_roots) are not
+    supported in stateless HTTP mode because there is no persistent connection
+    for bidirectional communication.
     """
-    Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
+
+    def __init__(self, method: str):
+        super().__init__(
+            f"Cannot use {method} in stateless HTTP mode. "
+            "Stateless mode does not support server-to-client requests. "
+            "Use stateful mode (stateless_http=False) to enable this feature."
+        )
+        self.method = method
+
+
+class UrlElicitationRequiredError(MCPError):
+    """Specialized error for when a tool requires URL mode elicitation(s) before proceeding.
 
     Servers can raise this error from tool handlers to indicate that the client
     must complete one or more URL elicitations before the request can be processed.
 
     Example:
+        ```python
         raise UrlElicitationRequiredError([
             ElicitRequestURLParams(
-                mode="url",
                 message="Authorization required for your files",
                 url="https://example.com/oauth/authorize",
-                elicitationId="auth-001"
+                elicitation_id="auth-001"
             )
         ])
+        ```
     """
 
-    def __init__(
-        self,
-        elicitations: list[ElicitRequestURLParams],
-        message: str | None = None,
-    ):
+    def __init__(self, elicitations: list[ElicitRequestURLParams], message: str | None = None):
         """Initialize UrlElicitationRequiredError."""
         if message is None:
             message = f"URL elicitation{'s' if len(elicitations) > 1 else ''} required"
 
         self._elicitations = elicitations
 
-        error = ErrorData(
+        super().__init__(
             code=URL_ELICITATION_REQUIRED,
             message=message,
             data={"elicitations": [e.model_dump(by_alias=True, exclude_none=True) for e in elicitations]},
         )
-        super().__init__(error)
 
     @property
     def elicitations(self) -> list[ElicitRequestURLParams]:

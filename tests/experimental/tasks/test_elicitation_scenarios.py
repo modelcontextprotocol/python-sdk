@@ -1,5 +1,4 @@
-"""
-Tests for the four elicitation scenarios with tasks.
+"""Tests for the four elicitation scenarios with tasks.
 
 This tests all combinations of tool call types and elicitation types:
 1. Normal tool call + Normal elicitation (session.elicit)
@@ -18,15 +17,16 @@ from anyio import Event
 
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
-from mcp.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.experimental.task_context import ServerTaskContext
 from mcp.server.lowlevel import NotificationOptions
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.experimental.tasks.helpers import is_terminal
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
 from mcp.types import (
     TASK_REQUIRED,
+    CallToolRequestParams,
     CallToolResult,
     CreateMessageRequestParams,
     CreateMessageResult,
@@ -36,11 +36,12 @@ from mcp.types import (
     ErrorData,
     GetTaskPayloadResult,
     GetTaskResult,
+    ListToolsResult,
+    PaginatedRequestParams,
     SamplingMessage,
     TaskMetadata,
     TextContent,
     Tool,
-    ToolExecution,
 )
 
 
@@ -54,51 +55,51 @@ def create_client_task_handlers(
     task_complete_events: dict[str, Event] = {}
 
     async def handle_augmented_elicitation(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: ElicitRequestParams,
         task_metadata: TaskMetadata,
     ) -> CreateTaskResult:
         """Handle task-augmented elicitation by creating a client-side task."""
         elicit_received.set()
         task = await client_task_store.create_task(task_metadata)
-        task_complete_events[task.taskId] = Event()
+        task_complete_events[task.task_id] = Event()
 
         async def complete_task() -> None:
             # Store result before updating status to avoid race condition
-            await client_task_store.store_result(task.taskId, elicit_response)
-            await client_task_store.update_task(task.taskId, status="completed")
-            task_complete_events[task.taskId].set()
+            await client_task_store.store_result(task.task_id, elicit_response)
+            await client_task_store.update_task(task.task_id, status="completed")
+            task_complete_events[task.task_id].set()
 
         context.session._task_group.start_soon(complete_task)  # pyright: ignore[reportPrivateUsage]
         return CreateTaskResult(task=task)
 
     async def handle_get_task(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
-        task = await client_task_store.get_task(params.taskId)
-        assert task is not None, f"Task not found: {params.taskId}"
+        task = await client_task_store.get_task(params.task_id)
+        assert task is not None, f"Task not found: {params.task_id}"
         return GetTaskResult(
-            taskId=task.taskId,
+            task_id=task.task_id,
             status=task.status,
-            statusMessage=task.statusMessage,
-            createdAt=task.createdAt,
-            lastUpdatedAt=task.lastUpdatedAt,
+            status_message=task.status_message,
+            created_at=task.created_at,
+            last_updated_at=task.last_updated_at,
             ttl=task.ttl,
-            pollInterval=100,
+            poll_interval=100,
         )
 
     async def handle_get_task_result(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
-        event = task_complete_events.get(params.taskId)
-        assert event is not None, f"No completion event for task: {params.taskId}"
+        event = task_complete_events.get(params.task_id)
+        assert event is not None, f"No completion event for task: {params.task_id}"
         await event.wait()
-        result = await client_task_store.get_result(params.taskId)
-        assert result is not None, f"Result not found for task: {params.taskId}"
+        result = await client_task_store.get_result(params.task_id)
+        assert result is not None, f"Result not found for task: {params.task_id}"
         return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
 
     return ExperimentalTaskHandlers(
@@ -122,51 +123,51 @@ def create_sampling_task_handlers(
     task_complete_events: dict[str, Event] = {}
 
     async def handle_augmented_sampling(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: CreateMessageRequestParams,
         task_metadata: TaskMetadata,
     ) -> CreateTaskResult:
         """Handle task-augmented sampling by creating a client-side task."""
         sampling_received.set()
         task = await client_task_store.create_task(task_metadata)
-        task_complete_events[task.taskId] = Event()
+        task_complete_events[task.task_id] = Event()
 
         async def complete_task() -> None:
             # Store result before updating status to avoid race condition
-            await client_task_store.store_result(task.taskId, sampling_response)
-            await client_task_store.update_task(task.taskId, status="completed")
-            task_complete_events[task.taskId].set()
+            await client_task_store.store_result(task.task_id, sampling_response)
+            await client_task_store.update_task(task.task_id, status="completed")
+            task_complete_events[task.task_id].set()
 
         context.session._task_group.start_soon(complete_task)  # pyright: ignore[reportPrivateUsage]
         return CreateTaskResult(task=task)
 
     async def handle_get_task(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskResult:
         """Handle tasks/get from server."""
-        task = await client_task_store.get_task(params.taskId)
-        assert task is not None, f"Task not found: {params.taskId}"
+        task = await client_task_store.get_task(params.task_id)
+        assert task is not None, f"Task not found: {params.task_id}"
         return GetTaskResult(
-            taskId=task.taskId,
+            task_id=task.task_id,
             status=task.status,
-            statusMessage=task.statusMessage,
-            createdAt=task.createdAt,
-            lastUpdatedAt=task.lastUpdatedAt,
+            status_message=task.status_message,
+            created_at=task.created_at,
+            last_updated_at=task.last_updated_at,
             ttl=task.ttl,
-            pollInterval=100,
+            poll_interval=100,
         )
 
     async def handle_get_task_result(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: Any,
     ) -> GetTaskPayloadResult | ErrorData:
         """Handle tasks/result from server."""
-        event = task_complete_events.get(params.taskId)
-        assert event is not None, f"No completion event for task: {params.taskId}"
+        event = task_complete_events.get(params.task_id)
+        assert event is not None, f"No completion event for task: {params.task_id}"
         await event.wait()
-        result = await client_task_store.get_result(params.taskId)
-        assert result is not None, f"Result not found for task: {params.taskId}"
+        result = await client_task_store.get_result(params.task_id)
+        assert result is not None, f"Result not found for task: {params.task_id}"
         return GetTaskPayloadResult.model_validate(result.model_dump(by_alias=True))
 
     return ExperimentalTaskHandlers(
@@ -178,42 +179,40 @@ def create_sampling_task_handlers(
 
 @pytest.mark.anyio
 async def test_scenario1_normal_tool_normal_elicitation() -> None:
-    """
-    Scenario 1: Normal tool call with normal elicitation.
+    """Scenario 1: Normal tool call with normal elicitation.
 
     Server calls session.elicit() directly, client responds immediately.
     """
-    server = Server("test-scenario1")
     elicit_received = Event()
     tool_result: list[str] = []
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="confirm_action",
-                description="Confirm an action",
-                inputSchema={"type": "object"},
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="confirm_action",
+                    description="Confirm an action",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
-        ctx = server.request_context
-
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         # Normal elicitation - expects immediate response
         result = await ctx.session.elicit(
             message="Please confirm the action",
-            requestedSchema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
+            requested_schema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
         )
 
         confirmed = result.content.get("confirm", False) if result.content else False
         tool_result.append("confirmed" if confirmed else "cancelled")
         return CallToolResult(content=[TextContent(type="text", text="confirmed" if confirmed else "cancelled")])
 
+    server = Server("test-scenario1", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+
     # Elicitation callback for client
     async def elicitation_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: ElicitRequestParams,
     ) -> ElicitResult:
         elicit_received.set()
@@ -259,37 +258,33 @@ async def test_scenario1_normal_tool_normal_elicitation() -> None:
 
 @pytest.mark.anyio
 async def test_scenario2_normal_tool_task_augmented_elicitation() -> None:
-    """
-    Scenario 2: Normal tool call with task-augmented elicitation.
+    """Scenario 2: Normal tool call with task-augmented elicitation.
 
     Server calls session.experimental.elicit_as_task(), client creates a task
     for the elicitation and returns CreateTaskResult. Server polls client.
     """
-    server = Server("test-scenario2")
     elicit_received = Event()
     tool_result: list[str] = []
 
     # Client-side task store for handling task-augmented elicitation
     client_task_store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="confirm_action",
-                description="Confirm an action",
-                inputSchema={"type": "object"},
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="confirm_action",
+                    description="Confirm an action",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
-        ctx = server.request_context
-
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         # Task-augmented elicitation - server polls client
         result = await ctx.session.experimental.elicit_as_task(
             message="Please confirm the action",
-            requestedSchema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
+            requested_schema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
             ttl=60000,
         )
 
@@ -297,6 +292,7 @@ async def test_scenario2_normal_tool_task_augmented_elicitation() -> None:
         tool_result.append("confirmed" if confirmed else "cancelled")
         return CallToolResult(content=[TextContent(type="text", text="confirmed" if confirmed else "cancelled")])
 
+    server = Server("test-scenario2", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
     task_handlers = create_client_task_handlers(client_task_store, elicit_received)
 
     # Set up streams
@@ -340,39 +336,25 @@ async def test_scenario2_normal_tool_task_augmented_elicitation() -> None:
 
 @pytest.mark.anyio
 async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
-    """
-    Scenario 3: Task-augmented tool call with normal elicitation.
+    """Scenario 3: Task-augmented tool call with normal elicitation.
 
     Client calls tool as task. Inside the task, server uses task.elicit()
     which queues the request and delivers via tasks/result.
     """
-    server = Server("test-scenario3")
-    server.experimental.enable_tasks()
-
     elicit_received = Event()
     work_completed = Event()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="confirm_action",
-                description="Confirm an action",
-                inputSchema={"type": "object"},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise NotImplementedError
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         async def work(task: ServerTaskContext) -> CallToolResult:
             # Normal elicitation within task - queued and delivered via tasks/result
             result = await task.elicit(
                 message="Please confirm the action",
-                requestedSchema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
+                requested_schema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
             )
 
             confirmed = result.content.get("confirm", False) if result.content else False
@@ -381,9 +363,12 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
 
         return await ctx.experimental.run_task(work)
 
+    server = Server("test-scenario3", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+    server.experimental.enable_tasks()
+
     # Elicitation callback for client
     async def elicitation_callback(
-        context: RequestContext[ClientSession, Any],
+        context: RequestContext[ClientSession],
         params: ElicitRequestParams,
     ) -> ElicitResult:
         elicit_received.set()
@@ -413,7 +398,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
 
             # Call tool as task
             create_result = await client_session.experimental.call_tool_as_task("confirm_action", {})
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
             assert create_result.task.status == "working"
 
             # Poll until input_required, then call tasks/result
@@ -442,8 +427,7 @@ async def test_scenario3_task_augmented_tool_normal_elicitation() -> None:
 
 @pytest.mark.anyio
 async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> None:
-    """
-    Scenario 4: Task-augmented tool call with task-augmented elicitation.
+    """Scenario 4: Task-augmented tool call with task-augmented elicitation.
 
     Client calls tool as task. Inside the task, server uses task.elicit_as_task()
     which sends task-augmented elicitation. Client creates its own task for the
@@ -457,36 +441,23 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
     5. Server gets the ElicitResult and completes the tool task
     6. Client's tasks/result returns with the CallToolResult
     """
-    server = Server("test-scenario4")
-    server.experimental.enable_tasks()
-
     elicit_received = Event()
     work_completed = Event()
 
     # Client-side task store for handling task-augmented elicitation
     client_task_store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="confirm_action",
-                description="Confirm an action",
-                inputSchema={"type": "object"},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise NotImplementedError
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         async def work(task: ServerTaskContext) -> CallToolResult:
             # Task-augmented elicitation within task - server polls client
             result = await task.elicit_as_task(
                 message="Please confirm the action",
-                requestedSchema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
+                requested_schema={"type": "object", "properties": {"confirm": {"type": "boolean"}}},
                 ttl=60000,
             )
 
@@ -496,6 +467,8 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
 
         return await ctx.experimental.run_task(work)
 
+    server = Server("test-scenario4", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+    server.experimental.enable_tasks()
     task_handlers = create_client_task_handlers(client_task_store, elicit_received)
 
     # Set up streams
@@ -522,7 +495,7 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
 
             # Call tool as task
             create_result = await client_session.experimental.call_tool_as_task("confirm_action", {})
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
             assert create_result.task.status == "working"
 
             # Poll until input_required or terminal, then call tasks/result
@@ -553,33 +526,29 @@ async def test_scenario4_task_augmented_tool_task_augmented_elicitation() -> Non
 
 @pytest.mark.anyio
 async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
-    """
-    Scenario 2 for sampling: Normal tool call with task-augmented sampling.
+    """Scenario 2 for sampling: Normal tool call with task-augmented sampling.
 
     Server calls session.experimental.create_message_as_task(), client creates
     a task for the sampling and returns CreateTaskResult. Server polls client.
     """
-    server = Server("test-scenario2-sampling")
     sampling_received = Event()
     tool_result: list[str] = []
 
     # Client-side task store for handling task-augmented sampling
     client_task_store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="generate_text",
-                description="Generate text using sampling",
-                inputSchema={"type": "object"},
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="generate_text",
+                    description="Generate text using sampling",
+                    input_schema={"type": "object"},
+                )
+            ]
+        )
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
-        ctx = server.request_context
-
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         # Task-augmented sampling - server polls client
         result = await ctx.session.experimental.create_message_as_task(
             messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
@@ -593,6 +562,7 @@ async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
         tool_result.append(response_text)
         return CallToolResult(content=[TextContent(type="text", text=response_text)])
 
+    server = Server("test-scenario2-sampling", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
     task_handlers = create_sampling_task_handlers(client_task_store, sampling_received)
 
     # Set up streams
@@ -636,36 +606,22 @@ async def test_scenario2_sampling_normal_tool_task_augmented_sampling() -> None:
 
 @pytest.mark.anyio
 async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() -> None:
-    """
-    Scenario 4 for sampling: Task-augmented tool call with task-augmented sampling.
+    """Scenario 4 for sampling: Task-augmented tool call with task-augmented sampling.
 
     Client calls tool as task. Inside the task, server uses task.create_message_as_task()
     which sends task-augmented sampling. Client creates its own task for the sampling,
     and server polls the client.
     """
-    server = Server("test-scenario4-sampling")
-    server.experimental.enable_tasks()
-
     sampling_received = Event()
     work_completed = Event()
 
     # Client-side task store for handling task-augmented sampling
     client_task_store = InMemoryTaskStore()
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="generate_text",
-                description="Generate text using sampling",
-                inputSchema={"type": "object"},
-                execution=ToolExecution(taskSupport=TASK_REQUIRED),
-            )
-        ]
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        raise NotImplementedError
 
-    @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> CreateTaskResult:
-        ctx = server.request_context
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CreateTaskResult:
         ctx.experimental.validate_task_mode(TASK_REQUIRED)
 
         async def work(task: ServerTaskContext) -> CallToolResult:
@@ -684,6 +640,8 @@ async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() 
 
         return await ctx.experimental.run_task(work)
 
+    server = Server("test-scenario4-sampling", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+    server.experimental.enable_tasks()
     task_handlers = create_sampling_task_handlers(client_task_store, sampling_received)
 
     # Set up streams
@@ -710,7 +668,7 @@ async def test_scenario4_sampling_task_augmented_tool_task_augmented_sampling() 
 
             # Call tool as task
             create_result = await client_session.experimental.call_tool_as_task("generate_text", {})
-            task_id = create_result.task.taskId
+            task_id = create_result.task.task_id
             assert create_result.task.status == "working"
 
             # Poll until input_required or terminal

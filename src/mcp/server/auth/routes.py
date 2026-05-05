@@ -10,7 +10,7 @@ from starlette.routing import Route, request_response  # type: ignore
 from starlette.types import ASGIApp
 
 from mcp.server.auth.handlers.authorize import AuthorizationHandler
-from mcp.server.auth.handlers.metadata import MetadataHandler
+from mcp.server.auth.handlers.metadata import MetadataHandler, ProtectedResourceMetadataHandler
 from mcp.server.auth.handlers.register import RegistrationHandler
 from mcp.server.auth.handlers.revoke import RevocationHandler
 from mcp.server.auth.handlers.token import TokenHandler
@@ -18,33 +18,28 @@ from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.auth import OAuthMetadata
+from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
 
 
 def validate_issuer_url(url: AnyHttpUrl):
-    """
-    Validate that the issuer URL meets OAuth 2.0 requirements.
+    """Validate that the issuer URL meets OAuth 2.0 requirements.
 
     Args:
-        url: The issuer URL to validate
+        url: The issuer URL to validate.
 
     Raises:
-        ValueError: If the issuer URL is invalid
+        ValueError: If the issuer URL is invalid.
     """
 
-    # RFC 8414 requires HTTPS, but we allow localhost HTTP for testing
-    if (
-        url.scheme != "https"
-        and url.host != "localhost"
-        and (url.host is not None and not url.host.startswith("127.0.0.1"))
-    ):
-        raise ValueError("Issuer URL must be HTTPS")  # pragma: no cover
+    # RFC 8414 requires HTTPS, but we allow loopback/localhost HTTP for testing
+    if url.scheme != "https" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
+        raise ValueError("Issuer URL must be HTTPS")
 
     # No fragments or query parameters allowed
     if url.fragment:
-        raise ValueError("Issuer URL must not have a fragment")  # pragma: no cover
+        raise ValueError("Issuer URL must not have a fragment")
     if url.query:
-        raise ValueError("Issuer URL must not have a query string")  # pragma: no cover
+        raise ValueError("Issuer URL must not have a query string")
 
 
 AUTHORIZATION_PATH = "/authorize"
@@ -188,8 +183,7 @@ def build_metadata(
 
 
 def build_resource_metadata_url(resource_server_url: AnyHttpUrl) -> AnyHttpUrl:
-    """
-    Build RFC 9728 compliant protected resource metadata URL.
+    """Build RFC 9728 compliant protected resource metadata URL.
 
     Inserts /.well-known/oauth-protected-resource between host and resource path
     as specified in RFC 9728 §3.1.
@@ -213,20 +207,18 @@ def create_protected_resource_routes(
     resource_name: str | None = None,
     resource_documentation: AnyHttpUrl | None = None,
 ) -> list[Route]:
-    """
-    Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
+    """Create routes for OAuth 2.0 Protected Resource Metadata (RFC 9728).
 
     Args:
         resource_url: The URL of this resource server
         authorization_servers: List of authorization servers that can issue tokens
         scopes_supported: Optional list of scopes supported by this resource
+        resource_name: Optional human-readable name for this resource
+        resource_documentation: Optional URL to documentation for this resource
 
     Returns:
         List of Starlette routes for protected resource metadata
     """
-    from mcp.server.auth.handlers.metadata import ProtectedResourceMetadataHandler
-    from mcp.shared.auth import ProtectedResourceMetadata
-
     metadata = ProtectedResourceMetadata(
         resource=resource_url,
         authorization_servers=authorization_servers,

@@ -6,9 +6,7 @@ A simple MCP server example demonstrating the StreamableHttp transport, which en
 
 - Uses the StreamableHTTP transport for server-client communication
 - Supports REST API operations (POST, GET, DELETE) for `/mcp` endpoint
-- Task management with anyio task groups
 - Ability to send multiple notifications over time to the client
-- Proper resource cleanup and lifespan management
 - Resumability support via InMemoryEventStore
 
 ## Usage

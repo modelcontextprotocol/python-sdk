@@ -1,4 +1,4 @@
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.types import (
     Completion,
     CompletionArgument,
@@ -7,7 +7,7 @@ from mcp.types import (
     ResourceTemplateReference,
 )
 
-mcp = FastMCP(name="Example")
+mcp = MCPServer(name="Example")
 
 
 @mcp.resource("github://repos/{owner}/{repo}")
@@ -36,7 +36,7 @@ async def handle_completion(
             languages = ["python", "javascript", "typescript", "go", "rust"]
             return Completion(
                 values=[lang for lang in languages if lang.startswith(argument.value)],
-                hasMore=False,
+                has_more=False,
             )
 
     # Complete repository names for GitHub resources
@@ -44,6 +44,6 @@ async def handle_completion(
         if ref.uri == "github://repos/{owner}/{repo}" and argument.name == "repo":
             if context and context.arguments and context.arguments.get("owner") == "modelcontextprotocol":
                 repos = ["python-sdk", "typescript-sdk", "specification"]
-                return Completion(values=repos, hasMore=False)
+                return Completion(values=repos, has_more=False)
 
     return None

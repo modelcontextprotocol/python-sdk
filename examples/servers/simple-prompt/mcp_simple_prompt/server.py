@@ -1,8 +1,7 @@
 import anyio
 import click
-import mcp.types as types
-from mcp.server.lowlevel import Server
-from starlette.requests import Request
+from mcp import types
+from mcp.server import Server, ServerRequestContext
 
 
 def create_messages(context: str | None = None, topic: str | None = None) -> list[types.PromptMessage]:
@@ -30,20 +29,11 @@ def create_messages(context: str | None = None, topic: str | None = None) -> lis
     return messages
 
 
-@click.command()
-@click.option("--port", default=8000, help="Port to listen on for SSE")
-@click.option(
-    "--transport",
-    type=click.Choice(["stdio", "sse"]),
-    default="stdio",
-    help="Transport type",
-)
-def main(port: int, transport: str) -> int:
-    app = Server("mcp-simple-prompt")
-
-    @app.list_prompts()
-    async def list_prompts() -> list[types.Prompt]:
-        return [
+async def handle_list_prompts(
+    ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+) -> types.ListPromptsResult:
+    return types.ListPromptsResult(
+        prompts=[
             types.Prompt(
                 name="simple",
                 title="Simple Assistant Prompt",
@@ -62,44 +52,40 @@ def main(port: int, transport: str) -> int:
                 ],
             )
         ]
+    )
 
-    @app.get_prompt()
-    async def get_prompt(name: str, arguments: dict[str, str] | None = None) -> types.GetPromptResult:
-        if name != "simple":
-            raise ValueError(f"Unknown prompt: {name}")
 
-        if arguments is None:
-            arguments = {}
+async def handle_get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> types.GetPromptResult:
+    if params.name != "simple":
+        raise ValueError(f"Unknown prompt: {params.name}")
 
-        return types.GetPromptResult(
-            messages=create_messages(context=arguments.get("context"), topic=arguments.get("topic")),
-            description="A simple prompt with optional context and topic arguments",
-        )
+    arguments = params.arguments or {}
 
-    if transport == "sse":
-        from mcp.server.sse import SseServerTransport
-        from starlette.applications import Starlette
-        from starlette.responses import Response
-        from starlette.routing import Mount, Route
+    return types.GetPromptResult(
+        messages=create_messages(context=arguments.get("context"), topic=arguments.get("topic")),
+        description="A simple prompt with optional context and topic arguments",
+    )
 
-        sse = SseServerTransport("/messages/")
 
-        async def handle_sse(request: Request):
-            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:  # type: ignore[reportPrivateUsage]
-                await app.run(streams[0], streams[1], app.create_initialization_options())
-            return Response()
+@click.command()
+@click.option("--port", default=8000, help="Port to listen on for HTTP")
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "streamable-http"]),
+    default="stdio",
+    help="Transport type",
+)
+def main(port: int, transport: str) -> int:
+    app = Server(
+        "mcp-simple-prompt",
+        on_list_prompts=handle_list_prompts,
+        on_get_prompt=handle_get_prompt,
+    )
 
-        starlette_app = Starlette(
-            debug=True,
-            routes=[
-                Route("/sse", endpoint=handle_sse),
-                Mount("/messages/", app=sse.handle_post_message),
-            ],
-        )
-
+    if transport == "streamable-http":
         import uvicorn
 
-        uvicorn.run(starlette_app, host="127.0.0.1", port=port)
+        uvicorn.run(app.streamable_http_app(), host="127.0.0.1", port=port)
     else:
         from mcp.server.stdio import stdio_server
 

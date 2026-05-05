@@ -1,5 +1,4 @@
-"""
-Simple OAuth provider for MCP servers.
+"""Simple OAuth provider for MCP servers.
 
 This module contains a basic OAuth implementation using hardcoded user credentials
 for demonstration purposes. No external authentication provider is required.
@@ -9,7 +8,6 @@ This is not a production-ready implementation.
 
 """
 
-import logging
 import secrets
 import time
 from typing import Any
@@ -30,8 +28,6 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
-logger = logging.getLogger(__name__)
-
 
 class SimpleAuthSettings(BaseSettings):
     """Simple OAuth settings for demo purposes."""
@@ -47,8 +43,7 @@ class SimpleAuthSettings(BaseSettings):
 
 
 class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshToken, AccessToken]):
-    """
-    Simple OAuth provider for demo purposes.
+    """Simple OAuth provider for demo purposes.
 
     This provider handles the OAuth flow by:
     1. Providing a simple login form for demo credentials

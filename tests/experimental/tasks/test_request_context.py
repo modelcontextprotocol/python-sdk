@@ -3,7 +3,7 @@
 import pytest
 
 from mcp.server.experimental.request_context import Experimental
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
     METHOD_NOT_FOUND,
     TASK_FORBIDDEN,
@@ -58,7 +58,7 @@ def test_validate_task_mode_required_without_task_returns_error() -> None:
 
 def test_validate_task_mode_required_without_task_raises_by_default() -> None:
     exp = Experimental(task_metadata=None)
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         exp.validate_task_mode(TASK_REQUIRED)
     assert exc_info.value.error.code == METHOD_NOT_FOUND
 
@@ -79,7 +79,7 @@ def test_validate_task_mode_forbidden_with_task_returns_error() -> None:
 
 def test_validate_task_mode_forbidden_with_task_raises_by_default() -> None:
     exp = Experimental(task_metadata=TaskMetadata(ttl=60000))
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         exp.validate_task_mode(TASK_FORBIDDEN)
     assert exc_info.value.error.code == METHOD_NOT_FOUND
 
@@ -108,8 +108,8 @@ def test_validate_for_tool_with_execution_required() -> None:
     tool = Tool(
         name="test",
         description="test",
-        inputSchema={"type": "object"},
-        execution=ToolExecution(taskSupport=TASK_REQUIRED),
+        input_schema={"type": "object"},
+        execution=ToolExecution(task_support=TASK_REQUIRED),
     )
     error = exp.validate_for_tool(tool, raise_error=False)
     assert error is not None
@@ -121,7 +121,7 @@ def test_validate_for_tool_without_execution() -> None:
     tool = Tool(
         name="test",
         description="test",
-        inputSchema={"type": "object"},
+        input_schema={"type": "object"},
         execution=None,
     )
     error = exp.validate_for_tool(tool, raise_error=False)
@@ -134,8 +134,8 @@ def test_validate_for_tool_optional_with_task() -> None:
     tool = Tool(
         name="test",
         description="test",
-        inputSchema={"type": "object"},
-        execution=ToolExecution(taskSupport=TASK_OPTIONAL),
+        input_schema={"type": "object"},
+        execution=ToolExecution(task_support=TASK_OPTIONAL),
     )
     error = exp.validate_for_tool(tool, raise_error=False)
     assert error is None

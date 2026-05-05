@@ -1,5 +1,4 @@
-"""
-TaskResultHandler - Integrated handler for tasks/result endpoint.
+"""TaskResultHandler - Integrated handler for tasks/result endpoint.
 
 This implements the dequeue-send-wait pattern from the MCP Tasks spec:
 1. Dequeue all pending messages for the task
@@ -16,7 +15,7 @@ from typing import Any
 import anyio
 
 from mcp.server.session import ServerSession
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 from mcp.shared.experimental.tasks.helpers import RELATED_TASK_METADATA_KEY, is_terminal
 from mcp.shared.experimental.tasks.message_queue import TaskMessageQueue
 from mcp.shared.experimental.tasks.resolver import Resolver
@@ -27,7 +26,6 @@ from mcp.types import (
     ErrorData,
     GetTaskPayloadRequest,
     GetTaskPayloadResult,
-    JSONRPCMessage,
     RelatedTaskMetadata,
     RequestId,
 )
@@ -36,8 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class TaskResultHandler:
-    """
-    Handler for tasks/result that implements the message queue pattern.
+    """Handler for tasks/result that implements the message queue pattern.
 
     This handler:
     1. Dequeues pending messages (elicitations, notifications) for the task
@@ -47,17 +44,14 @@ class TaskResultHandler:
     5. Returns the final result
 
     Usage:
-        # Create handler with store and queue
-        handler = TaskResultHandler(task_store, message_queue)
+        async def handle_task_result(
+            ctx: ServerRequestContext, params: GetTaskPayloadRequestParams
+        ) -> GetTaskPayloadResult:
+            ...
 
-        # Register it with the server
-        @server.experimental.get_task_result()
-        async def handle_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
-            ctx = server.request_context
-            return await handler.handle(req, ctx.session, ctx.request_id)
-
-        # Or use the convenience method
-        handler.register(server)
+        server.experimental.enable_tasks(
+            on_task_result=handle_task_result,
+        )
     """
 
     def __init__(
@@ -75,8 +69,7 @@ class TaskResultHandler:
         session: ServerSession,
         message: SessionMessage,
     ) -> None:
-        """
-        Send a message via the session.
+        """Send a message via the session.
 
         This is a helper for delivering queued task messages.
         """
@@ -88,8 +81,7 @@ class TaskResultHandler:
         session: ServerSession,
         request_id: RequestId,
     ) -> GetTaskPayloadResult:
-        """
-        Handle a tasks/result request.
+        """Handle a tasks/result request.
 
         This implements the dequeue-send-wait loop:
         1. Dequeue all pending messages
@@ -106,17 +98,12 @@ class TaskResultHandler:
         Returns:
             GetTaskPayloadResult with the task's final payload
         """
-        task_id = request.params.taskId
+        task_id = request.params.task_id
 
         while True:
             task = await self._store.get_task(task_id)
             if task is None:
-                raise McpError(
-                    ErrorData(
-                        code=INVALID_PARAMS,
-                        message=f"Task not found: {task_id}",
-                    )
-                )
+                raise MCPError(code=INVALID_PARAMS, message=f"Task not found: {task_id}")
 
             await self._deliver_queued_messages(task_id, session, request_id)
 
@@ -126,7 +113,7 @@ class TaskResultHandler:
                 # GetTaskPayloadResult is a Result with extra="allow"
                 # The stored result contains the actual payload data
                 # Per spec: tasks/result MUST include _meta with related-task metadata
-                related_task = RelatedTaskMetadata(taskId=task_id)
+                related_task = RelatedTaskMetadata(task_id=task_id)
                 related_task_meta: dict[str, Any] = {RELATED_TASK_METADATA_KEY: related_task.model_dump(by_alias=True)}
                 if result is not None:
                     result_data = result.model_dump(by_alias=True)
@@ -144,8 +131,7 @@ class TaskResultHandler:
         session: ServerSession,
         request_id: RequestId,
     ) -> None:
-        """
-        Dequeue and send all pending messages for a task.
+        """Dequeue and send all pending messages for a task.
 
         Each message is sent via the session's write stream with
         relatedRequestId set so responses route back to this stream.
@@ -166,14 +152,13 @@ class TaskResultHandler:
 
             # Send the message with relatedRequestId for routing
             session_message = SessionMessage(
-                message=JSONRPCMessage(message.message),
+                message=message.message,
                 metadata=ServerMessageMetadata(related_request_id=request_id),
             )
             await self.send_message(session, session_message)
 
     async def _wait_for_task_update(self, task_id: str) -> None:
-        """
-        Wait for task to be updated (status change or new message).
+        """Wait for task to be updated (status change or new message).
 
         Races between store update and queue message - first one wins.
         """
@@ -199,8 +184,7 @@ class TaskResultHandler:
             tg.start_soon(wait_for_queue)
 
     def route_response(self, request_id: RequestId, response: dict[str, Any]) -> bool:
-        """
-        Route a response back to the waiting resolver.
+        """Route a response back to the waiting resolver.
 
         This is called when a response arrives for a queued request.
 
@@ -218,8 +202,7 @@ class TaskResultHandler:
         return False
 
     def route_error(self, request_id: RequestId, error: ErrorData) -> bool:
-        """
-        Route an error back to the waiting resolver.
+        """Route an error back to the waiting resolver.
 
         Args:
             request_id: The request ID from the error response
@@ -230,6 +213,6 @@ class TaskResultHandler:
         """
         resolver = self._pending_requests.pop(request_id, None)
         if resolver is not None and not resolver.done():
-            resolver.set_exception(McpError(error))
+            resolver.set_exception(MCPError.from_error_data(error))
             return True
         return False

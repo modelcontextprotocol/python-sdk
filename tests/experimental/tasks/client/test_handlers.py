@@ -19,10 +19,10 @@ from anyio import Event
 from anyio.abc import TaskGroup
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
-import mcp.types as types
+from mcp import types
 from mcp.client.experimental.task_handlers import ExperimentalTaskHandlers
 from mcp.client.session import ClientSession
-from mcp.shared.context import RequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.experimental.tasks.in_memory_task_store import InMemoryTaskStore
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
@@ -113,21 +113,21 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
         received_task_id: str | None = None
 
         async def get_task_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
             nonlocal received_task_id
-            received_task_id = params.taskId
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
+            received_task_id = params.task_id
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
-                taskId=task.taskId,
+                task_id=task.task_id,
                 status=task.status,
-                statusMessage=task.statusMessage,
-                createdAt=task.createdAt,
-                lastUpdatedAt=task.lastUpdatedAt,
+                status_message=task.status_message,
+                created_at=task.created_at,
+                last_updated_at=task.last_updated_at,
                 ttl=task.ttl,
-                pollInterval=task.pollInterval,
+                poll_interval=task.poll_interval,
             )
 
         await store.create_task(TaskMetadata(ttl=60000), task_id="test-task-123")
@@ -150,21 +150,17 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskRequest(params=GetTaskRequestParams(taskId="test-task-123"))
-            request = types.JSONRPCRequest(
-                jsonrpc="2.0",
-                id="req-1",
-                **typed_request.model_dump(by_alias=True),
-            )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            typed_request = GetTaskRequest(params=GetTaskRequestParams(task_id="test-task-123"))
+            request = types.JSONRPCRequest(jsonrpc="2.0", id="req-1", **typed_request.model_dump(by_alias=True))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
             assert response.id == "req-1"
 
             result = GetTaskResult.model_validate(response.result)
-            assert result.taskId == "test-task-123"
+            assert result.task_id == "test-task-123"
             assert result.status == "working"
             assert received_task_id == "test-task-123"
 
@@ -180,11 +176,11 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
         store = InMemoryTaskStore()
 
         async def get_task_result_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.taskId)
-            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
+            result = await store.get_result(params.task_id)
+            assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, types.CallToolResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -213,16 +209,16 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId="test-task-456"))
+            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="test-task-456"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-2",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             assert isinstance(response.result, dict)
@@ -243,12 +239,12 @@ async def test_client_handles_list_tasks_request(client_streams: ClientTestStrea
         store = InMemoryTaskStore()
 
         async def list_tasks_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: types.PaginatedRequestParams | None,
         ) -> ListTasksResult | ErrorData:
             cursor = params.cursor if params else None
             tasks_list, next_cursor = await store.list_tasks(cursor=cursor)
-            return ListTasksResult(tasks=tasks_list, nextCursor=next_cursor)
+            return ListTasksResult(tasks=tasks_list, next_cursor=next_cursor)
 
         await store.create_task(TaskMetadata(ttl=60000), task_id="task-1")
         await store.create_task(TaskMetadata(ttl=60000), task_id="task-2")
@@ -277,10 +273,10 @@ async def test_client_handles_list_tasks_request(client_streams: ClientTestStrea
                 id="req-3",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             result = ListTasksResult.model_validate(response.result)
@@ -298,19 +294,19 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
         store = InMemoryTaskStore()
 
         async def cancel_task_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: CancelTaskRequestParams,
         ) -> CancelTaskResult | ErrorData:
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
-            await store.update_task(params.taskId, status="cancelled")
-            updated = await store.get_task(params.taskId)
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
+            await store.update_task(params.task_id, status="cancelled")
+            updated = await store.get_task(params.task_id)
             assert updated is not None
             return CancelTaskResult(
-                taskId=updated.taskId,
+                task_id=updated.task_id,
                 status=updated.status,
-                createdAt=updated.createdAt,
-                lastUpdatedAt=updated.lastUpdatedAt,
+                created_at=updated.created_at,
+                last_updated_at=updated.last_updated_at,
                 ttl=updated.ttl,
             )
 
@@ -334,20 +330,20 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(taskId="task-to-cancel"))
+            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(task_id="task-to-cancel"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-4",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             result = CancelTaskResult.model_validate(response.result)
-            assert result.taskId == "task-to-cancel"
+            assert result.task_id == "task-to-cancel"
             assert result.status == "cancelled"
 
             tg.cancel_scope.cancel()
@@ -365,22 +361,22 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
         background_tg: list[TaskGroup | None] = [None]
 
         async def task_augmented_sampling_callback(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: CreateMessageRequestParams,
             task_metadata: TaskMetadata,
         ) -> CreateTaskResult:
             task = await store.create_task(task_metadata)
-            created_task_id[0] = task.taskId
+            created_task_id[0] = task.task_id
 
             async def do_sampling() -> None:
                 result = CreateMessageResult(
                     role="assistant",
                     content=TextContent(type="text", text="Sampled response"),
                     model="test-model",
-                    stopReason="endTurn",
+                    stop_reason="endTurn",
                 )
-                await store.store_result(task.taskId, result)
-                await store.update_task(task.taskId, status="completed")
+                await store.store_result(task.task_id, result)
+                await store.update_task(task.task_id, status="completed")
                 sampling_completed.set()
 
             assert background_tg[0] is not None
@@ -388,27 +384,27 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             return CreateTaskResult(task=task)
 
         async def get_task_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
-                taskId=task.taskId,
+                task_id=task.task_id,
                 status=task.status,
-                statusMessage=task.statusMessage,
-                createdAt=task.createdAt,
-                lastUpdatedAt=task.lastUpdatedAt,
+                status_message=task.status_message,
+                created_at=task.created_at,
+                last_updated_at=task.last_updated_at,
                 ttl=task.ttl,
-                pollInterval=task.pollInterval,
+                poll_interval=task.poll_interval,
             )
 
         async def get_task_result_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.taskId)
-            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
+            result = await store.get_result(params.task_id)
+            assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, CreateMessageResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -439,7 +435,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
             typed_request = CreateMessageRequest(
                 params=CreateMessageRequestParams(
                     messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-                    maxTokens=100,
+                    max_tokens=100,
                     task=TaskMetadata(ttl=60000),
                 )
             )
@@ -448,47 +444,47 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
                 id="req-sampling",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             # Step 2: Client responds with CreateTaskResult
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             task_result = CreateTaskResult.model_validate(response.result)
-            task_id = task_result.task.taskId
+            task_id = task_result.task.task_id
             assert task_id == created_task_id[0]
 
             # Step 3: Wait for background sampling
             await sampling_completed.wait()
 
             # Step 4: Server polls task status
-            typed_poll = GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))
+            typed_poll = GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))
             poll_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-poll",
                 **typed_poll.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(poll_request)))
+            await client_streams.server_send.send(SessionMessage(poll_request))
 
             poll_response_msg = await client_streams.server_receive.receive()
-            poll_response = poll_response_msg.message.root
+            poll_response = poll_response_msg.message
             assert isinstance(poll_response, types.JSONRPCResponse)
 
             status = GetTaskResult.model_validate(poll_response.result)
             assert status.status == "completed"
 
             # Step 5: Server gets result
-            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task_id))
+            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task_id))
             result_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-result",
                 **typed_result_req.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(result_request)))
+            await client_streams.server_send.send(SessionMessage(result_request))
 
             result_response_msg = await client_streams.server_receive.receive()
-            result_response = result_response_msg.message.root
+            result_response = result_response_msg.message
             assert isinstance(result_response, types.JSONRPCResponse)
 
             assert isinstance(result_response.result, dict)
@@ -509,18 +505,18 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
         background_tg: list[TaskGroup | None] = [None]
 
         async def task_augmented_elicitation_callback(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: ElicitRequestParams,
             task_metadata: TaskMetadata,
         ) -> CreateTaskResult | ErrorData:
             task = await store.create_task(task_metadata)
-            created_task_id[0] = task.taskId
+            created_task_id[0] = task.task_id
 
             async def do_elicitation() -> None:
                 # Simulate user providing elicitation response
                 result = ElicitResult(action="accept", content={"name": "Test User"})
-                await store.store_result(task.taskId, result)
-                await store.update_task(task.taskId, status="completed")
+                await store.store_result(task.task_id, result)
+                await store.update_task(task.task_id, status="completed")
                 elicitation_completed.set()
 
             assert background_tg[0] is not None
@@ -528,27 +524,27 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             return CreateTaskResult(task=task)
 
         async def get_task_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: GetTaskRequestParams,
         ) -> GetTaskResult | ErrorData:
-            task = await store.get_task(params.taskId)
-            assert task is not None, f"Test setup error: task {params.taskId} should exist"
+            task = await store.get_task(params.task_id)
+            assert task is not None, f"Test setup error: task {params.task_id} should exist"
             return GetTaskResult(
-                taskId=task.taskId,
+                task_id=task.task_id,
                 status=task.status,
-                statusMessage=task.statusMessage,
-                createdAt=task.createdAt,
-                lastUpdatedAt=task.lastUpdatedAt,
+                status_message=task.status_message,
+                created_at=task.created_at,
+                last_updated_at=task.last_updated_at,
                 ttl=task.ttl,
-                pollInterval=task.pollInterval,
+                poll_interval=task.poll_interval,
             )
 
         async def get_task_result_handler(
-            context: RequestContext[ClientSession, None],
+            context: RequestContext[ClientSession],
             params: GetTaskPayloadRequestParams,
         ) -> GetTaskPayloadResult | ErrorData:
-            result = await store.get_result(params.taskId)
-            assert result is not None, f"Test setup error: result for {params.taskId} should exist"
+            result = await store.get_result(params.task_id)
+            assert result is not None, f"Test setup error: result for {params.task_id} should exist"
             assert isinstance(result, ElicitResult)
             return GetTaskPayloadResult(**result.model_dump())
 
@@ -579,7 +575,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
             typed_request = ElicitRequest(
                 params=ElicitRequestFormParams(
                     message="What is your name?",
-                    requestedSchema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    requested_schema={"type": "object", "properties": {"name": {"type": "string"}}},
                     task=TaskMetadata(ttl=60000),
                 )
             )
@@ -588,47 +584,47 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
                 id="req-elicit",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             # Step 2: Client responds with CreateTaskResult
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCResponse)
 
             task_result = CreateTaskResult.model_validate(response.result)
-            task_id = task_result.task.taskId
+            task_id = task_result.task.task_id
             assert task_id == created_task_id[0]
 
             # Step 3: Wait for background elicitation
             await elicitation_completed.wait()
 
             # Step 4: Server polls task status
-            typed_poll = GetTaskRequest(params=GetTaskRequestParams(taskId=task_id))
+            typed_poll = GetTaskRequest(params=GetTaskRequestParams(task_id=task_id))
             poll_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-poll",
                 **typed_poll.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(poll_request)))
+            await client_streams.server_send.send(SessionMessage(poll_request))
 
             poll_response_msg = await client_streams.server_receive.receive()
-            poll_response = poll_response_msg.message.root
+            poll_response = poll_response_msg.message
             assert isinstance(poll_response, types.JSONRPCResponse)
 
             status = GetTaskResult.model_validate(poll_response.result)
             assert status.status == "completed"
 
             # Step 5: Server gets result
-            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId=task_id))
+            typed_result_req = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task_id))
             result_request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-result",
                 **typed_result_req.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(result_request)))
+            await client_streams.server_send.send(SessionMessage(result_request))
 
             result_response_msg = await client_streams.server_receive.receive()
-            result_response = result_response_msg.message.root
+            result_response = result_response_msg.message
             assert isinstance(result_response, types.JSONRPCResponse)
 
             # Verify the elicitation result
@@ -661,16 +657,16 @@ async def test_client_returns_error_for_unhandled_task_request(client_streams: C
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskRequest(params=GetTaskRequestParams(taskId="nonexistent"))
+            typed_request = GetTaskRequest(params=GetTaskRequestParams(task_id="nonexistent"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-unhandled",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert (
                 "not supported" in response.error.message.lower()
@@ -700,16 +696,16 @@ async def test_client_returns_error_for_unhandled_task_result_request(client_str
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(taskId="nonexistent"))
+            typed_request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id="nonexistent"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-result",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -742,10 +738,10 @@ async def test_client_returns_error_for_unhandled_list_tasks_request(client_stre
                 id="req-list",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -772,16 +768,16 @@ async def test_client_returns_error_for_unhandled_cancel_task_request(client_str
             tg.start_soon(run_client)
             await client_ready.wait()
 
-            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(taskId="nonexistent"))
+            typed_request = CancelTaskRequest(params=CancelTaskRequestParams(task_id="nonexistent"))
             request = types.JSONRPCRequest(
                 jsonrpc="2.0",
                 id="req-cancel",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -813,7 +809,7 @@ async def test_client_returns_error_for_unhandled_task_augmented_sampling(client
             typed_request = CreateMessageRequest(
                 params=CreateMessageRequestParams(
                     messages=[SamplingMessage(role="user", content=TextContent(type="text", text="Hello"))],
-                    maxTokens=100,
+                    max_tokens=100,
                     task=TaskMetadata(ttl=60000),
                 )
             )
@@ -822,10 +818,10 @@ async def test_client_returns_error_for_unhandled_task_augmented_sampling(client
                 id="req-sampling",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 
@@ -859,7 +855,7 @@ async def test_client_returns_error_for_unhandled_task_augmented_elicitation(
             typed_request = ElicitRequest(
                 params=ElicitRequestFormParams(
                     message="What is your name?",
-                    requestedSchema={"type": "object", "properties": {"name": {"type": "string"}}},
+                    requested_schema={"type": "object", "properties": {"name": {"type": "string"}}},
                     task=TaskMetadata(ttl=60000),
                 )
             )
@@ -868,10 +864,10 @@ async def test_client_returns_error_for_unhandled_task_augmented_elicitation(
                 id="req-elicit",
                 **typed_request.model_dump(by_alias=True),
             )
-            await client_streams.server_send.send(SessionMessage(types.JSONRPCMessage(request)))
+            await client_streams.server_send.send(SessionMessage(request))
 
             response_msg = await client_streams.server_receive.receive()
-            response = response_msg.message.root
+            response = response_msg.message
             assert isinstance(response, types.JSONRPCError)
             assert "not supported" in response.error.message.lower()
 

@@ -1,5 +1,4 @@
-"""
-Resolver - An anyio-compatible future-like object for async result passing.
+"""Resolver - An anyio-compatible future-like object for async result passing.
 
 This provides a simple way to pass a result (or exception) from one coroutine
 to another without depending on asyncio.Future.
@@ -13,8 +12,7 @@ T = TypeVar("T")
 
 
 class Resolver(Generic[T]):
-    """
-    A simple resolver for passing results between coroutines.
+    """A simple resolver for passing results between coroutines.
 
     Unlike asyncio.Future, this works with any anyio-compatible async backend.
 

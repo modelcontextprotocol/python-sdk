@@ -1,6 +1,4 @@
-"""
-Tests for the AuthContext middleware components.
-"""
+"""Tests for the AuthContext middleware components."""
 
 import time
 
@@ -47,76 +45,75 @@ def valid_access_token() -> AccessToken:
 
 
 @pytest.mark.anyio
-class TestAuthContextMiddleware:
-    """Tests for the AuthContextMiddleware class."""
+async def test_auth_context_middleware_with_authenticated_user(valid_access_token: AccessToken):
+    """Test middleware with an authenticated user in scope."""
+    app = MockApp()
+    middleware = AuthContextMiddleware(app)
 
-    async def test_with_authenticated_user(self, valid_access_token: AccessToken):
-        """Test middleware with an authenticated user in scope."""
-        app = MockApp()
-        middleware = AuthContextMiddleware(app)
+    # Create an authenticated user
+    user = AuthenticatedUser(valid_access_token)
 
-        # Create an authenticated user
-        user = AuthenticatedUser(valid_access_token)
+    scope: Scope = {"type": "http", "user": user}
 
-        scope: Scope = {"type": "http", "user": user}
+    # Create dummy async functions for receive and send
+    async def receive() -> Message:  # pragma: no cover
+        return {"type": "http.request"}
 
-        # Create dummy async functions for receive and send
-        async def receive() -> Message:  # pragma: no cover
-            return {"type": "http.request"}
+    async def send(message: Message) -> None:  # pragma: no cover
+        pass
 
-        async def send(message: Message) -> None:  # pragma: no cover
-            pass
+    # Verify context is empty before middleware
+    assert auth_context_var.get() is None
+    assert get_access_token() is None
 
-        # Verify context is empty before middleware
-        assert auth_context_var.get() is None
-        assert get_access_token() is None
+    # Run the middleware
+    await middleware(scope, receive, send)
 
-        # Run the middleware
-        await middleware(scope, receive, send)
+    # Verify the app was called
+    assert app.called
+    assert app.scope == scope
+    assert app.receive == receive
+    assert app.send == send
 
-        # Verify the app was called
-        assert app.called
-        assert app.scope == scope
-        assert app.receive == receive
-        assert app.send == send
+    # Verify the access token was available during the call
+    assert app.access_token_during_call == valid_access_token
 
-        # Verify the access token was available during the call
-        assert app.access_token_during_call == valid_access_token
+    # Verify context is reset after middleware
+    assert auth_context_var.get() is None
+    assert get_access_token() is None
 
-        # Verify context is reset after middleware
-        assert auth_context_var.get() is None
-        assert get_access_token() is None
 
-    async def test_with_no_user(self):
-        """Test middleware with no user in scope."""
-        app = MockApp()
-        middleware = AuthContextMiddleware(app)
+@pytest.mark.anyio
+async def test_auth_context_middleware_with_no_user():
+    """Test middleware with no user in scope."""
+    app = MockApp()
+    middleware = AuthContextMiddleware(app)
 
-        scope: Scope = {"type": "http"}  # No user
+    scope: Scope = {"type": "http"}  # No user
 
-        # Create dummy async functions for receive and send
-        async def receive() -> Message:  # pragma: no cover
-            return {"type": "http.request"}
+    # Create dummy async functions for receive and send
+    async def receive() -> Message:  # pragma: no cover
+        return {"type": "http.request"}
 
-        async def send(message: Message) -> None:  # pragma: no cover
-            pass
+    async def send(message: Message) -> None:  # pragma: no cover
+        pass
 
-        # Verify context is empty before middleware
-        assert auth_context_var.get() is None
-        assert get_access_token() is None
+    # Verify context is empty before middleware
+    assert auth_context_var.get() is None
+    assert get_access_token() is None
 
-        # Run the middleware
-        await middleware(scope, receive, send)
+    # Run the middleware
+    await middleware(scope, receive, send)
 
-        # Verify the app was called
-        assert app.called
-        assert app.scope == scope
-        assert app.receive == receive
-        assert app.send == send
+    # Verify the app was called
+    assert app.called
+    assert app.scope == scope
+    assert app.receive == receive
+    assert app.send == send
 
-        # Verify the access token was not available during the call
-        assert app.access_token_during_call is None
+    # Verify the access token was not available during the call
+    assert app.access_token_during_call is None
 
-        # Verify context is still empty after middleware
-        assert auth_context_var.get() is None
-        assert get_access_token() is None
+    # Verify context is still empty after middleware
+    assert auth_context_var.get() is None
+    assert get_access_token() is None

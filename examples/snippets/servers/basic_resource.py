@@ -1,6 +1,6 @@
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
-mcp = FastMCP(name="Resource Example")
+mcp = MCPServer(name="Resource Example")
 
 
 @mcp.resource("file://documents/{name}")

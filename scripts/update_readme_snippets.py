@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Update README.md with live code snippets from example files.
+"""Update README.md with live code snippets from example files.
 
 This script finds specially marked code blocks in README.md and updates them
 with the actual code from the referenced files.
@@ -145,7 +144,8 @@ def main():
     parser.add_argument(
         "--check", action="store_true", help="Check mode - verify snippets are up to date without modifying"
     )
-    parser.add_argument("--readme", default="README.md", help="Path to README file (default: README.md)")
+    # TODO(v2): Drop the `--readme` argument when v2 is released, and set to `README.md`.
+    parser.add_argument("--readme", default="README.v2.md", help="Path to README file (default: README.v2.md)")
 
     args = parser.parse_args()
 

@@ -1,10 +1,10 @@
-"""Example showing image handling with FastMCP."""
+"""Example showing image handling with MCPServer."""
 
 from PIL import Image as PILImage
 
-from mcp.server.fastmcp import FastMCP, Image
+from mcp.server.mcpserver import Image, MCPServer
 
-mcp = FastMCP("Image Example")
+mcp = MCPServer("Image Example")
 
 
 @mcp.tool()
