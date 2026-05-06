@@ -77,3 +77,27 @@ def test_construct_redirect_uri_encoded_values():
 
     # urlencode uses + for spaces by default
     assert "state=test+state+with+spaces" in result
+
+
+def test_access_token_subject_field():
+    """Test AccessToken supports optional subject (user ID) claim."""
+    from mcp.server.auth.provider import AccessToken
+    
+    token = AccessToken(
+        token="token123",
+        client_id="client1",
+        scopes=["read", "write"],
+        subject="user_456"
+    )
+    assert token.subject == "user_456"
+    assert token.token == "token123"
+    assert token.client_id == "client1"
+    assert token.scopes == ["read", "write"]
+
+    # subject is optional
+    token2 = AccessToken(
+        token="token2",
+        client_id="client2",
+        scopes=["read"]
+    )
+    assert token2.subject is None

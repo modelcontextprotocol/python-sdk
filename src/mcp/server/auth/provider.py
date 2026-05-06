@@ -40,6 +40,7 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
+    subject: str | None = None  # Subject (user ID, "sub" claim)
 
 
 RegistrationErrorCode = Literal[
