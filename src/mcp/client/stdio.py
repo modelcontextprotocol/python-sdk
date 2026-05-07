@@ -102,10 +102,24 @@ class StdioServerParameters(BaseModel):
 
 
 @asynccontextmanager
-async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stderr):
+async def stdio_client(server: StdioServerParameters, errlog: TextIO | None = None):
     """Client transport for stdio: this will connect to a server by spawning a
     process and communicating with it over stdin/stdout.
+
+    ``errlog`` is the sink for the spawned subprocess's stderr. When omitted,
+    falls back to ``sys.stderr`` if it is a real handle, otherwise to
+    ``os.devnull``. The ``os.devnull`` fallback is required for callers
+    running under ``pythonw.exe`` on Windows (desktop shortcuts, silent
+    ``.bat`` launches, anything without a console attached): in that
+    environment ``sys.stderr`` is ``None``, and passing a ``None`` handle
+    as the subprocess's stderr corrupts asyncio's Windows ProactorEventLoop
+    subprocess transport, producing ``ClosedResourceError`` on the first
+    real RPC after ``initialize()``. Callers that want subprocess stderr
+    captured can still pass an explicit file handle.
     """
+    if errlog is None:
+        errlog = sys.stderr if sys.stderr is not None else open(os.devnull, "w")
+
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
@@ -230,14 +244,21 @@ async def _create_platform_compatible_process(
     command: str,
     args: list[str],
     env: dict[str, str] | None = None,
-    errlog: TextIO = sys.stderr,
+    errlog: TextIO | None = None,
     cwd: Path | str | None = None,
 ):
     """Creates a subprocess in a platform-compatible way.
 
     Unix: Creates process in a new session/process group for killpg support
     Windows: Creates process in a Job Object for reliable child termination
+
+    ``errlog`` defaults to ``sys.stderr`` when available, ``os.devnull``
+    when not. The ``os.devnull`` fallback prevents asyncio's Windows
+    ProactorEventLoop from receiving a ``None`` stderr handle under
+    ``pythonw.exe``, which would otherwise corrupt subprocess pipe setup.
     """
+    if errlog is None:
+        errlog = sys.stderr if sys.stderr is not None else open(os.devnull, "w")
     if sys.platform == "win32":  # pragma: no cover
         process = await create_windows_process(command, args, env, errlog, cwd)
     else:  # pragma: lax no cover
