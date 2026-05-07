@@ -162,3 +162,57 @@ def test_url_elicitation_required_error_exception_message() -> None:
 
     # The exception's string representation should match the message
     assert str(error) == "URL elicitation required"
+
+
+def test_url_elicitation_required_error_pickle_round_trip() -> None:
+    """UrlElicitationRequiredError must survive pickle round-trips.
+
+    Without __reduce__, the default Exception unpickle path tries to
+    reconstruct via cls(*self.args), where args is the parent MCPError's
+    (code, message, data) tuple — wrong arity for this subclass's
+    (elicitations, message=None) signature. Regression for #2431.
+    """
+    import pickle
+
+    elicitations = [
+        ElicitRequestURLParams(
+            mode="url",
+            message="Auth required",
+            url="https://example.com/auth1",
+            elicitation_id="test-1",
+        ),
+        ElicitRequestURLParams(
+            mode="url",
+            message="More auth",
+            url="https://example.com/auth2",
+            elicitation_id="test-2",
+        ),
+    ]
+    err = UrlElicitationRequiredError(elicitations, message="Two auths needed")
+
+    restored = pickle.loads(pickle.dumps(err))
+
+    assert isinstance(restored, UrlElicitationRequiredError)
+    assert str(restored) == "Two auths needed"
+    assert len(restored.elicitations) == 2
+    assert restored.elicitations[0].elicitation_id == "test-1"
+    assert restored.elicitations[1].elicitation_id == "test-2"
+    # error.code + error.data are reconstructed by re-running __init__,
+    # so they should match the original.
+    assert restored.error.code == URL_ELICITATION_REQUIRED
+
+
+def test_mcp_error_pickle_round_trip() -> None:
+    """MCPError already pickles via the default Exception mechanism because
+    its constructor accepts (code, message, data) — same shape as args.
+    Pinning that contract here so a future __init__ refactor can't silently
+    break it.
+    """
+    import pickle
+
+    err = MCPError(code=-32603, message="Internal error", data={"context": "x"})
+    restored = pickle.loads(pickle.dumps(err))
+    assert isinstance(restored, MCPError)
+    assert restored.code == -32603
+    assert restored.message == "Internal error"
+    assert restored.error.data == {"context": "x"}
