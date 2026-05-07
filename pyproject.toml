@@ -54,6 +54,24 @@ mcp = "mcp.cli:app [cli]"
 [tool.uv]
 default-groups = ["dev", "docs"]
 required-version = ">=0.9.5"
+# PEP 517 build isolation fetches [build-system].requires (and transitives) at
+# floating-latest with no hash check on every fresh sync; uv does not lock them
+# (astral-sh/uv#5190). Pinning here narrows that to known-good versions. Covers
+# the workspace builds (hatchling + uv-dynamic-versioning) and the legacy
+# setuptools fallback used by the strict-no-cover git dep.
+build-constraint-dependencies = [
+    "hatchling==1.29.0",
+    "uv-dynamic-versioning==0.14.0",
+    "dunamai==1.26.1",
+    "jinja2==3.1.6",
+    "markupsafe==3.0.3",
+    "packaging==26.1",
+    "pathspec==1.0.4",
+    "pluggy==1.6.0",
+    "tomlkit==0.14.0",
+    "trove-classifiers==2026.1.14.14",
+    "setuptools==82.0.1",
+]
 
 [dependency-groups]
 dev = [
