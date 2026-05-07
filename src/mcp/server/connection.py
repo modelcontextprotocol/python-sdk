@@ -1,9 +1,10 @@
 """`Connection` — per-client connection state and the standalone outbound channel.
 
 Always present on `Context` (never ``None``), even in stateless deployments.
-Holds peer info populated at ``initialize`` time, the per-connection lifespan
-output, and an `Outbound` for the standalone stream (the SSE GET stream in
-streamable HTTP, or the single duplex stream in stdio).
+Holds peer info populated at ``initialize`` time, per-connection scratch
+``state`` and an ``exit_stack`` for teardown, and an `Outbound` for the
+standalone stream (the SSE GET stream in streamable HTTP, or the single duplex
+stream in stdio).
 
 `notify` is best-effort: it never raises. If there's no standalone channel
 (stateless HTTP) or the stream has been dropped, the notification is
@@ -14,6 +15,7 @@ there's no channel; `ping` is the only spec-sanctioned standalone request.
 
 import logging
 from collections.abc import Mapping
+from contextlib import AsyncExitStack
 from typing import Any
 
 import anyio
@@ -44,17 +46,27 @@ class Connection(TypedServerRequestMixin):
     ``None`` until ``initialize`` completes; ``initialized`` is set then.
     """
 
-    def __init__(self, outbound: Outbound, *, has_standalone_channel: bool) -> None:
+    def __init__(self, outbound: Outbound, *, has_standalone_channel: bool, session_id: str | None = None) -> None:
         self._outbound = outbound
         self.has_standalone_channel = has_standalone_channel
+        self.session_id: str | None = session_id
 
         self.client_info: Implementation | None = None
         self.client_capabilities: ClientCapabilities | None = None
         self.protocol_version: str | None = None
         self.initialized: anyio.Event = anyio.Event()
-        # TODO: make this generic (Connection[StateT]) once connection_lifespan
-        # wiring lands in ServerRunner.
-        self.state: Any = None
+
+        self.state: dict[str, Any] = {}
+        """Per-connection scratch state. Handlers and middleware may read and
+        write freely; persists across requests on this connection."""
+
+        self.exit_stack: AsyncExitStack = AsyncExitStack()
+        """Cleanup stack unwound by `ServerRunner` when the connection closes.
+
+        Push context managers (``await exit_stack.enter_async_context(...)``)
+        or callbacks (``exit_stack.push_async_callback(...)``) from handlers or
+        middleware to register per-connection teardown. Unwound LIFO after
+        `dispatcher.run()` returns, shielded from cancellation."""
 
     async def send_raw_request(
         self,

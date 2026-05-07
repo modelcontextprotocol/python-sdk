@@ -6,8 +6,8 @@ performs the initialize handshake, so each test exercises only the behaviour
 under test.
 """
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, cast
 
 import anyio
@@ -76,6 +76,8 @@ async def connected_runner(
     initialized: bool = True,
     stateless: bool = False,
     has_standalone_channel: bool = True,
+    session_id: str | None = None,
+    headers: Mapping[str, str] | None = None,
     dispatch_middleware: list[DispatchMiddleware] | None = None,
 ) -> AsyncIterator[tuple[DirectDispatcher, ServerRunner[dict[str, Any]]]]:
     """Yield ``(client, runner)`` running over an in-memory dispatcher pair.
@@ -85,12 +87,13 @@ async def connected_runner(
     ``initialized`` is true the helper performs the real ``initialize`` request
     before yielding, so tests start past the init-gate via the public path.
     """
-    client, server_d = create_direct_dispatcher_pair()
+    client, server_d = create_direct_dispatcher_pair(headers=headers)
     runner = ServerRunner(
         server=server,
         dispatcher=server_d,
         lifespan_state={},
         has_standalone_channel=has_standalone_channel,
+        session_id=session_id,
         stateless=stateless,
         dispatch_middleware=dispatch_middleware or [],
     )
@@ -380,3 +383,100 @@ async def test_otel_middleware_records_error_status_on_handler_exception(server:
     [event] = [e for e in span.events if e.name == "exception"]
     assert event.attributes is not None
     assert event.attributes["exception.type"] == "ValueError"
+
+
+@pytest.mark.anyio
+async def test_connection_state_persists_across_requests_on_same_connection(server: SrvT) -> None:
+    async def count(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
+        ctx.connection.state["n"] = ctx.connection.state.get("n", 0) + 1
+        return ListToolsResult(tools=[])
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, count)
+    async with connected_runner(server) as (client, runner):
+        await client.send_raw_request("tools/list", None)
+        await client.send_raw_request("tools/list", None)
+        assert runner.connection.state == {"n": 2}
+
+
+@pytest.mark.anyio
+async def test_connection_exit_stack_runs_pushed_callback_after_close(server: SrvT) -> None:
+    cleaned: list[str] = []
+
+    async def push(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
+        async def _cleanup() -> None:
+            cleaned.append("done")
+
+        ctx.connection.exit_stack.push_async_callback(_cleanup)
+        return ListToolsResult(tools=[])
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, push)
+    async with connected_runner(server) as (client, _runner):
+        await client.send_raw_request("tools/list", None)
+        assert cleaned == []
+    assert cleaned == ["done"]
+
+
+@pytest.mark.anyio
+async def test_connection_exit_stack_unwinds_entered_context_manager_after_close(server: SrvT) -> None:
+    events: list[str] = []
+
+    class _Tracker(AbstractAsyncContextManager[str]):
+        async def __aenter__(self) -> str:
+            events.append("enter")
+            return "resource"
+
+        async def __aexit__(self, *exc: object) -> None:
+            events.append("exit")
+
+    async def acquire(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
+        res = await ctx.connection.exit_stack.enter_async_context(_Tracker())
+        ctx.connection.state["res"] = res
+        return ListToolsResult(tools=[])
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, acquire)
+    async with connected_runner(server) as (client, runner):
+        await client.send_raw_request("tools/list", None)
+        assert events == ["enter"]
+        assert runner.connection.state["res"] == "resource"
+    assert events == ["enter", "exit"]
+
+
+@pytest.mark.anyio
+async def test_connection_exit_stack_runs_callbacks_lifo_after_handler_error(server: SrvT) -> None:
+    cleaned: list[int] = []
+
+    async def push_then_fail(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
+        for i in (1, 2, 3):
+            ctx.connection.exit_stack.push_async_callback(_append, i)
+        raise RuntimeError("boom")
+
+    async def _append(i: int) -> None:
+        cleaned.append(i)
+
+    server.add_request_handler("tools/list", PaginatedRequestParams, push_then_fail)
+    async with connected_runner(server) as (client, _runner):
+        with pytest.raises(MCPError) as ei:
+            await client.send_raw_request("tools/list", None)
+        assert ei.value.error.code == INTERNAL_ERROR
+        assert cleaned == []
+    assert cleaned == [3, 2, 1]
+
+
+@pytest.mark.anyio
+async def test_context_session_id_and_headers_expose_connection_and_transport(server: SrvT) -> None:
+    async with connected_runner(server, session_id="sess-abc", headers={"authorization": "Bearer t"}) as (client, _r):
+        await client.send_raw_request("tools/list", None)
+    [ctx] = _seen_ctx
+    assert ctx.session_id == "sess-abc"
+    assert ctx.session_id == ctx.connection.session_id
+    assert ctx.headers == {"authorization": "Bearer t"}
+    assert ctx.headers is ctx.transport.headers
+
+
+@pytest.mark.anyio
+async def test_context_session_id_and_headers_default_none(server: SrvT) -> None:
+    async with connected_runner(server) as (client, _r):
+        await client.send_raw_request("tools/list", None)
+    [ctx] = _seen_ctx
+    assert ctx.session_id is None
+    assert ctx.headers is None

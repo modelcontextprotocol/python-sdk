@@ -116,6 +116,7 @@ class ServerRunner(Generic[LifespanT]):
     dispatcher: Dispatcher[TransportContext]
     lifespan_state: LifespanT
     has_standalone_channel: bool
+    session_id: str | None = None
     stateless: bool = False
     dispatch_middleware: list[DispatchMiddleware] = field(default_factory=list[DispatchMiddleware])
 
@@ -124,7 +125,9 @@ class ServerRunner(Generic[LifespanT]):
 
     def __post_init__(self) -> None:
         self._initialized = self.stateless
-        self.connection = Connection(self.dispatcher, has_standalone_channel=self.has_standalone_channel)
+        self.connection = Connection(
+            self.dispatcher, has_standalone_channel=self.has_standalone_channel, session_id=self.session_id
+        )
 
     async def run(self, *, task_status: anyio.abc.TaskStatus[None] = anyio.TASK_STATUS_IGNORED) -> None:
         """Drive the dispatcher until the underlying channel closes.
@@ -132,9 +135,15 @@ class ServerRunner(Generic[LifespanT]):
         Composes `dispatch_middleware` over `_on_request` and hands the result
         to `dispatcher.run()`. ``task_status.started()`` is forwarded so callers
         can ``await tg.start(runner.run)`` and resume once the dispatcher is
-        ready to accept requests.
+        ready to accept requests. Once the dispatcher exits,
+        `connection.exit_stack` is unwound (shielded) so any per-connection
+        cleanup registered by handlers or middleware runs to completion.
         """
-        await self.dispatcher.run(self._compose_on_request(), self._on_notify, task_status=task_status)
+        try:
+            await self.dispatcher.run(self._compose_on_request(), self._on_notify, task_status=task_status)
+        finally:
+            with anyio.CancelScope(shield=True):
+                await self.connection.exit_stack.aclose()
 
     def _compose_on_request(self) -> OnRequest:
         """Wrap `_on_request` in `dispatch_middleware`, outermost-first.

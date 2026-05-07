@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Generic, Protocol
 
@@ -68,6 +68,23 @@ class Context(BaseContext[TransportContext], PeerMixin, TypedServerRequestMixin,
     def connection(self) -> Connection:
         """The per-client `Connection` for this request's connection."""
         return self._connection
+
+    @property
+    def session_id(self) -> str | None:
+        """The transport's session id for this connection, when one exists.
+
+        Convenience for ``ctx.connection.session_id``. ``None`` on stdio and
+        stateless HTTP.
+        """
+        return self._connection.session_id
+
+    @property
+    def headers(self) -> Mapping[str, str] | None:
+        """Request headers carried by this message, when the transport has them.
+
+        Convenience for ``ctx.transport.headers``. ``None`` on stdio.
+        """
+        return self.transport.headers
 
     async def log(self, level: LoggingLevel, data: Any, logger: str | None = None, *, meta: Meta | None = None) -> None:
         """Send a request-scoped ``notifications/message`` log entry.
