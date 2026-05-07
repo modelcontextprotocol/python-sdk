@@ -92,9 +92,14 @@ class StdioServerParameters(BaseModel):
     Defaults to utf-8.
     """
 
-    encoding_error_handler: Literal["strict", "ignore", "replace"] = "strict"
+    encoding_error_handler: Literal["strict", "ignore", "replace"] = "replace"
     """
     The text encoding error handler.
+
+    Defaults to "replace" so that malformed bytes from the child process are
+    substituted with U+FFFD rather than crashing the transport.  The invalid
+    line will then fail JSON validation and be surfaced as an in-stream
+    exception, keeping the transport alive for subsequent valid messages.
 
     See https://docs.python.org/3/library/codecs.html#codec-base-classes for
     explanations of possible values.
@@ -151,8 +156,8 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                     for line in lines:
                         try:
                             message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
-                        except Exception as exc:  # pragma: no cover
-                            logger.exception("Failed to parse JSONRPC message from server")
+                        except Exception as exc:
+                            logger.warning("Failed to parse JSONRPC message from server: %s", exc)
                             await read_stream_writer.send(exc)
                             continue
 
