@@ -31,7 +31,7 @@ from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.server.lowlevel.server import LifespanResultT, Server
 from mcp.server.lowlevel.server import lifespan as default_lifespan
 from mcp.server.mcpserver.context import Context
-from mcp.server.mcpserver.exceptions import ResourceError
+from mcp.server.mcpserver.exceptions import ResourceError, ResourceNotFoundError
 from mcp.server.mcpserver.prompts import Prompt, PromptManager
 from mcp.server.mcpserver.resources import FunctionResource, Resource, ResourceManager
 from mcp.server.mcpserver.tools import Tool, ToolManager
@@ -44,6 +44,8 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
     Annotations,
     BlobResourceContents,
     CallToolRequestParams,
@@ -341,7 +343,12 @@ class MCPServer(Generic[LifespanResultT]):
         self, ctx: ServerRequestContext[LifespanResultT], params: ReadResourceRequestParams
     ) -> ReadResourceResult:
         context = Context(request_context=ctx, mcp_server=self)
-        results = await self.read_resource(params.uri, context)
+        try:
+            results = await self.read_resource(params.uri, context)
+        except ResourceNotFoundError as err:
+            raise MCPError(code=INVALID_PARAMS, message=str(err), data={"uri": str(params.uri)})
+        except ResourceError as err:
+            raise MCPError(code=INTERNAL_ERROR, message=str(err), data={"uri": str(params.uri)})
         contents: list[TextResourceContents | BlobResourceContents] = []
         for item in results:
             if isinstance(item.content, bytes):
@@ -442,13 +449,15 @@ class MCPServer(Generic[LifespanResultT]):
     async def read_resource(
         self, uri: AnyUrl | str, context: Context[LifespanResultT, Any] | None = None
     ) -> Iterable[ReadResourceContents]:
-        """Read a resource by URI."""
+        """Read a resource by URI.
+
+        Raises:
+            ResourceNotFoundError: If no resource or template matches the URI.
+            ResourceError: If template creation or resource reading fails.
+        """
         if context is None:
             context = Context(mcp_server=self)
-        try:
-            resource = await self._resource_manager.get_resource(uri, context)
-        except ValueError:
-            raise ResourceError(f"Unknown resource: {uri}")
+        resource = await self._resource_manager.get_resource(uri, context)
 
         try:
             content = await resource.read()

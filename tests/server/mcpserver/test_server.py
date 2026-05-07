@@ -13,13 +13,15 @@ from mcp.client import Client
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context, MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError, ToolError
 from mcp.server.mcpserver.prompts.base import Message, UserMessage
 from mcp.server.mcpserver.resources import FileResource, FunctionResource
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
     AudioContent,
     BlobResourceContents,
     Completion,
@@ -727,12 +729,15 @@ class TestServerResources:
             assert result.contents[0].text == "Hello, world!"
 
     async def test_read_unknown_resource(self):
-        """Test that reading an unknown resource raises MCPError."""
+        """Test that reading an unknown resource returns -32602 with uri in data (SEP-2164)."""
         mcp = MCPServer()
 
         async with Client(mcp) as client:
-            with pytest.raises(MCPError, match="Unknown resource: unknown://missing"):
+            with pytest.raises(MCPError, match="Unknown resource: unknown://missing") as exc_info:
                 await client.read_resource("unknown://missing")
+
+            assert exc_info.value.error.code == INVALID_PARAMS
+            assert exc_info.value.error.data == {"uri": "unknown://missing"}
 
     async def test_read_resource_error(self):
         """Test that resource read errors are properly wrapped in MCPError."""
@@ -1516,3 +1521,35 @@ async def test_report_progress_passes_related_request_id():
         message="halfway",
         related_request_id="req-abc-123",
     )
+
+
+async def test_read_resource_template_error():
+    """Template-creation failure must surface as INTERNAL_ERROR, not INVALID_PARAMS (not-found)."""
+    mcp = MCPServer()
+
+    @mcp.resource("resource://item/{item_id}")
+    def get_item(item_id: str) -> str:
+        raise RuntimeError("backend unavailable")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="Error creating resource from template") as exc_info:
+            await client.read_resource("resource://item/42")
+
+        assert exc_info.value.error.code == INTERNAL_ERROR
+        assert exc_info.value.error.code != INVALID_PARAMS
+
+
+async def test_read_resource_template_not_found():
+    """A template handler raising ResourceNotFoundError must surface as INVALID_PARAMS per SEP-2164."""
+    mcp = MCPServer()
+
+    @mcp.resource("resource://users/{user_id}")
+    def get_user(user_id: str) -> str:
+        raise ResourceNotFoundError(f"no user {user_id}")
+
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError, match="no user 999") as exc_info:
+            await client.read_resource("resource://users/999")
+
+        assert exc_info.value.error.code == INVALID_PARAMS
+        assert exc_info.value.error.data == {"uri": "resource://users/999"}

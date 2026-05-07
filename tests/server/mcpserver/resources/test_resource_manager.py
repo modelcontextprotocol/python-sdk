@@ -5,6 +5,7 @@ import pytest
 from pydantic import AnyUrl
 
 from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import ResourceNotFoundError
 from mcp.server.mcpserver.resources import FileResource, FunctionResource, ResourceManager, ResourceTemplate
 
 
@@ -101,7 +102,7 @@ async def test_get_resource_from_template():
 async def test_get_unknown_resource():
     """Test getting a non-existent resource."""
     manager = ResourceManager()
-    with pytest.raises(ValueError, match="Unknown resource"):
+    with pytest.raises(ResourceNotFoundError, match="Unknown resource"):
         await manager.get_resource(AnyUrl("unknown://test"), Context())
 
 
