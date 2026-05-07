@@ -551,6 +551,74 @@ async def test_str_annotation_runtime_validation():
     assert result == f"Handled payload of length {len(json_array_payload)}"
 
 
+def test_optional_str_preserves_json_string():
+    """Regression test for issue #381: Ensure that when a parameter is annotated
+    as Optional[str] or str | None, valid JSON strings are NOT parsed into Python
+    objects. The pre_parse_json check must recognize that union types containing
+    str should be treated as string-accepting annotations.
+    """
+    from typing import Optional
+
+    def func_optional_str(cid: Optional[str]) -> str:  # pragma: no cover
+        return cid or ""
+
+    meta = func_metadata(func_optional_str)
+
+    # A numeric string like "1.2" must NOT be parsed into float
+    result = meta.pre_parse_json({"cid": "1.2"})
+    assert result["cid"] == "1.2"
+    assert isinstance(result["cid"], str)
+
+    # A JSON object string must NOT be parsed into dict
+    result = meta.pre_parse_json({"cid": '{"key": "value"}'})
+    assert result["cid"] == '{"key": "value"}'
+    assert isinstance(result["cid"], str)
+
+    # A JSON array string must NOT be parsed into list
+    result = meta.pre_parse_json({"cid": '["a", "b"]'})
+    assert result["cid"] == '["a", "b"]'
+    assert isinstance(result["cid"], str)
+
+
+def test_pipe_none_str_preserves_json_string():
+    """Same as test_optional_str but using str | None syntax."""
+
+    def func_str_or_none(data: str | None) -> str:  # pragma: no cover
+        return data or ""
+
+    meta = func_metadata(func_str_or_none)
+
+    # Numeric string must stay as str
+    result = meta.pre_parse_json({"data": "42"})
+    assert result["data"] == "42"
+    assert isinstance(result["data"], str)
+
+    # JSON dict must stay as str
+    result = meta.pre_parse_json({"data": '{"x": 1}'})
+    assert result["data"] == '{"x": 1}'
+    assert isinstance(result["data"], str)
+
+
+@pytest.mark.anyio
+async def test_optional_str_runtime_validation():
+    """End-to-end test: calling a function with Optional[str] param and JSON-like input."""
+    from typing import Optional
+
+    def process(config: Optional[str] = None) -> str:
+        assert config is None or isinstance(config, str)
+        return f"got: {config}"
+
+    meta = func_metadata(process)
+
+    result = await meta.call_fn_with_arg_validation(
+        process,
+        fn_is_async=False,
+        arguments_to_validate={"config": '{"db": "postgres"}'},
+        arguments_to_pass_directly=None,
+    )
+    assert result == 'got: {"db": "postgres"}'
+
+
 # Tests for structured output functionality
 
 

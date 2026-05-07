@@ -29,6 +29,22 @@ from mcp.types import CallToolResult, ContentBlock, TextContent
 logger = get_logger(__name__)
 
 
+def _annotation_accepts_str(annotation: Any) -> bool:
+    """Check if an annotation only accepts str (or None), not other complex types.
+
+    Returns True for `str` and `Optional[str]` (str | None), where JSON parsing
+    a string value would be incorrect. Returns False for unions like `str | list[str]`
+    where the other types benefit from JSON pre-parsing.
+    """
+    if annotation is str:
+        return True
+    if is_union_origin(get_origin(annotation)):
+        args = get_args(annotation)
+        non_none_args = [a for a in args if a is not type(None)]
+        return non_none_args == [str]
+    return False
+
+
 class StrictJsonSchema(GenerateJsonSchema):
     """A JSON schema generator that raises exceptions instead of emitting warnings.
 
@@ -148,7 +164,7 @@ class FuncMetadata(BaseModel):
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data_value, str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and not _annotation_accepts_str(field_info.annotation):
                 try:
                     pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
