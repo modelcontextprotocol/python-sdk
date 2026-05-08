@@ -18,6 +18,7 @@ from mcp.shared.dispatcher import DispatchContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import (  # pyright: ignore[reportPrivateUsage]
     JSONRPCDispatcher,
+    _coerce_id,
     _outbound_metadata,
     _Pending,
 )
@@ -29,6 +30,7 @@ from mcp.types import (
     INVALID_PARAMS,
     ErrorData,
     JSONRPCError,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
     Tool,
@@ -509,6 +511,87 @@ def test_outbound_metadata_with_resumption_token_returns_client_metadata():
     assert md.resumption_token == "abc"
     assert _outbound_metadata(None, None) is None
     assert _outbound_metadata(None, {}) is None
+
+
+@pytest.mark.anyio
+async def test_response_with_string_id_correlates_to_int_keyed_pending_request():
+    """A peer that echoes the request ID as a JSON string still resolves the waiter."""
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            with anyio.fail_after(5):
+
+                async def respond_stringly() -> None:
+                    out = await c2s_recv.receive()
+                    assert isinstance(out, SessionMessage)
+                    assert isinstance(out.message, JSONRPCRequest)
+                    rid = out.message.id
+                    assert isinstance(rid, int)
+                    await s2c_send.send(
+                        SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=str(rid), result={"ok": True}))
+                    )
+
+                tg.start_soon(respond_stringly)
+                result = await client.send_raw_request("ping", None)
+                assert result == {"ok": True}
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+
+
+@pytest.mark.anyio
+async def test_progress_with_string_token_reaches_callback_for_int_keyed_request():
+    c2s_send, c2s_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    s2c_send, s2c_recv = anyio.create_memory_object_stream[SessionMessage | Exception](32)
+    client: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(s2c_recv, c2s_send)
+    on_request, on_notify = echo_handlers(Recorder())
+    seen: list[float] = []
+    try:
+        async with anyio.create_task_group() as tg:
+            await tg.start(client.run, on_request, on_notify)
+            with anyio.fail_after(5):
+
+                async def respond_with_string_token_progress() -> None:
+                    out = await c2s_recv.receive()
+                    assert isinstance(out, SessionMessage)
+                    assert isinstance(out.message, JSONRPCRequest)
+                    rid = out.message.id
+                    assert isinstance(rid, int)
+                    await s2c_send.send(
+                        SessionMessage(
+                            message=JSONRPCNotification(
+                                jsonrpc="2.0",
+                                method="notifications/progress",
+                                params={"progressToken": str(rid), "progress": 0.5},
+                            )
+                        )
+                    )
+                    await s2c_send.send(
+                        SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=rid, result={"ok": True}))
+                    )
+
+                async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+                    seen.append(progress)
+
+                tg.start_soon(respond_with_string_token_progress)
+                result = await client.send_raw_request("ping", None, {"on_progress": on_progress})
+                assert result == {"ok": True}
+            tg.cancel_scope.cancel()
+    finally:
+        for s in (c2s_send, c2s_recv, s2c_send, s2c_recv):
+            s.close()
+    assert seen == [0.5]
+
+
+def test_coerce_id_passes_through_non_numeric_string_and_int():
+    assert _coerce_id("7") == 7
+    assert _coerce_id("not-an-int") == "not-an-int"
+    assert _coerce_id(42) == 42
 
 
 @pytest.mark.anyio

@@ -76,6 +76,21 @@ the `SessionMessage.metadata` the transport attached. Defaults to a plain
 `TransportContext(kind="jsonrpc", can_send_request=True)` when not supplied."""
 
 
+def _coerce_id(request_id: RequestId) -> RequestId:
+    """Coerce a string request ID to int when it's a valid int literal.
+
+    `_allocate_id` only ever produces ``int`` keys for ``_pending``, but a peer
+    may echo the ID back as a JSON string. The TypeScript SDK and `BaseSession`
+    both perform this coercion at lookup time so the response still correlates.
+    """
+    if isinstance(request_id, str):
+        try:
+            return int(request_id)
+        except ValueError:
+            pass
+    return request_id
+
+
 @dataclass(slots=True)
 class _Pending:
     """An outbound request awaiting its response."""
@@ -409,7 +424,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         if msg.method == "notifications/progress":
             match msg.params:
                 case {"progressToken": str() | int() as token, "progress": int() | float() as progress} if (
-                    pending := self._pending.get(token)
+                    pending := self._pending.get(_coerce_id(token))
                 ) is not None and pending.on_progress is not None:
                     total = msg.params.get("total")
                     message = msg.params.get("message")
@@ -428,7 +443,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         self._spawn(on_notify, dctx, msg.method, msg.params, sender_ctx=sender_ctx)
 
     def _resolve_pending(self, request_id: RequestId | None, outcome: dict[str, Any] | ErrorData) -> None:
-        pending = self._pending.get(request_id) if request_id is not None else None
+        pending = self._pending.get(_coerce_id(request_id)) if request_id is not None else None
         if pending is None:
             logger.debug("dropping response for unknown/late request id %r", request_id)
             return
