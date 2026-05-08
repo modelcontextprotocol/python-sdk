@@ -104,6 +104,53 @@ async def test_stdio_client_nonexistent_command():
 
 
 @pytest.mark.anyio
+async def test_stdio_client_invalid_utf8_resilience():
+    """Malformed UTF-8 from child stdout must not crash the transport.
+
+    With encoding_error_handler="replace" (now the default), invalid bytes
+    are replaced with U+FFFD. The resulting line fails JSON validation and
+    is surfaced as an in-stream Exception. Subsequent valid messages must
+    still be delivered.
+    """
+    # Child script writes one malformed line, then one valid JSON-RPC line
+    child_script = textwrap.dedent(
+        """
+        import sys
+        # Write invalid UTF-8 bytes followed by newline
+        sys.stdout.buffer.write(b"\\xff\\xfe\\n")
+        sys.stdout.buffer.flush()
+        # Write a valid JSON-RPC message
+        sys.stdout.buffer.write(b'{"jsonrpc":"2.0","id":1,"method":"ping"}\\n')
+        sys.stdout.buffer.flush()
+        # Exit cleanly
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", child_script],
+    )
+
+    async with stdio_client(server_params) as (read_stream, write_stream):
+        received: list[SessionMessage | Exception] = []
+        async with read_stream:
+            async for item in read_stream:
+                received.append(item)
+                if len(received) == 2:
+                    break
+
+    # First item: the malformed line should surface as a parse exception
+    assert isinstance(received[0], Exception), (
+        f"Expected Exception for malformed UTF-8 line, got {type(received[0])}"
+    )
+    # Second item: the valid JSON-RPC message should come through
+    assert isinstance(received[1], SessionMessage), (
+        f"Expected SessionMessage for valid line, got {type(received[1])}"
+    )
+    assert received[1].message == JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+
+
+@pytest.mark.anyio
 async def test_stdio_client_universal_cleanup():
     """Test that stdio_client completes cleanup within reasonable time
     even when connected to processes that exit slowly.
