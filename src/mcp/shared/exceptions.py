@@ -104,3 +104,19 @@ class UrlElicitationRequiredError(MCPError):
         raw_elicitations = cast(list[dict[str, Any]], data.get("elicitations", []))
         elicitations = [ElicitRequestURLParams.model_validate(e) for e in raw_elicitations]
         return cls(elicitations, error.message)
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Make the class pickle-safe.
+
+        Without this, the default ``Exception.__reduce_ex__`` reconstructs by
+        calling ``cls(*self.args)`` — and ``self.args`` was set by
+        :class:`MCPError`'s ``__init__`` to ``(code, message, data)``, which
+        does not match this subclass's constructor signature
+        ``(elicitations, message=None)``. The mismatch raises
+        ``TypeError: takes from 2 to 3 positional arguments but 4 were given``
+        on every unpickle (closes #2431 for this subclass).
+
+        We reconstruct from the high-level fields so the round-trip preserves
+        the typed ``elicitations`` list rather than the wire-format data dict.
+        """
+        return (self.__class__, (self._elicitations, self.message))
