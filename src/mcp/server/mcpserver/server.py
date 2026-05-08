@@ -447,8 +447,8 @@ class MCPServer(Generic[LifespanResultT]):
             context = Context(mcp_server=self)
         try:
             resource = await self._resource_manager.get_resource(uri, context)
-        except ValueError:
-            raise ResourceError(f"Unknown resource: {uri}")
+        except ValueError as exc:
+            raise ResourceError(f"Unknown resource: {uri}") from exc
 
         try:
             content = await resource.read()
@@ -1109,4 +1109,4 @@ class MCPServer(Generic[LifespanResultT]):
             )
         except Exception as e:
             logger.exception(f"Error getting prompt {name}")
-            raise ValueError(str(e))
+            raise ValueError(str(e)) from e
