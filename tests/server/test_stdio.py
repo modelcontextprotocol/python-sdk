@@ -1,5 +1,7 @@
 import io
+import os
 import sys
+import tempfile
 from io import TextIOWrapper
 
 import anyio
@@ -61,6 +63,37 @@ async def test_stdio_server():
     assert len(received_responses) == 2
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+@pytest.mark.anyio
+async def test_stdio_server_does_not_close_real_stdio(monkeypatch: pytest.MonkeyPatch):
+    """stdio_server() must not close the real sys.stdin/sys.stdout after exiting.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1933.
+    """
+    # Substitute sys.stdin/stdout with real file-backed streams so that fileno()
+    # works and we can verify the fds remain open after the server exits.
+    with tempfile.TemporaryFile() as tf_in, tempfile.TemporaryFile() as tf_out:
+        fake_stdin = TextIOWrapper(tf_in, encoding="utf-8")
+        fake_stdout = TextIOWrapper(tf_out, encoding="utf-8")
+        monkeypatch.setattr(sys, "stdin", fake_stdin)
+        monkeypatch.setattr(sys, "stdout", fake_stdout)
+
+        real_stdin_fd = sys.stdin.fileno()
+        real_stdout_fd = sys.stdout.fileno()
+
+        with anyio.fail_after(5):
+            async with stdio_server() as (read_stream, write_stream):
+                await write_stream.aclose()
+                await read_stream.aclose()
+
+        # os.fstat() raises OSError if the fd has been closed; successful calls
+        # prove stdio_server() did not close the real process descriptors.
+        os.fstat(real_stdin_fd)
+        os.fstat(real_stdout_fd)
+        # The Python wrappers we set as sys.stdin/stdout must not be closed either.
+        assert not sys.stdin.closed
+        assert not sys.stdout.closed
 
 
 @pytest.mark.anyio

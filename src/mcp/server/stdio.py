@@ -17,6 +17,8 @@ Example:
     ```
 """
 
+import io
+import os
 import sys
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
@@ -34,14 +36,32 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     """Server transport for stdio: this communicates with an MCP client by reading
     from the current process' stdin and writing to stdout.
     """
-    # Purposely not using context managers for these, as we don't want to close
-    # standard process handles. Encoding of stdin/stdout as text streams on
-    # python is platform-dependent (Windows is particularly problematic), so we
-    # re-wrap the underlying binary stream to ensure UTF-8.
+    # When stdin/stdout are not provided, duplicate the underlying file descriptors
+    # so that closing the wrappers does not close the real sys.stdin/sys.stdout.
+    # Encoding of stdin/stdout as text streams on Python is platform-dependent
+    # (Windows is particularly problematic), so we re-wrap the underlying binary
+    # stream to ensure UTF-8.
+    _stdin_wrapper: TextIOWrapper | None = None
+    _stdout_wrapper: TextIOWrapper | None = None
+
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        try:
+            stdin_fd = os.dup(sys.stdin.fileno())
+            _stdin_wrapper = TextIOWrapper(os.fdopen(stdin_fd, "rb"), encoding="utf-8", errors="replace")
+            stdin = anyio.wrap_file(_stdin_wrapper)
+        except (AttributeError, io.UnsupportedOperation):
+            # sys.stdin has no real fd (e.g. BytesIO in tests) — wrap buffer directly.
+            # Closing this wrapper also closes the buffer, but that is harmless in
+            # that context because there is no real fd to leak.
+            stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        try:
+            stdout_fd = os.dup(sys.stdout.fileno())
+            _stdout_wrapper = TextIOWrapper(os.fdopen(stdout_fd, "wb"), encoding="utf-8")
+            stdout = anyio.wrap_file(_stdout_wrapper)
+        except (AttributeError, io.UnsupportedOperation):
+            # sys.stdout has no real fd — wrap buffer directly (same reasoning as above).
+            stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
@@ -71,7 +91,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(stdin_reader)
-        tg.start_soon(stdout_writer)
-        yield read_stream, write_stream
+    try:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(stdin_reader)
+            tg.start_soon(stdout_writer)
+            yield read_stream, write_stream
+    finally:
+        if _stdout_wrapper is not None:
+            _stdout_wrapper.close()
+        if _stdin_wrapper is not None:
+            _stdin_wrapper.close()
