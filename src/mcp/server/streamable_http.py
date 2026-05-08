@@ -658,6 +658,18 @@ class StreamableHTTPServerTransport:
         if writer is None:  # pragma: no cover
             raise ValueError("No read stream writer available. Ensure connect() is called first.")
 
+        if not self.mcp_session_id:
+            response = self._create_error_response(
+                "Method Not Allowed: SSE stream not supported",
+                HTTPStatus.METHOD_NOT_ALLOWED,
+                headers={
+                    "Content-Type": CONTENT_TYPE_JSON,
+                    "Allow": "POST",
+                },
+            )
+            await response(request.scope, request.receive, send)
+            return
+
         # Validate Accept header - must include text/event-stream
         _, has_sse = self._check_accept_headers(request)
 
