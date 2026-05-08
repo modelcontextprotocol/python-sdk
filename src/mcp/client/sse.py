@@ -27,6 +27,20 @@ def _extract_session_id_from_endpoint(endpoint_url: str) -> str | None:
     return query_params.get("sessionId", [None])[0] or query_params.get("session_id", [None])[0]
 
 
+def _resolve_endpoint_url(sse_url: str, endpoint_data: str, messages_url: str | None = None) -> str:
+    if messages_url is None:
+        return urljoin(sse_url, endpoint_data)
+
+    endpoint_url = urljoin(sse_url, messages_url)
+    endpoint_query = urlparse(endpoint_data).query
+    if endpoint_query:
+        endpoint_parsed = urlparse(endpoint_url)
+        query = "&".join(filter(None, [endpoint_parsed.query, endpoint_query]))
+        endpoint_url = endpoint_parsed._replace(query=query).geturl()
+
+    return endpoint_url
+
+
 @asynccontextmanager
 async def sse_client(
     url: str,
@@ -36,6 +50,7 @@ async def sse_client(
     httpx_client_factory: McpHttpClientFactory = create_mcp_http_client,
     auth: httpx.Auth | None = None,
     on_session_created: Callable[[str], None] | None = None,
+    messages_url: str | None = None,
 ):
     """Client transport for SSE.
 
@@ -50,6 +65,9 @@ async def sse_client(
         httpx_client_factory: Factory function for creating the HTTPX client.
         auth: Optional HTTPX authentication handler.
         on_session_created: Optional callback invoked with the session ID when received.
+        messages_url: Optional message endpoint URL to use instead of deriving it
+            from the SSE endpoint event. Relative URLs are resolved against `url`,
+            and any session query parameters from the endpoint event are preserved.
     """
     logger.debug(f"Connecting to SSE endpoint: {remove_request_params(url)}")
     async with httpx_client_factory(
@@ -68,7 +86,7 @@ async def sse_client(
                         logger.debug(f"Received SSE event: {sse.event}")
                         match sse.event:
                             case "endpoint":
-                                endpoint_url = urljoin(url, sse.data)
+                                endpoint_url = _resolve_endpoint_url(url, sse.data, messages_url)
                                 logger.debug(f"Received endpoint URL: {endpoint_url}")
 
                                 url_parsed = urlparse(url)
