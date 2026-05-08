@@ -1,11 +1,18 @@
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  # type: ignore[reportPrivateUsage]
+import mcp.cli.cli as cli
+from mcp.cli.cli import (  # type: ignore[reportPrivateUsage]
+    _build_uv_command,
+    _collect_env_vars,
+    _get_npx_command,
+    _parse_file_path,
+)
 
 
 @pytest.mark.parametrize(
@@ -67,6 +74,73 @@ def test_build_uv_command_adds_editable_and_packages():
         "run",
         "foo.py",
     ]
+
+
+def test_collect_env_vars_returns_none_without_inputs():
+    """Should not allocate an env block when no env sources were provided."""
+    assert _collect_env_vars(None, []) is None
+
+
+def test_collect_env_vars_from_cli_values():
+    """CLI env vars should be parsed as KEY=VALUE pairs."""
+    assert _collect_env_vars(None, ["API_KEY=abc123", "EMPTY="]) == {"API_KEY": "abc123", "EMPTY": ""}
+
+
+def test_collect_env_vars_exits_on_invalid_cli_value():
+    """CLI env vars must use KEY=VALUE format."""
+    with pytest.raises(SystemExit) as exc_info:
+        _collect_env_vars(None, ["API_KEY"])
+
+    assert exc_info.value.code == 1
+
+
+def test_collect_env_vars_file_then_cli_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """CLI env vars should override values loaded from a .env file."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+
+    def dotenv_values(_: Path) -> dict[str, str]:
+        return {"API_KEY": "file-value", "KEEP": "from-file"}
+
+    monkeypatch.setattr(
+        cli,
+        "dotenv",
+        SimpleNamespace(dotenv_values=dotenv_values),
+    )
+
+    assert _collect_env_vars(env_file, ["API_KEY=cli-value"]) == {"API_KEY": "cli-value", "KEEP": "from-file"}
+
+
+def test_collect_env_vars_exits_when_dotenv_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Should fail clearly when loading a .env file without python-dotenv."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+    monkeypatch.setattr(cli, "dotenv", None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _collect_env_vars(env_file, [])
+
+    assert exc_info.value.code == 1
+
+
+def test_collect_env_vars_exits_when_dotenv_load_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Should fail clearly when the .env file cannot be parsed or read."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("", encoding="utf-8")
+
+    def dotenv_values(_: Path) -> dict[str, str]:
+        raise ValueError("bad env")
+
+    monkeypatch.setattr(
+        cli,
+        "dotenv",
+        SimpleNamespace(dotenv_values=dotenv_values),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        _collect_env_vars(env_file, [])
+
+    assert exc_info.value.code == 1
 
 
 def test_get_npx_unix_like(monkeypatch: pytest.MonkeyPatch):
