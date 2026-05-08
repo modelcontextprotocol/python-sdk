@@ -1168,6 +1168,59 @@ class TestAuthFlow:
         assert oauth_provider.context.token_expiry_time is not None
 
     @pytest.mark.anyio
+    async def test_auth_flow_logs_and_reraises_oauth_errors(
+        self, oauth_provider: OAuthClientProvider, caplog: pytest.LogCaptureFixture
+    ):
+        """OAuth flow failures should be logged and re-raised."""
+        oauth_provider.context.current_tokens = None
+        oauth_provider.context.token_expiry_time = None
+        oauth_provider.context.client_info = OAuthClientInformationFull(
+            client_id="existing_client",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+        )
+        oauth_provider._initialized = True
+        oauth_provider._perform_authorization = mock.AsyncMock(side_effect=RuntimeError("auth boom"))
+
+        test_request = httpx.Request("GET", "https://api.example.com/v1/mcp")
+        auth_flow = oauth_provider.async_auth_flow(test_request)
+
+        await auth_flow.__anext__()
+
+        response = httpx.Response(
+            401,
+            headers={
+                "WWW-Authenticate": 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+            },
+            request=test_request,
+        )
+        discovery_request = await auth_flow.asend(response)
+
+        discovery_response = httpx.Response(
+            200,
+            content=(
+                b'{"resource": "https://api.example.com/v1/mcp", "authorization_servers": ["https://auth.example.com"]}'
+            ),
+            request=discovery_request,
+        )
+        oauth_metadata_request = await auth_flow.asend(discovery_response)
+
+        oauth_metadata_response = httpx.Response(
+            200,
+            content=(
+                b'{"issuer": "https://auth.example.com", '
+                b'"authorization_endpoint": "https://auth.example.com/authorize", '
+                b'"token_endpoint": "https://auth.example.com/token"}'
+            ),
+            request=oauth_metadata_request,
+        )
+
+        with caplog.at_level("ERROR", logger="mcp.client.auth.oauth2"):
+            with pytest.raises(RuntimeError, match="auth boom"):
+                await auth_flow.asend(oauth_metadata_response)
+
+        assert "OAuth flow error" in caplog.text
+
+    @pytest.mark.anyio
     async def test_auth_flow_no_unnecessary_retry_after_oauth(
         self, oauth_provider: OAuthClientProvider, mock_storage: MockTokenStorage, valid_tokens: OAuthToken
     ):
@@ -1588,6 +1641,98 @@ class TestLegacyServerFallback:
             await auth_flow.asend(final_response)
         except StopAsyncIteration:
             pass
+
+    @pytest.mark.anyio
+    async def test_oauth_flow_forwards_user_agent_to_generated_auth_requests(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ):
+        """OAuth discovery, registration, and token requests should preserve the transport User-Agent."""
+
+        async def redirect_handler(url: str) -> None:
+            pass  # pragma: no cover
+
+        async def callback_handler() -> tuple[str, str | None]:
+            return "test_auth_code", "test_state"  # pragma: no cover
+
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+        provider._initialized = True
+        provider._perform_authorization_code_grant = mock.AsyncMock(
+            return_value=("test_auth_code", "test_code_verifier")
+        )
+
+        test_request = httpx.Request(
+            "POST",
+            "https://api.example.com/v1/mcp",
+            headers={"User-Agent": "custom-mcp-client/1.0"},
+        )
+        auth_flow = provider.async_auth_flow(test_request)
+
+        try:
+            first_request = await auth_flow.__anext__()
+            assert first_request.headers["User-Agent"] == "custom-mcp-client/1.0"
+
+            response = httpx.Response(
+                401,
+                headers={
+                    "WWW-Authenticate": (
+                        'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+                    )
+                },
+                request=test_request,
+            )
+
+            discovery_request = await auth_flow.asend(response)
+            assert discovery_request.headers["User-Agent"] == "custom-mcp-client/1.0"
+
+            discovery_response = httpx.Response(
+                200,
+                content=(
+                    b'{"resource": "https://api.example.com/v1/mcp", '
+                    b'"authorization_servers": ["https://auth.example.com"]}'
+                ),
+                request=discovery_request,
+            )
+
+            oauth_metadata_request = await auth_flow.asend(discovery_response)
+            assert oauth_metadata_request.headers["User-Agent"] == "custom-mcp-client/1.0"
+
+            oauth_metadata_response = httpx.Response(
+                200,
+                content=(
+                    b'{"issuer": "https://auth.example.com", '
+                    b'"authorization_endpoint": "https://auth.example.com/authorize", '
+                    b'"token_endpoint": "https://auth.example.com/token", '
+                    b'"registration_endpoint": "https://auth.example.com/register"}'
+                ),
+                request=oauth_metadata_request,
+            )
+
+            registration_request = await auth_flow.asend(oauth_metadata_response)
+            assert registration_request.headers["User-Agent"] == "custom-mcp-client/1.0"
+
+            registration_response = httpx.Response(
+                201,
+                content=(
+                    b'{"client_id": "test_client", '
+                    b'"client_secret": "test_secret", '
+                    b'"redirect_uris": ["http://localhost:3030/callback"], '
+                    b'"token_endpoint_auth_method": "client_secret_post", '
+                    b'"grant_types": ["authorization_code"], '
+                    b'"response_types": ["code"]}'
+                ),
+                request=registration_request,
+            )
+
+            token_request = await auth_flow.asend(registration_response)
+            assert token_request.headers["User-Agent"] == "custom-mcp-client/1.0"
+        finally:
+            await auth_flow.aclose()
 
     @pytest.mark.anyio
     async def test_legacy_server_with_different_prm_and_root_urls(
