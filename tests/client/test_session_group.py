@@ -385,3 +385,24 @@ async def test_client_session_group_establish_session_parameterized(
             # 3. Assert returned values
             assert returned_server_info is mock_initialize_result.server_info
             assert returned_session is mock_entered_session
+
+
+@pytest.mark.anyio
+async def test_client_session_group_streamable_http_connect_error_is_catchable() -> None:
+    async def raise_connect_error(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("All connection attempts failed", request=request)
+
+    def mock_client_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(raise_connect_error))
+
+    group = ClientSessionGroup()
+    async with group:
+        with mock.patch("mcp.client.session_group.create_mcp_http_client", side_effect=mock_client_factory):
+            with pytest.raises(MCPError, match="Transport error: All connection attempts failed"):  # pragma: no branch
+                await group.connect_to_server(StreamableHttpParameters(url="http://localhost:3001/mcp/"))
+
+    assert group.sessions == []

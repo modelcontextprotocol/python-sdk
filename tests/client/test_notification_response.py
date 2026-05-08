@@ -6,6 +6,7 @@ that don't follow SDK conventions.
 
 import json
 
+import anyio
 import httpx
 import pytest
 from starlette.applications import Starlette
@@ -152,6 +153,21 @@ async def test_http_error_status_sends_jsonrpc_error() -> None:
                     await session.list_tools()
 
 
+async def test_transport_error_sends_jsonrpc_error() -> None:
+    """Verify request transport errors unblock the pending request with an MCPError."""
+
+    async def raise_connect_error(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("All connection attempts failed", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(raise_connect_error)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                with pytest.raises(
+                    MCPError, match="Transport error: All connection attempts failed"
+                ):  # pragma: no branch
+                    await session.initialize()
+
+
 async def test_http_error_on_notification_does_not_hang() -> None:
     """Verify HTTP errors on notifications are silently ignored.
 
@@ -166,6 +182,23 @@ async def test_http_error_on_notification_does_not_hang() -> None:
 
                 # Should not raise or hang — the error is silently ignored for notifications
                 await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
+
+
+async def test_transport_error_on_notification_does_not_crash_transport() -> None:
+    """Verify transport errors on notifications do not crash the transport task group."""
+
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        data = json.loads(request.content)
+        if data.get("method") == "initialize":
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": data["id"], "result": INIT_RESPONSE})
+        raise httpx.ConnectError("All connection attempts failed", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle_request)) as client:
+        async with streamable_http_client("http://localhost/mcp", http_client=client) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.initialize()
+                await session.send_notification(RootsListChangedNotification(method="notifications/roots/list_changed"))
+                await anyio.sleep(0)
 
 
 def _create_invalid_json_response_app() -> Starlette:

@@ -429,6 +429,20 @@ class StreamableHTTPTransport:
             # Try to reconnect again if we still have an event ID
             await self._handle_reconnection(ctx, last_event_id, retry_interval_ms, attempt + 1)
 
+    async def _handle_request_error(self, ctx: RequestContext, exc: Exception) -> None:
+        """Report a request transport failure without crashing the transport task group."""
+        logger.debug("Error handling StreamableHTTP request", exc_info=True)
+
+        message = ctx.session_message.message
+        if isinstance(message, JSONRPCRequest):
+            error_data = ErrorData(code=INTERNAL_ERROR, message=f"Transport error: {exc}")
+            error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
+            with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+                await ctx.read_stream_writer.send(error_msg)
+        else:
+            with contextlib.suppress(anyio.BrokenResourceError, anyio.ClosedResourceError):
+                await ctx.read_stream_writer.send(exc)
+
     async def post_writer(
         self,
         client: httpx.AsyncClient,
@@ -468,10 +482,13 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except Exception as exc:
+                            await self._handle_request_error(ctx, exc)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):

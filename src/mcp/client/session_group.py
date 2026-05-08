@@ -147,9 +147,9 @@ class ClientSessionGroup:
         self._session_exit_stacks = {}
         self._component_name_hook = component_name_hook
 
-    async def __aenter__(self) -> Self:  # pragma: no cover
+    async def __aenter__(self) -> Self:
         # Enter the exit stack only if we created it ourselves
-        if self._owns_exit_stack:
+        if self._owns_exit_stack:  # pragma: no branch
             await self._exit_stack.__aenter__()
         return self
 
@@ -158,22 +158,22 @@ class ClientSessionGroup:
         _exc_type: type[BaseException] | None,
         _exc_val: BaseException | None,
         _exc_tb: TracebackType | None,
-    ) -> bool | None:  # pragma: no cover
+    ) -> bool | None:
         """Closes session exit stacks and main exit stack upon completion."""
 
         # Only close the main exit stack if we created it
-        if self._owns_exit_stack:
+        if self._owns_exit_stack:  # pragma: no branch
             await self._exit_stack.aclose()
 
         # Concurrently close session stacks.
         async with anyio.create_task_group() as tg:
             for exit_stack in self._session_exit_stacks.values():
-                tg.start_soon(exit_stack.aclose)
+                tg.start_soon(exit_stack.aclose)  # pragma: no cover
 
     @property
     def sessions(self) -> list[mcp.ClientSession]:
         """Returns the list of sessions being managed."""
-        return list(self._sessions.keys())  # pragma: no cover
+        return list(self._sessions.keys())
 
     @property
     def prompts(self) -> dict[str, types.Prompt]:
@@ -323,7 +323,7 @@ class ClientSessionGroup:
             await self._exit_stack.enter_async_context(session_stack)
 
             return result.server_info, session
-        except Exception:  # pragma: no cover
+        except Exception:
             # If anything during this setup fails, ensure the session-specific
             # stack is closed.
             await session_stack.aclose()
