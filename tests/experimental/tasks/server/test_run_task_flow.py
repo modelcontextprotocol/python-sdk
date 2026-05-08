@@ -31,6 +31,7 @@ from mcp.types import (
     GetTaskResult,
     ListToolsResult,
     PaginatedRequestParams,
+    TaskMetadata,
     TextContent,
 )
 
@@ -365,3 +366,27 @@ async def test_run_task_doesnt_fail_if_already_terminal() -> None:
                     break
 
         assert status.status_message == "Manually failed"
+
+
+@pytest.mark.anyio
+async def test_run_task_in_stateless_mode_raises() -> None:
+    """Test that run_task raises when the session is in stateless mode."""
+    task_support = TaskSupport.in_memory()
+
+    mock_session = Mock()
+    mock_session.session_id = None
+    mock_session.stateless = True
+
+    experimental = Experimental(
+        task_metadata=TaskMetadata(ttl=60000),
+        _client_capabilities=None,
+        _session=mock_session,
+        _task_support=task_support,
+    )
+
+    async def work(task: ServerTaskContext) -> CallToolResult:
+        raise NotImplementedError
+
+    async with task_support.run():
+        with pytest.raises(RuntimeError, match="does not support stateless mode"):
+            await experimental.run_task(work)
