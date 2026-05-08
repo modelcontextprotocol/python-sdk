@@ -8,8 +8,7 @@ import anyio
 import httpx
 from anyio.abc import TaskStatus
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from httpx_sse import aconnect_sse
-from httpx_sse._exceptions import SSEError
+from httpx_sse import SSEError, aconnect_sse
 
 import mcp.types as types
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
