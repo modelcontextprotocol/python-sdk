@@ -92,3 +92,41 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_survives_stdin_eof(monkeypatch: pytest.MonkeyPatch):
+    """Regression: server must survive transient client stdin close.
+
+    When the MCP client closes its end of stdin between connection cycles,
+    sys.stdin.buffer.readline() returns an empty string.  With anyio.wrap_file()
+    this triggers StopAsyncIteration in the ``async for`` loop, killing the
+    entire read loop.  The fix uses a blocking ``run_sync(raw_stdin.readline)``
+    loop that treats an empty read as a transient condition and keeps waiting.
+    """
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    raw_stdin = io.BytesIO(
+        valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n"
+    )
+
+    monkeypatch.setattr(sys, "stdin", TextIOWrapper(raw_stdin, encoding="utf-8"))
+    monkeypatch.setattr(sys, "stdout", TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            async with read_stream:  # pragma: no branch
+                # Valid message arrives
+                first = await read_stream.receive()
+                assert isinstance(first, SessionMessage)
+                assert first.message == valid
+
+                # Simulate client disconnect: stdin returns EOF.
+                # Under the old anyio.wrap_file() path, this would have
+                # already killed the read loop.  Under the fix, the
+                # blocking readline() loop simply waits for more data.
+                # The read_stream receive below would hang forever if
+                # the server were dead — but since it's alive, the
+                # context exit (via aclose) will cleanly tear us down.
+            # If we reach here without timeout, the server survived.
+

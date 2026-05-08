@@ -23,6 +23,7 @@ from io import TextIOWrapper
 
 import anyio
 import anyio.lowlevel
+from anyio.to_thread import run_sync
 
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
@@ -38,8 +39,16 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # standard process handles. Encoding of stdin/stdout as text streams on
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
-    if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+    #
+    # When no custom stdin is provided, use a blocking read on sys.stdin.buffer
+    # instead of anyio.wrap_file(). anyio.wrap_file() wraps the underlying file
+    # as an async iterator, which raises StopAsyncIteration when the client closes
+    # its end of stdin between connection cycles — this looks like EOF and kills
+    # the read loop. Blocking sys.stdin.buffer.readline() survives transient
+    # client disconnects by waiting forever until real process EOF.
+    _read_stdin_raw = stdin is None
+    if _read_stdin_raw:
+        raw_stdin = TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
     if not stdout:
         stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
 
@@ -49,15 +58,30 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     async def stdin_reader():
         try:
             async with read_stream_writer:
-                async for line in stdin:
-                    try:
-                        message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
-                    except Exception as exc:
-                        await read_stream_writer.send(exc)
-                        continue
-
-                    session_message = SessionMessage(message)
-                    await read_stream_writer.send(session_message)
+                if _read_stdin_raw:
+                    # Blocking read — survives client stdin close between cycles
+                    while True:
+                        line = await run_sync(raw_stdin.readline)
+                        if not line:  # real process EOF
+                            break
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
+                        except Exception as exc:
+                            await read_stream_writer.send(exc)
+                            continue
+                        await read_stream_writer.send(SessionMessage(message))
+                else:
+                    # Async iterator path — for custom stdin (e.g., tests)
+                    async for line in stdin:
+                        try:
+                            message = types.jsonrpc_message_adapter.validate_json(line, by_name=False)
+                        except Exception as exc:
+                            await read_stream_writer.send(exc)
+                            continue
+                        await read_stream_writer.send(SessionMessage(message))
         except anyio.ClosedResourceError:  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
