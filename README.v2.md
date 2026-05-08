@@ -370,6 +370,35 @@ async def long_running_task(task_name: str, ctx: Context, steps: int = 5) -> str
 _Full example: [examples/snippets/servers/tool_progress.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/tool_progress.py)_
 <!-- /snippet-source -->
 
+#### Server Instructions
+
+Use `instructions` to tell clients how the server's tools and resources fit
+together. These instructions are returned in the server's `InitializeResult`,
+which lets clients surface workflow guidance before the model calls any tools.
+
+Instructions are useful when a server has related tools that should be used in a
+particular order, or when tools are grouped by domain and need extra context.
+
+```python
+from mcp.server import MCPServer
+
+mcp = MCPServer(
+    name="Inventory",
+    instructions=(
+        "Use lookup_item before update_stock. "
+        "Use create_purchase_order only after confirming supplier availability."
+    ),
+)
+```
+
+Inside a tool you can read the same value via the request context:
+
+```python
+@mcp.tool()
+async def describe_workflow(ctx: Context) -> str:
+    return ctx.mcp_server.instructions or "(no instructions provided)"
+```
+
 #### Structured Output
 
 Tools will return structured results by default, if their return type
