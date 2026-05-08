@@ -537,6 +537,8 @@ class Server(Generic[LifespanResultT, RequestT]):
                     # output normalization
                     unstructured_content: UnstructuredContent
                     maybe_structured_content: StructuredContent | None
+                    is_error = False
+
                     if isinstance(results, types.CallToolResult):
                         return types.ServerResult(results)
                     elif isinstance(results, types.CreateTaskResult):
@@ -556,12 +558,18 @@ class Server(Generic[LifespanResultT, RequestT]):
                     else:  # pragma: no cover
                         return self._make_error_result(f"Unexpected return type from tool: {type(results).__name__}")
 
-                    # output validation
+                    # output validation: a tool with an outputSchema must still
+                    # be able to surface a tool-execution failure via unstructured
+                    # content. If structured output is missing for such a tool,
+                    # treat the unstructured payload as a tool-error result
+                    # (isError=true) instead of replacing it with a hard
+                    # "outputSchema defined but no structured output returned"
+                    # error that obscures the original failure message. This
+                    # mirrors the TypeScript SDK fix in
+                    # modelcontextprotocol/typescript-sdk#655.
                     if tool and tool.outputSchema is not None:
                         if maybe_structured_content is None:
-                            return self._make_error_result(
-                                "Output validation error: outputSchema defined but no structured output returned"
-                            )
+                            is_error = True
                         else:
                             try:
                                 jsonschema.validate(instance=maybe_structured_content, schema=tool.outputSchema)
@@ -573,7 +581,7 @@ class Server(Generic[LifespanResultT, RequestT]):
                         types.CallToolResult(
                             content=list(unstructured_content),
                             structuredContent=maybe_structured_content,
-                            isError=False,
+                            isError=is_error,
                         )
                     )
                 except UrlElicitationRequiredError:
