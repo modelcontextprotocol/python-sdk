@@ -1,0 +1,34 @@
+# EditorConfig — https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{py,pyi}]
+indent_size = 4
+
+[*.{go}]
+indent_style = tab
+
+[*.{rs}]
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
+
+[*.{sh,bash,zsh}]
+indent_size = 2
+
+[*.{yaml,yml}]
+indent_size = 2
+
+[*.{toml}]
+indent_size = 2
