@@ -7,8 +7,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import anyio
 import httpx
 from anyio.abc import TaskStatus
-from httpx_sse import aconnect_sse
-from httpx_sse._exceptions import SSEError
+from httpx_sse import SSEError, aconnect_sse
 
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
