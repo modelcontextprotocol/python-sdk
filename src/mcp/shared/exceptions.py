@@ -5,6 +5,19 @@ from typing import Any, cast
 from mcp.types import URL_ELICITATION_REQUIRED, ElicitRequestURLParams, ErrorData, JSONRPCError
 
 
+def _restore_mcp_error(exc_type: type[MCPError], error: ErrorData) -> MCPError:
+    """Reconstruct a pickled MCPError (or subclass) from ErrorData.
+
+    Every MCPError subclass inherits :meth:`MCPError.from_error_data`, so the
+    generic path is sufficient. :class:`UrlElicitationRequiredError` needs its
+    specialized reconstructor because it interprets ``error.data`` as a list
+    of elicitations, not free-form data.
+    """
+    if exc_type is UrlElicitationRequiredError:
+        return exc_type.from_error(error)
+    return exc_type.from_error_data(error)
+
+
 class MCPError(Exception):
     """Exception type raised when an error arrives over an MCP connection."""
 
@@ -27,7 +40,7 @@ class MCPError(Exception):
 
     @property
     def data(self) -> Any:
-        return self.error.data  # pragma: no cover
+        return self.error.data
 
     @classmethod
     def from_jsonrpc_error(cls, error: JSONRPCError) -> MCPError:
@@ -39,6 +52,9 @@ class MCPError(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+    def __reduce__(self) -> tuple[Any, tuple[type[MCPError], ErrorData]]:
+        return (_restore_mcp_error, (type(self), self.error))
 
 
 class StatelessModeNotSupported(RuntimeError):
