@@ -324,8 +324,11 @@ class ClientSession(
     async def _validate_tool_result(self, name: str, result: types.CallToolResult) -> None:
         """Validate the structured content of a tool result against its output schema."""
         if name not in self._tool_output_schemas:
-            # refresh output schema cache
-            await self.list_tools()
+            # refresh output schema cache — paginate through all pages so tools
+            # beyond the first page are also considered before giving up.
+            list_result = await self.list_tools()
+            while list_result.next_cursor is not None and name not in self._tool_output_schemas:
+                list_result = await self.list_tools(params=types.PaginatedRequestParams(cursor=list_result.next_cursor))
 
         output_schema = None
         if name in self._tool_output_schemas:
@@ -476,5 +479,9 @@ class ClientSession(
                 # Clients MAY use this to retry requests or update UI
                 # The notification contains the elicitationId of the completed elicitation
                 pass
+            case types.ToolListChangedNotification():
+                # The server's tool list has changed; invalidate the cached output schemas
+                # so the next call_tool fetches fresh schemas before validating.
+                self._tool_output_schemas.clear()
             case _:
                 pass
