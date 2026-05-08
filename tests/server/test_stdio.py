@@ -1,6 +1,8 @@
+import gc
 import io
 import sys
 from io import TextIOWrapper
+from pathlib import Path
 
 import anyio
 import pytest
@@ -92,3 +94,30 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_does_not_close_standard_streams(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Default stdio wrapping must not close the process stdin/stdout handles."""
+    message = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    stdin_path = tmp_path / "stdin.jsonl"
+    stdout_path = tmp_path / "stdout.jsonl"
+    stdin_path.write_text(message.model_dump_json(by_alias=True, exclude_none=True) + "\n", encoding="utf-8")
+
+    with stdin_path.open("r", encoding="utf-8") as fake_stdin, stdout_path.open("w+", encoding="utf-8") as fake_stdout:
+        monkeypatch.setattr(sys, "stdin", fake_stdin)
+        monkeypatch.setattr(sys, "stdout", fake_stdout)
+
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            async with read_stream:
+                received = await read_stream.receive()
+                assert isinstance(received, SessionMessage)
+                assert received.message == message
+
+        gc.collect()
+
+        assert not fake_stdin.closed
+        assert not fake_stdout.closed
+        fake_stdout.write("still open\n")
+        fake_stdout.flush()
