@@ -46,7 +46,8 @@ class InMemoryTaskStore(TaskStore):
     def __init__(self, page_size: int = 10) -> None:
         self._tasks: dict[str, StoredTask] = {}
         self._page_size = page_size
-        self._update_events: dict[str, anyio.Event] = {}
+        self._update_events: dict[str, list[anyio.Event]] = {}
+        self._pending_updates: set[str] = set()
 
     def _calculate_expiry(self, ttl_ms: int | None) -> datetime | None:
         """Calculate expiry time from TTL in milliseconds."""
@@ -194,15 +195,35 @@ class InMemoryTaskStore(TaskStore):
         if task_id not in self._tasks:
             raise ValueError(f"Task with ID {task_id} not found")
 
-        # Create a fresh event for waiting (anyio.Event can't be cleared)
-        self._update_events[task_id] = anyio.Event()
-        event = self._update_events[task_id]
-        await event.wait()
+        # If an update arrived before we started waiting, consume it and return.
+        if task_id in self._pending_updates:
+            self._pending_updates.discard(task_id)
+            return
+
+        # Create a per-waiter event so multiple concurrent waiters each get woken.
+        event = anyio.Event()
+        if task_id not in self._update_events:
+            self._update_events[task_id] = []
+        self._update_events[task_id].append(event)
+        try:
+            await event.wait()
+        finally:
+            # Clean up our event from the list (may already be removed by notify).
+            try:
+                self._update_events[task_id].remove(event)
+            except (ValueError, KeyError):
+                pass
 
     async def notify_update(self, task_id: str) -> None:
         """Signal that a task has been updated."""
-        if task_id in self._update_events:
-            self._update_events[task_id].set()
+        events = self._update_events.pop(task_id, [])
+        if events:
+            for event in events:
+                event.set()
+        else:
+            # No waiters yet; mark as pending so the next wait_for_update returns
+            # immediately instead of blocking.
+            self._pending_updates.add(task_id)
 
     # --- Testing/debugging helpers ---
 
@@ -210,6 +231,7 @@ class InMemoryTaskStore(TaskStore):
         """Cleanup all tasks (useful for testing or graceful shutdown)."""
         self._tasks.clear()
         self._update_events.clear()
+        self._pending_updates.clear()
 
     def get_all_tasks(self) -> list[Task]:
         """Get all tasks (useful for debugging). Returns copies to prevent modification."""
