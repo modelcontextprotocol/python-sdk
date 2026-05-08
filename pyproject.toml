@@ -205,6 +205,12 @@ filterwarnings = [
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
+    # uvicorn uses asyncio.iscoroutinefunction deprecated in Python 3.14
+    "ignore:.*asyncio.iscoroutinefunction.*is deprecated:DeprecationWarning",
+    # Unclosed socket warnings during server teardown (Windows)
+    "ignore:unclosed.*socket:ResourceWarning",
+    # Thread exceptions from uvicorn deprecation warnings on Python 3.14
+    "ignore:Exception in thread.*asyncio.iscoroutinefunction:pytest.PytestUnhandledThreadExceptionWarning",
 ]
 
 [tool.markdown.lint]
