@@ -1232,6 +1232,52 @@ uv run mcp run servers/direct_execution.py
 
 Note that `uv run mcp run` or `uv run mcp dev` only supports server using MCPServer and not the low-level server variant.
 
+### CLI Command Flags
+
+Each `mcp` subcommand accepts specific flags:
+
+**`mcp run`** — Run an MCP server directly:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--transport` | `-t` | Transport protocol to use (`stdio`, `sse`, or `streamable-http`) |
+
+```bash
+# Run with default transport (stdio)
+uv run mcp run server.py
+
+# Run with streamable HTTP transport
+uv run mcp run server.py -t streamable-http
+```
+
+**`mcp dev`** — Run with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) for testing:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--with-editable` | `-e` | Directory containing `pyproject.toml` to install in editable mode |
+| `--with` | | Additional packages to install (can be repeated) |
+
+```bash
+uv run mcp dev server.py --with pandas --with numpy
+uv run mcp dev server.py --with-editable .
+```
+
+**`mcp install`** — Install an MCP server in the Claude desktop app:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--name` | `-n` | Custom name for the server |
+| `--with-editable` | `-e` | Directory containing `pyproject.toml` to install in editable mode |
+| `--with` | | Additional packages to install (can be repeated) |
+| `--env-var` | `-v` | Environment variables in `KEY=VALUE` format (can be repeated) |
+| `--env-file` | `-f` | Load environment variables from a `.env` file |
+
+```bash
+uv run mcp install server.py --name "My Server" -v API_KEY=abc123 -f .env
+```
+
+All commands accept a file spec in the form `server.py` or `server.py:app` (to specify the server object to import).
+
 ### Streamable HTTP Transport
 
 > **Note**: Streamable HTTP transport is the recommended transport for production deployments. Use `stateless_http=True` and `json_response=True` for optimal scalability.
