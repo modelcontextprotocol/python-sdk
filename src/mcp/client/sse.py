@@ -8,7 +8,6 @@ import anyio
 import httpx
 from anyio.abc import TaskStatus
 from httpx_sse import aconnect_sse
-from httpx_sse._exceptions import SSEError
 
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
@@ -63,6 +62,12 @@ async def sse_client(
             write_stream, write_stream_reader = create_context_streams[SessionMessage](0)
 
             async def sse_reader(task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED):
+                # Before task_status.started() fires, the caller is blocked inside
+                # tg.start() and nobody reads from read_stream. Sending to the
+                # zero-buffer stream in that phase would deadlock, so errors must
+                # be raised instead. After started(), the caller has the streams
+                # and errors are delivered through read_stream.
+                started = False
                 try:
                     async for sse in event_source.aiter_sse():  # pragma: no branch
                         logger.debug(f"Received SSE event: {sse.event}")
@@ -73,15 +78,13 @@ async def sse_client(
 
                                 url_parsed = urlparse(url)
                                 endpoint_parsed = urlparse(endpoint_url)
-                                if (  # pragma: no cover
+                                if (
                                     url_parsed.netloc != endpoint_parsed.netloc
                                     or url_parsed.scheme != endpoint_parsed.scheme
                                 ):
-                                    error_msg = (  # pragma: no cover
+                                    raise ValueError(
                                         f"Endpoint origin does not match connection origin: {endpoint_url}"
                                     )
-                                    logger.error(error_msg)  # pragma: no cover
-                                    raise ValueError(error_msg)  # pragma: no cover
 
                                 if on_session_created:
                                     session_id = _extract_session_id_from_endpoint(endpoint_url)
@@ -89,11 +92,14 @@ async def sse_client(
                                         on_session_created(session_id)
 
                                 task_status.started(endpoint_url)
+                                started = True
 
                             case "message":
                                 # Skip empty data (keep-alive pings)
                                 if not sse.data:
                                     continue
+                                if not started:
+                                    raise RuntimeError("Received message event before endpoint event")
                                 try:
                                     message = types.jsonrpc_message_adapter.validate_json(sse.data, by_name=False)
                                     logger.debug(f"Received server message: {message}")
@@ -106,11 +112,10 @@ async def sse_client(
                                 await read_stream_writer.send(session_message)
                             case _:  # pragma: no cover
                                 logger.warning(f"Unknown SSE event: {sse.event}")  # pragma: no cover
-                except SSEError as sse_exc:  # pragma: lax no cover
-                    logger.exception("Encountered SSE exception")
-                    raise sse_exc
-                except Exception as exc:  # pragma: lax no cover
+                except Exception as exc:
                     logger.exception("Error in sse_reader")
+                    if not started:
+                        raise
                     await read_stream_writer.send(exc)
                 finally:
                     await read_stream_writer.aclose()
