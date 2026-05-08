@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+from mcp.server.mcpserver.utilities.docstring import parse_docstring
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata, func_metadata
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.shared.exceptions import UrlElicitationRequiredError
@@ -61,7 +62,11 @@ class Tool(BaseModel):
         if func_name == "<lambda>":
             raise ValueError("You must provide a name for lambda functions")
 
-        func_doc = description or fn.__doc__ or ""
+        if description is not None:
+            func_doc = description
+        else:
+            doc_summary, _ = parse_docstring(fn.__doc__)
+            func_doc = doc_summary or fn.__doc__ or ""
         is_async = is_async_callable(fn)
 
         if context_kwarg is None:  # pragma: no branch
