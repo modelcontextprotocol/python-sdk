@@ -162,18 +162,20 @@ class DirectDispatcher:
 def create_direct_dispatcher_pair(
     *,
     can_send_request: bool = True,
+    headers: Mapping[str, str] | None = None,
 ) -> tuple[DirectDispatcher, DirectDispatcher]:
     """Create two `DirectDispatcher` instances wired to each other.
 
     Args:
         can_send_request: Sets `TransportContext.can_send_request` on both
             sides. Pass ``False`` to simulate a transport with no back-channel.
+        headers: Sets `TransportContext.headers` on both sides.
 
     Returns:
         A ``(left, right)`` pair. Conventionally ``left`` is the client side
         and ``right`` is the server side, but the wiring is symmetric.
     """
-    ctx = TransportContext(kind=DIRECT_TRANSPORT_KIND, can_send_request=can_send_request)
+    ctx = TransportContext(kind=DIRECT_TRANSPORT_KIND, can_send_request=can_send_request, headers=headers)
     left = DirectDispatcher(ctx)
     right = DirectDispatcher(ctx)
     left.connect_to(right)
