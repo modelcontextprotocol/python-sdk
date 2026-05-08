@@ -5,7 +5,13 @@ from typing import Any
 
 import pytest
 
-from mcp.cli.cli import _build_uv_command, _get_npx_command, _parse_file_path  # type: ignore[reportPrivateUsage]
+from mcp.cli.cli import (  # type: ignore[reportPrivateUsage]
+    _build_uv_command,
+    _get_npx_command,
+    _get_server_log_level,
+    _parse_file_path,
+    run,
+)
 
 
 @pytest.mark.parametrize(
@@ -36,6 +42,63 @@ def test_parse_file_exit_on_dir(tmp_path: Path):
     dir_path.mkdir()
     with pytest.raises(SystemExit):
         _parse_file_path(str(dir_path))
+
+
+@pytest.mark.parametrize(
+    ("transport", "expected_kwargs"),
+    [
+        (None, {}),
+        ("stdio", {"transport": "stdio"}),
+    ],
+)
+def test_run_configures_logging_at_cli_entrypoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    transport: str | None,
+    expected_kwargs: dict[str, str],
+):
+    """The CLI owns process logging setup; importing or constructing the server does not."""
+    file = tmp_path / "server.py"
+    file.write_text("server = object()")
+    calls: list[tuple[str, Any]] = []
+
+    class Settings:
+        log_level = "DEBUG"
+
+    class ImportedServer:
+        settings = Settings()
+
+        def run(self, **kwargs: Any) -> None:
+            calls.append(("run", kwargs))
+
+    def fake_import_server(*_args: Any) -> ImportedServer:
+        return ImportedServer()
+
+    def fake_configure_logging(level: str) -> None:
+        calls.append(("logging", level))
+
+    monkeypatch.setattr("mcp.cli.cli._import_server", fake_import_server)
+    monkeypatch.setattr(
+        "mcp.cli.cli.configure_logging",
+        fake_configure_logging,
+    )
+
+    run(f"{file}:server", transport=transport)
+
+    assert calls == [
+        ("logging", "DEBUG"),
+        ("run", expected_kwargs),
+    ]
+
+
+def test_get_server_log_level_defaults_invalid_setting():
+    class Settings:
+        log_level = "VERBOSE"
+
+    class Server:
+        settings = Settings()
+
+    assert _get_server_log_level(Server()) == "INFO"
 
 
 def test_build_uv_command_minimal():

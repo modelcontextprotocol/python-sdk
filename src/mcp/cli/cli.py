@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
 from mcp.server import Server as LowLevelServer
@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
 
 try:
     from mcp.cli import claude
-    from mcp.server.mcpserver.utilities.logging import get_logger
+    from mcp.server.mcpserver.utilities.logging import configure_logging, get_logger
 except ImportError:  # pragma: no cover
     print("Error: mcp.server is not installed or not in PYTHONPATH")
     sys.exit(1)
@@ -30,6 +30,8 @@ except ImportError:  # pragma: no cover
     dotenv = None
 
 logger = get_logger("cli")
+
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 app = typer.Typer(
     name="mcp",
@@ -114,6 +116,14 @@ def _parse_file_path(file_spec: str) -> tuple[Path, str | None]:
         sys.exit(1)
 
     return file_path, server_object
+
+
+def _get_server_log_level(server: Any) -> LogLevel:
+    settings = getattr(server, "settings", None)
+    log_level = getattr(settings, "log_level", "INFO")
+    if log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        return log_level
+    return "INFO"
 
 
 def _import_server(file: Path, server_object: str | None = None):  # pragma: no cover
@@ -314,7 +324,7 @@ def run(
             help="Transport protocol to use (stdio or sse)",
         ),
     ] = None,
-) -> None:  # pragma: no cover
+) -> None:
     """Run an MCP server.
 
     The server can be specified in two ways:
@@ -340,6 +350,8 @@ def run(
         # Import and get server object
         server = _import_server(file, server_object)
 
+        configure_logging(_get_server_log_level(server))
+
         # Run the server
         kwargs = {}
         if transport:
@@ -347,7 +359,7 @@ def run(
 
         server.run(**kwargs)
 
-    except Exception:
+    except Exception:  # pragma: no cover
         logger.exception(
             "Failed to run server",
             extra={
