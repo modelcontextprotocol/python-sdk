@@ -280,7 +280,9 @@ class StreamableHTTPSessionManager:
                     # Handle the HTTP request and return the response
                     await http_transport.handle_request(scope, receive, send)
                 finally:
-                    if http_transport.idle_scope is not None and self.session_idle_timeout is not None:  # pragma: no branch
+                    if (
+                        http_transport.idle_scope is not None and self.session_idle_timeout is not None
+                    ):  # pragma: no branch
                         http_transport.idle_scope.deadline = anyio.current_time() + self.session_idle_timeout
         else:
             # Unknown or expired session ID - return 404 per MCP spec
