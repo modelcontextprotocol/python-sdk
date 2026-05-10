@@ -1136,3 +1136,12 @@ If you encounter issues during migration:
 1. Check the [API Reference](api/mcp/index.md) for updated method signatures
 2. Review the [examples](https://github.com/modelcontextprotocol/python-sdk/tree/main/examples) for updated usage patterns
 3. Open an issue on [GitHub](https://github.com/modelcontextprotocol/python-sdk/issues) if you find a bug or need further assistance
+
+## Tool result: marking non-text results as errors
+Tools may now return a 3-tuple: (unstructured_content, structured_content, is_error).
+If the third element is True, the resulting CallToolResult sent to clients will have
+is_error=True. This allows returning non-text content (images, audio) while still
+indicating the tool execution failed or produced an error state.
+
+Alternatively, tools may return a full `CallToolResult` instance directly to control
+is_error and other fields explicitly.
