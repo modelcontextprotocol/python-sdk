@@ -23,6 +23,7 @@ from mcp.types import (
     INVALID_PARAMS,
     REQUEST_TIMEOUT,
     CancelledNotification,
+    CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -292,9 +293,14 @@ class BaseSession(
                     with anyio.fail_after(timeout):
                         response_or_error = await response_stream_reader.receive()
                 except TimeoutError:
+                    await self._send_cancelled_notification(request_id, "request timed out")
                     class_name = request.__class__.__name__
                     message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
                     raise MCPError(code=REQUEST_TIMEOUT, message=message)
+                except anyio.get_cancelled_exc_class():
+                    with anyio.CancelScope(shield=True):
+                        await self._send_cancelled_notification(request_id, "request cancelled")
+                    raise
 
                 if isinstance(response_or_error, JSONRPCError):
                     raise MCPError.from_jsonrpc_error(response_or_error)
@@ -324,6 +330,25 @@ class BaseSession(
             metadata=ServerMessageMetadata(related_request_id=related_request_id) if related_request_id else None,
         )
         await self._write_stream.send(session_message)
+
+    async def _send_cancelled_notification(
+        self,
+        request_id: RequestId,
+        reason: str,
+    ) -> None:
+        """Best-effort delivery of a notifications/cancelled for an in-flight request."""
+        try:
+            notification = CancelledNotification(
+                method="notifications/cancelled",
+                params=CancelledNotificationParams(request_id=request_id, reason=reason),
+            )
+            jsonrpc_notification = JSONRPCNotification(
+                jsonrpc="2.0",
+                **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
+            )
+            await self._write_stream.send(SessionMessage(message=jsonrpc_notification))
+        except Exception:
+            logging.debug("Failed to send cancellation notification for request %s", request_id)
 
     async def _send_response(self, request_id: RequestId, response: SendResultT | ErrorData) -> None:
         if isinstance(response, ErrorData):
