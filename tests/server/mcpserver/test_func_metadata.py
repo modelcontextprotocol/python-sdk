@@ -1189,3 +1189,172 @@ def test_preserves_pydantic_metadata():
 
     assert meta.output_schema is not None
     assert meta.output_schema["properties"]["result"] == {"exclusiveMinimum": 1, "title": "Result", "type": "integer"}
+
+
+def test_docstring_google_style():
+    """Test that Google-style docstrings produce parameter descriptions in the schema."""
+
+    def greet(name: str, age: int) -> str:  # pragma: no cover
+        """Greet a user.
+
+        Args:
+            name: The user's full name
+            age: The user's age in years
+        """
+        return f"{name} is {age}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert schema["properties"]["name"]["description"] == "The user's full name"
+    assert schema["properties"]["age"]["description"] == "The user's age in years"
+
+
+def test_docstring_numpy_style():
+    """Test that NumPy-style docstrings produce parameter descriptions in the schema."""
+
+    def greet(name: str, age: int) -> str:  # pragma: no cover
+        """Greet a user.
+
+        Parameters
+        ----------
+        name
+            The user's full name
+        age
+            The user's age in years
+        """
+        return f"{name} is {age}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert schema["properties"]["name"]["description"] == "The user's full name"
+    assert schema["properties"]["age"]["description"] == "The user's age in years"
+
+
+def test_docstring_sphinx_style():
+    """Test that Sphinx-style docstrings produce parameter descriptions in the schema."""
+
+    def greet(name: str, age: int) -> str:  # pragma: no cover
+        """Greet a user.
+
+        :param name: The user's full name
+        :param age: The user's age in years
+        """
+        return f"{name} is {age}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert schema["properties"]["name"]["description"] == "The user's full name"
+    assert schema["properties"]["age"]["description"] == "The user's age in years"
+
+
+def test_docstring_does_not_override_field_description():
+    """Test that explicit Field descriptions take priority over docstring descriptions."""
+
+    def greet(
+        name: Annotated[str, Field(description="Explicit description")],
+        age: int,
+    ) -> str:  # pragma: no cover
+        """Greet a user.
+
+        Args:
+            name: Docstring description that should be ignored
+            age: The user's age
+        """
+        return f"{name} is {age}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert schema["properties"]["name"]["description"] == "Explicit description"
+    assert schema["properties"]["age"]["description"] == "The user's age"
+
+
+def test_docstring_no_docstring():
+    """Test that functions without docstrings still work correctly."""
+
+    def greet(name: str, age: int) -> str:  # pragma: no cover
+        return f"{name} is {age}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert "description" not in schema["properties"]["name"]
+    assert "description" not in schema["properties"]["age"]
+
+
+def test_docstring_with_default_values():
+    """Test docstring descriptions work with default parameter values."""
+
+    def greet(name: str, age: int = 25) -> str:  # pragma: no cover
+        """Greet a user.
+
+        Args:
+            name: The user's full name
+            age: The user's age in years
+        """
+        return f"{name} is {age}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert schema["properties"]["name"]["description"] == "The user's full name"
+    assert schema["properties"]["age"]["description"] == "The user's age in years"
+    assert schema["properties"]["age"]["default"] == 25
+
+
+def test_docstring_partial_params():
+    """Test that docstrings with only some parameters documented still work."""
+
+    def greet(name: str, age: int, city: str) -> str:  # pragma: no cover
+        """Greet a user.
+
+        Args:
+            name: The user's full name
+        """
+        return f"{name} is {age} from {city}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert schema["properties"]["name"]["description"] == "The user's full name"
+    assert "description" not in schema["properties"]["age"]
+    assert "description" not in schema["properties"]["city"]
+
+
+def test_docstring_no_args_section():
+    """Test that docstrings without an Args section don't cause issues."""
+
+    def greet(name: str) -> str:  # pragma: no cover
+        """Greet a user by name."""
+        return f"Hello {name}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    assert "description" not in schema["properties"]["name"]
+
+
+def test_docstring_with_annotated_non_field_metadata():
+    """Test that docstring descriptions are used when Annotated has non-Field metadata."""
+
+    def greet(
+        name: Annotated[str, "some_metadata"],
+        age: int,
+    ) -> str:  # pragma: no cover
+        """Greet a user.
+
+        Args:
+            name: The user's name
+            age: The user's age
+        """
+        return f"{name} is {age}"
+
+    meta = func_metadata(greet)
+    schema = meta.arg_model.model_json_schema()
+
+    # Docstring description should be used since Annotated has no Field with description
+    assert schema["properties"]["name"]["description"] == "The user's name"
+    assert schema["properties"]["age"]["description"] == "The user's age"
