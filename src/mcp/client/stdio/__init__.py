@@ -155,12 +155,22 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
                             message = types.JSONRPCMessage.model_validate_json(line)
                         except Exception as exc:  # pragma: no cover
                             logger.exception("Failed to parse JSONRPC message from server")
-                            await read_stream_writer.send(exc)
+                            try:
+                                await read_stream_writer.send(exc)
+                            except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                                # Context is closing; exit gracefully (issue #1960).
+                                return
                             continue
 
                         session_message = SessionMessage(message)
-                        await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: no cover
+                        try:
+                            await read_stream_writer.send(session_message)
+                        except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+                            # Context is closing; exit gracefully (issue #1960).
+                            # Happens when the caller exits the stdio_client context
+                            # while the subprocess is still writing to stdout.
+                            return
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
