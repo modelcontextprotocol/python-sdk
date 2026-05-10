@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import AnyUrl, BaseModel
 
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (
     ElicitationResult,
@@ -212,6 +213,26 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def client_id(self) -> str | None:
         """Get the client ID if available."""
         return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
+
+    @property
+    def subject(self) -> str | None:
+        """Get the authenticated user's subject (JWT sub claim), if available.
+
+        Returns the ``subject`` field from the current request's access token.
+        This is typically the user ID set by the token verifier when the token
+        is validated.  Returns ``None`` when the request is unauthenticated or
+        the token verifier did not populate the field.
+
+        Example::
+
+            @server.tool()
+            async def my_tool(ctx: Context) -> str:
+                if ctx.subject is None:
+                    return "unauthenticated"
+                return f"Hello, {ctx.subject}"
+        """
+        token = get_access_token()
+        return token.subject if token else None
 
     @property
     def request_id(self) -> str:
