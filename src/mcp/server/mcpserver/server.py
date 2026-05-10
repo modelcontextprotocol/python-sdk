@@ -8,7 +8,7 @@ import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal, TypeAlias, TypeVar, overload
 
 import anyio
 import pydantic_core
@@ -75,6 +75,9 @@ from mcp.types import Tool as MCPTool
 logger = get_logger(__name__)
 
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
+_MCPServerToolResult: TypeAlias = (
+    Sequence[ContentBlock] | tuple[Sequence[ContentBlock], dict[str, Any]] | CallToolResult
+)
 
 
 class Settings(BaseSettings, Generic[LifespanResultT]):
@@ -319,16 +322,8 @@ class MCPServer(Generic[LifespanResultT]):
         if isinstance(result, tuple) and len(result) == 2:
             unstructured_content, structured_content = result
             return CallToolResult(
-                content=list(unstructured_content),  # type: ignore[arg-type]
-                structured_content=structured_content,  # type: ignore[arg-type]
-            )
-        if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
-            # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
-            # and needs to be cleaned up.
-            return CallToolResult(
-                content=[TextContent(type="text", text=json.dumps(result, indent=2))],
-                structured_content=result,
+                content=list(unstructured_content),
+                structured_content=structured_content,
             )
         return CallToolResult(content=list(result))
 
@@ -399,7 +394,7 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
+    ) -> _MCPServerToolResult:
         """Call a tool by name with arguments."""
         if context is None:
             context = Context(mcp_server=self)

@@ -519,6 +519,23 @@ class TestServerTools:
             assert result.structured_content is not None
             assert result.structured_content == {"result": 12}
 
+    async def test_call_tool_direct_returns_structured_tuple(self):
+        """Test direct call_tool returns both content and structured output."""
+
+        def calculate_sum(a: int, b: int) -> int:
+            """Add two numbers"""
+            return a + b
+
+        mcp = MCPServer()
+        mcp.add_tool(calculate_sum)
+
+        result = await mcp.call_tool("calculate_sum", {"a": 5, "b": 7})
+
+        assert isinstance(result, tuple)
+        content, structured_content = result
+        assert list(content) == [TextContent(text="12")]
+        assert structured_content == {"result": 12}
+
     async def test_tool_structured_output_list(self):
         """Test tool with structured output returning list"""
 
