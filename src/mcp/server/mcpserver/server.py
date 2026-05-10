@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import base64
 import inspect
-import json
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, Generic, Literal, TypeAlias, TypeVar, overload
+from typing import Any, Generic, Literal, TypeAlias, TypeVar, cast, overload
 
 import anyio
 import pydantic_core
@@ -319,8 +318,8 @@ class MCPServer(Generic[LifespanResultT]):
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
         if isinstance(result, CallToolResult):
             return result
-        if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
+        if isinstance(result, tuple):
+            unstructured_content, structured_content = cast(tuple[Sequence[ContentBlock], dict[str, Any]], result)
             return CallToolResult(
                 content=list(unstructured_content),
                 structured_content=structured_content,
