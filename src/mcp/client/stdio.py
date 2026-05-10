@@ -158,7 +158,7 @@ async def stdio_client(server: StdioServerParameters, errlog: TextIO = sys.stder
 
                         session_message = SessionMessage(message)
                         await read_stream_writer.send(session_message)
-        except anyio.ClosedResourceError:  # pragma: lax no cover
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):  # pragma: lax no cover
             await anyio.lowlevel.checkpoint()
 
     async def stdin_writer():
