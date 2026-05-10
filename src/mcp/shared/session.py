@@ -23,6 +23,7 @@ from mcp.types import (
     INVALID_PARAMS,
     REQUEST_TIMEOUT,
     CancelledNotification,
+    CancelledNotificationParams,
     ClientNotification,
     ClientRequest,
     ClientResult,
@@ -141,7 +142,7 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
     async def cancel(self) -> None:
         """Cancel this request and mark it as completed."""
-        if not self._entered:  # pragma: no cover
+        if not self._entered:
             raise RuntimeError("RequestResponder must be used as a context manager")
         if not self._cancel_scope:  # pragma: no cover
             raise RuntimeError("No active cancel scope")
@@ -292,9 +293,13 @@ class BaseSession(
                     with anyio.fail_after(timeout):
                         response_or_error = await response_stream_reader.receive()
                 except TimeoutError:
+                    await self._send_cancelled_notification(request_id, "request timed out")
                     class_name = request.__class__.__name__
                     message = f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
                     raise MCPError(code=REQUEST_TIMEOUT, message=message)
+                except anyio.get_cancelled_exc_class():
+                    await self._send_cancelled_notification(request_id, "request cancelled by caller")
+                    raise
 
                 if isinstance(response_or_error, JSONRPCError):
                     raise MCPError.from_jsonrpc_error(response_or_error)
@@ -418,7 +423,7 @@ class BaseSession(
                                 await self._handle_incoming(notification)
                         except Exception:
                             # For other validation errors, log and continue
-                            logging.warning(  # pragma: no cover
+                            logging.warning(
                                 f"Failed to validate notification:. Message was: {message.message}",
                                 exc_info=True,
                             )
@@ -539,6 +544,28 @@ class BaseSession(
         message: str | None = None,
     ) -> None:
         """Sends a progress notification for a request that is currently being processed."""
+
+    async def _send_cancelled_notification(self, request_id: RequestId, reason: str) -> None:
+        """Send a cancellation notification to the remote side (best-effort).
+
+        Uses a shielded cancel scope with a timeout so the notification is
+        delivered even when called from inside a cancelled task, but does not
+        block shutdown if the write stream is unavailable.
+        """
+        try:
+            with anyio.CancelScope(shield=True):
+                with anyio.fail_after(2):
+                    notification = CancelledNotification(
+                        method="notifications/cancelled",
+                        params=CancelledNotificationParams(request_id=request_id, reason=reason),
+                    )
+                    jsonrpc_notification = JSONRPCNotification(
+                        jsonrpc="2.0",
+                        **notification.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                    await self._write_stream.send(SessionMessage(message=jsonrpc_notification))
+        except Exception:
+            logging.warning("Failed to send cancellation notification for request %s", request_id)
 
     async def _handle_incoming(
         self, req: RequestResponder[ReceiveRequestT, SendResultT] | ReceiveNotificationT | Exception
