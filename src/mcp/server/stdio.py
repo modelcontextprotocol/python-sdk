@@ -18,6 +18,7 @@ Example:
 """
 
 import sys
+import os
 from contextlib import asynccontextmanager
 from io import TextIOWrapper
 
@@ -39,9 +40,13 @@ async def stdio_server(stdin: anyio.AsyncFile[str] | None = None, stdout: anyio.
     # python is platform-dependent (Windows is particularly problematic), so we
     # re-wrap the underlying binary stream to ensure UTF-8.
     if not stdin:
-        stdin = anyio.wrap_file(TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"))
+        # Duplicate the underlying file descriptors so closing the wrapper
+        # does not close the real process stdio (fixes issue #1933).
+        stdin_dup = os.fdopen(os.dup(sys.stdin.buffer.fileno()), 'rb')
+        stdin = anyio.wrap_file(TextIOWrapper(stdin_dup, encoding="utf-8", errors="replace"))
     if not stdout:
-        stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        stdout_dup = os.fdopen(os.dup(sys.stdout.buffer.fileno()), 'wb')
+        stdout = anyio.wrap_file(TextIOWrapper(stdout_dup, encoding="utf-8"))
 
     read_stream_writer, read_stream = create_context_streams[SessionMessage | Exception](0)
     write_stream, write_stream_reader = create_context_streams[SessionMessage](0)

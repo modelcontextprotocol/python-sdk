@@ -316,12 +316,24 @@ class MCPServer(Generic[LifespanResultT]):
             return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
         if isinstance(result, CallToolResult):
             return result
-        if isinstance(result, tuple) and len(result) == 2:
-            unstructured_content, structured_content = result
+        if isinstance(result, tuple):
+            # Support either (unstructured_content, structured_content) or
+            # (unstructured_content, structured_content, is_error). The third element,
+            # if present, controls the CallToolResult.is_error flag.
+            if len(result) == 2:
+                unstructured_content, structured_content = result
+                is_error = False
+            elif len(result) == 3:
+                unstructured_content, structured_content, is_error = result
+            else:
+                # Fallback: treat as a sequence of content blocks
+                return CallToolResult(content=list(result))
             return CallToolResult(
                 content=list(unstructured_content),  # type: ignore[arg-type]
                 structured_content=structured_content,  # type: ignore[arg-type]
+                is_error=bool(is_error),
             )
+
         if isinstance(result, dict):  # pragma: no cover
             # TODO: this code path is unreachable — convert_result never returns a raw dict.
             # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
