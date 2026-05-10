@@ -45,9 +45,9 @@ def _get_npx_command():
         # Try both npx.cmd and npx.exe on Windows
         for cmd in ["npx.cmd", "npx.exe", "npx"]:
             try:
-                subprocess.run([cmd, "--version"], check=True, capture_output=True, shell=True)
+                subprocess.run([cmd, "--version"], check=True, capture_output=True)
                 return cmd
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, FileNotFoundError):
                 continue
         return None
     return "npx"  # On Unix-like systems, just use npx
@@ -271,12 +271,10 @@ def dev(
             )
             sys.exit(1)
 
-        # Run the MCP Inspector command with shell=True on Windows
-        shell = sys.platform == "win32"
+        # Run the MCP Inspector command
         process = subprocess.run(
             [npx_cmd, "@modelcontextprotocol/inspector"] + uv_cmd,
             check=True,
-            shell=shell,
             env=dict(os.environ.items()),  # Convert to list of tuples for env update
         )
         sys.exit(process.returncode)
