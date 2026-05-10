@@ -120,15 +120,20 @@ async def sse_client(
 
                         async def _send_message(session_message: SessionMessage) -> None:
                             logger.debug(f"Sending client message: {session_message}")
-                            response = await client.post(
-                                endpoint_url,
-                                json=session_message.message.model_dump(
-                                    by_alias=True,
-                                    mode="json",
-                                    exclude_unset=True,
-                                ),
-                            )
-                            response.raise_for_status()
+                            try:
+                                response = await client.post(
+                                    endpoint_url,
+                                    json=session_message.message.model_dump(
+                                        by_alias=True,
+                                        mode="json",
+                                        exclude_unset=True,
+                                    ),
+                                )
+                                response.raise_for_status()
+                            except httpx.HTTPError as exc:
+                                logger.exception("Error sending client message")
+                                await read_stream_writer.send(exc)
+                                return
                             logger.debug(f"Client message sent successfully: {response.status_code}")
 
                         async for session_message in write_stream_reader:

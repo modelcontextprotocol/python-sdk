@@ -2318,3 +2318,128 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_propagates_post_network_error_to_caller() -> None:
+    """Regression for https://github.com/modelcontextprotocol/python-sdk/issues/2110.
+
+    When a network-level error occurs during POST (e.g. ConnectError), the
+    caller must receive the exception via the read stream instead of hanging
+    indefinitely while the error is silently logged.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("simulated network failure")
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with mock_client:
+        async with streamable_http_client("http://test/mcp", http_client=mock_client) as (
+            read_stream,
+            write_stream,
+        ):
+            request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params={})
+            await write_stream.send(SessionMessage(request))
+
+            with anyio.fail_after(3):
+                received = await read_stream.receive()
+            assert isinstance(received, httpx.ConnectError)
+
+
+# ---- Integration tests against a real uvicorn server (issue #2110) ----
+
+
+def _fixed_status_mcp_app(post_status: int) -> Starlette:  # pragma: no cover
+    """Starlette app whose POST /mcp always returns the given status."""
+    from starlette.responses import Response as StarletteResponse
+    from starlette.routing import Route
+
+    async def failing_post(request: Request) -> StarletteResponse:
+        return StarletteResponse(status_code=post_status, content=f"deliberate {post_status} for #2110".encode())
+
+    return Starlette(routes=[Route("/mcp", endpoint=failing_post, methods=["POST", "GET", "DELETE"])])
+
+
+def _run_fixed_status_mcp_server(port: int, post_status: int) -> None:  # pragma: no cover
+    uvicorn.Server(
+        config=uvicorn.Config(app=_fixed_status_mcp_app(post_status), host="127.0.0.1", port=port, log_level="error")
+    ).run()
+
+
+@pytest.fixture
+def failing_mcp_server_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "post_status,expected_rpc_code,expected_message_fragment",
+    [
+        (500, types.INTERNAL_ERROR, "500"),
+        (401, types.INTERNAL_ERROR, "401"),
+        (404, types.INVALID_REQUEST, "Session terminated"),
+    ],
+)
+async def test_streamable_http_client_real_server_preserves_http_status(
+    failing_mcp_server_port: int,
+    post_status: int,
+    expected_rpc_code: int,
+    expected_message_fragment: str,
+) -> None:
+    """End-to-end integration test for issue #2110.
+
+    Against a real uvicorn server whose POST /mcp returns 401/404/500, the
+    client must deliver a `JSONRPCError` to the read stream that carries the
+    HTTP status code in `error.data`, within a bounded timeout. Before the
+    fix, the status was lost (mapped to JSON-RPC error codes with no HTTP
+    context), and the 404 'session terminated' branch had no reference at all
+    to the underlying HTTP status.
+    """
+    proc = multiprocessing.Process(
+        target=_run_fixed_status_mcp_server,
+        kwargs={"port": failing_mcp_server_port, "post_status": post_status},
+        daemon=True,
+    )
+    proc.start()
+    try:
+        wait_for_server(failing_mcp_server_port)
+        url = f"http://127.0.0.1:{failing_mcp_server_port}/mcp"
+        with anyio.fail_after(5):
+            async with streamable_http_client(url) as (read_stream, write_stream):
+                request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params={})
+                await write_stream.send(SessionMessage(request))
+                received = await read_stream.receive()
+
+        assert isinstance(received, SessionMessage)
+        assert isinstance(received.message, types.JSONRPCError)
+        assert received.message.error.code == expected_rpc_code
+        assert received.message.error.data == {"http_status": post_status}
+        assert expected_message_fragment in received.message.error.message
+    finally:
+        proc.kill()
+        proc.join(timeout=2)
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_real_server_surfaces_network_error(
+    failing_mcp_server_port: int,
+) -> None:
+    """End-to-end integration test for issue #2110.
+
+    When the server is entirely unreachable (nothing listening), the client
+    must surface the network error on the read stream within a bounded
+    timeout, not hang waiting for a response. Before the fix, `post_writer`
+    caught the exception and only logged it, leaving the caller blocked.
+    """
+    # failing_mcp_server_port is reserved but nothing is bound — this gives us
+    # a port that is guaranteed to refuse connections.
+    url = f"http://127.0.0.1:{failing_mcp_server_port}/mcp"
+    with anyio.fail_after(5):
+        async with streamable_http_client(url) as (read_stream, write_stream):
+            request = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping", params={})
+            await write_stream.send(SessionMessage(request))
+            received = await read_stream.receive()
+            assert isinstance(received, httpx.ConnectError)
