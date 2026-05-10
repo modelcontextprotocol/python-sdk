@@ -1516,3 +1516,22 @@ async def test_report_progress_passes_related_request_id():
         message="halfway",
         related_request_id="req-abc-123",
     )
+
+
+def test_mcpserver_init_does_not_configure_logging() -> None:
+    """MCPServer.__init__ must not call logging.basicConfig or add handlers.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1656.
+    Library code should never configure the root logger — that is the
+    application's responsibility.
+    """
+    import logging
+
+    root = logging.getLogger()
+    handlers_before = list(root.handlers)
+    level_before = root.level
+
+    MCPServer("test-logging")
+
+    assert root.handlers == handlers_before
+    assert root.level == level_before
