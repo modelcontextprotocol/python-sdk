@@ -38,18 +38,27 @@ async def test_in_flight_requests_cleared_after_completion():
 
 @pytest.mark.anyio
 async def test_request_cancellation():
-    """Test that requests can be cancelled while in-flight."""
+    """Test that requests can be cancelled while in-flight.
+
+    Per the MCP cancellation spec, the server MUST NOT send a response for a
+    cancelled request. Instead, the server cancels the handler's cancel scope.
+    The client may time out waiting for a response that will never arrive.
+    """
     ev_tool_called = anyio.Event()
-    ev_cancelled = anyio.Event()
+    ev_handler_cancelled = anyio.Event()
     request_id = None
 
-    # Create a server with a slow tool
+    # Create a server with a slow tool that detects cancellation
     async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
-        nonlocal request_id, ev_tool_called
+        nonlocal request_id, ev_tool_called, ev_handler_cancelled
         if params.name == "slow_tool":
             request_id = ctx.request_id
             ev_tool_called.set()
-            await anyio.sleep(10)  # Long enough to ensure we can cancel
+            try:
+                await anyio.sleep(10)  # Long enough to ensure we can cancel
+            except anyio.get_cancelled_exc_class():
+                ev_handler_cancelled.set()
+                raise
             return types.CallToolResult(content=[])  # pragma: no cover
         raise ValueError(f"Unknown tool: {params.name}")  # pragma: no cover
 
@@ -64,27 +73,23 @@ async def test_request_cancellation():
         on_list_tools=handle_list_tools,
     )
 
-    async def make_request(client: Client):
-        nonlocal ev_cancelled
-        try:
-            await client.session.send_request(
-                types.CallToolRequest(
-                    params=types.CallToolRequestParams(name="slow_tool", arguments={}),
-                ),
-                types.CallToolResult,
-            )
-            pytest.fail("Request should have been cancelled")  # pragma: no cover
-        except MCPError as e:
-            # Expected - request was cancelled
-            assert "Request cancelled" in str(e)
-            ev_cancelled.set()
-
     async with Client(server) as client:
-        async with anyio.create_task_group() as tg:  # pragma: no branch
-            tg.start_soon(make_request, client)
+        # Start the request in a task group we control
+        async with anyio.create_task_group() as tg:
+
+            async def send_slow_request():
+                with anyio.move_on_after(5):
+                    await client.session.send_request(
+                        types.CallToolRequest(
+                            params=types.CallToolRequestParams(name="slow_tool", arguments={}),
+                        ),
+                        types.CallToolResult,
+                    )
+
+            tg.start_soon(send_slow_request)
 
             # Wait for the request to be in-flight
-            with anyio.fail_after(1):  # Timeout after 1 second
+            with anyio.fail_after(1):
                 await ev_tool_called.wait()
 
             # Send cancellation notification
@@ -93,9 +98,12 @@ async def test_request_cancellation():
                 CancelledNotification(params=CancelledNotificationParams(request_id=request_id))
             )
 
-            # Give cancellation time to process
-            with anyio.fail_after(1):  # pragma: no branch
-                await ev_cancelled.wait()
+            # Verify the server handler was cancelled
+            with anyio.fail_after(1):
+                await ev_handler_cancelled.wait()
+
+            # Clean up: cancel the request task which is still waiting for a response
+            tg.cancel_scope.cancel()
 
 
 @pytest.mark.anyio
