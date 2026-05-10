@@ -148,11 +148,8 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
 
         self._cancel_scope.cancel()
         self._completed = True  # Mark as completed so it's removed from in_flight
-        # Send an error response to indicate cancellation
-        await self._session._send_response(  # type: ignore[reportPrivateUsage]
-            request_id=self.request_id,
-            response=ErrorData(code=0, message="Request cancelled"),
-        )
+        # Per spec, receivers of notifications/cancelled must NOT send a response.
+        # The sender is responsible for resolving its own pending request.
 
     @property
     def in_flight(self) -> bool:  # pragma: no cover
@@ -313,6 +310,18 @@ class BaseSession(
         related_request_id: RequestId | None = None,
     ) -> None:
         """Emits a notification, which is a one-way message that does not expect a response."""
+        # When we cancel a request we sent, immediately resolve the pending
+        # response stream so send_request() returns instead of hanging.
+        # The receiver must not send a response (per spec), so we own the
+        # resolution on this side.
+        if isinstance(notification, CancelledNotification):
+            cancelled_id = notification.params.request_id
+            if cancelled_id in self._response_streams:
+                error = ErrorData(code=REQUEST_TIMEOUT, message="Request cancelled")
+                await self._response_streams[cancelled_id].send(
+                    JSONRPCError(jsonrpc="2.0", id=cancelled_id, error=error)
+                )
+
         # Some transport implementations may need to set the related_request_id
         # to attribute to the notifications to the request that triggered them.
         jsonrpc_notification = JSONRPCNotification(
