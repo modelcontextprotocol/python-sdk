@@ -57,6 +57,7 @@ from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
+    JSONRPCError,
     JSONRPCRequest,
     ListToolsResult,
     PaginatedRequestParams,
@@ -2318,3 +2319,76 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_handle_reconnection_stops_after_max_attempts() -> None:
+    """_handle_reconnection must not reset attempt counter on stream drop.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/2393.
+    When the server accepts the SSE connection but closes the stream without
+    sending a complete JSON-RPC response, the client must give up after
+    MAX_RECONNECTION_ATTEMPTS total attempts and report an error — not retry
+    forever.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from mcp.client.streamable_http import MAX_RECONNECTION_ATTEMPTS, RequestContext
+
+    transport = StreamableHTTPTransport("http://test/mcp")
+    connect_count = 0
+
+    @asynccontextmanager
+    async def fake_aconnect_sse(*_args: object, **_kwargs: object):
+        nonlocal connect_count
+        connect_count += 1
+
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.aclose = AsyncMock()
+
+        event_source = MagicMock()
+        event_source.response = response
+
+        async def aiter_sse():
+            yield ServerSentEvent(event="message", data="", id=f"evt-{connect_count}", retry=None)
+
+        event_source.aiter_sse = aiter_sse
+        yield event_source
+
+    write_stream, read_stream = create_context_streams[SessionMessage | Exception](1)
+
+    request = JSONRPCRequest(
+        jsonrpc="2.0",
+        id="req-1",
+        method="tools/call",
+        params={"name": "test_tool", "arguments": {}},
+    )
+    ctx = RequestContext(
+        client=MagicMock(),
+        session_id="test-session",
+        session_message=SessionMessage(request),
+        metadata=None,
+        read_stream_writer=write_stream,
+    )
+
+    import mcp.client.streamable_http as _mod
+
+    original = _mod.aconnect_sse
+    _mod.aconnect_sse = fake_aconnect_sse  # type: ignore[assignment]
+    try:
+        await transport._handle_reconnection(ctx, "evt-0", 0)
+    finally:
+        _mod.aconnect_sse = original
+
+    assert connect_count == MAX_RECONNECTION_ATTEMPTS
+
+    with anyio.fail_after(1):
+        msg = await read_stream.receive()
+    assert isinstance(msg, SessionMessage)
+    assert isinstance(msg.message, JSONRPCError)
+    assert "reconnection attempts" in msg.message.error.message.lower()
+    assert msg.message.id == "req-1"
+
+    await write_stream.aclose()
+    await read_stream.aclose()
