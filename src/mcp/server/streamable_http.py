@@ -173,6 +173,10 @@ class StreamableHTTPServerTransport:
         self._terminated = False
         # Idle timeout cancel scope; managed by the session manager.
         self.idle_scope: anyio.CancelScope | None = None
+        # Number of requests currently in flight on this session. While > 0,
+        # the session manager suspends the idle deadline so that a long-running
+        # request cannot be reaped mid-flight.
+        self.idle_active_requests: int = 0
 
     @property
     def is_terminated(self) -> bool:

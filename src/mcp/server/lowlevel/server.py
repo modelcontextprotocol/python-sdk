@@ -567,6 +567,7 @@ class Server(Generic[LifespanResultT]):
         stateless_http: bool = False,
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
+        session_idle_timeout: float | None = None,
         transport_security: TransportSecuritySettings | None = None,
         host: str = "127.0.0.1",
         auth: AuthSettings | None = None,
@@ -591,6 +592,7 @@ class Server(Generic[LifespanResultT]):
             json_response=json_response,
             stateless=stateless_http,
             security_settings=transport_security,
+            session_idle_timeout=session_idle_timeout,
         )
         self._session_manager = session_manager
 
