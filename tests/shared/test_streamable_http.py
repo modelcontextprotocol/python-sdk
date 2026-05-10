@@ -2318,3 +2318,21 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+
+@pytest.mark.anyio
+async def test_unexpected_content_type_does_not_hang():
+    """Test that client raises MCPError instead of hanging when server returns unexpected content type."""
+
+    def return_plain_text(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "text/plain"}, content=b"this is not json")
+
+    mock_client = httpx.AsyncClient(transport=httpx.MockTransport(return_plain_text))
+
+    async with streamable_http_client("http://test/mcp", http_client=mock_client) as (
+        read_stream,
+        write_stream,
+    ):
+        async with ClientSession(read_stream, write_stream) as session:
+            with pytest.raises(MCPError, match="Unexpected content type"):  # pragma: no branch
+                await session.initialize()
