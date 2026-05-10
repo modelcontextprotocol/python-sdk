@@ -875,6 +875,24 @@ def test_tool_call_result_annotated_is_structured_and_invalid():
         meta.convert_result(func_returning_annotated_tool_call_result())
 
 
+def test_tool_call_result_with_is_error_skips_output_schema_validation():
+    """Test that convert_result skips outputSchema validation when is_error=True."""
+
+    class PersonClass(BaseModel):
+        name: str
+
+    def func_with_error() -> Annotated[CallToolResult, PersonClass]:
+        return CallToolResult(content=[], is_error=True)
+
+    meta = func_metadata(func_with_error)
+    assert meta.output_schema is not None
+
+    result = meta.convert_result(func_with_error())
+
+    assert isinstance(result, CallToolResult)
+    assert result.is_error is True
+
+
 def test_tool_call_result_in_optional_is_rejected():
     """Test that Optional[CallToolResult] raises InvalidSignature"""
 

@@ -103,7 +103,7 @@ class FuncMetadata(BaseModel):
         the structured output.
         """
         if isinstance(result, CallToolResult):
-            if self.output_schema is not None:
+            if self.output_schema is not None and not result.is_error:
                 assert self.output_model is not None, "Output model must be set if output schema is defined"
                 self.output_model.model_validate(result.structured_content)
             return result
