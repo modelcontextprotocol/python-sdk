@@ -282,6 +282,12 @@ class BaseSession(
                 meta: dict[str, Any] = request_data.setdefault("params", {}).setdefault("_meta", {})
                 inject_trace_context(meta)
 
+                # Strip envelope fields that would collide with the explicit kwargs below.
+                # Happens when request_data comes from model_dump() on a JSONRPCRequest
+                # (e.g. forwarding/proxy scenarios). See issue #2548.
+                request_data.pop("jsonrpc", None)
+                request_data.pop("id", None)
+
                 jsonrpc_request = JSONRPCRequest(jsonrpc="2.0", id=request_id, **request_data)
                 await self._write_stream.send(SessionMessage(message=jsonrpc_request, metadata=metadata))
 
