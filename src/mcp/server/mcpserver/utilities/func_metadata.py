@@ -88,12 +88,17 @@ class FuncMetadata(BaseModel):
         else:
             return await anyio.to_thread.run_sync(functools.partial(fn, **arguments_parsed_dict))
 
-    def convert_result(self, result: Any) -> Any:
+    def convert_result(
+        self, result: Any
+    ) -> Sequence[ContentBlock] | CallToolResult | tuple[Sequence[ContentBlock], dict[str, Any]]:
         """Convert a function call result to the format for the lowlevel tool call handler.
 
-        - If output_model is None, return the unstructured content directly.
-        - If output_model is not None, convert the result to structured output format
-            (dict[str, Any]) and return both unstructured and structured content.
+        - If the function returned a ``CallToolResult`` directly, return it unchanged.
+        - If ``output_model`` is None, return the unstructured content
+          (``Sequence[ContentBlock]``) directly.
+        - If ``output_model`` is not None, convert the result to structured output
+          format (``dict[str, Any]``) and return both unstructured and structured
+          content as a tuple.
 
         Note: we return unstructured content here **even though the lowlevel server
         tool call handler provides generic backwards compatibility serialization of

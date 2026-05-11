@@ -323,7 +323,7 @@ class MCPServer(Generic[LifespanResultT]):
                 structured_content=structured_content,  # type: ignore[arg-type]
             )
         if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
+            # TODO: this code path is unreachable, convert_result never returns a raw dict.
             # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
             # and needs to be cleaned up.
             return CallToolResult(
@@ -399,8 +399,18 @@ class MCPServer(Generic[LifespanResultT]):
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[LifespanResultT, Any] | None = None
-    ) -> Sequence[ContentBlock] | dict[str, Any]:
-        """Call a tool by name with arguments."""
+    ) -> Sequence[ContentBlock] | CallToolResult | tuple[Sequence[ContentBlock], dict[str, Any]]:
+        """Call a tool by name with arguments.
+
+        Because ``convert_result=True`` is always passed to the tool manager, the
+        return value comes from ``FuncMetadata.convert_result``:
+
+        - ``Sequence[ContentBlock]`` when the tool has no output schema and
+          returned a regular value
+        - ``CallToolResult`` when the tool returned a ``CallToolResult`` directly
+        - ``tuple[Sequence[ContentBlock], dict[str, Any]]`` when the tool has
+          an output schema, where the second element is the structured content
+        """
         if context is None:
             context = Context(mcp_server=self)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
@@ -607,7 +617,7 @@ class MCPServer(Generic[LifespanResultT]):
                     completion=result if result is not None else Completion(values=[], total=None, has_more=None),
                 )
 
-            # TODO(maxisbey): remove private access — completion needs post-construction
+            # TODO(maxisbey): remove private access, completion needs post-construction
             #   handler registration, find a better pattern for this
             self._lowlevel_server._add_request_handler(  # pyright: ignore[reportPrivateUsage]
                 "completion/complete", handler
