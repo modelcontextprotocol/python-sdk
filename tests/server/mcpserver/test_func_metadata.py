@@ -1038,7 +1038,7 @@ def test_structured_output_aliases():
 
     # Check that the actual output uses aliases too. ``convert_result``
     # returns either a sequence, a CallToolResult, or a 2-tuple of
-    # (unstructured, structured) — for a model with an output schema the
+    # (unstructured, structured), for a model with an output schema the
     # 2-tuple branch fires, so cast accordingly to keep pyright happy
     # without runtime narrowing surprises.
     from typing import cast

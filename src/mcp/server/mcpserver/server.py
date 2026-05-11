@@ -323,7 +323,7 @@ class MCPServer(Generic[LifespanResultT]):
                 structured_content=structured_content,  # type: ignore[arg-type]
             )
         if isinstance(result, dict):  # pragma: no cover
-            # TODO: this code path is unreachable — convert_result never returns a raw dict.
+            # TODO: this code path is unreachable, convert_result never returns a raw dict.
             # The call_tool return type (Sequence[ContentBlock] | dict[str, Any]) is wrong
             # and needs to be cleaned up.
             return CallToolResult(
@@ -617,7 +617,7 @@ class MCPServer(Generic[LifespanResultT]):
                     completion=result if result is not None else Completion(values=[], total=None, has_more=None),
                 )
 
-            # TODO(maxisbey): remove private access — completion needs post-construction
+            # TODO(maxisbey): remove private access, completion needs post-construction
             #   handler registration, find a better pattern for this
             self._lowlevel_server._add_request_handler(  # pyright: ignore[reportPrivateUsage]
                 "completion/complete", handler
