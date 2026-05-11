@@ -1,5 +1,6 @@
 import io
 import sys
+import unittest.mock
 from io import TextIOWrapper
 
 import anyio
@@ -92,3 +93,33 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_default_textiowrapper_newline(monkeypatch: pytest.MonkeyPatch):
+    """Default TextIOWrapper must use newline='' to prevent CRLF corruption on Windows.
+
+    On Windows, TextIOWrapper defaults to platform-native line endings (\r\n),
+    which corrupts newline-delimited JSON-RPC messages over stdio. Verify that
+    stdio_server() passes newline='' when creating the wrappers.
+    """
+    mock_stdin = io.BytesIO()
+    mock_stdout = io.BytesIO()
+    monkeypatch.setattr(sys, "stdin", type("S", (), {"buffer": mock_stdin})())
+    monkeypatch.setattr(sys, "stdout", type("S", (), {"buffer": mock_stdout})())
+
+    created_kwargs: list[dict] = []
+    real_textiowrapper = TextIOWrapper
+
+    def capturing_textiowrapper(*args: object, **kwargs: object) -> TextIOWrapper:
+        created_kwargs.append(kwargs)
+        return real_textiowrapper(*args, **kwargs)
+
+    with unittest.mock.patch("mcp.server.stdio.TextIOWrapper", side_effect=capturing_textiowrapper):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            await read_stream.aclose()
+
+    assert len(created_kwargs) == 2
+    assert created_kwargs[0].get("newline") == "", "stdin TextIOWrapper must set newline=''"
+    assert created_kwargs[1].get("newline") == "", "stdout TextIOWrapper must set newline=''"
