@@ -18,6 +18,27 @@ from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.types import Annotations, Icon
 
+_TEXT_LIKE_MIME_TYPES = {
+    "application/ecmascript",
+    "application/javascript",
+    "application/json",
+    "application/xml",
+    "application/x-yaml",
+    "application/yaml",
+    "image/svg+xml",
+}
+
+_TEXT_LIKE_MIME_SUFFIXES = ("+json", "+xml", "+yaml")
+
+
+def _is_text_like_mime_type(mime_type: str) -> bool:
+    media_type = mime_type.split(";", 1)[0].strip().lower()
+    return (
+        media_type.startswith("text/")
+        or media_type in _TEXT_LIKE_MIME_TYPES
+        or media_type.endswith(_TEXT_LIKE_MIME_SUFFIXES)
+    )
+
 
 class TextResource(Resource):
     """A resource that reads from a string."""
@@ -139,7 +160,7 @@ class FileResource(Resource):
         if is_binary:
             return True
         mime_type = info.data.get("mime_type", "text/plain")
-        return not mime_type.startswith("text/")
+        return not _is_text_like_mime_type(mime_type)
 
     async def read(self) -> str | bytes:
         """Read the file content."""
