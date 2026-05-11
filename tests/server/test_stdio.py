@@ -108,12 +108,12 @@ async def test_stdio_server_default_textiowrapper_newline(monkeypatch: pytest.Mo
     monkeypatch.setattr(sys, "stdin", type("S", (), {"buffer": mock_stdin})())
     monkeypatch.setattr(sys, "stdout", type("S", (), {"buffer": mock_stdout})())
 
-    created_kwargs: list[dict] = []
+    created_kwargs: list[dict[str, object]] = []
     real_textiowrapper = TextIOWrapper
 
     def capturing_textiowrapper(*args: object, **kwargs: object) -> TextIOWrapper:
-        created_kwargs.append(kwargs)
-        return real_textiowrapper(*args, **kwargs)
+        created_kwargs.append(kwargs)  # type: ignore[arg-type]
+        return real_textiowrapper(*args, **kwargs)  # type: ignore[arg-type]
 
     with unittest.mock.patch("mcp.server.stdio.TextIOWrapper", side_effect=capturing_textiowrapper):
         async with stdio_server() as (read_stream, write_stream):
