@@ -114,3 +114,60 @@ class TestFileResource:
                 await resource.read()
         finally:
             temp_file.chmod(0o644)  # Restore permissions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "mime_type",
+    [
+        "application/json",
+        "application/ld+json; charset=utf-8",
+        "application/xml",
+        "application/atom+xml",
+        "application/x-yaml",
+        "image/svg+xml",
+    ],
+)
+async def test_file_resource_reads_text_like_mime_types_as_text(temp_file: Path, mime_type: str):
+    resource = FileResource(
+        uri=temp_file.as_uri(),
+        name="test",
+        path=temp_file,
+        mime_type=mime_type,
+    )
+
+    content = await resource.read()
+
+    assert resource.is_binary is False
+    assert content == "test content"
+
+
+@pytest.mark.anyio
+async def test_file_resource_reads_octet_stream_as_binary(temp_file: Path):
+    resource = FileResource(
+        uri=temp_file.as_uri(),
+        name="test",
+        path=temp_file,
+        mime_type="application/octet-stream",
+    )
+
+    content = await resource.read()
+
+    assert resource.is_binary is True
+    assert content == b"test content"
+
+
+@pytest.mark.anyio
+async def test_file_resource_explicit_binary_overrides_text_like_mime_type(temp_file: Path):
+    resource = FileResource(
+        uri=temp_file.as_uri(),
+        name="test",
+        path=temp_file,
+        mime_type="application/json",
+        is_binary=True,
+    )
+
+    content = await resource.read()
+
+    assert resource.is_binary is True
+    assert content == b"test content"
