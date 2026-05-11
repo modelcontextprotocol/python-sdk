@@ -558,3 +558,37 @@ async def test_stdio_client_stdin_close_ignored():
         f"stdio_client cleanup took {elapsed:.1f} seconds for stdin-ignoring process. "
         f"Expected between 2-4 seconds (2s stdin timeout + termination time)."
     )
+
+
+@pytest.mark.anyio
+async def test_stdio_client_handles_crlf_line_endings():
+    """Test that the client correctly parses JSON-RPC messages from a server
+    that outputs CRLF (\\r\\n) line endings, as is common on Windows.
+
+    A Windows MCP server may write JSON messages terminated by \\r\\n. The
+    client's stdout_reader splits on \\n, so each line retains a trailing \\r
+    which would corrupt JSON parsing. This test verifies the CRLF is handled.
+    """
+    # Python script that writes a JSON-RPC message with CRLF line endings
+    server_script = textwrap.dedent(
+        """\
+        import sys
+        msg = '{"jsonrpc":"2.0","id":1,"result":{}}'
+        sys.stdout.buffer.write((msg + '\\r\\n').encode('utf-8'))
+        sys.stdout.buffer.flush()
+        # Exit after sending one message
+        """
+    )
+
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=["-c", server_script],
+    )
+
+    with anyio.fail_after(5.0):
+        async with stdio_client(server_params) as (read_stream, write_stream):
+            async with read_stream:
+                message = await read_stream.receive()
+                assert not isinstance(message, Exception), f"Expected message, got exception: {message}"
+                assert isinstance(message, SessionMessage)
+                assert message.message == JSONRPCResponse(jsonrpc="2.0", id=1, result={})
