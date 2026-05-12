@@ -130,4 +130,4 @@ class ResourceTemplate(BaseModel):
                 fn=lambda: result,  # Capture result in closure
             )
         except Exception as e:
-            raise ValueError(f"Error creating resource from template: {e}")
+            raise ValueError(f"Error creating resource from template: {e}") from e
