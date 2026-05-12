@@ -169,7 +169,7 @@ class InMemoryTaskStore(TaskStore):
                 cursor_index = all_task_ids.index(cursor)
                 start_index = cursor_index + 1
             except ValueError:
-                raise ValueError(f"Invalid cursor: {cursor}")
+                raise ValueError(f"Invalid cursor: {cursor}") from None
 
         page_task_ids = all_task_ids[start_index : start_index + self._page_size]
         tasks = [Task(**self._tasks[tid].task.model_dump()) for tid in page_task_ids]
