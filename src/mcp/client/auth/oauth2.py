@@ -151,7 +151,7 @@ class OAuthContext:
 
         # If PRM provides a resource that's a valid parent, use it
         if self.protected_resource_metadata and self.protected_resource_metadata.resource:
-            prm_resource = str(self.protected_resource_metadata.resource)
+            prm_resource = str(self.protected_resource_metadata.resource).rstrip("/")
             if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
                 resource = prm_resource
 
