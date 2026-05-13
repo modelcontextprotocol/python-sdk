@@ -45,7 +45,7 @@ async def test_no_progress_no_reset_timeout_fires():
 
     async with create_client_server_memory_streams() as (client_streams, server_streams):
         client_read, client_write = client_streams
-        server_read, server_write = server_streams
+        server_read, _server_write = server_streams
 
         async def mock_server():
             """Receive the request but never respond."""
@@ -84,6 +84,7 @@ async def test_progress_resets_timeout():
             """Receive the request, send progress at ~50% of the timeout window,
             then respond after the original timeout would have expired."""
             msg = await server_read.receive()
+            assert isinstance(msg, SessionMessage)
             assert isinstance(msg.message, JSONRPCRequest)
             request_id = msg.message.id
 
@@ -137,6 +138,7 @@ async def test_max_total_timeout_exceeded():
             """Send multiple progress notifications that keep resetting the
             per-window timeout but eventually exceed max_total_timeout."""
             msg = await server_read.receive()
+            assert isinstance(msg, SessionMessage)
             assert isinstance(msg.message, JSONRPCRequest)
             request_id = msg.message.id
 
@@ -182,6 +184,7 @@ async def test_progress_stops_timeout_fires():
         async def mock_server():
             """Send a few progress notifications, then stop."""
             msg = await server_read.receive()
+            assert isinstance(msg, SessionMessage)
             assert isinstance(msg.message, JSONRPCRequest)
             request_id = msg.message.id
 
@@ -224,6 +227,7 @@ async def test_multiple_progress_notifications():
             """Send progress every 80ms with a 0.3s timeout (3 progress
             notifications), then respond."""
             msg = await server_read.receive()
+            assert isinstance(msg, SessionMessage)
             assert isinstance(msg.message, JSONRPCRequest)
             request_id = msg.message.id
 
@@ -278,6 +282,7 @@ async def test_reset_timeout_false_by_default():
         async def mock_server():
             """Send progress before the timeout, then wait."""
             msg = await server_read.receive()
+            assert isinstance(msg, SessionMessage)
             assert isinstance(msg.message, JSONRPCRequest)
             request_id = msg.message.id
 
