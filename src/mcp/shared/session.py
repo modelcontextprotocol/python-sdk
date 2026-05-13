@@ -76,9 +76,7 @@ class _ProgressTimeoutInfo:
     max_exceeded: bool = False
 
 
-async def _noop_progress_callback(
-    progress: float, total: float | None, message: str | None
-) -> None:
+async def _noop_progress_callback(progress: float, total: float | None, message: str | None) -> None:
     """No-op progress callback used when reset_timeout_on_progress is set
     without an explicit progress_callback."""
 
