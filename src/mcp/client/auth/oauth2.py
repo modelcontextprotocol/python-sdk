@@ -53,6 +53,13 @@ from mcp.shared.auth_utils import (
 logger = logging.getLogger(__name__)
 
 
+def _normalize_resource_url(resource: str) -> str:
+    parsed = urlparse(resource)
+    if parsed.path == "/" and not parsed.params and not parsed.query and not parsed.fragment:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return resource
+
+
 class PKCEParameters(BaseModel):
     """PKCE (Proof Key for Code Exchange) parameters."""
 
@@ -151,7 +158,7 @@ class OAuthContext:
 
         # If PRM provides a resource that's a valid parent, use it
         if self.protected_resource_metadata and self.protected_resource_metadata.resource:
-            prm_resource = str(self.protected_resource_metadata.resource)
+            prm_resource = _normalize_resource_url(str(self.protected_resource_metadata.resource))
             if check_resource_allowed(requested_resource=resource, configured_resource=prm_resource):
                 resource = prm_resource
 
@@ -441,10 +448,6 @@ class OAuthClientProvider(httpx.Auth):
             "refresh_token": self.context.current_tokens.refresh_token,
             "client_id": self.context.client_info.client_id,
         }
-
-        # Only include resource param if conditions are met
-        if self.context.should_include_resource_param(self.context.protocol_version):
-            refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
