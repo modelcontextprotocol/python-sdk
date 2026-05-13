@@ -5,7 +5,7 @@ import logging
 import time
 from collections.abc import Callable
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Generic, Protocol, TypeVar
 
@@ -372,7 +372,9 @@ class BaseSession(
                             class_name = request.__class__.__name__
                             raise MCPError(
                                 code=REQUEST_TIMEOUT,
-                                message=f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds.",
+                                message=(
+                                    f"Timed out while waiting for response to {class_name}. Waited {timeout} seconds."
+                                ),
                             )
                     finally:
                         self._progress_timeout_infos.pop(request_id, None)
