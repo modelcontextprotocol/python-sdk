@@ -157,10 +157,7 @@ def test_check_resource_allowed_double_slash_collapses():
     comparison happens on canonical paths.
     """
     # "/api//victim" normalizes to "/api/victim" — must NOT match "/api/victim2"
-    assert (
-        check_resource_allowed("https://example.com/api//victim", "https://example.com/api/victim2")
-        is False
-    )
+    assert check_resource_allowed("https://example.com/api//victim", "https://example.com/api/victim2") is False
 
 
 def test_check_resource_allowed_legitimate_paths_still_match():
