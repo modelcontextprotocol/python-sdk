@@ -89,20 +89,14 @@ async def test_progress_resets_timeout():
 
             # Wait half the timeout, then send progress
             await anyio.sleep(0.15)
-            await server_write.send(
-                _make_progress_notification(progress_token=request_id, progress=0.5, total=1.0)
-            )
+            await server_write.send(_make_progress_notification(progress_token=request_id, progress=0.5, total=1.0))
 
             # Wait past the original timeout (0.3s total) so the request
             # would have timed out without the reset
             await anyio.sleep(0.25)
 
             # Now respond
-            await server_write.send(
-                SessionMessage(
-                    message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})
-                )
-            )
+            await server_write.send(SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})))
 
         result_holder: list[types.EmptyResult] = []
 
@@ -193,13 +187,9 @@ async def test_progress_stops_timeout_fires():
 
             # Send progress at 80ms and 160ms (within the 0.3s window)
             await anyio.sleep(0.08)
-            await server_write.send(
-                _make_progress_notification(progress_token=request_id, progress=0.3, total=1.0)
-            )
+            await server_write.send(_make_progress_notification(progress_token=request_id, progress=0.3, total=1.0))
             await anyio.sleep(0.08)
-            await server_write.send(
-                _make_progress_notification(progress_token=request_id, progress=0.6, total=1.0)
-            )
+            await server_write.send(_make_progress_notification(progress_token=request_id, progress=0.6, total=1.0))
             # Stop sending progress — let the client timeout after the
             # last reset window expires
 
@@ -249,11 +239,7 @@ async def test_multiple_progress_notifications():
 
             # Respond after the 3rd progress
             await anyio.sleep(0.05)
-            await server_write.send(
-                SessionMessage(
-                    message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})
-                )
-            )
+            await server_write.send(SessionMessage(message=JSONRPCResponse(jsonrpc="2.0", id=request_id, result={})))
 
         result_holder: list[types.EmptyResult] = []
 
@@ -297,9 +283,7 @@ async def test_reset_timeout_false_by_default():
 
             # Send progress at 80ms (before the 0.3s timeout)
             await anyio.sleep(0.08)
-            await server_write.send(
-                _make_progress_notification(progress_token=request_id, progress=0.5, total=1.0)
-            )
+            await server_write.send(_make_progress_notification(progress_token=request_id, progress=0.5, total=1.0))
 
             # Wait past the original timeout
             await anyio.sleep(0.5)
@@ -336,9 +320,7 @@ async def test_call_tool_threads_reset_timeout():
     """Verify that ClientSession.call_tool passes reset_timeout_on_progress
     through to send_request, keeping a slow tool alive via progress."""
 
-    async def handle_call_tool(
-        ctx: ServerRequestContext, params: types.CallToolRequestParams
-    ) -> types.CallToolResult:
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
         assert ctx.request_id is not None
         # Send progress to keep the request alive
         for i in range(3):
