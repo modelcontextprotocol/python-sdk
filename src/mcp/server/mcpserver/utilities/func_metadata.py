@@ -3,7 +3,7 @@ import inspect
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from itertools import chain
-from types import GenericAlias
+from types import GenericAlias, NoneType
 from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
 
 import anyio
@@ -148,7 +148,7 @@ class FuncMetadata(BaseModel):
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data_value, str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and _should_pre_parse_json(field_info.annotation):
                 try:
                     pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
@@ -165,6 +165,22 @@ class FuncMetadata(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
+
+
+def _is_simple_scalar_annotation(annotation: Any) -> bool:
+    return annotation in {str, int, float, bool, NoneType}
+
+
+def _should_pre_parse_json(annotation: Any) -> bool:
+    """Return whether string input for this annotation should be JSON-decoded."""
+    if annotation is str:
+        return False
+
+    origin = get_origin(annotation)
+    if is_union_origin(origin):
+        return not all(_is_simple_scalar_annotation(arg) for arg in get_args(annotation))
+
+    return True
 
 
 def func_metadata(

@@ -551,6 +551,41 @@ async def test_str_annotation_runtime_validation():
     assert result == f"Handled payload of length {len(json_array_payload)}"
 
 
+@pytest.mark.anyio
+async def test_optional_str_annotation_preserves_json_string():
+    def update_task(task_id: str | None = None) -> str:
+        assert isinstance(task_id, str)
+        return task_id
+
+    meta = func_metadata(update_task)
+
+    uuid = "3400e37e-b251-49d9-91b0-f8dd8602ff7e"
+    json_payload = '{"id": "3400e37e-b251-49d9-91b0-f8dd8602ff7e"}'
+
+    assert meta.pre_parse_json({"task_id": uuid})["task_id"] == uuid
+    assert meta.pre_parse_json({"task_id": json_payload})["task_id"] == json_payload
+    assert meta.pre_parse_json({"task_id": "[1, 2]"})["task_id"] == "[1, 2]"
+
+    result = await meta.call_fn_with_arg_validation(
+        update_task,
+        fn_is_async=False,
+        arguments_to_validate={"task_id": json_payload},
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == json_payload
+
+
+def test_str_or_list_still_pre_parses_lists():
+    def func_with_str_or_list(value: str | list[str]):  # pragma: no cover
+        return value
+
+    meta = func_metadata(func_with_str_or_list)
+
+    assert meta.pre_parse_json({"value": "hello"})["value"] == "hello"
+    assert meta.pre_parse_json({"value": '["hello", "world"]'})["value"] == ["hello", "world"]
+
+
 # Tests for structured output functionality
 
 
