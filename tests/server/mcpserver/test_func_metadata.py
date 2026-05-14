@@ -680,6 +680,9 @@ def test_structured_output_generic_types():
     def func_optional() -> str | None:  # pragma: no cover
         return None
 
+    def func_builtin_union() -> dict[str, str] | list[str] | str:  # pragma: no cover
+        return {"hello": "world"}
+
     # Test list
     meta = func_metadata(func_list_str)
     assert meta.output_schema == {
@@ -713,6 +716,23 @@ def test_structured_output_generic_types():
         "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "null"}]}},
         "required": ["result"],
         "title": "func_optionalOutput",
+    }
+
+    meta = func_metadata(func_builtin_union)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "result": {
+                "title": "Result",
+                "anyOf": [
+                    {"type": "object", "additionalProperties": {"type": "string"}},
+                    {"type": "array", "items": {"type": "string"}},
+                    {"type": "string"},
+                ],
+            }
+        },
+        "required": ["result"],
+        "title": "func_builtin_unionOutput",
     }
 
 
