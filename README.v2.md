@@ -81,7 +81,7 @@
 [pypi-url]: https://pypi.org/project/mcp/
 [mit-badge]: https://img.shields.io/pypi/l/mcp.svg
 [mit-url]: https://github.com/modelcontextprotocol/python-sdk/blob/main/LICENSE
-[python-badge]: https://img.shields.io/pypi/pyversions/mcp.svg
+[python-badge]: https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg
 [python-url]: https://www.python.org/downloads/
 [docs-badge]: https://img.shields.io/badge/docs-python--sdk-blue.svg
 [docs-url]: https://modelcontextprotocol.github.io/python-sdk/
