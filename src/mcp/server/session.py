@@ -165,9 +165,20 @@ class ServerSession(
     async def _received_request(self, responder: RequestResponder[types.ClientRequest, types.ServerResult]):
         match responder.request:
             case types.InitializeRequest(params=params):
+                if self._client_params is not None and params != self._client_params:
+                    with responder:
+                        await responder.respond(
+                            types.ErrorData(
+                                code=types.INVALID_PARAMS,
+                                message="Session already initialized with different parameters",
+                            )
+                        )
+                    return
+
                 requested_version = params.protocol_version
-                self._initialization_state = InitializationState.Initializing
-                self._client_params = params
+                if self._client_params is None:
+                    self._initialization_state = InitializationState.Initializing
+                    self._client_params = params
                 with responder:
                     await responder.respond(
                         types.InitializeResult(

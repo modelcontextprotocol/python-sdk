@@ -208,6 +208,68 @@ async def test_server_session_initialize_with_older_protocol_version():
 
 
 @pytest.mark.anyio
+async def test_duplicate_initialize_with_changed_params_keeps_original_client_params():
+    server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage | Exception](1)
+
+    async with (
+        client_to_server_send,
+        client_to_server_receive,
+        server_to_client_send,
+        server_to_client_receive,
+    ):
+        async with ServerSession(
+            client_to_server_receive,
+            server_to_client_send,
+            InitializationOptions(
+                server_name="mcp",
+                server_version="0.1.0",
+                capabilities=ServerCapabilities(),
+            ),
+        ) as session:
+            first_params = types.InitializeRequestParams(
+                protocol_version=types.LATEST_PROTOCOL_VERSION,
+                capabilities=types.ClientCapabilities(),
+                client_info=types.Implementation(name="first-client", version="1.0.0"),
+            )
+            second_params = types.InitializeRequestParams(
+                protocol_version=types.LATEST_PROTOCOL_VERSION,
+                capabilities=types.ClientCapabilities(),
+                client_info=types.Implementation(name="second-client", version="1.0.0"),
+            )
+
+            await client_to_server_send.send(
+                SessionMessage(
+                    types.JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=1,
+                        method="initialize",
+                        params=first_params.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            first_response = await server_to_client_receive.receive()
+            assert isinstance(first_response.message, types.JSONRPCResponse)
+            assert session.client_params == first_params
+
+            await client_to_server_send.send(
+                SessionMessage(
+                    types.JSONRPCRequest(
+                        jsonrpc="2.0",
+                        id=2,
+                        method="initialize",
+                        params=second_params.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+            second_response = await server_to_client_receive.receive()
+
+            assert isinstance(second_response.message, types.JSONRPCError)
+            assert second_response.message.error.code == types.INVALID_PARAMS
+            assert session.client_params == first_params
+
+
+@pytest.mark.anyio
 async def test_ping_request_before_initialization():
     """Test that ping requests are allowed before initialization is complete."""
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
