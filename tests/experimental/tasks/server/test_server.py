@@ -323,7 +323,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](10)
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](10)
 
-    async def message_handler(
+    async def message_callback(
         message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
     ) -> None: ...  # pragma: no branch
 
@@ -351,7 +351,7 @@ async def test_default_task_handlers_via_enable_tasks() -> None:
         async with ClientSession(
             server_to_client_receive,
             client_to_server_send,
-            message_handler=message_handler,
+            message_callback=message_callback,
         ) as client_session:
             await client_session.initialize()
 

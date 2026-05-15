@@ -376,7 +376,7 @@ async def test_client_session_group_establish_session_parameterized(
                 elicitation_callback=None,
                 list_roots_callback=None,
                 logging_callback=None,
-                message_handler=None,
+                message_callback=None,
                 client_info=None,
             )
             mock_raw_session_cm.__aenter__.assert_awaited_once()

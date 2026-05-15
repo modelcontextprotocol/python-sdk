@@ -98,7 +98,7 @@ async def client_streams() -> AsyncIterator[ClientTestStreams]:
     await client_to_server_receive.aclose()
 
 
-async def _default_message_handler(
+async def _default_message_callback(
     message: RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception,
 ) -> None:
     """Default message handler that ignores messages (tests handle them explicitly)."""
@@ -141,7 +141,7 @@ async def test_client_handles_get_task_request(client_streams: ClientTestStreams
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                     experimental_task_handlers=task_handlers,
                 ):
                     client_ready.set()
@@ -200,7 +200,7 @@ async def test_client_handles_get_task_result_request(client_streams: ClientTest
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                     experimental_task_handlers=task_handlers,
                 ):
                     client_ready.set()
@@ -258,7 +258,7 @@ async def test_client_handles_list_tasks_request(client_streams: ClientTestStrea
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                     experimental_task_handlers=task_handlers,
                 ):
                     client_ready.set()
@@ -321,7 +321,7 @@ async def test_client_handles_cancel_task_request(client_streams: ClientTestStre
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                     experimental_task_handlers=task_handlers,
                 ):
                     client_ready.set()
@@ -422,7 +422,7 @@ async def test_client_task_augmented_sampling(client_streams: ClientTestStreams)
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                     experimental_task_handlers=task_handlers,
                 ):
                     client_ready.set()
@@ -562,7 +562,7 @@ async def test_client_task_augmented_elicitation(client_streams: ClientTestStrea
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                     experimental_task_handlers=task_handlers,
                 ):
                     client_ready.set()
@@ -649,7 +649,7 @@ async def test_client_returns_error_for_unhandled_task_request(client_streams: C
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                 ):
                     client_ready.set()
                     await anyio.sleep_forever()
@@ -688,7 +688,7 @@ async def test_client_returns_error_for_unhandled_task_result_request(client_str
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                 ):
                     client_ready.set()
                     await anyio.sleep_forever()
@@ -724,7 +724,7 @@ async def test_client_returns_error_for_unhandled_list_tasks_request(client_stre
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                 ):
                     client_ready.set()
                     await anyio.sleep_forever()
@@ -760,7 +760,7 @@ async def test_client_returns_error_for_unhandled_cancel_task_request(client_str
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                 ):
                     client_ready.set()
                     await anyio.sleep_forever()
@@ -797,7 +797,7 @@ async def test_client_returns_error_for_unhandled_task_augmented_sampling(client
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                 ):
                     client_ready.set()
                     await anyio.sleep_forever()
@@ -843,7 +843,7 @@ async def test_client_returns_error_for_unhandled_task_augmented_elicitation(
                 async with ClientSession(
                     client_streams.client_receive,
                     client_streams.client_send,
-                    message_handler=_default_message_handler,
+                    message_callback=_default_message_callback,
                 ):
                     client_ready.set()
                     await anyio.sleep_forever()
