@@ -78,7 +78,7 @@ class ClientSessionParameters:
     elicitation_callback: ElicitationFnT | None = None
     list_roots_callback: ListRootsFnT | None = None
     logging_callback: LoggingFnT | None = None
-    message_handler: MessageHandlerFnT | None = None
+    message_callback: MessageHandlerFnT | None = None
     client_info: types.Implementation | None = None
 
 
@@ -308,7 +308,7 @@ class ClientSessionGroup:
                     elicitation_callback=session_params.elicitation_callback,
                     list_roots_callback=session_params.list_roots_callback,
                     logging_callback=session_params.logging_callback,
-                    message_handler=session_params.message_handler,
+                    message_callback=session_params.message_callback,
                     client_info=session_params.client_info,
                 )
             )

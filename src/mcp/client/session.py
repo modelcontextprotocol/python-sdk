@@ -54,7 +54,7 @@ class MessageHandlerFnT(Protocol):
     ) -> None: ...  # pragma: no branch
 
 
-async def _default_message_handler(
+async def _default_message_callback(
     message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
     await anyio.lowlevel.checkpoint()
@@ -116,7 +116,7 @@ class ClientSession(
         elicitation_callback: ElicitationFnT | None = None,
         list_roots_callback: ListRootsFnT | None = None,
         logging_callback: LoggingFnT | None = None,
-        message_handler: MessageHandlerFnT | None = None,
+        message_callback: MessageHandlerFnT | None = None,
         client_info: types.Implementation | None = None,
         *,
         sampling_capabilities: types.SamplingCapability | None = None,
@@ -129,7 +129,7 @@ class ClientSession(
         self._elicitation_callback = elicitation_callback or _default_elicitation_callback
         self._list_roots_callback = list_roots_callback or _default_list_roots_callback
         self._logging_callback = logging_callback or _default_logging_callback
-        self._message_handler = message_handler or _default_message_handler
+        self._message_callback = message_callback or _default_message_callback
         self._tool_output_schemas: dict[str, dict[str, Any] | None] = {}
         self._initialize_result: types.InitializeResult | None = None
         self._experimental_features: ExperimentalClientFeatures | None = None
@@ -462,8 +462,8 @@ class ClientSession(
         self,
         req: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
     ) -> None:
-        """Handle incoming messages by forwarding to the message handler."""
-        await self._message_handler(req)
+        """Handle incoming messages by forwarding to the message callback."""
+        await self._message_callback(req)
 
     async def _received_notification(self, notification: types.ServerNotification) -> None:
         """Handle notifications from the server."""

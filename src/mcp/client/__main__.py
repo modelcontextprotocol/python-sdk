@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("client")
 
 
-async def message_handler(
+async def message_callback(
     message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
     if isinstance(message, Exception):
@@ -40,7 +40,7 @@ async def run_session(
     async with ClientSession(
         read_stream,
         write_stream,
-        message_handler=message_handler,
+        message_callback=message_callback,
         client_info=client_info,
     ) as session:
         logger.info("Initializing session")

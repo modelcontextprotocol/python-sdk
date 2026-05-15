@@ -85,8 +85,7 @@ class Client:
     logging_callback: LoggingFnT | None = None
     """Callback for handling logging notifications."""
 
-    # TODO(Marcelo): Why do we have both "callback" and "handler"?
-    message_handler: MessageHandlerFnT | None = None
+    message_callback: MessageHandlerFnT | None = None
     """Callback for handling raw messages."""
 
     client_info: Implementation | None = None
@@ -123,7 +122,7 @@ class Client:
                     sampling_callback=self.sampling_callback,
                     list_roots_callback=self.list_roots_callback,
                     logging_callback=self.logging_callback,
-                    message_handler=self.message_handler,
+                    message_callback=self.message_callback,
                     client_info=self.client_info,
                     elicitation_callback=self.elicitation_callback,
                 )
