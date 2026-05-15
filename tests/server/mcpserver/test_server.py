@@ -236,6 +236,36 @@ def mixed_content_tool_fn() -> list[ContentBlock]:
     ]
 
 
+def mixed_content_with_image_helper_tool_fn() -> tuple[str, Image, AudioContent]:
+    return (
+        "Hello",
+        Image(data=b"abc", format="png"),
+        AudioContent(type="audio", data="def", mime_type="audio/wav"),
+    )
+
+
+async def test_tool_mixed_content_with_image_helper_annotation():
+    mcp = MCPServer()
+    mcp.add_tool(mixed_content_with_image_helper_tool_fn)
+    async with Client(mcp) as client:
+        tools = await client.list_tools()
+        tool = next(tool for tool in tools.tools if tool.name == "mixed_content_with_image_helper_tool_fn")
+        assert tool.output_schema is None
+
+        result = await client.call_tool("mixed_content_with_image_helper_tool_fn", {})
+        assert len(result.content) == 3
+        content1, content2, content3 = result.content
+        assert isinstance(content1, TextContent)
+        assert content1.text == "Hello"
+        assert isinstance(content2, ImageContent)
+        assert content2.mime_type == "image/png"
+        assert content2.data == "YWJj"
+        assert isinstance(content3, AudioContent)
+        assert content3.mime_type == "audio/wav"
+        assert content3.data == "def"
+        assert result.structured_content is None
+
+
 class TestServerTools:
     async def test_add_tool(self):
         mcp = MCPServer()
