@@ -716,6 +716,30 @@ def test_structured_output_generic_types():
     }
 
 
+def test_structured_output_pep604_union_of_container_and_primitives():
+    """Test structured output with PEP 604 unions that combine containers and primitives."""
+
+    def func_container_union() -> dict | list | str:  # pragma: no cover
+        return {"hello": "world"}
+
+    meta = func_metadata(func_container_union)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "result": {
+                "title": "Result",
+                "anyOf": [
+                    {"additionalProperties": True, "type": "object"},
+                    {"items": {}, "type": "array"},
+                    {"type": "string"},
+                ],
+            }
+        },
+        "required": ["result"],
+        "title": "func_container_unionOutput",
+    }
+
+
 def test_structured_output_dataclass():
     """Test structured output with dataclass return types"""
 

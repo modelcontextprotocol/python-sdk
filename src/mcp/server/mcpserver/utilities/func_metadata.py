@@ -478,7 +478,7 @@ def _create_wrapped_model(func_name: str, annotation: Any) -> type[BaseModel]:
     """
     model_name = f"{func_name}Output"
 
-    return create_model(model_name, result=annotation)
+    return create_model(model_name, result=(annotation, ...))
 
 
 def _create_dict_model(func_name: str, dict_annotation: Any) -> type[BaseModel]:
