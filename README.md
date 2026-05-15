@@ -2275,6 +2275,58 @@ if __name__ == "__main__":
 _Full example: [examples/snippets/clients/streamable_basic.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/clients/streamable_basic.py)_
 <!-- /snippet-source -->
 
+#### Passing Request Context
+
+The high-level `Client` API accepts protocol-level metadata on individual
+requests. Use the `meta` argument when values such as trace IDs, tenant IDs, or
+other application context should be sent as MCP JSON-RPC `_meta` data:
+
+```python
+from mcp.client import Client
+
+
+async with Client("https://mcp.example.com/mcp") as client:
+    result = await client.call_tool(
+        "search",
+        {"query": "python sdk"},
+        meta={
+            "trace_id": "req-123",
+            "tenant_id": "tenant-a",
+        },
+    )
+```
+
+Transport configuration is separate from MCP request metadata. For HTTP
+headers, authentication, timeouts, proxies, or other HTTP-layer settings, create
+an `httpx.AsyncClient` and pass it to `streamable_http_client`:
+
+```python
+import httpx
+
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+
+async with httpx.AsyncClient(
+    headers={"Authorization": "Bearer user-token"},
+) as http_client:
+    async with streamable_http_client(
+        "https://mcp.example.com/mcp",
+        http_client=http_client,
+    ) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            result = await session.call_tool(
+                "search",
+                {"query": "python sdk"},
+                meta={"trace_id": "req-123"},
+            )
+```
+
+If HTTP values need to change over time, put that behavior in the `httpx`
+client, for example with an `httpx.Auth` implementation or event hooks that
+read from your application's request state.
+
 ### Client Display Utilities
 
 When building MCP clients, the SDK provides utilities to help display human-readable names for tools, resources, and prompts:
