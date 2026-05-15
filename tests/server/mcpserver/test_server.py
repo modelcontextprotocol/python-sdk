@@ -10,6 +10,9 @@ from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
 from mcp.client import Client
+from mcp.server.auth.middleware.auth_context import auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.auth.provider import AccessToken
 from mcp.server.context import ServerRequestContext
 from mcp.server.experimental.request_context import Experimental
 from mcp.server.mcpserver import Context, MCPServer
@@ -1516,3 +1519,18 @@ async def test_report_progress_passes_related_request_id():
         message="halfway",
         related_request_id="req-abc-123",
     )
+
+
+def test_context_subject_reads_authenticated_access_token():
+    """Test that Context exposes the authenticated token subject."""
+    access_token = AccessToken(
+        token="valid_token",
+        client_id="test_client",
+        scopes=["read"],
+        subject="user_123",
+    )
+    token = auth_context_var.set(AuthenticatedUser(access_token))
+    try:
+        assert Context().subject == "user_123"
+    finally:
+        auth_context_var.reset(token)

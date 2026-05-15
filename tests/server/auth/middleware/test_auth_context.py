@@ -41,6 +41,8 @@ def valid_access_token() -> AccessToken:
         client_id="test_client",
         scopes=["read", "write"],
         expires_at=int(time.time()) + 3600,  # 1 hour from now
+        subject="user_123",
+        claims={"tenant_id": "tenant_456"},
     )
 
 
@@ -77,6 +79,9 @@ async def test_auth_context_middleware_with_authenticated_user(valid_access_toke
 
     # Verify the access token was available during the call
     assert app.access_token_during_call == valid_access_token
+    assert app.access_token_during_call is not None
+    assert app.access_token_during_call.subject == "user_123"
+    assert app.access_token_during_call.claims == {"tenant_id": "tenant_456"}
 
     # Verify context is reset after middleware
     assert auth_context_var.get() is None

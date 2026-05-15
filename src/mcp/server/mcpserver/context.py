@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import AnyUrl, BaseModel
 
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.context import LifespanContextT, RequestT, ServerRequestContext
 from mcp.server.elicitation import (
     ElicitationResult,
@@ -212,6 +213,12 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
     def client_id(self) -> str | None:
         """Get the client ID if available."""
         return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
+
+    @property
+    def subject(self) -> str | None:
+        """Get the subject from the authenticated access token if available."""
+        access_token = get_access_token()
+        return access_token.subject if access_token else None
 
     @property
     def request_id(self) -> str:
