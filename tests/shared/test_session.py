@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import anyio
 import pytest
 
@@ -21,6 +23,11 @@ from mcp.types import (
     ServerNotification,
     ServerRequest,
 )
+
+
+class _DummySession:
+    async def _send_response(self, request_id: int | str, response: ClientResult | ErrorData) -> None:
+        pass
 
 
 @pytest.mark.anyio
@@ -96,6 +103,87 @@ async def test_request_cancellation():
             # Give cancellation time to process
             with anyio.fail_after(1):  # pragma: no branch
                 await ev_cancelled.wait()
+
+
+@pytest.mark.anyio
+async def test_request_responder_suppresses_completed_cancellation():
+    """A request-local cancellation should not leak out after cancel() responds."""
+
+    completed: list[RequestResponder[ServerRequest, ClientResult]] = []
+    responder = RequestResponder[ServerRequest, ClientResult](
+        request_id=1,
+        request_meta=None,
+        request=types.PingRequest(),
+        session=cast(Any, _DummySession()),
+        on_complete=completed.append,
+    )
+
+    with responder:
+        await responder.cancel()
+        await anyio.sleep(0)
+
+    assert completed == [responder]
+
+
+@pytest.mark.anyio
+async def test_request_responder_ignores_late_completed_cancellation():
+    """Some backends can surface cancellation while leaving an already-cancelled scope."""
+
+    class _CancelScope:
+        cancel_called = True
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: object,
+        ) -> bool:
+            raise anyio.get_cancelled_exc_class()
+
+    completed: list[RequestResponder[ServerRequest, ClientResult]] = []
+    responder = RequestResponder[ServerRequest, ClientResult](
+        request_id=1,
+        request_meta=None,
+        request=types.PingRequest(),
+        session=cast(Any, _DummySession()),
+        on_complete=completed.append,
+    )
+    responder._entered = True
+    responder._completed = True
+    responder._cancel_scope = cast(Any, _CancelScope())
+
+    assert responder.__exit__(None, None, None) is True
+    assert completed == [responder]
+
+
+@pytest.mark.anyio
+async def test_request_responder_reraises_unexpected_exit_error():
+    """Unexpected cancel scope errors should still propagate."""
+
+    class _CancelScope:
+        cancel_called = False
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: object,
+        ) -> bool:
+            raise RuntimeError("boom")
+
+    responder = RequestResponder[ServerRequest, ClientResult](
+        request_id=1,
+        request_meta=None,
+        request=types.PingRequest(),
+        session=cast(Any, _DummySession()),
+        on_complete=lambda _: None,
+    )
+    responder._entered = True
+    responder._completed = True
+    responder._cancel_scope = cast(Any, _CancelScope())
+
+    with pytest.raises(RuntimeError, match="boom"):
+        responder.__exit__(None, None, None)
 
 
 @pytest.mark.anyio
