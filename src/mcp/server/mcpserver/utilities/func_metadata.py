@@ -171,6 +171,7 @@ def func_metadata(
     func: Callable[..., Any],
     skip_names: Sequence[str] = (),
     structured_output: bool | None = None,
+    schema_generator: type[GenerateJsonSchema] | None = None,
 ) -> FuncMetadata:
     """Given a function, return metadata including a Pydantic model representing its signature.
 
@@ -201,6 +202,8 @@ def func_metadata(
             - TypedDict - converted to a Pydantic model with same fields
             - Dataclasses and other annotated classes - converted to Pydantic models
             - Generic types (list, dict, Union, etc.) - wrapped in a model with a 'result' field
+        schema_generator: Optional Pydantic JSON schema generator to use when producing
+            structured output schemas. Defaults to strict schema generation.
 
     Returns:
         A FuncMetadata object containing:
@@ -302,7 +305,10 @@ def func_metadata(
         original_annotation = sig.return_annotation
 
     output_model, output_schema, wrap_output = _try_create_model_and_schema(
-        original_annotation, return_type_expr, func.__name__
+        original_annotation,
+        return_type_expr,
+        func.__name__,
+        schema_generator=schema_generator,
     )
 
     if output_model is None and structured_output is True:
@@ -323,6 +329,7 @@ def _try_create_model_and_schema(
     original_annotation: Any,
     type_expr: Any,
     func_name: str,
+    schema_generator: type[GenerateJsonSchema] | None = None,
 ) -> tuple[type[BaseModel] | None, dict[str, Any] | None, bool]:
     """Try to create a model and schema for the given annotation without warnings.
 
@@ -401,7 +408,7 @@ def _try_create_model_and_schema(
         # If we successfully created a model, try to get its schema
         # Use StrictJsonSchema to raise exceptions instead of warnings
         try:
-            schema = model.model_json_schema(schema_generator=StrictJsonSchema)
+            schema = model.model_json_schema(schema_generator=schema_generator or StrictJsonSchema)
         except (
             PydanticUserError,
             TypeError,

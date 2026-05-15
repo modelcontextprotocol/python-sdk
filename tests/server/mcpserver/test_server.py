@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel
+from pydantic.json_schema import GenerateJsonSchema
 from starlette.applications import Starlette
 from starlette.routing import Mount, Route
 
@@ -42,6 +43,13 @@ from mcp.types import (
     TextResourceContents,
 )
 
+
+class PrimitiveUnionSchema(GenerateJsonSchema):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs["union_format"] = "primitive_type_array"
+        super().__init__(*args, **kwargs)
+
+
 pytestmark = pytest.mark.anyio
 
 
@@ -73,6 +81,38 @@ class TestServer:
 
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
+
+    def test_schema_generator_applies_to_tool_schemas(self):
+        def convert(value: int | str) -> int | str:
+            return value
+
+        mcp = MCPServer(schema_generator=PrimitiveUnionSchema)
+        mcp.add_tool(convert)
+
+        tool = mcp._tool_manager.get_tool("convert")
+        assert tool is not None
+        assert tool.parameters["properties"]["value"] == {"title": "Value", "type": ["integer", "string"]}
+        assert tool.output_schema is not None
+        assert tool.output_schema["properties"]["result"] == {"title": "Result", "type": ["integer", "string"]}
+
+    def test_default_tool_schema_generation_is_preserved(self):
+        def convert(value: int | str) -> int | str:
+            return value
+
+        mcp = MCPServer()
+        mcp.add_tool(convert)
+
+        tool = mcp._tool_manager.get_tool("convert")
+        assert tool is not None
+        assert tool.parameters["properties"]["value"] == {
+            "anyOf": [{"type": "integer"}, {"type": "string"}],
+            "title": "Value",
+        }
+        assert tool.output_schema is not None
+        assert tool.output_schema["properties"]["result"] == {
+            "anyOf": [{"type": "integer"}, {"type": "string"}],
+            "title": "Result",
+        }
 
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""

@@ -12,6 +12,7 @@ from typing import Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
+from pydantic.json_schema import GenerateJsonSchema
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -149,6 +150,7 @@ class MCPServer(Generic[LifespanResultT]):
         dependencies: list[str] | None = None,
         lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None = None,
         auth: AuthSettings | None = None,
+        schema_generator: type[GenerateJsonSchema] | None = None,
     ):
         self.settings = Settings(
             debug=debug,
@@ -162,7 +164,11 @@ class MCPServer(Generic[LifespanResultT]):
         )
         self.dependencies = self.settings.dependencies
 
-        self._tool_manager = ToolManager(tools=tools, warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools)
+        self._tool_manager = ToolManager(
+            tools=tools,
+            warn_on_duplicate_tools=self.settings.warn_on_duplicate_tools,
+            schema_generator=schema_generator,
+        )
         self._resource_manager = ResourceManager(
             resources=resources, warn_on_duplicate_resources=self.settings.warn_on_duplicate_resources
         )
