@@ -13,7 +13,7 @@ from dirty_equals import IsPartialDict
 from pydantic import BaseModel, Field
 
 from mcp.server.mcpserver.exceptions import InvalidSignature
-from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import _contains_content_helper_type, func_metadata
 from mcp.server.mcpserver.utilities.types import Audio, Image
 from mcp.types import CallToolResult
 
@@ -742,6 +742,14 @@ def test_unstructured_output_content_helper_annotations():
         assert meta.output_schema is None
         assert meta.output_model is None
         assert meta.wrap_output is False
+
+
+def test_detects_content_helper_types_in_nested_annotations():
+    assert _contains_content_helper_type(Image)
+    assert _contains_content_helper_type(list[Image])
+    assert _contains_content_helper_type(tuple[str, list[Image | Audio]])
+    assert _contains_content_helper_type(Annotated[tuple[str, Image], "media"])
+    assert not _contains_content_helper_type(list[str])
 
 
 def test_structured_output_dataclass():
