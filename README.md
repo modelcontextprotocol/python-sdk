@@ -54,6 +54,7 @@
     - [Claude Desktop Integration](#claude-desktop-integration)
     - [Direct Execution](#direct-execution)
     - [Streamable HTTP Transport](#streamable-http-transport)
+      - [DNS Rebinding Protection](#dns-rebinding-protection)
       - [CORS Configuration for Browser-Based Clients](#cors-configuration-for-browser-based-clients)
     - [Mounting to an Existing ASGI Server](#mounting-to-an-existing-asgi-server)
       - [StreamableHTTP servers](#streamablehttp-servers)
@@ -1279,6 +1280,75 @@ if __name__ == "__main__":
 
 _Full example: [examples/snippets/servers/streamable_config.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/streamable_config.py)_
 <!-- /snippet-source -->
+
+#### DNS Rebinding Protection
+
+Streamable HTTP and SSE transports can validate incoming `Host` and `Origin`
+headers to protect local servers from DNS rebinding attacks. This protection is
+enabled automatically for localhost apps. If a request is rejected with
+`421 Invalid Host header`, configure the expected external host or disable the
+check only when another trusted layer already provides the boundary, such as a
+private network, reverse proxy, or platform ingress.
+
+When you run the server directly, pass `transport_security` to `run()`:
+
+```python
+from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+
+mcp = FastMCP("Proxy App")
+
+
+if __name__ == "__main__":
+    mcp.run(
+        transport="streamable-http",
+        host="0.0.0.0",
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["mcp.example.com", "mcp.example.com:*"],
+            allowed_origins=["https://mcp.example.com"],
+        ),
+    )
+```
+
+For mounted ASGI apps, remember that `uvicorn --host` controls where the web
+server listens, while `streamable_http_app()` and `sse_app()` use their `host`
+argument only for transport security defaults. Pass `transport_security`
+directly when mounting:
+
+```python
+from starlette.applications import Starlette
+from starlette.routing import Mount
+
+from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+
+mcp = FastMCP("Mounted App")
+
+transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=["mcp.example.com"],
+    allowed_origins=["https://mcp.example.com"],
+)
+
+app = Starlette(
+    routes=[
+        Mount(
+            "/",
+            app=mcp.streamable_http_app(transport_security=transport_security),
+        ),
+    ],
+)
+```
+
+If your MCP server is only reachable through a trusted reverse proxy or
+container network, you can disable this check explicitly:
+
+```python
+transport_security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=False,
+)
+```
 
 You can mount multiple FastMCP servers in a Starlette application:
 
