@@ -340,6 +340,9 @@ def _try_create_model_and_schema(
     model = None
     wrap_output = False
 
+    if _contains_content_helper_type(type_expr):
+        return None, None, False
+
     # First handle special case: None
     if type_expr is None:
         model = _create_wrapped_model(func_name, original_annotation)
@@ -421,6 +424,22 @@ def _try_create_model_and_schema(
         return model, schema, wrap_output
 
     return None, None, False
+
+
+def _contains_content_helper_type(annotation: Any) -> bool:
+    """Return whether an annotation contains an MCPServer content helper type."""
+    origin = get_origin(annotation)
+    if origin is None and inspect.isclass(annotation) and issubclass(annotation, Image | Audio):
+        return True
+
+    args = get_args(annotation)
+    if not args:
+        return False
+
+    if origin is Annotated:
+        return _contains_content_helper_type(args[0])
+
+    return any(_contains_content_helper_type(arg) for arg in args)
 
 
 _no_default = object()
