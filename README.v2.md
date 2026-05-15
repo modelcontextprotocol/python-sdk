@@ -48,6 +48,7 @@
     - [Logging and Notifications](#logging-and-notifications)
     - [Authentication](#authentication)
     - [MCPServer Properties](#mcpserver-properties)
+    - [Server Instructions](#server-instructions)
     - [Session Properties and Methods](#session-properties-and-methods)
     - [Request Context Properties](#request-context-properties)
   - [Running Your Server](#running-your-server)
@@ -1087,6 +1088,42 @@ def server_info(ctx: Context) -> dict:
         "port": ctx.mcp_server.settings.port,
     }
 ```
+
+### Server Instructions
+
+Server instructions are sent to clients during initialization and are useful for describing how related tools should be used together. They can provide workflow hints, domain context, or guardrails that apply across the server's tools without repeating the same guidance in every tool description.
+
+For example, instructions can describe a preferred order for tools in a workflow:
+
+<!-- snippet-source examples/snippets/servers/instructions.py -->
+```python
+from mcp.server.mcpserver import MCPServer
+
+mcp = MCPServer(
+    name="Workflow Assistant",
+    instructions=(
+        "Use the project tools together: call get_project_status first, "
+        "then use create_task only for missing or blocked work."
+    ),
+)
+
+
+@mcp.tool()
+def get_project_status(project_id: str) -> str:
+    """Summarize current project status."""
+    return f"Project {project_id} is on track."
+
+
+@mcp.tool()
+def create_task(project_id: str, title: str) -> str:
+    """Create a follow-up task for the project."""
+    return f"Created task '{title}' for project {project_id}."
+```
+
+_Full example: [examples/snippets/servers/instructions.py](https://github.com/modelcontextprotocol/python-sdk/blob/main/examples/snippets/servers/instructions.py)_
+<!-- /snippet-source -->
+
+Clients can read the same value from `InitializeResult.instructions` after connecting. Inside tools, the server can access it as `ctx.mcp_server.instructions`.
 
 ### Session Properties and Methods
 
