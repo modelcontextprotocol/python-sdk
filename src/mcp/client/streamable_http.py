@@ -468,10 +468,19 @@ class StreamableHTTPTransport:
                     )
 
                     async def handle_request_async():
-                        if is_resumption:
-                            await self._handle_resumption_request(ctx)
-                        else:
-                            await self._handle_post_request(ctx)
+                        try:
+                            if is_resumption:
+                                await self._handle_resumption_request(ctx)
+                            else:
+                                await self._handle_post_request(ctx)
+                        except Exception as exc:
+                            if not isinstance(message, JSONRPCRequest):
+                                raise
+
+                            logger.exception("Error handling streamable HTTP request")
+                            error_data = ErrorData(code=INTERNAL_ERROR, message=f"Request failed: {exc}")
+                            error_msg = SessionMessage(JSONRPCError(jsonrpc="2.0", id=message.id, error=error_data))
+                            await ctx.read_stream_writer.send(error_msg)
 
                     # If this is a request, start a new task to handle it
                     if isinstance(message, JSONRPCRequest):

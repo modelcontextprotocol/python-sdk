@@ -57,7 +57,10 @@ from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     InitializeResult,
+    JSONRPCError,
+    JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
     ReadResourceRequestParams,
@@ -1103,6 +1106,60 @@ async def test_streamable_http_client_error_handling(initialized_client_session:
         await initialized_client_session.read_resource(uri="unknown://test-error")
     assert exc_info.value.error.code == 0
     assert "Unknown resource: unknown://test-error" in exc_info.value.error.message
+
+
+@pytest.mark.anyio
+async def test_streamable_http_request_error_does_not_close_writer():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["method"] == "tools/list":
+            raise httpx.ConnectError("boom", request=request)
+
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={"jsonrpc": "2.0", "id": body["id"], "result": {}},
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with streamable_http_client("http://testserver/mcp", http_client=client) as (read_stream, write_stream):
+            await write_stream.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="bad", method="tools/list")))
+
+            with anyio.fail_after(1):
+                error_message = await read_stream.receive()
+
+            assert isinstance(error_message, SessionMessage)
+            assert isinstance(error_message.message, JSONRPCError)
+            assert error_message.message.id == "bad"
+            assert error_message.message.error.code == types.INTERNAL_ERROR
+
+            await write_stream.send(SessionMessage(JSONRPCRequest(jsonrpc="2.0", id="ok", method="ping")))
+
+            with anyio.fail_after(1):
+                response_message = await read_stream.receive()
+
+            assert isinstance(response_message, SessionMessage)
+            assert isinstance(response_message.message, JSONRPCResponse)
+            assert response_message.message.id == "ok"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_notification_error_still_closes_writer():
+    request_seen = anyio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        request_seen.set()
+        raise httpx.ConnectError("boom", request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with streamable_http_client("http://testserver/mcp", http_client=client) as (_, write_stream):
+            await write_stream.send(
+                SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/cancelled"))
+            )
+
+            with anyio.fail_after(1):  # pragma: no branch
+                await request_seen.wait()
 
 
 @pytest.mark.anyio
