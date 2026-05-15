@@ -68,6 +68,25 @@ async def test_handle_returns_result_for_completed_task(
 
 
 @pytest.mark.anyio
+async def test_handle_omits_none_fields_from_result_payload(
+    store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
+) -> None:
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    await store.store_result(task.task_id, CallToolResult(content=[TextContent(type="text", text="Done!")]))
+    await store.update_task(task.task_id, status="completed")
+
+    mock_session = Mock()
+    mock_session.send_message = AsyncMock()
+
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
+    response = await handler.handle(request, mock_session, "req-1")
+
+    payload = response.model_dump(by_alias=True, mode="json")
+    assert payload["content"] == [{"type": "text", "text": "Done!"}]
+    assert "structuredContent" not in payload
+
+
+@pytest.mark.anyio
 async def test_handle_raises_for_nonexistent_task(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:

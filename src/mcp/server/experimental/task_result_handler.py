@@ -116,7 +116,7 @@ class TaskResultHandler:
                 related_task = RelatedTaskMetadata(task_id=task_id)
                 related_task_meta: dict[str, Any] = {RELATED_TASK_METADATA_KEY: related_task.model_dump(by_alias=True)}
                 if result is not None:
-                    result_data = result.model_dump(by_alias=True)
+                    result_data = result.model_dump(by_alias=True, mode="json", exclude_none=True)
                     existing_meta: dict[str, Any] = result_data.get("_meta") or {}
                     result_data["_meta"] = {**existing_meta, **related_task_meta}
                     return GetTaskPayloadResult.model_validate(result_data)
