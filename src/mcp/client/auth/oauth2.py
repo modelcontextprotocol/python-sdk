@@ -402,7 +402,10 @@ class OAuthClientProvider(httpx.Auth):
             token_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
 
         return httpx.Request("POST", token_url, data=token_data, headers=headers)
@@ -447,7 +450,10 @@ class OAuthClientProvider(httpx.Auth):
             refresh_data["resource"] = self.context.get_resource_url()  # RFC 8707
 
         # Prepare authentication based on preferred method
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
         refresh_data, headers = self.context.prepare_token_auth(refresh_data, headers)
 
         return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
