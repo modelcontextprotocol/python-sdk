@@ -1178,6 +1178,17 @@ uv run mcp dev server.py --with pandas --with numpy
 uv run mcp dev server.py --with-editable .
 ```
 
+`mcp dev` runs the server through the MCP Inspector and inherits environment
+variables from your shell. Set environment variables before the command when
+testing secrets or configuration:
+
+```bash
+API_KEY=abc123 DB_URL=postgres://... uv run mcp dev server.py
+```
+
+For persistent Claude Desktop configuration, use `mcp install` with `-v` or
+`-f` as shown below.
+
 ### Claude Desktop Integration
 
 Once your server is ready, install it in Claude Desktop:
