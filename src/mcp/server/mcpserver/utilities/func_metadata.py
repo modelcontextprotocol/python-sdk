@@ -428,18 +428,15 @@ def _try_create_model_and_schema(
 
 def _contains_content_helper_type(annotation: Any) -> bool:
     """Return whether an annotation contains an MCPServer content helper type."""
-    if inspect.isclass(annotation):
-        try:
-            if issubclass(annotation, Image | Audio):
-                return True
-        except TypeError:
-            pass
+    origin = get_origin(annotation)
+    if origin is None and inspect.isclass(annotation) and issubclass(annotation, Image | Audio):
+        return True
 
     args = get_args(annotation)
     if not args:
         return False
 
-    if get_origin(annotation) is Annotated:
+    if origin is Annotated:
         return _contains_content_helper_type(args[0])
 
     return any(_contains_content_helper_type(arg) for arg in args)
