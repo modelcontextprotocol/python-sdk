@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +16,7 @@ import pydantic_core
 from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
+from mcp.server.mcpserver.utilities.context_injection import find_context_parameter, inject_context
 from mcp.shared._callable_inspection import is_async_callable
 from mcp.types import Annotations, Icon
 
@@ -52,18 +54,22 @@ class FunctionResource(Resource):
     - other types will be converted to JSON
     """
 
-    fn: Callable[[], Any] = Field(exclude=True)
+    fn: Callable[..., Any] = Field(exclude=True)
+    context_kwarg: str | None = Field(default=None, description="Name of the kwarg that should receive context")
 
-    async def read(self) -> str | bytes:
+    async def read(self, context: Any | None = None) -> str | bytes:
         """Read the resource by calling the wrapped function."""
         try:
+            kwargs = inject_context(self.fn, {}, context, self.context_kwarg)
             fn = self.fn
             if is_async_callable(fn):
-                result = await fn()
+                result = await fn(**kwargs)
             else:
-                result = await anyio.to_thread.run_sync(self.fn)
+                result = await anyio.to_thread.run_sync(functools.partial(self.fn, **kwargs))
 
-            if isinstance(result, Resource):  # pragma: no cover
+            if isinstance(result, FunctionResource):  # pragma: no cover
+                return await result.read(context)
+            elif isinstance(result, Resource):  # pragma: no cover
                 return await result.read()
             elif isinstance(result, bytes):
                 return result
@@ -86,11 +92,15 @@ class FunctionResource(Resource):
         icons: list[Icon] | None = None,
         annotations: Annotations | None = None,
         meta: dict[str, Any] | None = None,
+        context_kwarg: str | None = None,
     ) -> FunctionResource:
         """Create a FunctionResource from a function."""
         func_name = name or fn.__name__
         if func_name == "<lambda>":  # pragma: no cover
             raise ValueError("You must provide a name for lambda functions")
+
+        if context_kwarg is None:
+            context_kwarg = find_context_parameter(fn)
 
         # ensure the arguments are properly cast
         fn = validate_call(fn)
@@ -102,6 +112,7 @@ class FunctionResource(Resource):
             description=description or fn.__doc__ or "",
             mime_type=mime_type or "text/plain",
             fn=fn,
+            context_kwarg=context_kwarg,
             icons=icons,
             annotations=annotations,
             meta=meta,

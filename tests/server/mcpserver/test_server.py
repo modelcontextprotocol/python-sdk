@@ -820,6 +820,25 @@ class TestServerResources:
             assert resource.name == "test_get_data"
             assert resource.mime_type == "text/plain"
 
+    async def test_context_only_resource_registered_as_regular_resource(self):
+        mcp = MCPServer()
+
+        @mcp.resource("resource://user_profile")
+        def get_user_profile(ctx: Context) -> str:
+            assert ctx is not None
+            return "User profile"
+
+        resources = await mcp.list_resources()
+        templates = await mcp.list_resource_templates()
+        assert len(resources) == 1
+        assert resources[0].uri == "resource://user_profile"
+        assert templates == []
+
+        async with Client(mcp) as client:
+            result = await client.read_resource("resource://user_profile")
+            assert isinstance(result.contents[0], TextResourceContents)
+            assert result.contents[0].text == "User profile"
+
 
 class TestServerResourceTemplates:
     async def test_resource_with_params(self):
