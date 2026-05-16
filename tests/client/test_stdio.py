@@ -528,8 +528,7 @@ async def test_stdio_client_invalid_utf8():
 
     with anyio.fail_after(5.0):
         async with stdio_client(server_params) as (read_stream, _write_stream):
-            async for item in read_stream:
-                items.append(item)
+            items.extend([item async for item in read_stream])
 
     assert len(items) == 2
     assert isinstance(items[0], Exception)
