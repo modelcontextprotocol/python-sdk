@@ -198,6 +198,118 @@ async def test_send_request_skips_the_surface_gate_when_method_absent_at_version
 
 
 @pytest.mark.anyio
+async def test_create_message_tool_result_validation():
+    """Test tool_use/tool_result validation in create_message."""
+    dispatcher = StubDispatcher(
+        result={"role": "assistant", "content": [{"type": "text", "text": "ok"}], "model": "m"}
+    )
+    session = _make_session(
+        dispatcher, capabilities=ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability()))
+    )
+    tool = types.Tool(name="test_tool", input_schema={"type": "object"})
+    text = types.TextContent(type="text", text="hello")
+    tool_use = types.ToolUseContent(type="tool_use", id="call_1", name="test_tool", input={})
+    tool_result = types.ToolResultContent(type="tool_result", tool_use_id="call_1", content=[])
+
+    # Case 1: tool_result mixed with other content
+    with pytest.raises(ValueError, match="only tool_result content"):
+        await session.create_message(
+            messages=[
+                types.SamplingMessage(role="user", content=text),
+                types.SamplingMessage(role="assistant", content=tool_use),
+                types.SamplingMessage(role="user", content=[tool_result, text]),
+            ],
+            max_tokens=100,
+            tools=[tool],
+        )
+
+    # Case 2: tool_result without previous message
+    with pytest.raises(ValueError, match="requires a previous message"):
+        await session.create_message(
+            messages=[types.SamplingMessage(role="user", content=tool_result)],
+            max_tokens=100,
+            tools=[tool],
+        )
+
+    # Case 3: tool_result without previous tool_use
+    with pytest.raises(ValueError, match="do not match any tool_use"):
+        await session.create_message(
+            messages=[
+                types.SamplingMessage(role="user", content=text),
+                types.SamplingMessage(role="user", content=tool_result),
+            ],
+            max_tokens=100,
+            tools=[tool],
+        )
+
+    # Case 4: mismatched tool IDs
+    with pytest.raises(ValueError, match="ids of tool_result blocks and tool_use blocks"):
+        await session.create_message(
+            messages=[
+                types.SamplingMessage(role="user", content=text),
+                types.SamplingMessage(role="assistant", content=tool_use),
+                types.SamplingMessage(
+                    role="user",
+                    content=types.ToolResultContent(type="tool_result", tool_use_id="wrong_id", content=[]),
+                ),
+            ],
+            max_tokens=100,
+            tools=[tool],
+        )
+
+    # Case 4b: earlier mismatched tool result with a later plain message
+    with pytest.raises(ValueError, match="ids of tool_result blocks and tool_use blocks"):
+        await session.create_message(
+            messages=[
+                types.SamplingMessage(role="assistant", content=tool_use),
+                types.SamplingMessage(
+                    role="user",
+                    content=types.ToolResultContent(type="tool_result", tool_use_id="wrong_id", content=[]),
+                ),
+                types.SamplingMessage(role="assistant", content=text),
+            ],
+            max_tokens=100,
+            tools=[tool],
+        )
+
+    # Case 5: text-only message with tools (no tool_results) - passes validation
+    await session.create_message(
+        messages=[types.SamplingMessage(role="user", content=text)],
+        max_tokens=100,
+        tools=[tool],
+    )
+
+    # Case 6: valid matching tool_result/tool_use IDs - passes validation
+    await session.create_message(
+        messages=[
+            types.SamplingMessage(role="user", content=text),
+            types.SamplingMessage(role="assistant", content=tool_use),
+            types.SamplingMessage(role="user", content=tool_result),
+        ],
+        max_tokens=100,
+        tools=[tool],
+    )
+
+    # Case 7: validation runs even without `tools` parameter
+    # (tool loop continuation may omit tools while containing tool_result)
+    with pytest.raises(ValueError, match="do not match any tool_use"):
+        await session.create_message(
+            messages=[
+                types.SamplingMessage(role="user", content=text),
+                types.SamplingMessage(role="user", content=tool_result),
+            ],
+            max_tokens=100,
+        )
+
+    # Case 8: empty messages list - skips validation entirely
+    no_tools_session = _make_session(
+        StubDispatcher(result={"role": "assistant", "content": {"type": "text", "text": "ok"}, "model": "m"}),
+        capabilities=ClientCapabilities(sampling=SamplingCapability(tools=SamplingToolsCapability())),
+    )
+    await no_tools_session.create_message(messages=[], max_tokens=100)
+
+
+@pytest.mark.anyio
 async def test_send_request_validates_result_alias_only():
     """Peer results validate alias-only; a snake_case key from the wire is
     ignored as extra, not populated by Python field name."""
