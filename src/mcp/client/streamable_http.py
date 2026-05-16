@@ -28,6 +28,7 @@ from mcp.shared._httpx_utils import (
 )
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (
+    INTERNAL_ERROR,
     ErrorData,
     InitializeResult,
     JSONRPCError,
@@ -355,7 +356,20 @@ class StreamableHTTPTransport:
                     )  # pragma: no cover
                 return  # pragma: no cover
 
-            response.raise_for_status()
+            if response.status_code >= 400:
+                if isinstance(message.root, JSONRPCRequest):
+                    jsonrpc_error = JSONRPCError(
+                        jsonrpc="2.0",
+                        id=message.root.id,
+                        error=ErrorData(
+                            code=INTERNAL_ERROR,
+                            message=f"Server returned HTTP {response.status_code}",
+                            data={"status_code": response.status_code},
+                        ),
+                    )
+                    await ctx.read_stream_writer.send(SessionMessage(JSONRPCMessage(jsonrpc_error)))
+                return
+
             if is_initialization:
                 self._maybe_extract_session_id_from_response(response)
 
