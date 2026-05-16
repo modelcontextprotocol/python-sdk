@@ -451,7 +451,10 @@ class MCPServer(Generic[LifespanResultT]):
             raise ResourceError(f"Unknown resource: {uri}") from exc
 
         try:
-            content = await resource.read()
+            if isinstance(resource, FunctionResource):
+                content = await resource.read(context)
+            else:
+                content = await resource.read()
             return [ReadResourceContents(content=content, mime_type=resource.mime_type, meta=resource.meta)]
         except Exception as exc:
             logger.exception(f"Error getting resource {uri}")
@@ -645,7 +648,7 @@ class MCPServer(Generic[LifespanResultT]):
         - other types will be converted to JSON
 
         If the URI contains parameters (e.g. "resource://{param}") or the function
-        has parameters, it will be registered as a template resource.
+        has non-Context parameters, it will be registered as a template resource.
 
         Args:
             uri: URI for the resource (e.g. "resource://my-resource" or "resource://{param}")
@@ -688,18 +691,14 @@ class MCPServer(Generic[LifespanResultT]):
         def decorator(fn: _CallableT) -> _CallableT:
             # Check if this should be a template
             sig = inspect.signature(fn)
+            context_param = find_context_parameter(fn)
             has_uri_params = "{" in uri and "}" in uri
-            has_func_params = bool(sig.parameters)
+            func_params = {p for p in sig.parameters.keys() if p != context_param}
+            has_func_params = bool(func_params)
 
             if has_uri_params or has_func_params:
-                # Check for Context parameter to exclude from validation
-                context_param = find_context_parameter(fn)
-
                 # Validate that URI params match function params (excluding context)
                 uri_params = set(re.findall(r"{(\w+)}", uri))
-                # We need to remove the context_param from the resource function if
-                # there is any.
-                func_params = {p for p in sig.parameters.keys() if p != context_param}
 
                 if uri_params != func_params:
                     raise ValueError(
@@ -730,6 +729,7 @@ class MCPServer(Generic[LifespanResultT]):
                     icons=icons,
                     annotations=annotations,
                     meta=meta,
+                    context_kwarg=context_param,
                 )
                 self.add_resource(resource)
             return fn
