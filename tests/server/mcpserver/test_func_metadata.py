@@ -182,6 +182,59 @@ def test_str_vs_list_str():
     assert result["str_or_list"] == ["hello", "world"]
 
 
+def test_optional_str_preserves_json_strings():
+    """String-like unions should preserve JSON-looking strings as strings."""
+
+    def func_optional_str(config: str | None = None):
+        return config
+
+    meta = func_metadata(func_optional_str)
+
+    json_obj_str = '{"database": "postgres", "port": 5432}'
+    result = meta.pre_parse_json({"config": json_obj_str})
+    assert result["config"] == json_obj_str
+    assert func_optional_str(result["config"]) == json_obj_str
+
+    json_array_str = '["item1", "item2", "item3"]'
+    result = meta.pre_parse_json({"config": json_array_str})
+    assert result["config"] == json_array_str
+    assert func_optional_str(result["config"]) == json_array_str
+
+
+@pytest.mark.anyio
+async def test_optional_str_runtime_validation_preserves_json_string():
+    """Ensure optional string values reach the function without JSON pre-parsing."""
+
+    def handle_json_payload(payload: str | None = None) -> str:
+        assert isinstance(payload, str)
+        return payload
+
+    meta = func_metadata(handle_json_payload)
+    json_payload = '{"action": "create", "resource": "user"}'
+
+    result = await meta.call_fn_with_arg_validation(
+        handle_json_payload,
+        fn_is_async=False,
+        arguments_to_validate={"payload": json_payload},
+        arguments_to_pass_directly=None,
+    )
+
+    assert result == json_payload
+
+
+def test_optional_list_still_pre_parses_json_string():
+    """Complex optional types still accept JSON-encoded structured values."""
+
+    def func_optional_list(items: list[str] | None = None):
+        return items
+
+    meta = func_metadata(func_optional_list)
+
+    result = meta.pre_parse_json({"items": '["hello", "world"]'})
+    assert result["items"] == ["hello", "world"]
+    assert func_optional_list(result["items"]) == ["hello", "world"]
+
+
 def test_skip_names():
     """Test that skipped parameters are not included in the model"""
 

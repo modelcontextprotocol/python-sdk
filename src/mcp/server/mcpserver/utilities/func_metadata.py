@@ -148,7 +148,7 @@ class FuncMetadata(BaseModel):
                 continue
 
             field_info = key_to_field_info[data_key]
-            if isinstance(data_value, str) and field_info.annotation is not str:
+            if isinstance(data_value, str) and _should_pre_parse_json(field_info.annotation):
                 try:
                     pre_parsed = json.loads(data_value)
                 except json.JSONDecodeError:
@@ -165,6 +165,20 @@ class FuncMetadata(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
+
+
+_SIMPLE_PRE_PARSE_TYPES = {str, int, float, bool, bytes, type(None)}
+
+
+def _should_pre_parse_json(annotation: Any) -> bool:
+    """Return whether string inputs for an annotation should be JSON-decoded."""
+    if annotation in _SIMPLE_PRE_PARSE_TYPES:
+        return False
+
+    if is_union_origin(get_origin(annotation)):
+        return not all(arg in _SIMPLE_PRE_PARSE_TYPES for arg in get_args(annotation))
+
+    return True
 
 
 def func_metadata(
