@@ -28,6 +28,19 @@ members = [
     "mcp-sse-polling-demo",
     "mcp-structured-output-lowlevel",
 ]
+build-constraints = [
+    { name = "dunamai", specifier = "==1.26.1" },
+    { name = "hatchling", specifier = "==1.29.0" },
+    { name = "jinja2", specifier = "==3.1.6" },
+    { name = "markupsafe", specifier = "==3.0.3" },
+    { name = "packaging", specifier = "==26.1" },
+    { name = "pathspec", specifier = "==1.0.4" },
+    { name = "pluggy", specifier = "==1.6.0" },
+    { name = "setuptools", specifier = "==82.0.1" },
+    { name = "tomlkit", specifier = "==0.14.0" },
+    { name = "trove-classifiers", specifier = "==2026.1.14.14" },
+    { name = "uv-dynamic-versioning", specifier = "==0.14.0" },
+]
 
 [[package]]
 name = "annotated-types"
