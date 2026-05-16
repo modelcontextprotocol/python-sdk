@@ -1044,6 +1044,154 @@ async def test_streamable_http_client_error_handling(initialized_client_session:
 
 
 @pytest.mark.anyio
+async def test_streamable_http_client_http_error_does_not_cancel_concurrent_request():
+    """Test that one POST HTTP error does not tear down an unrelated request."""
+    good_request_started = anyio.Event()
+    allow_good_response = anyio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        request_id = payload["id"]
+        uri = payload["params"]["uri"]
+
+        if uri == "foobar://bad":
+            with anyio.fail_after(5):
+                await good_request_started.wait()
+            return httpx.Response(400, request=request, json={"error": "boom"})
+
+        assert uri == "foobar://good"
+        good_request_started.set()
+        with anyio.fail_after(5):
+            await allow_good_response.wait()
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "contents": [
+                        {
+                            "uri": uri,
+                            "mimeType": "text/plain",
+                            "text": "good response",
+                        }
+                    ]
+                },
+            },
+        )
+
+    good_result: types.ReadResourceResult | None = None
+    bad_error: Exception | None = None
+    bad_request_failed = anyio.Event()
+
+    async def run_good_request(session: ClientSession) -> None:
+        nonlocal good_result
+        good_result = await session.send_request(
+            types.ClientRequest(
+                types.ReadResourceRequest(
+                    params=types.ReadResourceRequestParams(uri=AnyUrl("foobar://good")),
+                )
+            ),
+            types.ReadResourceResult,
+        )
+
+    async def run_bad_request(session: ClientSession) -> None:
+        nonlocal bad_error
+        try:
+            await session.send_request(
+                types.ClientRequest(
+                    types.ReadResourceRequest(
+                        params=types.ReadResourceRequestParams(uri=AnyUrl("foobar://bad")),
+                    )
+                ),
+                types.ReadResourceResult,
+            )
+        except Exception as exc:
+            bad_error = exc
+            bad_request_failed.set()
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        async with streamable_http_client("http://test/mcp", http_client=http_client) as streams:  # pragma: no branch
+            read_stream, write_stream, _ = streams
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(run_good_request, session)
+                    with anyio.fail_after(5):
+                        await good_request_started.wait()
+
+                    tg.start_soon(run_bad_request, session)
+
+                    with anyio.fail_after(5):
+                        await bad_request_failed.wait()
+
+                    allow_good_response.set()
+
+    assert isinstance(bad_error, McpError)
+    assert bad_error.error.code == types.INTERNAL_ERROR
+    assert bad_error.error.message == "Server returned HTTP 400"
+    assert bad_error.error.data == {"status_code": 400}
+    assert good_result is not None
+    assert isinstance(good_result.contents[0], types.TextResourceContents)
+    assert good_result.contents[0].text == "good response"
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_notification_http_error_does_not_cancel_transport():
+    """Test POST HTTP errors for notifications do not synthesize responses."""
+    notification_seen = anyio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+
+        if "id" not in payload:
+            notification_seen.set()
+            return httpx.Response(500, request=request, json={"error": "boom"})
+
+        return httpx.Response(
+            200,
+            request=request,
+            headers={"content-type": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {
+                    "contents": [
+                        {
+                            "uri": "foobar://good",
+                            "mimeType": "text/plain",
+                            "text": "good response",
+                        }
+                    ]
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as http_client:
+        async with streamable_http_client("http://test/mcp", http_client=http_client) as streams:  # pragma: no branch
+            read_stream, write_stream, _ = streams
+            async with ClientSession(read_stream, write_stream) as session:  # pragma: no branch
+                await session.send_notification(types.ClientNotification(types.RootsListChangedNotification()))
+                with anyio.fail_after(5):
+                    await notification_seen.wait()
+
+                result = await session.send_request(
+                    types.ClientRequest(
+                        types.ReadResourceRequest(
+                            params=types.ReadResourceRequestParams(uri=AnyUrl("foobar://good")),
+                        )
+                    ),
+                    types.ReadResourceResult,
+                )
+
+    assert isinstance(result.contents[0], types.TextResourceContents)
+    assert result.contents[0].text == "good response"
+
+
+@pytest.mark.anyio
 async def test_streamable_http_client_session_persistence(basic_server: None, basic_server_url: str):
     """Test that session ID persists across requests."""
     async with streamable_http_client(f"{basic_server_url}/mcp") as (
