@@ -5,7 +5,7 @@ that is shared across normal and task-augmented code paths.
 """
 
 from mcp.shared.exceptions import MCPError
-from mcp.types import INVALID_PARAMS, ClientCapabilities, SamplingMessage, Tool, ToolChoice
+from mcp.types import INVALID_PARAMS, ClientCapabilities, SamplingMessage, SamplingMessageContentBlock, Tool, ToolChoice
 
 
 def check_sampling_tools_capability(client_caps: ClientCapabilities | None) -> bool:
@@ -53,6 +53,7 @@ def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
     1. Messages with tool_result content contain ONLY tool_result content
     2. tool_result messages are preceded by a message with tool_use
     3. tool_result IDs match the tool_use IDs from the previous message
+    4. Every tool_use message in the history is followed by matching tool_result content
 
     See: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1577
 
@@ -65,24 +66,26 @@ def validate_tool_use_result_messages(messages: list[SamplingMessage]) -> None:
     if not messages:
         return
 
-    last_content = messages[-1].content_as_list
-    has_tool_results = any(c.type == "tool_result" for c in last_content)
+    previous_content: list[SamplingMessageContentBlock] | None = None
+    for content in (message.content_as_list for message in messages):
+        has_tool_results = any(c.type == "tool_result" for c in content)
+        previous_tool_use_ids: set[str] = set()
+        if previous_content is not None:
+            previous_tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
 
-    previous_content = messages[-2].content_as_list if len(messages) >= 2 else None
-    has_previous_tool_use = previous_content and any(c.type == "tool_use" for c in previous_content)
+        if has_tool_results:
+            # Per spec: "SamplingMessage with tool result content blocks
+            # MUST NOT contain other content types."
+            if any(c.type != "tool_result" for c in content):
+                raise ValueError("A message must contain only tool_result content if any is present")
+            if previous_content is None:
+                raise ValueError("tool_result requires a previous message containing tool_use")
+            if not previous_tool_use_ids:
+                raise ValueError("tool_result blocks do not match any tool_use in the previous message")
 
-    if has_tool_results:
-        # Per spec: "SamplingMessage with tool result content blocks
-        # MUST NOT contain other content types."
-        if any(c.type != "tool_result" for c in last_content):
-            raise ValueError("The last message must contain only tool_result content if any is present")
-        if previous_content is None:
-            raise ValueError("tool_result requires a previous message containing tool_use")
-        if not has_previous_tool_use:
-            raise ValueError("tool_result blocks do not match any tool_use in the previous message")
+        if previous_tool_use_ids:
+            tool_result_ids = {c.tool_use_id for c in content if c.type == "tool_result"}
+            if previous_tool_use_ids != tool_result_ids:
+                raise ValueError("ids of tool_result blocks and tool_use blocks from previous message do not match")
 
-    if has_previous_tool_use and previous_content:
-        tool_use_ids = {c.id for c in previous_content if c.type == "tool_use"}
-        tool_result_ids = {c.tool_use_id for c in last_content if c.type == "tool_result"}
-        if tool_use_ids != tool_result_ids:
-            raise ValueError("ids of tool_result blocks and tool_use blocks from previous message do not match")
+        previous_content = content

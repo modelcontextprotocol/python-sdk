@@ -347,6 +347,21 @@ async def test_create_message_tool_result_validation():
                     tools=[tool],
                 )
 
+            # Case 4b: earlier mismatched tool result with a later plain message
+            with pytest.raises(ValueError, match="ids of tool_result blocks and tool_use blocks"):
+                await session.create_message(
+                    messages=[
+                        types.SamplingMessage(role="assistant", content=tool_use),
+                        types.SamplingMessage(
+                            role="user",
+                            content=types.ToolResultContent(type="tool_result", tool_use_id="wrong_id", content=[]),
+                        ),
+                        types.SamplingMessage(role="assistant", content=text),
+                    ],
+                    max_tokens=100,
+                    tools=[tool],
+                )
+
             # Case 5: text-only message with tools (no tool_results) - passes validation
             # Covers has_tool_results=False branch.
             # We use move_on_after because validation happens synchronously before

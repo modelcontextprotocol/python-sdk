@@ -108,6 +108,27 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_mixed_with_ot
         validate_tool_use_result_messages(messages)
 
 
+def test_validate_tool_use_result_messages_raises_for_earlier_mixed_tool_result() -> None:
+    """Raises when an earlier message mixes tool_result with other content."""
+    messages = [
+        SamplingMessage(
+            role="assistant",
+            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),
+        ),
+        SamplingMessage(
+            role="user",
+            content=[
+                ToolResultContent(type="tool_result", tool_use_id="tool-1"),
+                TextContent(type="text", text="also this"),
+            ],
+        ),
+        SamplingMessage(role="assistant", content=TextContent(type="text", text="done")),
+    ]
+
+    with pytest.raises(ValueError, match="only tool_result content"):
+        validate_tool_use_result_messages(messages)
+
+
 def test_validate_tool_use_result_messages_raises_when_tool_result_without_previous_tool_use() -> None:
     """Raises when tool_result appears without preceding tool_use."""
     messages = [
@@ -136,6 +157,39 @@ def test_validate_tool_use_result_messages_raises_when_tool_result_ids_dont_matc
         validate_tool_use_result_messages(messages)
 
 
+def test_validate_tool_use_result_messages_raises_when_earlier_tool_result_ids_dont_match_tool_use() -> None:
+    """Raises when an earlier tool_result does not match the previous tool_use."""
+    messages = [
+        SamplingMessage(
+            role="assistant",
+            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),
+        ),
+        SamplingMessage(
+            role="user",
+            content=ToolResultContent(type="tool_result", tool_use_id="tool-2"),
+        ),
+        SamplingMessage(role="assistant", content=TextContent(type="text", text="done")),
+    ]
+
+    with pytest.raises(ValueError, match="do not match"):
+        validate_tool_use_result_messages(messages)
+
+
+def test_validate_tool_use_result_messages_raises_when_tool_use_is_not_answered() -> None:
+    """Raises when a tool_use is followed by a non-tool_result message."""
+    messages = [
+        SamplingMessage(
+            role="assistant",
+            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),
+        ),
+        SamplingMessage(role="user", content=TextContent(type="text", text="not a result")),
+        SamplingMessage(role="assistant", content=TextContent(type="text", text="done")),
+    ]
+
+    with pytest.raises(ValueError, match="do not match"):
+        validate_tool_use_result_messages(messages)
+
+
 def test_validate_tool_use_result_messages_no_error_when_tool_result_matches_tool_use() -> None:
     """No error when tool_result IDs match tool_use IDs."""
     messages = [
@@ -149,3 +203,34 @@ def test_validate_tool_use_result_messages_no_error_when_tool_result_matches_too
         ),
     ]
     validate_tool_use_result_messages(messages)  # Should not raise
+
+
+def test_validate_tool_use_result_messages_no_error_for_multiple_tool_pairs() -> None:
+    """No error when every tool_use in the history has a matching tool_result."""
+    messages = [
+        SamplingMessage(role="user", content=TextContent(type="text", text="first")),
+        SamplingMessage(
+            role="assistant",
+            content=ToolUseContent(type="tool_use", id="tool-1", name="test", input={}),
+        ),
+        SamplingMessage(
+            role="user",
+            content=ToolResultContent(type="tool_result", tool_use_id="tool-1"),
+        ),
+        SamplingMessage(
+            role="assistant",
+            content=[
+                ToolUseContent(type="tool_use", id="tool-2", name="test", input={}),
+                ToolUseContent(type="tool_use", id="tool-3", name="test", input={}),
+            ],
+        ),
+        SamplingMessage(
+            role="user",
+            content=[
+                ToolResultContent(type="tool_result", tool_use_id="tool-3"),
+                ToolResultContent(type="tool_result", tool_use_id="tool-2"),
+            ],
+        ),
+    ]
+
+    validate_tool_use_result_messages(messages)
