@@ -292,6 +292,33 @@ async def test_deliver_skips_resolver_registration_when_no_original_id(
 
 
 @pytest.mark.anyio
+async def test_handle_omits_none_optional_fields_in_result(
+    store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
+) -> None:
+    """None optional fields (e.g. TextContent.annotations) must be omitted, not serialized as null.
+
+    The Node SDK Zod schema marks these fields as optional (absent), not nullable,
+    so sending null breaks validation.
+    """
+    task = await store.create_task(TaskMetadata(ttl=60000), task_id="test-task")
+    result = CallToolResult(content=[TextContent(type="text", text="hello")])
+    await store.store_result(task.task_id, result)
+    await store.update_task(task.task_id, status="completed")
+
+    mock_session = Mock()
+    mock_session.send_message = AsyncMock()
+
+    request = GetTaskPayloadRequest(params=GetTaskPayloadRequestParams(task_id=task.task_id))
+    response = await handler.handle(request, mock_session, "req-1")
+
+    wire_data = response.model_dump(by_alias=True, mode="json", exclude_none=True)
+    content_items = wire_data.get("content", [])
+    assert len(content_items) == 1
+    assert "annotations" not in content_items[0]
+    assert "_meta" not in content_items[0]
+
+
+@pytest.mark.anyio
 async def test_wait_for_task_update_handles_store_exception(
     store: InMemoryTaskStore, queue: InMemoryTaskMessageQueue, handler: TaskResultHandler
 ) -> None:
