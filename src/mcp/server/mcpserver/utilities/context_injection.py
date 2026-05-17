@@ -22,9 +22,13 @@ def find_context_parameter(fn: Callable[..., Any]) -> str | None:
     Returns:
         The name of the context parameter, or None if not found
     """
+    target = fn
+    if callable(fn) and not inspect.isfunction(fn) and not inspect.ismethod(fn) and not inspect.isclass(fn):
+        target = fn.__call__
+
     # Get type hints to properly resolve string annotations
     try:
-        hints = typing.get_type_hints(fn)
+        hints = typing.get_type_hints(target)
     except Exception:  # pragma: lax no cover
         # If we can't resolve type hints, we can't find the context parameter
         return None
