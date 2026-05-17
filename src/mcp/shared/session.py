@@ -117,7 +117,11 @@ class RequestResponder(Generic[ReceiveRequestT, SendResultT]):
             self._entered = False
             if not self._cancel_scope:  # pragma: no cover
                 raise RuntimeError("No active cancel scope")
-            self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
+            try:
+                self._cancel_scope.__exit__(exc_type, exc_val, exc_tb)
+            except BaseException as exc:
+                if not (self._completed and isinstance(exc, anyio.get_cancelled_exc_class())):
+                    raise
 
     async def respond(self, response: SendResultT | ErrorData) -> None:
         """Send a response for this request.
