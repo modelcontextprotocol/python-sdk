@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import anyio
 import pytest
 
@@ -21,6 +23,18 @@ from mcp.types import (
     ServerNotification,
     ServerRequest,
 )
+
+
+class _CancelScopeThatRaisesOnExit:
+    cancel_called = True
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object | None,
+    ) -> None:
+        raise anyio.get_cancelled_exc_class()()
 
 
 @pytest.mark.anyio
@@ -96,6 +110,44 @@ async def test_request_cancellation():
             # Give cancellation time to process
             with anyio.fail_after(1):  # pragma: no branch
                 await ev_cancelled.wait()
+
+
+@pytest.mark.anyio
+async def test_completed_request_responder_suppresses_cancel_scope_exit() -> None:
+    completed: list[Any] = []
+    responder = RequestResponder(
+        request_id=1,
+        request_meta=None,
+        request=types.PingRequest(),
+        session=cast(Any, object()),
+        on_complete=completed.append,
+    )
+    responder._completed = True  # type: ignore[reportPrivateUsage]
+    responder._cancel_scope = cast(  # type: ignore[reportPrivateUsage]
+        anyio.CancelScope, _CancelScopeThatRaisesOnExit()
+    )
+
+    responder.__exit__(None, None, None)
+
+    assert completed == [responder]
+    assert not responder._entered  # type: ignore[reportPrivateUsage]
+
+
+@pytest.mark.anyio
+async def test_incomplete_request_responder_propagates_cancel_scope_exit() -> None:
+    responder = RequestResponder(
+        request_id=1,
+        request_meta=None,
+        request=types.PingRequest(),
+        session=cast(Any, object()),
+        on_complete=lambda _: None,
+    )
+    responder._cancel_scope = cast(  # type: ignore[reportPrivateUsage]
+        anyio.CancelScope, _CancelScopeThatRaisesOnExit()
+    )
+
+    with pytest.raises(anyio.get_cancelled_exc_class()):
+        responder.__exit__(None, None, None)
 
 
 @pytest.mark.anyio
