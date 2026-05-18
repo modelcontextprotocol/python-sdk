@@ -8,11 +8,12 @@ from pydantic import BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
+from mcp.server.auth._redirect_uri import validate_registered_redirect_uri
 from mcp.server.auth.errors import stringify_pydantic_error
 from mcp.server.auth.json_response import PydanticJSONResponse
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider, RegistrationError, RegistrationErrorCode
 from mcp.server.auth.settings import ClientRegistrationOptions
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
+from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull, OAuthClientMetadata
 
 # this alias is a no-op; it's just to separate out the types exposed to the
 # provider from what we use in the HTTP handler
@@ -44,6 +45,21 @@ class RegistrationHandler:
                 ),
                 status_code=400,
             )
+
+        # RFC 9700 §4.1.1 + RFC 7591 §2: Pydantic AnyUrl accepts non-OAuth
+        # schemes (javascript:, data:, file:, etc.) and URIs with fragments;
+        # reject those here per spec.
+        for uri in client_metadata.redirect_uris or []:
+            try:
+                validate_registered_redirect_uri(uri)
+            except InvalidRedirectUriError as e:
+                return PydanticJSONResponse(
+                    content=RegistrationErrorResponse(
+                        error="invalid_redirect_uri",
+                        error_description=e.message,
+                    ),
+                    status_code=400,
+                )
 
         client_id = str(uuid4())
 
