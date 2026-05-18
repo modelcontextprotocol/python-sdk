@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
+from pydantic import AnyUrl, BaseModel, ValidationError
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -18,10 +18,20 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 # provider from what we use in the HTTP handler
 RegistrationRequest = OAuthClientMetadata
 
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
+
 
 class RegistrationErrorResponse(BaseModel):
     error: RegistrationErrorCode
     error_description: str | None
+
+
+def _validate_redirect_uri(url: AnyUrl) -> None:
+    if url.scheme != "https" and not (url.scheme == "http" and url.host in _LOOPBACK_HOSTS):
+        raise ValueError("redirect_uris must use HTTPS unless they are HTTP loopback URLs")
+
+    if url.fragment is not None:
+        raise ValueError("redirect_uris must not include a fragment")
 
 
 @dataclass
@@ -44,6 +54,19 @@ class RegistrationHandler:
                 ),
                 status_code=400,
             )
+
+        if client_metadata.redirect_uris is not None:
+            try:
+                for redirect_uri in client_metadata.redirect_uris:
+                    _validate_redirect_uri(redirect_uri)
+            except ValueError as error:
+                return PydanticJSONResponse(
+                    content=RegistrationErrorResponse(
+                        error="invalid_redirect_uri",
+                        error_description=str(error),
+                    ),
+                    status_code=400,
+                )
 
         client_id = str(uuid4())
 

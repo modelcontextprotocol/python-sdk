@@ -657,6 +657,50 @@ class TestAuthEndpoints:
         # ) is not None
 
     @pytest.mark.anyio
+    async def test_client_registration_allows_loopback_redirect_uri(self, test_client: httpx.AsyncClient):
+        """Test client registration with an HTTP loopback redirect URI."""
+        client_metadata = {
+            "redirect_uris": ["http://localhost:3030/callback"],
+            "client_name": "Loopback Client",
+        }
+
+        response = await test_client.post(
+            "/register",
+            json=client_metadata,
+        )
+        assert response.status_code == 201, response.content
+        assert response.json()["redirect_uris"] == ["http://localhost:3030/callback"]
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "redirect_uri",
+        [
+            "http://client.example.com/callback",
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "file:///tmp/callback",
+            "https://client.example.com/callback#fragment",
+            "https://client.example.com/callback#",
+        ],
+    )
+    async def test_client_registration_rejects_unsafe_redirect_uris(
+        self, test_client: httpx.AsyncClient, redirect_uri: str
+    ):
+        """Test client registration rejects unsafe redirect URI schemes and fragments."""
+        client_metadata = {
+            "redirect_uris": [redirect_uri],
+            "client_name": "Test Client",
+        }
+
+        response = await test_client.post(
+            "/register",
+            json=client_metadata,
+        )
+        assert response.status_code == 400
+        error_data = response.json()
+        assert error_data["error"] == "invalid_redirect_uri"
+
+    @pytest.mark.anyio
     async def test_client_registration_missing_required_fields(self, test_client: httpx.AsyncClient):
         """Test client registration with missing required fields."""
         # Missing redirect_uris which is a required field
