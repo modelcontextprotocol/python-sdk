@@ -2,7 +2,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
 
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, AnyUrl
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -18,7 +18,7 @@ from mcp.server.auth.middleware.client_auth import ClientAuthenticator
 from mcp.server.auth.provider import OAuthAuthorizationServerProvider
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
 from mcp.server.streamable_http import MCP_PROTOCOL_VERSION_HEADER
-from mcp.shared.auth import OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.auth import InvalidRedirectUriError, OAuthMetadata, ProtectedResourceMetadata
 
 
 def validate_issuer_url(url: AnyHttpUrl):
@@ -40,6 +40,33 @@ def validate_issuer_url(url: AnyHttpUrl):
         raise ValueError("Issuer URL must not have a fragment")
     if url.query:
         raise ValueError("Issuer URL must not have a query string")
+
+
+def validate_registered_redirect_uri(url: AnyUrl) -> None:
+    """Validate that a registered redirect_uri meets OAuth 2.0 + RFC 7591 requirements.
+
+    Mirrors the policy that :func:`validate_issuer_url` applies to issuer URLs:
+    redirect URIs must use ``https``, except that ``http`` is permitted for
+    loopback hosts (``localhost``, ``127.0.0.1``, ``[::1]``) per RFC 8252 §7.3,
+    and they MUST NOT carry a fragment component per RFC 7591 §2.
+
+    Args:
+        url: A registered redirect_uri value from
+            :class:`mcp.shared.auth.OAuthClientMetadata`.
+
+    Raises:
+        InvalidRedirectUriError: If the URI uses a scheme other than ``https``
+            or loopback ``http``, or if it contains a fragment.
+    """
+    # RFC 9700 §4.1.1 (OAuth 2.0 Security BCP): https-only, with the RFC 8252
+    # native-app loopback exception.
+    if url.scheme not in ("https", "http"):
+        raise InvalidRedirectUriError(f"redirect_uri must use https (or http for loopback); got scheme {url.scheme!r}")
+    if url.scheme == "http" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
+        raise InvalidRedirectUriError(f"redirect_uri must use https for non-loopback hosts; got {str(url)!r}")
+    # RFC 7591 §2: redirect_uri MUST NOT contain a fragment component.
+    if url.fragment:
+        raise InvalidRedirectUriError(f"redirect_uri must not have a fragment; got {str(url)!r}")
 
 
 AUTHORIZATION_PATH = "/authorize"
