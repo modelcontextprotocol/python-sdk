@@ -516,7 +516,7 @@ class BaseSession(
         if stream:
             await stream.send(message.message)
         else:
-            await self._handle_incoming(RuntimeError(f"Received response with an unknown request ID: {message}"))
+            logging.warning("Received response with unknown request ID %r — dropping (request may have timed out)", response_id)
 
     async def _received_request(self, responder: RequestResponder[ReceiveRequestT, SendResultT]) -> None:
         """Can be overridden by subclasses to handle a request without needing to

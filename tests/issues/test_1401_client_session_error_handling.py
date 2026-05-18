@@ -5,9 +5,14 @@ silently dropping exceptions. The async-for loop in _receive_loop then called
 `continue`, waiting for the next message that never came — hanging all pending
 requests indefinitely.
 
-Fix: raise when message is an Exception so _receive_loop's except-handler runs,
-triggering the finally block that closes pending response streams with
-CONNECTION_CLOSED.
+Fix: _default_message_handler re-raises when the message is an Exception
+(transport errors from the stream). This propagates out of _receive_loop's
+async-for, triggering the finally block that closes all pending response streams
+with CONNECTION_CLOSED — unblocking any in-flight callers.
+
+Protocol-level non-fatal errors (e.g. responses with unknown request IDs from
+timed-out requests) are handled inline in _handle_response with a warning log,
+so they do not reach _default_message_handler and cannot kill the session.
 """
 
 import anyio
