@@ -440,7 +440,7 @@ class BaseSession(
             except Exception as e:
                 # Other exceptions are not expected and should be logged. We purposefully
                 # catch all exceptions here to avoid crashing the server.
-                logging.exception(f"Unhandled exception in receive loop: {e}")  # pragma: no cover
+                logging.exception(f"Unhandled exception in receive loop: {e}")
             finally:
                 # after the read stream is closed, we need to send errors
                 # to any pending requests
@@ -516,7 +516,7 @@ class BaseSession(
         if stream:
             await stream.send(message.message)
         else:
-            logging.warning(  # pragma: no cover
+            logging.warning(
                 "Received response with unknown request ID %r — dropping (request may have timed out)", response_id
             )
 
