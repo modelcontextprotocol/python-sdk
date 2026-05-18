@@ -16,8 +16,8 @@ so they do not reach _default_message_handler and cannot kill the session.
 """
 
 import anyio
-from anyio.abc import TaskStatus
 import pytest
+from anyio.abc import TaskStatus
 
 from mcp import types
 from mcp.client.session import ClientSession, _default_message_handler
