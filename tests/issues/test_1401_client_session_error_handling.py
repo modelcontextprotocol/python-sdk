@@ -37,9 +37,7 @@ async def test_default_message_handler_raises_on_exception():
 @pytest.mark.anyio
 async def test_default_message_handler_checkpoints_on_notification():
     """_default_message_handler should checkpoint (not raise) for non-exception messages."""
-    notification = types.ToolListChangedNotification(
-        method="notifications/tools/list_changed"
-    )
+    notification = types.ToolListChangedNotification(method="notifications/tools/list_changed")
     # Should complete without raising
     await _default_message_handler(notification)
 
@@ -64,9 +62,7 @@ async def test_transport_exception_unblocks_pending_request():
             tools=[types.Tool(name="slow", description="hangs", input_schema={"type": "object"})]
         )
 
-    async def handle_call_tool(
-        ctx: ServerRequestContext, params: CallToolRequestParams
-    ) -> CallToolResult:
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         slow_tool_started.set()
         await anyio.sleep(60)  # hangs until cancelled
         return CallToolResult(content=[TextContent(type="text", text="never")])  # pragma: no cover
