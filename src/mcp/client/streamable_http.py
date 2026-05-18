@@ -247,7 +247,7 @@ class StreamableHTTPTransport:
                     if is_complete:
                         break
         finally:
-            if event_source is not None:
+            if event_source is not None:  # pragma: no branch
                 await event_source.response.aclose()
 
     async def _handle_post_request(self, ctx: RequestContext) -> None:

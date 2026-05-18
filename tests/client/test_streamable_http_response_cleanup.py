@@ -3,11 +3,11 @@ import contextlib
 import httpx
 import pytest
 from httpx_sse import ServerSentEvent
+from mcp_types import JSONRPCRequest
 
 from mcp.client.streamable_http import RequestContext, StreamableHTTPTransport
 from mcp.shared._context_streams import create_context_streams
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
-from mcp.types import JSONRPCRequest
 
 
 class _RaiseEventSource:
