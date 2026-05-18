@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, TypeAlias
 
-import anyio
 import httpx
 from pydantic import BaseModel, Field
 from typing_extensions import Self
@@ -165,10 +164,9 @@ class ClientSessionGroup:
         if self._owns_exit_stack:
             await self._exit_stack.aclose()
 
-        # Concurrently close session stacks.
-        async with anyio.create_task_group() as tg:
-            for exit_stack in self._session_exit_stacks.values():
-                tg.start_soon(exit_stack.aclose)
+        # Sequentially close session stacks to preserve AnyIO task contexts.
+        for exit_stack in list(self._session_exit_stacks.values()):
+            await exit_stack.aclose()
 
     @property
     def sessions(self) -> list[mcp.ClientSession]:
