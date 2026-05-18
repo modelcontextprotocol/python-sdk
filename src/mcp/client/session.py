@@ -57,6 +57,8 @@ class MessageHandlerFnT(Protocol):
 async def _default_message_handler(
     message: RequestResponder[types.ServerRequest, types.ClientResult] | types.ServerNotification | Exception,
 ) -> None:
+    if isinstance(message, Exception):
+        logger.warning("Unhandled exception in message handler: %s", message)
     await anyio.lowlevel.checkpoint()
 
 
