@@ -156,6 +156,23 @@ async def test_client_session_initialize():
 
 
 @pytest.mark.anyio
+async def test_client_session_requires_context_manager():
+    client_to_server_send, _client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
+    _server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
+
+    async with (
+        client_to_server_send,
+        _client_to_server_receive,
+        _server_to_client_send,
+        server_to_client_receive,
+    ):
+        session = ClientSession(server_to_client_receive, client_to_server_send)
+
+        with pytest.raises(RuntimeError, match="async context manager"):
+            await session.initialize()
+
+
+@pytest.mark.anyio
 async def test_client_session_custom_client_info():
     client_to_server_send, client_to_server_receive = anyio.create_memory_object_stream[SessionMessage](1)
     server_to_client_send, server_to_client_receive = anyio.create_memory_object_stream[SessionMessage](1)
