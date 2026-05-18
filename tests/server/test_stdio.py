@@ -2,6 +2,8 @@ import io
 import sys
 from io import TextIOWrapper
 
+from pathlib import Path
+
 import anyio
 import pytest
 
@@ -61,6 +63,54 @@ async def test_stdio_server():
     assert len(received_responses) == 2
     assert received_responses[0] == JSONRPCRequest(jsonrpc="2.0", id=3, method="ping")
     assert received_responses[1] == JSONRPCResponse(jsonrpc="2.0", id=4, result={})
+
+
+@pytest.mark.anyio
+@pytest.mark.filterwarnings("default:unclosed file:ResourceWarning")
+async def test_stdio_server_does_not_close_sys_stdin_stdout(tmp_path: Path):
+    """Exiting stdio_server must not close the real sys.stdin / sys.stdout.
+
+    Regression test for https://github.com/modelcontextprotocol/python-sdk/issues/1933.
+    Uses real file descriptors via os.pipe() to exercise the os.dup() path.
+    """
+    import os
+
+    valid = JSONRPCRequest(jsonrpc="2.0", id=1, method="ping")
+    payload = valid.model_dump_json(by_alias=True, exclude_none=True).encode() + b"\n"
+
+    # Create a pipe with the MCP message, and a temp file for stdout.
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, payload)
+    os.close(write_fd)
+
+    stdout_path = tmp_path / "stdout.bin"
+    stdout_fd = os.open(str(stdout_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC)
+
+    # Save originals and replace with our pipe/file.
+    orig_stdin = sys.stdin
+    orig_stdout = sys.stdout
+    test_stdin = os.fdopen(read_fd, "rb")
+    test_stdout = os.fdopen(stdout_fd, "wb")
+    sys.stdin = test_stdin
+    sys.stdout = test_stdout
+
+    try:
+        with anyio.fail_after(5):
+            async with stdio_server() as (read_stream, write_stream):
+                await write_stream.aclose()
+                async with read_stream:
+                    msg = await read_stream.receive()
+                    assert isinstance(msg, SessionMessage)
+
+        # After exiting the server, the original sys.stdin / sys.stdout must
+        # still be usable — the wrappers must NOT have closed them.
+        assert not sys.stdin.closed, "sys.stdin was closed by stdio_server"
+        assert not sys.stdout.closed, "sys.stdout was closed by stdio_server"
+    finally:
+        sys.stdin = orig_stdin
+        sys.stdout = orig_stdout
+        test_stdin.close()
+        test_stdout.close()
 
 
 @pytest.mark.anyio
