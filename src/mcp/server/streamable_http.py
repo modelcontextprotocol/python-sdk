@@ -476,23 +476,11 @@ class StreamableHTTPServerTransport:
                 await response(scope, receive, send)
                 return
 
-            # Check if this is an initialization request
-            is_initialization_request = isinstance(message, JSONRPCRequest) and message.method == "initialize"
-
-            if is_initialization_request:
-                # Check if the server already has an established session
-                if self.mcp_session_id:
-                    # Check if request has a session ID
-                    request_session_id = self._get_session_id(request)
-
-                    # If request has a session ID but doesn't match, return 404
-                    if request_session_id and request_session_id != self.mcp_session_id:  # pragma: no cover
-                        response = self._create_error_response(
-                            "Not Found: Invalid or expired session ID",
-                            HTTPStatus.NOT_FOUND,
-                        )
-                        await response(scope, receive, send)
-                        return
+            is_initialization_request = False
+            if isinstance(message, JSONRPCRequest) and message.method == "initialize":
+                is_initialization_request = True
+                if not await self._validate_initialization_request(message, request, send):
+                    return
             elif not await self._validate_request_headers(request, send):
                 return
 
@@ -842,6 +830,44 @@ class StreamableHTTPServerTransport:
             response = self._create_error_response(
                 "Not Found: Invalid or expired session ID",
                 HTTPStatus.NOT_FOUND,
+            )
+            await response(request.scope, request.receive, send)
+            return False
+
+        return True
+
+    async def _validate_initialization_request(self, message: JSONRPCRequest, request: Request, send: Send) -> bool:
+        if not await self._validate_initialization_protocol_version(message, request, send):
+            return False
+
+        if not self.mcp_session_id:
+            return True
+
+        request_session_id = self._get_session_id(request)
+        if request_session_id and request_session_id != self.mcp_session_id:  # pragma: no cover
+            response = self._create_error_response(
+                "Not Found: Invalid or expired session ID",
+                HTTPStatus.NOT_FOUND,
+            )
+            await response(request.scope, request.receive, send)
+            return False
+
+        return True
+
+    async def _validate_initialization_protocol_version(
+        self, message: JSONRPCRequest, request: Request, send: Send
+    ) -> bool:
+        header_protocol_version = request.headers.get(MCP_PROTOCOL_VERSION_HEADER)
+        body_protocol_version = str(message.params.get("protocolVersion")) if message.params else None
+        if (
+            header_protocol_version is not None
+            and body_protocol_version is not None
+            and header_protocol_version != body_protocol_version
+        ):
+            response = self._create_error_response(
+                f"Bad Request: {MCP_PROTOCOL_VERSION_HEADER} header does not match initialize.params.protocolVersion",
+                HTTPStatus.BAD_REQUEST,
+                INVALID_REQUEST,
             )
             await response(request.scope, request.receive, send)
             return False
