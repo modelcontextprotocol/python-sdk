@@ -16,6 +16,7 @@ so they do not reach _default_message_handler and cannot kill the session.
 """
 
 import anyio
+from anyio.abc import TaskStatus
 import pytest
 
 from mcp import types
@@ -71,7 +72,7 @@ async def test_transport_exception_unblocks_pending_request():
     call_tool_error: Exception | None = None
     server_scope: anyio.CancelScope | None = None
 
-    async def run_server(*, task_status: anyio.abc.TaskStatus) -> None:
+    async def run_server(*, task_status: TaskStatus[anyio.CancelScope]) -> None:
         with anyio.CancelScope() as scope:
             task_status.started(scope)
             await server.run(server_reader, client_writer, server.create_initialization_options())

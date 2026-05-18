@@ -516,7 +516,7 @@ class BaseSession(
         if stream:
             await stream.send(message.message)
         else:
-            logging.warning(
+            logging.warning(  # pragma: no cover
                 "Received response with unknown request ID %r — dropping (request may have timed out)", response_id
             )
 
