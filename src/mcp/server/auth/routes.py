@@ -65,7 +65,7 @@ def validate_registered_redirect_uri(url: AnyUrl) -> None:
     if url.scheme == "http" and url.host not in ("localhost", "127.0.0.1", "[::1]"):
         raise InvalidRedirectUriError(f"redirect_uri must use https for non-loopback hosts; got {str(url)!r}")
     # RFC 7591 §2: redirect_uri MUST NOT contain a fragment component.
-    if url.fragment:
+    if url.fragment is not None:
         raise InvalidRedirectUriError(f"redirect_uri must not have a fragment; got {str(url)!r}")
 
 

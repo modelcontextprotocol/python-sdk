@@ -102,3 +102,8 @@ def test_validate_registered_redirect_uri_http_127_prefix_domain_rejected():
 def test_validate_registered_redirect_uri_fragment_rejected():
     with pytest.raises(InvalidRedirectUriError, match="must not have a fragment"):
         validate_registered_redirect_uri(AnyUrl("https://example.com/cb#frag"))
+
+
+def test_validate_registered_redirect_uri_empty_fragment_rejected():
+    with pytest.raises(InvalidRedirectUriError, match="must not have a fragment"):
+        validate_registered_redirect_uri(AnyUrl("https://example.com/cb#"))
