@@ -270,7 +270,7 @@ class StreamableHTTPTransport:
                     if is_complete:
                         break
         finally:
-            if event_source is not None:
+            if event_source is not None:  # pragma: no branch
                 await event_source.response.aclose()
 
     def _consume_modern_cancellation(self, session_message: SessionMessage) -> bool:
