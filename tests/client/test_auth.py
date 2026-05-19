@@ -663,7 +663,7 @@ class TestOAuthFallback:
         provider.context.protocol_version = "2025-06-18"
         provider.context.current_tokens = OAuthToken(
             access_token="test_access_token",
-            token_type="bearer",
+            token_type="Bearer",
             expires_in=3600,
             refresh_token="test_refresh_token",
         )
