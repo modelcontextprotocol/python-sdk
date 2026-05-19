@@ -1,4 +1,5 @@
 import io
+import os
 import sys
 from io import TextIOWrapper
 
@@ -92,3 +93,36 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_does_not_close_real_stdin(monkeypatch: pytest.MonkeyPatch):
+    """Regression test for issue #1933: stdio_server() must not close
+    sys.stdin or sys.stdout after the context manager exits.
+    """
+    # Use pipes so stdio_server() sees EOF immediately (no interactive stdin needed).
+    in_r, in_w = os.pipe()
+    out_r, out_w = os.pipe()
+    os.close(in_w)  # make stdin appear at EOF so stdin_reader exits immediately
+    os.close(out_r)  # we don't read server output in this test
+
+    fake_stdin_buf = os.fdopen(in_r, "rb")
+    fake_stdout_buf = os.fdopen(out_w, "wb")
+    # Keep references so we can close them explicitly (prevents ResourceWarning
+    # when GC would otherwise finalize the file objects during teardown).
+    fake_stdin = TextIOWrapper(fake_stdin_buf, encoding="utf-8")
+    fake_stdout = TextIOWrapper(fake_stdout_buf, encoding="utf-8")
+    monkeypatch.setattr(sys, "stdin", fake_stdin)
+    monkeypatch.setattr(sys, "stdout", fake_stdout)
+
+    with anyio.fail_after(5):
+        async with stdio_server() as (read_stream, write_stream):
+            await write_stream.aclose()
+            await read_stream.aclose()
+
+    assert not fake_stdin_buf.closed, "stdio_server closed sys.stdin.buffer — regression from issue #1933"
+    assert not fake_stdout_buf.closed, "stdio_server closed sys.stdout.buffer"
+
+    # Explicit close before teardown; GC-based close of real fds triggers ResourceWarning.
+    fake_stdin.close()
+    fake_stdout.close()
