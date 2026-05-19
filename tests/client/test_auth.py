@@ -259,6 +259,24 @@ class TestOAuthContext:
         assert context.current_tokens is None
         assert context.token_expiry_time is None
 
+    def test_get_resource_url_strips_trailing_slash_from_bare_domain_prm(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ) -> None:
+        """get_resource_url strips Pydantic AnyHttpUrl trailing slash for bare-domain PRM."""
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+        )
+        provider._initialized = True
+
+        provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+            resource=AnyHttpUrl("https://api.example.com"),
+            authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        )
+
+        assert provider.context.get_resource_url() == snapshot("https://api.example.com")
+
 
 class TestOAuthFlow:
     """Test OAuth flow methods."""
@@ -630,6 +648,35 @@ class TestOAuthFallback:
         assert "refresh_token=test_refresh_token" in content
         assert "client_id=test_client" in content
         assert "client_secret=test_secret" in content
+
+    @pytest.mark.anyio
+    async def test_refresh_token_request_omits_resource_even_when_required_by_protocol(
+        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+    ) -> None:
+        """refresh_token request should not include RFC8707 resource parameter."""
+        provider = OAuthClientProvider(
+            server_url="https://api.example.com/v1/mcp",
+            client_metadata=client_metadata,
+            storage=mock_storage,
+        )
+        provider._initialized = True
+        provider.context.protocol_version = "2025-06-18"
+        provider.context.current_tokens = OAuthToken(
+            access_token="test_access_token",
+            token_type="bearer",
+            expires_in=3600,
+            refresh_token="test_refresh_token",
+        )
+        provider.context.client_info = OAuthClientInformationFull(
+            client_id="test_client",
+            client_secret="test_secret",
+            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+            token_endpoint_auth_method="client_secret_post",
+        )
+
+        request = await provider._refresh_token()
+        content = request.content.decode()
+        assert "resource=" not in content
 
     @pytest.mark.anyio
     async def test_basic_auth_token_exchange(self, oauth_provider: OAuthClientProvider):
