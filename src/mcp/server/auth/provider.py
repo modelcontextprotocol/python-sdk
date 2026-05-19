@@ -64,6 +64,7 @@ AuthorizationErrorCode = Literal[
     "invalid_scope",
     "server_error",
     "temporarily_unavailable",
+    "invalid_target",  # RFC 8707 §2 — resource indicator mismatch
 ]
 
 
