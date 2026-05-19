@@ -672,6 +672,20 @@ class TestAuthEndpoints:
         assert response.json()["redirect_uris"] == ["http://localhost:3030/callback"]
 
     @pytest.mark.anyio
+    async def test_client_registration_allows_null_redirect_uris(self, test_client: httpx.AsyncClient):
+        client_metadata = {
+            "redirect_uris": None,
+            "client_name": "No Redirect Client",
+        }
+
+        response = await test_client.post(
+            "/register",
+            json=client_metadata,
+        )
+        assert response.status_code == 201, response.content
+        assert "redirect_uris" not in response.json()
+
+    @pytest.mark.anyio
     @pytest.mark.parametrize(
         "redirect_uri",
         [
