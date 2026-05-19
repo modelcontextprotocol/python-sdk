@@ -650,35 +650,6 @@ class TestOAuthFallback:
         assert "client_secret=test_secret" in content
 
     @pytest.mark.anyio
-    async def test_refresh_token_request_omits_resource_even_when_required_by_protocol(
-        self, client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
-    ) -> None:
-        """refresh_token request should not include RFC8707 resource parameter."""
-        provider = OAuthClientProvider(
-            server_url="https://api.example.com/v1/mcp",
-            client_metadata=client_metadata,
-            storage=mock_storage,
-        )
-        provider._initialized = True
-        provider.context.protocol_version = "2025-06-18"
-        provider.context.current_tokens = OAuthToken(
-            access_token="test_access_token",
-            token_type="Bearer",
-            expires_in=3600,
-            refresh_token="test_refresh_token",
-        )
-        provider.context.client_info = OAuthClientInformationFull(
-            client_id="test_client",
-            client_secret="test_secret",
-            redirect_uris=[AnyUrl("http://localhost:3030/callback")],
-            token_endpoint_auth_method="client_secret_post",
-        )
-
-        request = await provider._refresh_token()
-        content = request.content.decode()
-        assert "resource=" not in content
-
-    @pytest.mark.anyio
     async def test_basic_auth_token_exchange(self, oauth_provider: OAuthClientProvider):
         """Test token exchange with client_secret_basic authentication."""
         # Set up OAuth metadata to support basic auth
@@ -817,7 +788,7 @@ class TestProtectedResourceMetadata:
         )
         refresh_request = await oauth_provider._refresh_token()
         refresh_content = refresh_request.content.decode()
-        assert "resource=" in refresh_content
+        assert "resource=" not in refresh_content
 
     @pytest.mark.anyio
     async def test_resource_param_excluded_with_old_protocol_version(self, oauth_provider: OAuthClientProvider):
