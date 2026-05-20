@@ -762,8 +762,10 @@ class TestProtectedResourceMetadata:
     """Test protected resource handling."""
 
     @pytest.mark.anyio
-    async def test_resource_param_included_with_recent_protocol_version(self, oauth_provider: OAuthClientProvider):
-        """Test resource parameter is included for protocol version >= 2025-06-18."""
+    async def test_resource_param_included_in_auth_code_exchange_but_not_refresh_with_recent_protocol_version(
+        self, oauth_provider: OAuthClientProvider
+    ):
+        """Resource parameter is included for auth code exchange, not refresh."""
         # Set protocol version to 2025-06-18
         oauth_provider.context.protocol_version = "2025-06-18"
         oauth_provider.context.client_info = OAuthClientInformationFull(
