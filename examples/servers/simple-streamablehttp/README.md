@@ -48,4 +48,4 @@ Note: The InMemoryEventStore is designed for demonstration purposes only. For pr
 
 ## Client
 
-You can connect to this server using an HTTP client, for now only Typescript SDK has streamable HTTP client examples or you can use [Inspector](https://github.com/modelcontextprotocol/inspector)
+You can connect to this server using an HTTP client, for now only TypeScript SDK has streamable HTTP client examples or you can use [Inspector](https://github.com/modelcontextprotocol/inspector)
