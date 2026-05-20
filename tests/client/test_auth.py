@@ -745,7 +745,7 @@ class TestProtectedResourceMetadata:
 
     @pytest.mark.anyio
     async def test_resource_param_included_with_recent_protocol_version(self, oauth_provider: OAuthClientProvider):
-        """Test resource parameter is included for protocol version >= 2025-06-18."""
+        """Test resource parameter is included on authorization-code token requests."""
         # Set protocol version to 2025-06-18
         oauth_provider.context.protocol_version = "2025-06-18"
         oauth_provider.context.client_info = OAuthClientInformationFull(
@@ -762,7 +762,7 @@ class TestProtectedResourceMetadata:
         expected_resource = quote(oauth_provider.context.get_resource_url(), safe="")
         assert f"resource={expected_resource}" in content
 
-        # Test in refresh token
+        # Refresh grants should not include resource; some providers reject it.
         oauth_provider.context.current_tokens = OAuthToken(
             access_token="test_access",
             token_type="Bearer",
@@ -770,7 +770,7 @@ class TestProtectedResourceMetadata:
         )
         refresh_request = await oauth_provider._refresh_token()
         refresh_content = refresh_request.content.decode()
-        assert "resource=" in refresh_content
+        assert "resource=" not in refresh_content
 
     @pytest.mark.anyio
     async def test_resource_param_excluded_with_old_protocol_version(self, oauth_provider: OAuthClientProvider):
@@ -800,7 +800,7 @@ class TestProtectedResourceMetadata:
 
     @pytest.mark.anyio
     async def test_resource_param_included_with_protected_resource_metadata(self, oauth_provider: OAuthClientProvider):
-        """Test resource parameter is always included when protected resource metadata exists."""
+        """Test PRM makes resource available for authorization-code token requests."""
         # Set old protocol version but with protected resource metadata
         oauth_provider.context.protocol_version = "2025-03-26"
         oauth_provider.context.protected_resource_metadata = ProtectedResourceMetadata(
@@ -817,6 +817,16 @@ class TestProtectedResourceMetadata:
         request = await oauth_provider._exchange_token_authorization_code("test_code", "test_verifier")
         content = request.content.decode()
         assert "resource=" in content
+
+        # Refresh grants should not include resource even when PRM is present.
+        oauth_provider.context.current_tokens = OAuthToken(
+            access_token="test_access",
+            token_type="Bearer",
+            refresh_token="test_refresh",
+        )
+        refresh_request = await oauth_provider._refresh_token()
+        refresh_content = refresh_request.content.decode()
+        assert "resource=" not in refresh_content
 
 
 @pytest.mark.anyio
@@ -947,6 +957,25 @@ async def test_get_resource_url_uses_canonical_when_prm_mismatches(
 
     # get_resource_url should return the canonical server URL, not the PRM resource
     assert provider.context.get_resource_url() == snapshot("https://api.example.com/v1/mcp")
+
+
+@pytest.mark.anyio
+async def test_get_resource_url_strips_bare_domain_prm_trailing_slash(
+    client_metadata: OAuthClientMetadata, mock_storage: MockTokenStorage
+) -> None:
+    """Bare-domain PRM resources should not inherit AnyHttpUrl's trailing slash."""
+    provider = OAuthClientProvider(
+        server_url="https://api.example.com",
+        client_metadata=client_metadata,
+        storage=mock_storage,
+    )
+    provider._initialized = True
+    provider.context.protected_resource_metadata = ProtectedResourceMetadata(
+        resource=AnyHttpUrl("https://api.example.com"),
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+    )
+
+    assert provider.context.get_resource_url() == snapshot("https://api.example.com")
 
 
 class TestRegistrationResponse:
