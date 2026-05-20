@@ -90,6 +90,7 @@ class StreamableHTTPTransport:
         """
         headers: dict[str, str] = {
             "accept": "application/json, text/event-stream",
+            "accept-encoding": "identity",
             "content-type": "application/json",
         }
         # Add session headers if available

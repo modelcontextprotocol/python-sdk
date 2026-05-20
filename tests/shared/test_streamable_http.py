@@ -2283,6 +2283,8 @@ async def test_streamable_http_client_mcp_headers_override_defaults(
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
 
+                assert headers_data.get("accept-encoding") == "identity"
+
 
 @pytest.mark.anyio
 async def test_streamable_http_client_preserves_custom_with_mcp_headers(
@@ -2318,3 +2320,5 @@ async def test_streamable_http_client_preserves_custom_with_mcp_headers(
 
                 assert "content-type" in headers_data
                 assert headers_data["content-type"] == "application/json"
+
+                assert headers_data.get("accept-encoding") == "identity"
