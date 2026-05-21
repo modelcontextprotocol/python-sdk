@@ -49,7 +49,7 @@ def _parse_supported(data: Any) -> list[str] | None:
         return None
 
 
-async def negotiate_auto(session: ClientSession) -> None:
+async def negotiate_auto(session: ClientSession, protocol_version: str | None = None) -> None:
     """Drive the ``mode='auto'`` connect-time policy on ``session``.
 
     Probes ``server/discover`` once (twice if the server names a mutual
@@ -78,7 +78,10 @@ async def negotiate_auto(session: ClientSession) -> None:
                 if supported is not None and not any(v in HANDSHAKE_PROTOCOL_VERSIONS for v in supported):
                     raise  # server is modern-only and disjoint — real incompatibility
             try:
-                await session.initialize()  # every other rpc-error → legacy (the denylist)
+                if protocol_version is not None:
+                    await session.initialize(protocol_version=protocol_version)
+                else:
+                    await session.initialize()  # every other rpc-error → legacy (the denylist)
             except MCPError as handshake_exc:
                 if handshake_exc.code != UNSUPPORTED_PROTOCOL_VERSION or attempt != 0:
                     raise
@@ -99,7 +102,10 @@ async def negotiate_auto(session: ClientSession) -> None:
         try:
             result = types.DiscoverResult.model_validate(raw)
         except ValidationError:
-            await session.initialize()  # unparseable result → not modern evidence
+            if protocol_version is not None:
+                await session.initialize(protocol_version=protocol_version)
+            else:
+                await session.initialize()  # unparseable result → not modern evidence
             return
         if not any(v in result.supported_versions for v in MODERN_PROTOCOL_VERSIONS):
             # A discover-answering server that advertises no modern version
