@@ -303,7 +303,7 @@ class MCPServer(Generic[LifespanResultT]):
         if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
             raise ValueError(f"Unknown transport: {transport}")
 
-        match transport:
+        match transport:  # pragma: lax no cover
             case "stdio":
                 anyio.run(self.run_stdio_async)
             case "sse":  # pragma: no cover
@@ -857,7 +857,7 @@ class MCPServer(Generic[LifespanResultT]):
 
         return decorator  # pragma: no cover
 
-    async def run_stdio_async(self) -> None:
+    async def run_stdio_async(self) -> None:  # pragma: lax no cover
         """Run the server using stdio transport."""
         async with stdio_server() as (read_stream, write_stream):
             await self._lowlevel_server.run(
