@@ -57,6 +57,7 @@ class _StubSession:
         self.probed_at: list[str] = []
         self.initialize_calls: int = 0
         self.initialized: bool = False
+        self.initialize_version: str | None = None
         self.adopted: types.DiscoverResult | None = None
 
     async def send_discover(self, version: str) -> dict[str, Any]:
@@ -66,19 +67,20 @@ class _StubSession:
             raise step
         return step
 
-    async def initialize(self) -> None:
+    async def initialize(self, protocol_version: str | None = None) -> None:
         self.initialize_calls += 1
         if self._handshake:
             raise self._handshake.pop(0)
         self.initialized = True
+        self.initialize_version = protocol_version
 
     def adopt(self, result: types.DiscoverResult) -> None:
         self.adopted = result
 
 
-async def _negotiate(session: _StubSession) -> None:
+async def _negotiate(session: _StubSession, protocol_version: str | None = None) -> None:
     """Drive `negotiate_auto` against the stub; cast at one seam so the tests stay suppression-free."""
-    await negotiate_auto(cast("ClientSession", session))
+    await negotiate_auto(cast("ClientSession", session), protocol_version=protocol_version)
 
 
 def _discover_dict(versions: list[str] | None = None) -> dict[str, Any]:
@@ -319,3 +321,20 @@ def test_parse_supported_returns_none_for_anything_not_shaped_like_the_spec_erro
     """`_parse_supported` returns the `supported` list when `error.data` validates as
     `UnsupportedProtocolVersionErrorData`, and `None` otherwise — never raises."""
     assert _parse_supported(data) == expected
+
+
+async def test_negotiate_auto_mcp_error_with_custom_protocol_version() -> None:
+    """Test that negotiate_auto initializes with a custom protocol version when discover returns an MCPError."""
+    session = _StubSession(MCPError(code=METHOD_NOT_FOUND, message="nope"))
+    await _negotiate(session, protocol_version="2024-11-05")
+    assert session.initialized
+    assert session.initialize_version == "2024-11-05"
+
+
+async def test_negotiate_auto_validation_error_with_custom_protocol_version() -> None:
+    """Test that negotiate_auto initializes with a custom protocol version when discover returns unparseable result."""
+    session = _StubSession({"not": "a discover result"})
+    await _negotiate(session, protocol_version="2024-11-05")
+    assert session.initialized
+    assert session.initialize_version == "2024-11-05"
+

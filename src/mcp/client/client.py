@@ -354,6 +354,8 @@ class Client:
     `target_id` when the server is not a URL (no identity can be derived)."""
 
     _entered: bool = field(init=False, default=False)
+    protocol_version_override: str | None = None
+    """The protocol version to request during initialization. Defaults to the latest version."""
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _connect: _Connector = field(init=False, repr=False, compare=False)
@@ -439,9 +441,12 @@ class Client:
             session = await exit_stack.enter_async_context(session)
 
             if self.mode == "legacy":
-                await session.initialize()
+                if self.protocol_version_override is not None:
+                    await session.initialize(protocol_version=self.protocol_version_override)
+                else:
+                    await session.initialize()
             elif self.mode == "auto":
-                await negotiate_auto(session)
+                await negotiate_auto(session, protocol_version=self.protocol_version_override)
             else:
                 session.adopt(self.prior_discover or _synthesize_discover(self.mode))
 
