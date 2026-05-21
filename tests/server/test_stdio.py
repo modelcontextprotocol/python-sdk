@@ -1,13 +1,29 @@
 import io
 import sys
 from io import TextIOWrapper
+from typing import cast
 
 import anyio
 import pytest
 
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
+from mcp.types import JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, jsonrpc_message_adapter
+
+
+class BlockingStdout:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+        self.write_started = anyio.Event()
+        self.release_write = anyio.Event()
+
+    async def write(self, text: str) -> None:
+        self.lines.append(text)
+        self.write_started.set()
+        await self.release_write.wait()
+
+    async def flush(self) -> None:
+        pass
 
 
 @pytest.mark.anyio
@@ -92,3 +108,26 @@ async def test_stdio_server_invalid_utf8(monkeypatch: pytest.MonkeyPatch):
                 second = await read_stream.receive()
                 assert isinstance(second, SessionMessage)
                 assert second.message == valid
+
+
+@pytest.mark.anyio
+async def test_stdio_server_write_stream_allows_response_after_slow_notification():
+    """A slow stdout write for a notification must not block the next response."""
+    stdout = BlockingStdout()
+    typed_stdout = cast(anyio.AsyncFile[str], stdout)
+
+    async with stdio_server(stdin=anyio.AsyncFile(io.StringIO()), stdout=typed_stdout) as (
+        read_stream,
+        write_stream,
+    ):
+        notification = JSONRPCNotification(jsonrpc="2.0", method="notifications/progress")
+        await write_stream.send(SessionMessage(notification))
+        await stdout.write_started.wait()
+
+        with anyio.move_on_after(0.1) as scope:
+            await write_stream.send(SessionMessage(JSONRPCResponse(jsonrpc="2.0", id=2, result={})))
+
+        assert not scope.cancel_called
+        stdout.release_write.set()
+        await write_stream.aclose()
+        await read_stream.aclose()
