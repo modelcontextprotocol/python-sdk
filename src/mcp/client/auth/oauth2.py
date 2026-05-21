@@ -463,7 +463,7 @@ class OAuthClientProvider(httpx.Auth):
 
         return httpx.Request("POST", token_url, data=refresh_data, headers=headers)
 
-    async def _handle_refresh_response(self, response: httpx.Response) -> bool:  # pragma: no cover
+    async def _handle_refresh_response(self, response: httpx.Response) -> bool:
         """Handle token refresh response. Returns True if successful."""
         if response.status_code != 200:
             logger.warning(f"Token refresh failed: {response.status_code}")
@@ -544,13 +544,13 @@ class OAuthClientProvider(httpx.Auth):
                 refresh_request: httpx.Request | None = None
                 async with self.context.lock:
                     if not self.context.is_token_valid() and self.context.can_refresh_token():
-                        refresh_request = await self._refresh_token()  # pragma: no cover
+                        refresh_request = await self._refresh_token()
                 if refresh_request is not None:
                     # yield runs outside any lock so a long network round trip
                     # does not block unrelated concurrent requests.
-                    refresh_response = yield refresh_request  # pragma: no cover
+                    refresh_response = yield refresh_request
                     async with self.context.lock:
-                        if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
+                        if not await self._handle_refresh_response(refresh_response):
                             # Refresh failed; fall through to 401 handling below.
                             self._initialized = False
 
