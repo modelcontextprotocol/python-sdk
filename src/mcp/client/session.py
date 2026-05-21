@@ -350,13 +350,13 @@ class ClientSession:
         )
         return types.ClientCapabilities(sampling=sampling, elicitation=elicitation, experimental=None, roots=roots)
 
-    async def initialize(self) -> types.InitializeResult:
+    async def initialize(self, protocol_version: str = LATEST_HANDSHAKE_VERSION) -> types.InitializeResult:
         if self._initialize_result is not None:
             return self._initialize_result
         result = await self.send_request(
             types.InitializeRequest(
                 params=types.InitializeRequestParams(
-                    protocol_version=LATEST_HANDSHAKE_VERSION,
+                    protocol_version=protocol_version,
                     capabilities=self._build_capabilities(),
                     client_info=self._client_info,
                 ),
