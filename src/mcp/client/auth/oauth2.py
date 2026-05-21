@@ -541,14 +541,11 @@ class OAuthClientProvider(httpx.Auth):
             async with self.context.refresh_lock:
                 # Re-check under context.lock: another coroutine may already have
                 # refreshed while we were waiting on refresh_lock.
+                refresh_request: httpx.Request | None = None
                 async with self.context.lock:
-                    still_invalid = (
-                        not self.context.is_token_valid()
-                        and self.context.can_refresh_token()
-                    )
-                    if still_invalid:
+                    if not self.context.is_token_valid() and self.context.can_refresh_token():
                         refresh_request = await self._refresh_token()  # pragma: no cover
-                if still_invalid:
+                if refresh_request is not None:
                     # yield runs outside any lock so a long network round trip
                     # does not block unrelated concurrent requests.
                     refresh_response = yield refresh_request  # pragma: no cover
