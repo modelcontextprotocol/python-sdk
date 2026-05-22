@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Any, Generic, Literal, Protocol, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import AnyUrl, BaseModel
@@ -25,6 +25,7 @@ class AuthorizationCode(BaseModel):
     redirect_uri: AnyUrl
     redirect_uri_provided_explicitly: bool
     resource: str | None = None  # RFC 8707 resource indicator
+    subject: str | None = None  # resource owner; propagate to the issued AccessToken
 
 
 class RefreshToken(BaseModel):
@@ -32,6 +33,7 @@ class RefreshToken(BaseModel):
     client_id: str
     scopes: list[str]
     expires_at: int | None = None
+    subject: str | None = None  # resource owner; propagate to refreshed AccessTokens
 
 
 class AccessToken(BaseModel):
@@ -40,6 +42,14 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
+    subject: str | None = None
+    """The resource owner this token was issued on behalf of — typically the
+    `sub` from a JWT (RFC 9068) or introspection response (RFC 7662). Token
+    verifiers should populate this whenever an end-user is involved so request
+    handlers and transports can distinguish users that share an OAuth client.
+    Conventionally unset for `client_credentials` tokens."""
+    claims: dict[str, Any] | None = None
+    """Additional verified claims (e.g. `iss`, `act`) for request handlers."""
 
 
 RegistrationErrorCode = Literal[
