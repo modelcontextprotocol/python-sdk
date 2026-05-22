@@ -46,6 +46,11 @@ class TaskResultHandler:
     4. Blocks until task reaches terminal state
     5. Returns the final result
 
+    Prefer `server.experimental.enable_tasks()`, whose default tasks/result
+    handler wraps `handle()` and only serves tasks created by the requesting
+    session. A custom handler that calls `handle()` directly is responsible
+    for deciding which requestors may access which tasks.
+
     Usage:
         # Create handler with store and queue
         handler = TaskResultHandler(task_store, message_queue)
@@ -55,9 +60,6 @@ class TaskResultHandler:
         async def handle_task_result(req: GetTaskPayloadRequest) -> GetTaskPayloadResult:
             ctx = server.request_context
             return await handler.handle(req, ctx.session, ctx.request_id)
-
-        # Or use the convenience method
-        handler.register(server)
     """
 
     def __init__(

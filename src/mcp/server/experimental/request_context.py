@@ -7,11 +7,15 @@ features within a request context, such as task-augmented request handling.
 WARNING: These APIs are experimental and may change without notice.
 """
 
+import warnings
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, overload
+
+from typing_extensions import deprecated
 
 from mcp.server.experimental.task_context import ServerTaskContext
+from mcp.server.experimental.task_scope import scoped_task_id
 from mcp.server.experimental.task_support import TaskSupport
 from mcp.server.session import ServerSession
 from mcp.shared.exceptions import McpError
@@ -27,6 +31,14 @@ from mcp.types import (
     TaskExecutionMode,
     TaskMetadata,
     Tool,
+)
+
+EXPLICIT_TASK_ID_DEPRECATION = (
+    "Passing an explicit task_id to run_task is deprecated. A task created with an "
+    "explicit ID is not associated with the session that created it: any requestor "
+    "that presents the ID can read its status and result or cancel it, and it never "
+    "appears in tasks/list. Omit task_id to let the SDK generate an ID associated "
+    "with the creating session."
 )
 
 
@@ -143,6 +155,25 @@ class Experimental:
             return False
         return True
 
+    @overload
+    async def run_task(
+        self,
+        work: Callable[[ServerTaskContext], Awaitable[Result]],
+        *,
+        task_id: None = None,
+        model_immediate_response: str | None = None,
+    ) -> CreateTaskResult: ...
+
+    @overload
+    @deprecated(EXPLICIT_TASK_ID_DEPRECATION)
+    async def run_task(
+        self,
+        work: Callable[[ServerTaskContext], Awaitable[Result]],
+        *,
+        task_id: str,
+        model_immediate_response: str | None = None,
+    ) -> CreateTaskResult: ...
+
     async def run_task(
         self,
         work: Callable[[ServerTaskContext], Awaitable[Result]],
@@ -167,9 +198,17 @@ class Experimental:
         When work() returns a Result, the task is auto-completed with that result.
         If work() raises an exception, the task is auto-failed.
 
+        Generated task IDs embed the session's task scope so that the default
+        task handlers only serve the task to the session that created it. An
+        explicitly provided `task_id` is used verbatim and is not associated
+        with the session, so any session can access it through the default
+        handlers; passing one is deprecated for that reason.
+
         Args:
             work: Async function that does the actual work
-            task_id: Optional task ID (generated if not provided)
+            task_id: Deprecated. Optional task ID, used verbatim and not
+                associated with the creating session. Omit it to let the SDK
+                generate one.
             model_immediate_response: Optional string to include in _meta as
                 io.modelcontextprotocol/model-immediate-response
 
@@ -196,6 +235,8 @@ class Experimental:
 
         WARNING: This API is experimental and may change without notice.
         """
+        if task_id is not None:
+            warnings.warn(EXPLICIT_TASK_ID_DEPRECATION, DeprecationWarning, stacklevel=2)
         if self._task_support is None:
             raise RuntimeError("Task support not enabled. Call server.experimental.enable_tasks() first.")
         if self._session is None:
@@ -209,6 +250,11 @@ class Experimental:
         support = self._task_support
         # Access task_group via TaskSupport - raises if not in run() context
         task_group = support.task_group
+
+        if task_id is None:
+            session_scope = self._session.experimental.task_session_scope
+            if session_scope is not None:
+                task_id = scoped_task_id(session_scope)
 
         task = await support.store.create_task(self.task_metadata, task_id)
 
