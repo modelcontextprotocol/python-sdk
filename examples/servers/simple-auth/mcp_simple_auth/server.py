@@ -126,9 +126,12 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
         # Parse auth server URL
         auth_server_url = AnyHttpUrl(auth_server)
 
-        # Create settings
+        # Create settings. server_url is the public URL of the MCP endpoint and must
+        # include the transport path so it matches the URL the client used to reach
+        # the server (RFC 9728 §3.3 strict equality).
         host = "localhost"
-        server_url = f"http://{host}:{port}/mcp"
+        transport_path = "/sse" if transport == "sse" else "/mcp"
+        server_url = f"http://{host}:{port}{transport_path}"
         settings = ResourceServerSettings(
             host=host,
             port=port,

@@ -25,6 +25,13 @@ class AuthSettings(BaseModel):
     # Resource Server settings (when operating as RS only)
     resource_server_url: AnyHttpUrl | None = Field(
         ...,
-        description="The URL of the MCP server to be used as the resource identifier "
-        "and base route to look up OAuth Protected Resource Metadata.",
+        description=(
+            "The full public URL of this MCP server, used as the resource identifier "
+            "and base route to look up OAuth Protected Resource Metadata (RFC 9728). "
+            "Must include the transport path (e.g. https://example.com/mcp for "
+            "streamable-http, https://example.com/sse for sse) so that the value "
+            "advertised in protected resource metadata exactly matches the URL the "
+            "client used to reach the server. RFC 9728 §3.3 requires strict equality "
+            "between the client's resource identifier and this value."
+        ),
     )
