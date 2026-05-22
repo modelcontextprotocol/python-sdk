@@ -128,7 +128,7 @@ def main(port: int, auth_server: str, transport: Literal["sse", "streamable-http
 
         # Create settings. server_url is the public URL of the MCP endpoint and must
         # include the transport path so it matches the URL the client used to reach
-        # the server (RFC 9728 §3.3 strict equality).
+        # the server (RFC 9728 section 3.3 strict equality).
         host = "localhost"
         transport_path = "/sse" if transport == "sse" else "/mcp"
         server_url = f"http://{host}:{port}{transport_path}"

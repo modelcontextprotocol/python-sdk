@@ -31,7 +31,7 @@ class AuthSettings(BaseModel):
             "Must include the transport path (e.g. https://example.com/mcp for "
             "streamable-http, https://example.com/sse for sse) so that the value "
             "advertised in protected resource metadata exactly matches the URL the "
-            "client used to reach the server. RFC 9728 §3.3 requires strict equality "
-            "between the client's resource identifier and this value."
+            "client used to reach the server. RFC 9728 section 3.3 requires strict "
+            "equality between the client's resource identifier and this value."
         ),
     )

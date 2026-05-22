@@ -1024,8 +1024,8 @@ mcp = MCPServer(
     # Auth settings for RFC 9728 Protected Resource Metadata.
     # `resource_server_url` MUST be the full public URL of the MCP endpoint, including
     # the transport path (e.g. `/mcp` for streamable-http, `/sse` for sse). RFC 9728
-    # §3.3 requires strict equality between the client's resource identifier and the
-    # `resource` value advertised in the protected resource metadata.
+    # section 3.3 requires strict equality between the client's resource identifier and
+    # the `resource` value advertised in the protected resource metadata.
     auth=AuthSettings(
         issuer_url=AnyHttpUrl("https://auth.example.com"),  # Authorization Server URL
         resource_server_url=AnyHttpUrl("http://localhost:3001/mcp"),  # Public MCP endpoint URL
