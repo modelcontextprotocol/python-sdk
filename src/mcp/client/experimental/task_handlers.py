@@ -118,6 +118,7 @@ async def default_get_task_handler(
     context: RequestContext[ClientSession],
     params: types.GetTaskRequestParams,
 ) -> types.GetTaskResult | types.ErrorData:
+    """Default handler for tasks/get requests; returns METHOD_NOT_FOUND."""
     return types.ErrorData(
         code=types.METHOD_NOT_FOUND,
         message="tasks/get not supported",
@@ -128,6 +129,7 @@ async def default_get_task_result_handler(
     context: RequestContext[ClientSession],
     params: types.GetTaskPayloadRequestParams,
 ) -> types.GetTaskPayloadResult | types.ErrorData:
+    """Default handler for tasks/result requests; returns METHOD_NOT_FOUND."""
     return types.ErrorData(
         code=types.METHOD_NOT_FOUND,
         message="tasks/result not supported",
@@ -138,6 +140,7 @@ async def default_list_tasks_handler(
     context: RequestContext[ClientSession],
     params: types.PaginatedRequestParams | None,
 ) -> types.ListTasksResult | types.ErrorData:
+    """Default handler for tasks/list requests; returns METHOD_NOT_FOUND."""
     return types.ErrorData(
         code=types.METHOD_NOT_FOUND,
         message="tasks/list not supported",
@@ -148,6 +151,7 @@ async def default_cancel_task_handler(
     context: RequestContext[ClientSession],
     params: types.CancelTaskRequestParams,
 ) -> types.CancelTaskResult | types.ErrorData:
+    """Default handler for tasks/cancel requests; returns METHOD_NOT_FOUND."""
     return types.ErrorData(
         code=types.METHOD_NOT_FOUND,
         message="tasks/cancel not supported",
@@ -159,6 +163,7 @@ async def default_task_augmented_sampling(
     params: types.CreateMessageRequestParams,
     task_metadata: types.TaskMetadata,
 ) -> types.CreateTaskResult | types.ErrorData:
+    """Default handler for task-augmented sampling; returns INVALID_REQUEST."""
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Task-augmented sampling not supported",
@@ -170,6 +175,7 @@ async def default_task_augmented_elicitation(
     params: types.ElicitRequestParams,
     task_metadata: types.TaskMetadata,
 ) -> types.CreateTaskResult | types.ErrorData:
+    """Default handler for task-augmented elicitation; returns INVALID_REQUEST."""
     return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Task-augmented elicitation not supported",
