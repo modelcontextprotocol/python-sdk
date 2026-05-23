@@ -869,6 +869,46 @@ async def test_streamable_http_client_basic_connection(basic_app: Starlette) -> 
 
 
 @pytest.mark.anyio
+async def test_streamable_http_client_no_race_on_consecutive_requests(basic_app: Starlette) -> None:
+    """The first request after initialize can run repeatedly without racing startup."""
+    for iteration in range(10):  # pragma: no branch
+        async with (
+            make_client(basic_app) as http_client,
+            streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            await session.initialize()
+
+            tools = await session.list_tools()
+            assert len(tools.tools) == 8, f"Iteration {iteration}: expected 8 tools, got {len(tools.tools)}"
+            assert tools.tools[0].name == "test_tool"
+
+            tools2 = await session.list_tools()
+            assert len(tools2.tools) == 8
+
+            resource = await session.read_resource(uri="foobar://test-iteration")
+            assert len(resource.contents) == 1
+
+
+@pytest.mark.anyio
+async def test_streamable_http_client_rapid_request_sequence(basic_app: Starlette) -> None:
+    """A rapid sequence of requests reuses the initialized stream reliably."""
+    async with (
+        make_client(basic_app) as http_client,
+        streamable_http_client(f"{BASE_URL}/mcp", http_client=http_client) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+
+        for i in range(20):
+            tools = await session.list_tools()
+            assert len(tools.tools) == 8, f"Request {i}: expected 8 tools, got {len(tools.tools)}"
+
+        resource = await session.read_resource(uri="foobar://final-test")
+        assert len(resource.contents) == 1
+
+
+@pytest.mark.anyio
 async def test_streamable_http_client_resource_read(initialized_client_session: ClientSession) -> None:
     """A resource read round-trips its arguments and the handler's content."""
     response = await initialized_client_session.read_resource(uri="foobar://test-resource")

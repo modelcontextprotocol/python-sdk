@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import anyio
 import httpx
-from anyio.abc import TaskGroup
+from anyio.abc import TaskGroup, TaskStatus
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
@@ -437,10 +437,13 @@ class StreamableHTTPTransport:
         write_stream: ContextSendStream[SessionMessage],
         start_get_stream: Callable[[], None],
         tg: TaskGroup,
+        *,
+        task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
     ) -> None:
         """Handle writing requests to the server."""
         try:
             async with write_stream_reader, read_stream_writer, write_stream:
+                task_status.started()
 
                 async def _handle_message(session_message: SessionMessage) -> None:
                     message = session_message.message
@@ -570,7 +573,7 @@ async def streamable_http_client(
             def start_get_stream() -> None:
                 tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
 
-            tg.start_soon(
+            await tg.start(
                 transport.post_writer,
                 client,
                 write_stream_reader,
