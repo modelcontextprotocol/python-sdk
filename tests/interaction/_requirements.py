@@ -151,6 +151,71 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="A progress notification sent by the client is delivered to the server's progress handler.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
+    # Timeouts
+    # ═══════════════════════════════════════════════════════════════════════════
+    "timeouts:per-request": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
+        behavior=(
+            "A request that exceeds its read timeout fails with a request-timeout error instead of "
+            "waiting forever for the response."
+        ),
+        divergence=Divergence(
+            note=(
+                "The spec says the requester SHOULD issue a cancellation notification for the timed-out "
+                "request; the client only raises locally and sends nothing, so the server keeps running "
+                "the handler."
+            ),
+        ),
+    ),
+    "timeouts:session-survives": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
+        behavior="The session continues to serve new requests after an earlier request timed out.",
+    ),
+    "timeouts:session-default": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
+        behavior="A session-level read timeout applies to every request that does not override it.",
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Pagination
+    # ═══════════════════════════════════════════════════════════════════════════
+    "pagination:cursor-round-trip": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/pagination#response-format",
+        behavior=(
+            "The nextCursor returned by a list handler reaches the client, and the cursor the client "
+            "sends back on the next call reaches the handler as an opaque string."
+        ),
+    ),
+    "pagination:exhaustion": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/pagination#response-format",
+        behavior=(
+            "Following nextCursor until it is absent yields every page exactly once; a result without "
+            "nextCursor ends the sequence."
+        ),
+    ),
+    "pagination:resources": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/pagination#operations-supporting-pagination",
+        behavior="resources/list supports cursor pagination.",
+    ),
+    "pagination:resource-templates": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/pagination#operations-supporting-pagination",
+        behavior="resources/templates/list supports cursor pagination.",
+    ),
+    "pagination:prompts": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/pagination#operations-supporting-pagination",
+        behavior="prompts/list supports cursor pagination.",
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Request metadata
+    # ═══════════════════════════════════════════════════════════════════════════
+    "meta:request-to-handler": Requirement(
+        source=f"{SPEC_BASE_URL}/basic#meta",
+        behavior="The _meta object the client attaches to a request is visible to the server handler.",
+    ),
+    "meta:result-to-client": Requirement(
+        source=f"{SPEC_BASE_URL}/basic#meta",
+        behavior="The _meta object a handler attaches to its result is delivered to the client.",
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
     # Ping
     # ═══════════════════════════════════════════════════════════════════════════
     "ping:client-to-server": Requirement(
@@ -283,6 +348,29 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/resources#error-handling",
         behavior="resources/read for an unknown URI returns a JSON-RPC error; the spec reserves -32002 for it.",
     ),
+    "resources:templates:list": Requirement(
+        source=f"{SPEC_BASE_URL}/server/resources#resource-templates",
+        behavior=(
+            "resources/templates/list returns the registered templates with their uriTemplate and descriptive fields."
+        ),
+    ),
+    "resources:subscribe": Requirement(
+        source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
+        behavior="resources/subscribe delivers the URI to the server's subscribe handler and returns an empty result.",
+    ),
+    "resources:unsubscribe": Requirement(
+        source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
+        behavior=(
+            "resources/unsubscribe delivers the URI to the server's unsubscribe handler and returns an empty result."
+        ),
+    ),
+    "resources:updated-notification": Requirement(
+        source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
+        behavior=(
+            "A resources/updated notification sent by the server reaches the client carrying the URI of "
+            "the changed resource."
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Notifications: list_changed (server → client)
     # ═══════════════════════════════════════════════════════════════════════════
@@ -366,6 +454,36 @@ REQUIREMENTS: dict[str, Requirement] = {
     "elicitation:form:cancel": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
         behavior="A form-mode elicitation answered with action 'cancel' returns no content to the handler.",
+    ),
+    "elicitation:url:accept": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#url-mode-elicitation",
+        behavior=(
+            "A URL-mode elicitation delivers the message, URL, and elicitationId to the client; an accept "
+            "response carries no content (accept means the user agreed to visit the URL, not that the "
+            "interaction completed)."
+        ),
+    ),
+    "elicitation:url:decline": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
+        behavior="A URL-mode elicitation answered with decline returns the action with no content.",
+    ),
+    "elicitation:url:cancel": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
+        behavior="A URL-mode elicitation answered with cancel returns the action with no content.",
+    ),
+    "elicitation:complete-notification": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#completion-notification",
+        behavior=(
+            "An elicitation/complete notification sent by the server after an out-of-band elicitation "
+            "finishes reaches the client carrying the elicitationId."
+        ),
+    ),
+    "elicitation:url:required-error": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#url-elicitation-required-error",
+        behavior=(
+            "A handler that cannot proceed without a URL elicitation rejects the request with error "
+            "-32042, carrying the pending elicitations in the error data."
+        ),
     ),
     "elicitation:form:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#capabilities",
@@ -456,6 +574,30 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "ValueError, which the low-level server converts to error code 0."
             ),
         ),
+    ),
+    "mcpserver:context:logging": Requirement(
+        source="sdk",
+        behavior=(
+            "The Context logging helpers (debug/info/warning/error) send log message notifications at the "
+            "corresponding severity."
+        ),
+    ),
+    "mcpserver:context:progress": Requirement(
+        source="sdk",
+        behavior=(
+            "Context.report_progress sends a progress notification against the requesting client's progress token."
+        ),
+    ),
+    "mcpserver:context:elicit": Requirement(
+        source="sdk",
+        behavior=(
+            "Context.elicit sends a form elicitation built from a typed schema and returns a typed "
+            "accepted/declined/cancelled result."
+        ),
+    ),
+    "mcpserver:context:read-resource": Requirement(
+        source="sdk",
+        behavior="Context.read_resource reads a resource registered on the same server from inside a tool.",
     ),
     "mcpserver:tools:handler-exception": Requirement(
         source="sdk",

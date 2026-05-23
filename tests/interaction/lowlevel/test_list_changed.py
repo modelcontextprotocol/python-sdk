@@ -12,23 +12,17 @@ from inline_snapshot import snapshot
 from mcp import types
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.shared.session import RequestResponder
 from mcp.types import (
     CallToolResult,
-    ClientResult,
     PromptListChangedNotification,
     ResourceListChangedNotification,
-    ServerNotification,
-    ServerRequest,
     TextContent,
     ToolListChangedNotification,
 )
+from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
-
-IncomingMessage = RequestResponder[ServerRequest, ClientResult] | ServerNotification | Exception
-"""Everything a client message handler can receive."""
 
 
 @requirement("notifications:tools:list-changed")

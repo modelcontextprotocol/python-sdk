@@ -11,12 +11,20 @@ from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     Annotations,
     BlobResourceContents,
+    CallToolResult,
+    EmptyResult,
     ErrorData,
     ListResourcesResult,
+    ListResourceTemplatesResult,
     ReadResourceResult,
     Resource,
+    ResourceTemplate,
+    ResourceUpdatedNotification,
+    ResourceUpdatedNotificationParams,
+    TextContent,
     TextResourceContents,
 )
+from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -133,3 +141,108 @@ async def test_read_resource_unknown_uri_is_protocol_error() -> None:
             await client.read_resource("file:///missing.txt")
 
     assert exc_info.value.error == snapshot(ErrorData(code=-32002, message="Resource not found: file:///missing.txt"))
+
+
+@requirement("resources:templates:list")
+async def test_list_resource_templates_returns_registered_templates() -> None:
+    """Listed resource templates reach the client with their URI templates and descriptive fields intact."""
+
+    async def list_resource_templates(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListResourceTemplatesResult:
+        return ListResourceTemplatesResult(
+            resource_templates=[
+                ResourceTemplate(uri_template="users://{user_id}", name="user"),
+                ResourceTemplate(
+                    uri_template="logs://{service}/{date}",
+                    name="service_logs",
+                    title="Service logs",
+                    description="One day of logs for one service.",
+                    mime_type="text/plain",
+                ),
+            ]
+        )
+
+    server = Server("library", on_list_resource_templates=list_resource_templates)
+
+    async with Client(server) as client:
+        result = await client.list_resource_templates()
+
+    assert result == snapshot(
+        ListResourceTemplatesResult(
+            resource_templates=[
+                ResourceTemplate(uri_template="users://{user_id}", name="user"),
+                ResourceTemplate(
+                    uri_template="logs://{service}/{date}",
+                    name="service_logs",
+                    title="Service logs",
+                    description="One day of logs for one service.",
+                    mime_type="text/plain",
+                ),
+            ]
+        )
+    )
+
+
+@requirement("resources:subscribe")
+async def test_subscribe_resource_delivers_uri_to_handler() -> None:
+    """Subscribing to a resource delivers the URI to the server's subscribe handler and returns an empty result."""
+
+    async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
+        assert params.uri == "file:///watched.txt"
+        return EmptyResult()
+
+    server = Server("library", on_subscribe_resource=subscribe_resource)
+
+    async with Client(server) as client:
+        result = await client.subscribe_resource("file:///watched.txt")
+
+    assert result == snapshot(EmptyResult())
+
+
+@requirement("resources:unsubscribe")
+async def test_unsubscribe_resource_delivers_uri_to_handler() -> None:
+    """Unsubscribing from a resource delivers the URI to the server's unsubscribe handler."""
+
+    async def unsubscribe_resource(ctx: ServerRequestContext, params: types.UnsubscribeRequestParams) -> EmptyResult:
+        assert params.uri == "file:///watched.txt"
+        return EmptyResult()
+
+    server = Server("library", on_unsubscribe_resource=unsubscribe_resource)
+
+    async with Client(server) as client:
+        result = await client.unsubscribe_resource("file:///watched.txt")
+
+    assert result == snapshot(EmptyResult())
+
+
+@requirement("resources:updated-notification")
+async def test_resource_updated_notification_reaches_client() -> None:
+    """A resources/updated notification sent during a tool call reaches the client with the resource URI.
+
+    The collector records every message the handler receives, so the assertion also proves nothing
+    else was delivered.
+    """
+    received: list[IncomingMessage] = []
+
+    async def collect(message: IncomingMessage) -> None:
+        received.append(message)
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="touch", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "touch"
+        await ctx.session.send_resource_updated("file:///watched.txt")
+        return CallToolResult(content=[TextContent(text="touched")])
+
+    server = Server("library", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with Client(server, message_handler=collect) as client:
+        await client.call_tool("touch", {})
+
+    assert received == snapshot(
+        [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
+    )
