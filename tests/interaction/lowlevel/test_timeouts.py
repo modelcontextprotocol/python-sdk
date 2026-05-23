@@ -86,12 +86,7 @@ async def test_session_serves_requests_after_timeout() -> None:
 
 @requirement("timeouts:session-default")
 async def test_session_level_timeout_applies_to_every_request() -> None:
-    """A read timeout configured on the client applies to requests that do not set their own.
-
-    The session default also governs the initialize handshake, so this is the one test in the
-    suite that needs a real (50ms) timeout: it must be long enough for the in-process handshake
-    to complete and is then waited out in full by the blocked tool call.
-    """
+    """A read timeout configured on the client applies to requests that do not set their own."""
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "block"
@@ -100,6 +95,12 @@ async def test_session_level_timeout_applies_to_every_request() -> None:
 
     server = Server("blocker", on_call_tool=call_tool)
 
+    # The one real wall-clock wait in the suite, and it cannot be made effectively zero like the
+    # per-request timeouts: a session-level timeout also governs the initialize handshake, so the
+    # value must be long enough for the in-process handshake to complete before the blocked tool
+    # call waits it out in full. 50ms buys a ~50x safety margin over the handshake's actual
+    # latency; lowering it only erodes the margin against CI scheduler jitter without saving
+    # anything perceptible.
     async with Client(server, read_timeout_seconds=0.05) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("block", {})

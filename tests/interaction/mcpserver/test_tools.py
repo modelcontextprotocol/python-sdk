@@ -173,9 +173,6 @@ async def test_call_tool_list_return_is_wrapped_in_result_key() -> None:
 async def test_call_tool_invalid_arguments_become_error_result() -> None:
     """Arguments that fail validation against the tool's signature are reported as an is_error
     result describing the failure, not as a protocol error.
-
-    The description is raw pydantic output (version-dependent and leaking the internal argument
-    model name), so only the stable prefix is asserted rather than the full text.
     """
     mcp = MCPServer("adder")
 
@@ -187,6 +184,9 @@ async def test_call_tool_invalid_arguments_become_error_result() -> None:
     async with Client(mcp) as client:
         result = await client.call_tool("add", {"b": 3})
 
+    # The description is raw pydantic output -- it embeds a pydantic-version-specific
+    # errors.pydantic.dev URL and the internal `addArguments` model name -- so only the stable
+    # prefix is asserted; a full snapshot would break on every pydantic upgrade.
     assert result.is_error is True
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text.startswith("Error executing tool add: 1 validation error")

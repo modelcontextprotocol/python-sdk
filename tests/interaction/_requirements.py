@@ -49,6 +49,20 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # Protocol primitives
     # ═══════════════════════════════════════════════════════════════════════════
+    "protocol:request-id:unique": Requirement(
+        source=f"{SPEC_BASE_URL}/basic#requests",
+        behavior=(
+            "Every request sent on a session carries a unique, non-null integer id; ids are never reused "
+            "within the session."
+        ),
+    ),
+    "protocol:notifications:no-response": Requirement(
+        source=f"{SPEC_BASE_URL}/basic#notifications",
+        behavior=(
+            "Notifications are never answered: every message the server delivers is either the response "
+            "to a request the client sent or a notification carrying no id."
+        ),
+    ),
     "protocol:error:internal-error": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
         behavior="An unhandled exception in a request handler is returned to the caller as a JSON-RPC error.",
@@ -105,6 +119,13 @@ REQUIREMENTS: dict[str, Requirement] = {
     "lifecycle:requests-before-initialized": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="A request sent before the initialization handshake completes is rejected with an error.",
+    ),
+    "lifecycle:initialized-notification": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
+        behavior=(
+            "The client sends exactly one initialized notification, after the initialize response and "
+            "before its first feature request."
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Cancellation
