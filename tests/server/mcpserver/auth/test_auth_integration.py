@@ -1366,7 +1366,6 @@ class TestAuthEndpoints:
         token_response = response.json()
         assert "access_token" in token_response
 
-
     @pytest.mark.anyio
     async def test_basic_auth_without_client_id_in_body(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
