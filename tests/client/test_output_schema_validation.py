@@ -163,3 +163,64 @@ async def test_tool_not_listed_warning(caplog: pytest.LogCaptureFixture):
         assert result.is_error is False
 
         assert "Tool mystery_tool not listed" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_validate_structured_output_disabled_returns_invalid_result(caplog: pytest.LogCaptureFixture):
+    """When validate_structured_output is False, invalid structured_content is returned as-is."""
+    output_schema = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+        "required": ["name", "age"],
+        "title": "UserOutput",
+    }
+
+    invalid_content = {"name": "John", "age": "not_an_int"}
+    server = _make_server(
+        tools=[
+            Tool(
+                name="get_user",
+                description="Get user data",
+                input_schema={"type": "object"},
+                output_schema=output_schema,
+            )
+        ],
+        structured_content=invalid_content,
+    )
+
+    caplog.set_level(logging.DEBUG, logger="client")
+
+    async with Client(server, validate_structured_output=False) as client:
+        result = await client.call_tool("get_user", {})
+        assert result.structured_content == invalid_content
+        assert result.is_error is False
+
+    assert "Skipping structured output validation for tool get_user" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_validate_structured_output_default_still_raises():
+    """The default for validate_structured_output is True; invalid structured_content still raises."""
+    output_schema = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+        "required": ["name", "age"],
+        "title": "UserOutput",
+    }
+
+    server = _make_server(
+        tools=[
+            Tool(
+                name="get_user",
+                description="Get user data",
+                input_schema={"type": "object"},
+                output_schema=output_schema,
+            )
+        ],
+        structured_content={"name": "John", "age": "not_an_int"},
+    )
+
+    async with Client(server) as client:
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("get_user", {})
+        assert "Invalid structured content returned by tool get_user" in str(exc_info.value)

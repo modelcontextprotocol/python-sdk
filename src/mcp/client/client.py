@@ -95,6 +95,15 @@ class Client:
     elicitation_callback: ElicitationFnT | None = None
     """Callback for handling elicitation requests."""
 
+    validate_structured_output: bool = True
+    """Whether to validate structured tool output against the server's advertised output schema.
+
+    When True (the default), tool results whose structured_content does not match the tool's
+    output_schema cause a RuntimeError. Set to False to skip validation and return the
+    result unchanged, which is useful when interoperating with servers that ship buggy or
+    incomplete output schemas.
+    """
+
     _session: ClientSession | None = field(init=False, default=None)
     _exit_stack: AsyncExitStack | None = field(init=False, default=None)
     _transport: Transport = field(init=False)
@@ -126,6 +135,7 @@ class Client:
                     message_handler=self.message_handler,
                     client_info=self.client_info,
                     elicitation_callback=self.elicitation_callback,
+                    validate_structured_output=self.validate_structured_output,
                 )
             )
 
