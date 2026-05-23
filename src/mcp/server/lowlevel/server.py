@@ -46,6 +46,7 @@ from typing import Any, Generic, cast
 
 import anyio
 from opentelemetry.trace import SpanKind, StatusCode
+from pydantic import AnyHttpUrl
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.authentication import AuthenticationMiddleware
@@ -633,8 +634,11 @@ class Server(Generic[LifespanResultT]):
             # Determine resource metadata URL
             resource_metadata_url = None
             if auth and auth.resource_server_url:
+                # RFC 9728: resource identifier must match the URL clients use to access
+                # the protected resource, including the transport path (e.g. /mcp)
+                actual_resource_url = AnyHttpUrl(str(auth.resource_server_url).rstrip("/") + streamable_http_path)
                 # Build compliant metadata URL for WWW-Authenticate header
-                resource_metadata_url = build_resource_metadata_url(auth.resource_server_url)
+                resource_metadata_url = build_resource_metadata_url(actual_resource_url)
 
             routes.append(
                 Route(
@@ -653,9 +657,10 @@ class Server(Generic[LifespanResultT]):
 
         # Add protected resource metadata endpoint if configured as RS
         if auth and auth.resource_server_url:  # pragma: no cover
+            actual_resource_url = AnyHttpUrl(str(auth.resource_server_url).rstrip("/") + streamable_http_path)
             routes.extend(
                 create_protected_resource_routes(
-                    resource_url=auth.resource_server_url,
+                    resource_url=actual_resource_url,
                     authorization_servers=[auth.issuer_url],
                     scopes_supported=auth.required_scopes,
                 )

@@ -196,3 +196,68 @@ def test_route_consistency_consistent_paths_for_various_resources(resource_url: 
     assert url_path == expected_path
     assert route_path == expected_path
     assert url_path == route_path
+
+
+# Tests for issue #1264: resource URL must include transport path
+
+
+@pytest.mark.parametrize(
+    "resource_server_url,transport_path,expected_resource,expected_metadata_url",
+    [
+        (
+            "http://localhost:8000",
+            "/mcp",
+            "http://localhost:8000/mcp",
+            "http://localhost:8000/.well-known/oauth-protected-resource/mcp",
+        ),
+        (
+            "http://localhost:8000/",
+            "/mcp",
+            "http://localhost:8000/mcp",
+            "http://localhost:8000/.well-known/oauth-protected-resource/mcp",
+        ),
+        (
+            "https://mcp.example.com",
+            "/sse",
+            "https://mcp.example.com/sse",
+            "https://mcp.example.com/.well-known/oauth-protected-resource/sse",
+        ),
+    ],
+)
+def test_resource_url_includes_transport_path(
+    resource_server_url: str,
+    transport_path: str,
+    expected_resource: str,
+    expected_metadata_url: str,
+):
+    """Transport path must be appended to resource_server_url (issue #1264).
+
+    Per RFC 9728, the resource identifier must match the URL clients use to access
+    the protected resource — e.g. http://localhost:8000/mcp, not http://localhost:8000/.
+    """
+    actual_resource_url = AnyHttpUrl(resource_server_url.rstrip("/") + transport_path)
+
+    assert str(actual_resource_url) == expected_resource
+
+    metadata_url = build_resource_metadata_url(actual_resource_url)
+    assert str(metadata_url) == expected_metadata_url
+
+
+@pytest.mark.anyio
+async def test_protected_resource_metadata_contains_transport_path():
+    """Metadata endpoint returns resource URL with transport path, not bare server URL."""
+    resource_url = AnyHttpUrl("http://localhost:8000/mcp")
+    routes = create_protected_resource_routes(
+        resource_url=resource_url,
+        authorization_servers=[AnyHttpUrl("https://auth.example.com")],
+        scopes_supported=["read", "write"],
+    )
+    app = Starlette(routes=routes)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost:8000") as client:
+        response = await client.get("/.well-known/oauth-protected-resource/mcp")
+        assert response.status_code == 200
+        data = response.json()
+        # resource must be the full endpoint URL, not the bare server base
+        assert data["resource"] == "http://localhost:8000/mcp"
+        assert data["resource"] != "http://localhost:8000/"
