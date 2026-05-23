@@ -443,7 +443,7 @@ class StreamableHTTPTransport:
         """Handle writing requests to the server."""
         try:
             async with write_stream_reader, read_stream_writer, write_stream:
-                task_status.started()
+                task_status.started(None)
 
                 async def _handle_message(session_message: SessionMessage) -> None:
                     message = session_message.message
