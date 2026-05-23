@@ -591,6 +591,67 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="A roots/list_changed notification sent by the client is delivered to the server's handler.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
+    # Transports
+    # ═══════════════════════════════════════════════════════════════════════════
+    "transport:streamable-http:stateful": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior=(
+            "The interaction round trip (initialize, tool calls, tool errors) works through the "
+            "streamable HTTP framing in its default stateful SSE-response mode."
+        ),
+    ),
+    "transport:streamable-http:json-response": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior="The interaction round trip works when the server answers with plain JSON instead of SSE.",
+    ),
+    "transport:streamable-http:stateless": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior=(
+            "The interaction round trip works in stateless mode, where every request is served by a "
+            "fresh transport with no session id."
+        ),
+    ),
+    "transport:streamable-http:notifications": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior=(
+            "Notifications emitted during a request are delivered on that request's SSE stream and reach "
+            "the client's callbacks, in order, before the response."
+        ),
+    ),
+    "transport:streamable-http:stateless-restrictions": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior=(
+            "A handler that attempts a server-initiated request in stateless mode fails with an error "
+            "result, because there is no session to call back through."
+        ),
+    ),
+    "transport:streamable-http:unrelated-messages": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior=(
+            "A server-to-client message that is not related to an in-flight request is routed to the "
+            "standalone GET stream; a client that never opened one does not receive it."
+        ),
+    ),
+    "transport:streamable-http:server-to-client": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior=(
+            "A server-initiated request nested inside an in-flight call round-trips over stateful streamable HTTP."
+        ),
+        deferred=(
+            "The in-process ASGI client buffers each response in full, which deadlocks on a "
+            "server-to-client request nested inside a still-open call. Covered over a real socket by "
+            "tests/shared/test_streamable_http.py."
+        ),
+    ),
+    "transport:stdio": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#stdio",
+        behavior="The interaction round trip works over a stdio subprocess.",
+        deferred=(
+            "Requires a real subprocess. Process lifecycle is covered by tests/client/test_stdio.py and "
+            "end-to-end stdio coverage belongs to the cross-SDK conformance suite."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
     # MCPServer behavioural guarantees (not spec-mandated)
     # ═══════════════════════════════════════════════════════════════════════════
     "mcpserver:tools:output-schema:model": Requirement(

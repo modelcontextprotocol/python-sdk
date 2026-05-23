@@ -818,7 +818,7 @@ class StreamableHTTPServerTransport:
 
     async def _validate_session(self, request: Request, send: Send) -> bool:
         """Validate the session ID in the request."""
-        if not self.mcp_session_id:  # pragma: no cover
+        if not self.mcp_session_id:
             # If we're not using session IDs, return True
             return True
 
@@ -993,7 +993,7 @@ class StreamableHTTPServerTransport:
                         if isinstance(message, JSONRPCResponse | JSONRPCError) and message.id is not None:
                             target_request_id = str(message.id)
                         # Extract related_request_id from meta if it exists
-                        elif (  # pragma: no cover
+                        elif (
                             session_message.metadata is not None
                             and isinstance(
                                 session_message.metadata,
