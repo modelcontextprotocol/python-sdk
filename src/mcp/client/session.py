@@ -449,7 +449,7 @@ class ClientSession(
                     client_response = ClientResponse.validate_python(response)
                     await responder.respond(client_response)
 
-            case types.PingRequest():  # pragma: no cover
+            case types.PingRequest():
                 with responder:
                     return await responder.respond(types.EmptyResult())
 

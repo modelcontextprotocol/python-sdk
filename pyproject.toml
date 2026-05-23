@@ -193,6 +193,9 @@ strict-no-cover = { git = "https://github.com/pydantic/strict-no-cover" }
 [tool.pytest.ini_options]
 log_cli = true
 xfail_strict = true
+markers = [
+    "requirement(id): links a test to the entry in tests/interaction/_requirements.py it exercises",
+]
 addopts = """
     --color=yes
     --capture=fd

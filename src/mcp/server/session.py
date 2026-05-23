@@ -447,7 +447,7 @@ class ServerSession(
             metadata=ServerMessageMetadata(related_request_id=related_request_id),
         )
 
-    async def send_ping(self) -> types.EmptyResult:  # pragma: no cover
+    async def send_ping(self) -> types.EmptyResult:
         """Send a ping request."""
         return await self.send_request(
             types.PingRequest(),
