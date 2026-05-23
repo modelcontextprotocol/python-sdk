@@ -677,6 +677,9 @@ def test_structured_output_generic_types():
     def func_union() -> str | int:  # pragma: no cover
         return "hello"
 
+    def func_pipe_union_containers() -> dict | list | str:  # pragma: no cover
+        return {"a": 1}
+
     def func_optional() -> str | None:  # pragma: no cover
         return None
 
@@ -704,6 +707,24 @@ def test_structured_output_generic_types():
         "properties": {"result": {"title": "Result", "anyOf": [{"type": "string"}, {"type": "integer"}]}},
         "required": ["result"],
         "title": "func_unionOutput",
+    }
+
+    # Test PEP 604 union with containers
+    meta = func_metadata(func_pipe_union_containers)
+    assert meta.output_schema == {
+        "type": "object",
+        "properties": {
+            "result": {
+                "title": "Result",
+                "anyOf": [
+                    {"additionalProperties": True, "type": "object"},
+                    {"items": {}, "type": "array"},
+                    {"type": "string"},
+                ],
+            }
+        },
+        "required": ["result"],
+        "title": "func_pipe_union_containersOutput",
     }
 
     # Test Optional
