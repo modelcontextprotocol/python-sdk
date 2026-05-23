@@ -4,15 +4,18 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel
 
+from mcp import MCPError
 from mcp.client import ClientRequestContext
 from mcp.client.client import Client
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import (
+    METHOD_NOT_FOUND,
     CallToolResult,
     ElicitRequestFormParams,
     ElicitRequestParams,
     ElicitResult,
+    ErrorData,
     LoggingMessageNotificationParams,
     TextContent,
 )
@@ -162,4 +165,40 @@ async def test_context_read_resource_reads_registered_resource() -> None:
             content=[TextContent(text="text/plain: 'theme = dark'")],
             structured_content={"result": "text/plain: 'theme = dark'"},
         )
+    )
+
+
+@requirement("logging:set-level:filtering")
+async def test_set_logging_level_is_rejected_and_messages_are_never_filtered() -> None:
+    """MCPServer does not support logging/setLevel, so log messages are never filtered by severity.
+
+    The request is rejected with METHOD_NOT_FOUND because MCPServer registers no handler for it,
+    and every message a tool emits is delivered regardless of level. The spec says the server
+    should only send messages at or above the configured level; with no way to configure one,
+    everything is sent.
+    """
+    received: list[LoggingMessageNotificationParams] = []
+    mcp = MCPServer("unfilterable")
+
+    @mcp.tool()
+    async def chatter(ctx: Context) -> str:
+        await ctx.debug("noise")
+        await ctx.error("signal")
+        return "done"
+
+    async def collect(params: LoggingMessageNotificationParams) -> None:
+        received.append(params)
+
+    async with Client(mcp, logging_callback=collect) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.set_logging_level("error")
+
+        await client.call_tool("chatter", {})
+
+    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
+    assert received == snapshot(
+        [
+            LoggingMessageNotificationParams(level="debug", data="noise"),
+            LoggingMessageNotificationParams(level="error", data="signal"),
+        ]
     )

@@ -5,9 +5,15 @@ from inline_snapshot import snapshot
 from pydantic import BaseModel
 
 from mcp.client.client import Client
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from mcp.types import CallToolResult, TextContent
+from mcp.types import (
+    CallToolResult,
+    LoggingMessageNotification,
+    LoggingMessageNotificationParams,
+    TextContent,
+)
+from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -184,3 +190,47 @@ async def test_call_tool_invalid_arguments_become_error_result() -> None:
     assert result.is_error is True
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text.startswith("Error executing tool add: 1 validation error")
+
+
+@requirement("mcpserver:tools:list-changed-on-mutation")
+async def test_adding_and_removing_tools_does_not_notify_connected_clients() -> None:
+    """Mutating the tool set on a running server changes tools/list but sends no notification.
+
+    add_tool and remove_tool only update the registry: a connected client that listed the tools
+    before the mutation has no way to learn it should list them again. The spec provides
+    notifications/tools/list_changed for exactly this; MCPServer never sends it. The tool emits
+    one log message as a sentinel so the test proves notifications do reach the collector -- the
+    log message arrives, a list_changed does not.
+    """
+    received: list[IncomingMessage] = []
+    mcp = MCPServer("mutable")
+
+    def extra() -> str:
+        """A tool registered at runtime; never called."""
+        raise NotImplementedError
+
+    @mcp.tool()
+    def doomed() -> str:
+        """A tool removed at runtime; never called."""
+        raise NotImplementedError
+
+    @mcp.tool()
+    async def grow(ctx: Context) -> str:
+        mcp.add_tool(extra, name="extra")
+        mcp.remove_tool("doomed")
+        await ctx.info("tool set changed")
+        return "mutated"
+
+    async def collect(message: IncomingMessage) -> None:
+        received.append(message)
+
+    async with Client(mcp, message_handler=collect) as client:
+        before = await client.list_tools()
+        await client.call_tool("grow", {})
+        after = await client.list_tools()
+
+    assert [tool.name for tool in before.tools] == ["doomed", "grow"]
+    assert [tool.name for tool in after.tools] == ["grow", "extra"]
+    assert received == snapshot(
+        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="tool set changed"))]
+    )

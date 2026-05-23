@@ -1,17 +1,33 @@
-"""Initialization handshake against the low-level Server, driven through the public Client API."""
+"""Initialization handshake against the low-level Server, driven through the public Client API.
 
+The last two tests drive a bare ClientSession over an InMemoryTransport instead: Client always
+performs the full handshake with the latest protocol version, so skipping initialization or
+requesting a different version can only be expressed one level down.
+"""
+
+import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import types
-from mcp.client import ClientRequestContext
+from mcp import MCPError, types
+from mcp.client import ClientRequestContext, ClientSession
+from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
+    INVALID_PARAMS,
     CallToolResult,
+    ClientCapabilities,
     CompletionsCapability,
+    EmptyResult,
+    ErrorData,
     Icon,
     Implementation,
+    InitializeRequest,
+    InitializeRequestParams,
+    InitializeResult,
+    ListToolsRequest,
+    ListToolsResult,
     LoggingCapability,
     PromptsCapability,
     ResourcesCapability,
@@ -198,3 +214,64 @@ async def test_initialize_server_sees_client_capabilities() -> None:
     async with Client(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("abilities", {})
     assert result == snapshot(CallToolResult(content=[TextContent(text="roots")]))
+
+
+@requirement("lifecycle:requests-before-initialized")
+async def test_request_before_initialization_is_rejected() -> None:
+    """A feature request sent before the handshake completes is rejected; ping is exempt.
+
+    Client always initializes on entry, so this drives a bare ClientSession that never sends
+    initialize. The server's stated reason for the rejection never reaches the client: the error
+    is reported as a generic invalid-params failure.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        """Registered so the request is routed to a real handler; never reached."""
+        raise NotImplementedError
+
+    server = Server("strict", on_list_tools=list_tools)
+
+    async with InMemoryTransport(server) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            with anyio.fail_after(5):
+                with pytest.raises(MCPError) as exc_info:
+                    await session.send_request(ListToolsRequest(), ListToolsResult)
+
+                # Ping is explicitly permitted before initialization completes.
+                pong = await session.send_ping()
+
+    assert exc_info.value.error == snapshot(
+        ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")
+    )
+    assert pong == snapshot(EmptyResult())
+
+
+@requirement("lifecycle:initialize:protocol-version")
+async def test_initialize_negotiates_protocol_version() -> None:
+    """The server echoes a supported requested version and answers an unsupported one with its latest.
+
+    Client always requests the latest version, so each half hand-builds an InitializeRequest on a
+    bare ClientSession to control the requested version.
+    """
+    server = Server("negotiator")
+
+    def initialize_request(protocol_version: str) -> InitializeRequest:
+        return InitializeRequest(
+            params=InitializeRequestParams(
+                protocol_version=protocol_version,
+                capabilities=ClientCapabilities(),
+                client_info=Implementation(name="time-traveller", version="0.0.1"),
+            )
+        )
+
+    async with InMemoryTransport(server) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            with anyio.fail_after(5):
+                result = await session.send_request(initialize_request("2025-03-26"), InitializeResult)
+    assert result.protocol_version == snapshot("2025-03-26")
+
+    async with InMemoryTransport(server) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            with anyio.fail_after(5):
+                result = await session.send_request(initialize_request("1999-01-01"), InitializeResult)
+    assert result.protocol_version == snapshot("2025-11-25")

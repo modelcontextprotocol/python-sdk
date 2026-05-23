@@ -95,6 +95,17 @@ REQUIREMENTS: dict[str, Requirement] = {
             "(sampling, elicitation, roots)."
         ),
     ),
+    "lifecycle:initialize:protocol-version": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#version-negotiation",
+        behavior=(
+            "The server echoes a requested protocol version it supports, and answers an unsupported "
+            "requested version with its own latest supported version rather than an error."
+        ),
+    ),
+    "lifecycle:requests-before-initialized": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
+        behavior="A request sent before the initialization handshake completes is rejected with an error.",
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Cancellation
     # ═══════════════════════════════════════════════════════════════════════════
@@ -279,6 +290,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior="tools/call for a name the server does not recognise returns a JSON-RPC error.",
     ),
+    "tools:call:concurrent": Requirement(
+        source=f"{SPEC_BASE_URL}/basic#requests",
+        behavior=(
+            "Multiple tool calls in flight on one session are dispatched concurrently, and each caller "
+            "receives the response to its own request."
+        ),
+    ),
     "tools:call:invalid-arguments": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior=(
@@ -325,6 +343,21 @@ REQUIREMENTS: dict[str, Requirement] = {
     "logging:message:all-levels": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
+    ),
+    "logging:set-level:filtering": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
+        behavior=(
+            "MCPServer registers no logging/setLevel handler (the request is rejected with method-not-found) "
+            "and log messages are delivered at every severity regardless of any requested level."
+        ),
+        divergence=Divergence(
+            note=(
+                "The spec says servers SHOULD only send log messages at or above the level the client "
+                "configured via logging/setLevel. Neither MCPServer (which rejects the request outright) "
+                "nor the low-level Server (which leaves the handler entirely to the author) implements "
+                "any filtering."
+            ),
+        ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Resources
@@ -425,6 +458,25 @@ REQUIREMENTS: dict[str, Requirement] = {
     "sampling:create-message:image-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#message-content",
         behavior="Sampling messages can carry image content: base64 data with a mimeType.",
+    ),
+    "sampling:create-message:tools:not-supported": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
+        behavior=(
+            "A tool-enabled sampling request to a client that did not declare sampling.tools is rejected "
+            "by the server before anything reaches the wire, with an Invalid params error."
+        ),
+    ),
+    "sampling:create-message:tools:round-trip": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#sampling-with-tools",
+        behavior=(
+            "A sampling request carrying tools and toolChoice reaches the client, and a tool_use response "
+            "with a toolUse stop reason returns to the requesting handler."
+        ),
+        deferred=(
+            "Not expressible through the public API: Client does not expose ClientSession's "
+            "sampling_capabilities parameter, so a client can never declare sampling.tools and the "
+            "server-side validator rejects every tool-enabled request before it is sent."
+        ),
     ),
     "sampling:create-message:client-error": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#error-handling",
@@ -598,6 +650,19 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:context:read-resource": Requirement(
         source="sdk",
         behavior="Context.read_resource reads a resource registered on the same server from inside a tool.",
+    ),
+    "mcpserver:tools:list-changed-on-mutation": Requirement(
+        source="sdk",
+        behavior=(
+            "Adding or removing a tool on a running server changes what tools/list returns but sends no "
+            "notification to connected clients."
+        ),
+        divergence=Divergence(
+            note=(
+                "The spec provides notifications/tools/list_changed for exactly this case; MCPServer never "
+                "sends it, so a connected client cannot learn that the tool set changed without polling."
+            ),
+        ),
     ),
     "mcpserver:tools:handler-exception": Requirement(
         source="sdk",

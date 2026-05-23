@@ -289,3 +289,44 @@ async def test_create_message_without_callback_is_error() -> None:
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: Sampling not supported")]))
+
+
+@requirement("sampling:create-message:tools:not-supported")
+async def test_create_message_with_tools_is_rejected_for_unsupporting_client() -> None:
+    """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
+
+    The client supports plain sampling but cannot declare the tools sub-capability (Client does not
+    expose it), so the server-side validator rejects the request before anything reaches the wire.
+    """
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="ask_model", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "ask_model"
+        try:
+            await ctx.session.create_message(
+                messages=[SamplingMessage(role="user", content=TextContent(text="What is the weather?"))],
+                max_tokens=100,
+                tools=[types.Tool(name="get_weather", input_schema={"type": "object"})],
+            )
+        except MCPError as exc:
+            return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
+        raise NotImplementedError  # the validator rejects every tool-enabled request
+
+    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        """Declares the plain sampling capability; never invoked because the request is rejected first."""
+        raise NotImplementedError
+
+    async with Client(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("ask_model", {})
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="-32602: Client does not support sampling tools capability")])
+    )

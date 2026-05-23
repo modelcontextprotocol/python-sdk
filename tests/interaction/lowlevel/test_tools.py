@@ -1,5 +1,6 @@
 """Tool interactions against the low-level Server, driven through the public Client API."""
 
+import anyio
 import pytest
 from inline_snapshot import snapshot
 
@@ -264,3 +265,55 @@ async def test_call_tool_structured_content() -> None:
         result = await client.call_tool("sum", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5}))
+
+
+@requirement("tools:call:concurrent")
+async def test_concurrent_tool_calls_complete_independently() -> None:
+    """Two tool calls in flight at once run concurrently and each caller gets its own answer.
+
+    Both handlers are held on a shared event after signalling that they have started, and the test
+    only releases them once both signals have arrived -- a server that processed requests
+    sequentially would never start the second handler and the test would time out instead.
+    """
+    started: list[str] = []
+    started_events = {"first": anyio.Event(), "second": anyio.Event()}
+    release = anyio.Event()
+    results: dict[str, CallToolResult] = {}
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="echo", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "echo"
+        assert params.arguments is not None
+        tag = params.arguments["tag"]
+        assert isinstance(tag, str)
+        started.append(tag)
+        started_events[tag].set()
+        await release.wait()
+        return CallToolResult(content=[TextContent(text=tag)])
+
+    server = Server("echoer", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with Client(server) as client:
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as task_group:
+
+                async def call_and_record(tag: str) -> None:
+                    results[tag] = await client.call_tool("echo", {"tag": tag})
+
+                task_group.start_soon(call_and_record, "first")
+                task_group.start_soon(call_and_record, "second")
+
+                # Both handlers are running at the same time before either is allowed to finish.
+                await started_events["first"].wait()
+                await started_events["second"].wait()
+                release.set()
+
+    assert sorted(started) == ["first", "second"]
+    assert results == snapshot(
+        {
+            "first": CallToolResult(content=[TextContent(text="first")]),
+            "second": CallToolResult(content=[TextContent(text="second")]),
+        }
+    )
