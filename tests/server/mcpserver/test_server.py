@@ -1,5 +1,6 @@
 import base64
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -64,6 +65,41 @@ class TestServer:
         assert isinstance(mcp.icons, list)
         assert len(mcp.icons) == 1
         assert mcp.icons[0].src == "https://example.com/icon.png"
+
+    def test_run_stdio_transport(self):
+        mcp = MCPServer("test")
+
+        with patch("mcp.server.mcpserver.server.anyio.run") as run:
+            mcp.run("stdio")
+
+        run.assert_called_once_with(mcp.run_stdio_async)
+
+    async def test_run_stdio_async_uses_stdio_transport(self):
+        class StdioServer:
+            async def __aenter__(self):
+                return "read", "write"
+
+            async def __aexit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                tb: TracebackType | None,
+            ) -> None:
+                return None
+
+        mcp = MCPServer("test")
+        run = AsyncMock()
+
+        with (
+            patch("mcp.server.mcpserver.server.stdio_server", return_value=StdioServer()),
+            patch.object(mcp._lowlevel_server, "run", run),
+        ):
+            await mcp.run_stdio_async()
+
+        run.assert_awaited_once()
+        await_args = run.await_args
+        assert await_args is not None
+        assert await_args.args[:2] == ("read", "write")
 
     def test_dependencies(self):
         """Dependencies list is read by `mcp install` / `mcp dev` CLI commands."""

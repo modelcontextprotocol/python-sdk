@@ -677,7 +677,7 @@ def test_structured_output_generic_types():
     def func_union() -> str | int:  # pragma: no cover
         return "hello"
 
-    def func_pipe_union_containers() -> dict | list | str:  # pragma: no cover
+    def func_pipe_union_containers() -> dict[str, int] | list[str] | str:  # pragma: no cover
         return {"a": 1}
 
     def func_optional() -> str | None:  # pragma: no cover
@@ -717,8 +717,8 @@ def test_structured_output_generic_types():
             "result": {
                 "title": "Result",
                 "anyOf": [
-                    {"additionalProperties": True, "type": "object"},
-                    {"items": {}, "type": "array"},
+                    {"additionalProperties": {"type": "integer"}, "type": "object"},
+                    {"items": {"type": "string"}, "type": "array"},
                     {"type": "string"},
                 ],
             }
