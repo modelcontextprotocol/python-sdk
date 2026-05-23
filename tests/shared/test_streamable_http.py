@@ -7,6 +7,7 @@ entirely in process.
 from __future__ import annotations as _annotations
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -586,6 +587,43 @@ def test_streamable_http_transport_init_validation() -> None:
 
     with pytest.raises(ValueError):
         StreamableHTTPServerTransport(mcp_session_id="test\n")
+
+
+@pytest.mark.anyio
+async def test_terminate_stateless_log_is_debug(caplog: pytest.LogCaptureFixture):
+    """Stateless terminate() should not emit INFO 'Terminating session: None'.
+
+    Regression test for issue #2329: in stateless mode the transport has no
+    session id, so the prior INFO log produced 'Terminating session: None' on
+    every request. The stateless path now logs at DEBUG with a clearer message,
+    while the stateful path keeps the INFO-level log.
+    """
+    transport = StreamableHTTPServerTransport(mcp_session_id=None)
+
+    with caplog.at_level(logging.DEBUG, logger="mcp.server.streamable_http"):
+        await transport.terminate()
+
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert not any("Terminating session" in r.getMessage() for r in info_records), (
+        "Stateless terminate() must not emit INFO 'Terminating session: ...'"
+    )
+    assert any(
+        r.levelno == logging.DEBUG and "Stateless request completed" in r.getMessage() for r in caplog.records
+    ), "Stateless terminate() should log a DEBUG completion message"
+
+
+@pytest.mark.anyio
+async def test_terminate_stateful_log_is_info(caplog: pytest.LogCaptureFixture):
+    """Stateful terminate() should still log session id at INFO (#2329)."""
+    session_id = "abc123"
+    transport = StreamableHTTPServerTransport(mcp_session_id=session_id)
+
+    with caplog.at_level(logging.INFO, logger="mcp.server.streamable_http"):
+        await transport.terminate()
+
+    assert any(
+        r.levelno == logging.INFO and f"Terminating session: {session_id}" in r.getMessage() for r in caplog.records
+    ), "Stateful terminate() must still emit INFO 'Terminating session: <id>'"
 
 
 @pytest.mark.anyio
