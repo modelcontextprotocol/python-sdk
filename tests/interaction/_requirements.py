@@ -60,6 +60,42 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
+    # Lifecycle
+    # ═══════════════════════════════════════════════════════════════════════════
+    "lifecycle:initialize:server-info": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
+        behavior="The initialize result identifies the server: name and version, plus title when declared.",
+    ),
+    "lifecycle:initialize:instructions": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
+        behavior=(
+            "Server-declared instructions are returned in the initialize result, and omitted when the "
+            "server declares none."
+        ),
+    ),
+    "lifecycle:initialize:capabilities:from-handlers": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
+        behavior=(
+            "The server advertises a capability for each feature area it has a registered handler for, "
+            "and omits the capability for areas it does not."
+        ),
+    ),
+    "lifecycle:initialize:capabilities:minimal": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
+        behavior="A server with no feature handlers advertises no feature capabilities.",
+    ),
+    "lifecycle:initialize:client-info": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
+        behavior="The client's name, version, and title are visible to server handlers after initialization.",
+    ),
+    "lifecycle:initialize:client-capabilities": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#capability-negotiation",
+        behavior=(
+            "The client capabilities visible to the server reflect which client callbacks are configured "
+            "(sampling, elicitation, roots)."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
     # Ping
     # ═══════════════════════════════════════════════════════════════════════════
     "ping:client-to-server": Requirement(
@@ -123,6 +159,53 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/tools#error-handling",
         behavior="tools/call for a name the server does not recognise returns a JSON-RPC error.",
     ),
+    "tools:call:invalid-arguments": Requirement(
+        source=f"{SPEC_BASE_URL}/server/tools#error-handling",
+        behavior=(
+            "Arguments that fail the tool's input validation produce a tool execution error (isError true "
+            "with the validation failure described in content), not a protocol error."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Completion
+    # ═══════════════════════════════════════════════════════════════════════════
+    "completion:complete:prompt-ref": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/completion#requesting-completions",
+        behavior="completion/complete with a ref/prompt returns suggested values for the named prompt argument.",
+    ),
+    "completion:complete:resource-ref": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/completion#requesting-completions",
+        behavior="completion/complete with a ref/resource returns suggested values for a URI template variable.",
+    ),
+    "completion:complete:context": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/completion#context",
+        behavior="Previously-resolved argument values supplied in context.arguments reach the completion handler.",
+    ),
+    "completion:complete:not-supported": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/completion#capabilities",
+        behavior=(
+            "A server with no completion handler does not advertise the completions capability and rejects "
+            "completion/complete with METHOD_NOT_FOUND."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Logging
+    # ═══════════════════════════════════════════════════════════════════════════
+    "logging:set-level": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
+        behavior="logging/setLevel delivers the requested level to the server's handler and returns an empty result.",
+    ),
+    "logging:message:notification": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
+        behavior=(
+            "A log message sent by a server handler is delivered to the client's logging callback with its "
+            "severity level, logger name, and data, in the order the server sent them."
+        ),
+    ),
+    "logging:message:all-levels": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
+        behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Resources
     # ═══════════════════════════════════════════════════════════════════════════
@@ -167,6 +250,61 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     # MCPServer behavioural guarantees (not spec-mandated)
     # ═══════════════════════════════════════════════════════════════════════════
+    "mcpserver:tools:output-schema:model": Requirement(
+        source="sdk",
+        behavior=(
+            "A tool returning a typed model advertises a matching generated outputSchema and returns the "
+            "model's fields as structuredContent alongside a serialised text block."
+        ),
+    ),
+    "mcpserver:tools:output-schema:wrapped": Requirement(
+        source="sdk",
+        behavior=(
+            "A tool returning a non-object type (primitive or list) wraps the value as {'result': ...} in "
+            "structuredContent, with a matching generated outputSchema."
+        ),
+    ),
+    "mcpserver:resources:static": Requirement(
+        source="sdk",
+        behavior=(
+            "A function registered with @mcp.resource() for a fixed URI is listed by resources/list and "
+            "served by resources/read at that URI."
+        ),
+    ),
+    "mcpserver:resources:template": Requirement(
+        source="sdk",
+        behavior=(
+            "A function registered with a URI template is listed by resources/templates/list and matched "
+            "by resources/read, receiving the parameters extracted from the requested URI."
+        ),
+    ),
+    "mcpserver:resources:unknown-uri": Requirement(
+        source="sdk",
+        behavior="resources/read for a URI matching no registered resource returns a JSON-RPC error.",
+        divergence=Divergence(
+            note=(
+                "The spec reserves -32002 for resource-not-found; MCPServer raises ResourceError, which "
+                "the low-level server converts to error code 0."
+            ),
+        ),
+    ),
+    "mcpserver:prompts:decorated": Requirement(
+        source="sdk",
+        behavior=(
+            "A function registered with @mcp.prompt() is listed with arguments derived from its signature "
+            "and rendered into prompt messages by prompts/get."
+        ),
+    ),
+    "mcpserver:prompts:unknown-name": Requirement(
+        source="sdk",
+        behavior="prompts/get for a name that was never registered returns a JSON-RPC error.",
+        divergence=Divergence(
+            note=(
+                "The spec's example uses -32602 Invalid params for unknown prompts; MCPServer raises "
+                "ValueError, which the low-level server converts to error code 0."
+            ),
+        ),
+    ),
     "mcpserver:tools:handler-exception": Requirement(
         source="sdk",
         behavior=(

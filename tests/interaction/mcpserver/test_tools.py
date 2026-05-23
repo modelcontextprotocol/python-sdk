@@ -2,6 +2,7 @@
 
 import pytest
 from inline_snapshot import snapshot
+from pydantic import BaseModel
 
 from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
@@ -82,3 +83,104 @@ async def test_call_tool_unknown_name_returns_error_result() -> None:
         result = await client.call_tool("nope", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True))
+
+
+@requirement("mcpserver:tools:output-schema:model")
+async def test_call_tool_model_return_becomes_structured_content() -> None:
+    """A tool returning a pydantic model advertises the model's schema as the tool's output schema
+    and returns the model's fields as structured content alongside a serialised text block.
+    """
+    mcp = MCPServer("weather")
+
+    class Weather(BaseModel):
+        temperature: float
+        conditions: str
+
+    @mcp.tool()
+    def get_weather() -> Weather:
+        return Weather(temperature=22.5, conditions="sunny")
+
+    async with Client(mcp) as client:
+        listed = await client.list_tools()
+        result = await client.call_tool("get_weather", {})
+
+    assert listed.tools[0].output_schema == snapshot(
+        {
+            "properties": {
+                "temperature": {"title": "Temperature", "type": "number"},
+                "conditions": {"title": "Conditions", "type": "string"},
+            },
+            "required": ["temperature", "conditions"],
+            "title": "Weather",
+            "type": "object",
+        }
+    )
+    assert result == snapshot(
+        CallToolResult(
+            content=[
+                TextContent(
+                    text="""\
+{
+  "temperature": 22.5,
+  "conditions": "sunny"
+}\
+"""
+                )
+            ],
+            structured_content={"temperature": 22.5, "conditions": "sunny"},
+        )
+    )
+
+
+@requirement("mcpserver:tools:output-schema:wrapped")
+async def test_call_tool_list_return_is_wrapped_in_result_key() -> None:
+    """A tool returning a list wraps the value under a "result" key in both the generated output
+    schema and the structured content.
+    """
+    mcp = MCPServer("primes")
+
+    @mcp.tool()
+    def primes() -> list[int]:
+        return [2, 3, 5]
+
+    async with Client(mcp) as client:
+        listed = await client.list_tools()
+        result = await client.call_tool("primes", {})
+
+    assert listed.tools[0].output_schema == snapshot(
+        {
+            "properties": {"result": {"items": {"type": "integer"}, "title": "Result", "type": "array"}},
+            "required": ["result"],
+            "title": "primesOutput",
+            "type": "object",
+        }
+    )
+    assert result == snapshot(
+        CallToolResult(
+            content=[TextContent(text="2"), TextContent(text="3"), TextContent(text="5")],
+            structured_content={"result": [2, 3, 5]},
+        )
+    )
+
+
+@requirement("tools:call:invalid-arguments")
+async def test_call_tool_invalid_arguments_become_error_result() -> None:
+    """Arguments that fail validation against the tool's signature are reported as an is_error
+    result describing the failure, not as a protocol error.
+
+    The description is raw pydantic output (version-dependent and leaking the internal argument
+    model name), so only the stable prefix is asserted rather than the full text.
+    """
+    mcp = MCPServer("adder")
+
+    @mcp.tool()
+    def add(a: int, b: int) -> str:
+        """Validation rejects the arguments before the function is ever called."""
+        raise NotImplementedError
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("add", {"b": 3})
+
+    assert result.is_error is True
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text.startswith("Error executing tool add: 1 validation error")

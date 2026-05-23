@@ -513,7 +513,7 @@ class Server(Generic[LifespanResultT]):
                     if raise_exceptions:  # pragma: no cover
                         raise err
                     response = types.ErrorData(code=0, message=str(err))
-            else:  # pragma: no cover
+            else:
                 response = types.ErrorData(code=types.METHOD_NOT_FOUND, message="Method not found")
 
             if isinstance(response, types.ErrorData) and span is not None:
