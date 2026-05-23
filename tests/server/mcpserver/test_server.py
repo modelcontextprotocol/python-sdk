@@ -74,6 +74,17 @@ class TestServer:
         mcp_no_deps = MCPServer("test")
         assert mcp_no_deps.dependencies == []
 
+    def test_run_stdio_exits_cleanly_on_keyboard_interrupt(self, monkeypatch: pytest.MonkeyPatch):
+        mcp = MCPServer("test")
+
+        def raise_keyboard_interrupt(func: Any) -> None:
+            assert func == mcp.run_stdio_async
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("mcp.server.mcpserver.server.anyio.run", raise_keyboard_interrupt)
+
+        mcp.run("stdio")
+
     async def test_sse_app_returns_starlette_app(self):
         """Test that sse_app returns a Starlette application with correct routes."""
         mcp = MCPServer("test")
