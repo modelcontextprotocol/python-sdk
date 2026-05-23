@@ -4,6 +4,7 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import types
+from mcp.client import ClientRequestContext
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
@@ -184,7 +185,7 @@ async def test_initialize_server_sees_client_capabilities() -> None:
         ]
         return CallToolResult(content=[TextContent(text=",".join(declared) or "none")])
 
-    async def list_roots(context: object) -> types.ListRootsResult:
+    async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:
         """Registered only so the client declares the roots capability; never called."""
         raise NotImplementedError
 

@@ -74,7 +74,7 @@ async def _default_elicitation_callback(
     context: RequestContext[ClientSession],
     params: types.ElicitRequestParams,
 ) -> types.ElicitResult | types.ErrorData:
-    return types.ErrorData(  # pragma: no cover
+    return types.ErrorData(
         code=types.INVALID_REQUEST,
         message="Elicitation not supported",
     )
@@ -408,7 +408,7 @@ class ClientSession(
 
         return result
 
-    async def send_roots_list_changed(self) -> None:  # pragma: no cover
+    async def send_roots_list_changed(self) -> None:
         """Send a roots/list_changed notification."""
         await self.send_notification(types.RootsListChangedNotification())
 

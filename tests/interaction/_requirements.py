@@ -96,6 +96,61 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
+    # Cancellation
+    # ═══════════════════════════════════════════════════════════════════════════
+    "cancellation:in-flight": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "A cancellation notification for an in-flight request stops the server-side handler, and the "
+            "caller's pending request fails with an error response."
+        ),
+        divergence=Divergence(
+            note=(
+                "The spec says receivers of a cancellation SHOULD NOT send a response for the cancelled "
+                "request; the server sends an error response (code 0, 'Request cancelled'), which is what "
+                "unblocks the SDK client's pending call."
+            ),
+        ),
+    ),
+    "cancellation:server-survives": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior="The session continues to serve new requests after an earlier request was cancelled.",
+    ),
+    "cancellation:unknown-request": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "A cancellation notification referencing an unknown or already-completed request is ignored without error."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Progress
+    # ═══════════════════════════════════════════════════════════════════════════
+    "progress:server-to-client": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
+        behavior=(
+            "Progress notifications emitted by a handler during a request are delivered to the caller's "
+            "progress callback, in order, with their progress, total, and message."
+        ),
+    ),
+    "progress:token-propagation": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
+        behavior=(
+            "Supplying a progress callback attaches a progress token to the outgoing request, which the "
+            "server-side handler can observe in its request metadata."
+        ),
+    ),
+    "progress:no-token": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
+        behavior=(
+            "Without a progress callback no token is attached, and a handler that reports progress anyway "
+            "sends nothing."
+        ),
+    ),
+    "progress:client-to-server": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
+        behavior="A progress notification sent by the client is delivered to the server's progress handler.",
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
     # Ping
     # ═══════════════════════════════════════════════════════════════════════════
     "ping:client-to-server": Requirement(
@@ -229,6 +284,21 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="resources/read for an unknown URI returns a JSON-RPC error; the spec reserves -32002 for it.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
+    # Notifications: list_changed (server → client)
+    # ═══════════════════════════════════════════════════════════════════════════
+    "notifications:tools:list-changed": Requirement(
+        source=f"{SPEC_BASE_URL}/server/tools#list-changed-notification",
+        behavior="A tools/list_changed notification sent by the server reaches the client's message handler.",
+    ),
+    "notifications:resources:list-changed": Requirement(
+        source=f"{SPEC_BASE_URL}/server/resources#list-changed-notification",
+        behavior="A resources/list_changed notification sent by the server reaches the client's message handler.",
+    ),
+    "notifications:prompts:list-changed": Requirement(
+        source=f"{SPEC_BASE_URL}/server/prompts#list-changed-notification",
+        behavior="A prompts/list_changed notification sent by the server reaches the client's message handler.",
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
     # Prompts
     # ═══════════════════════════════════════════════════════════════════════════
     "prompts:list:basic": Requirement(
@@ -246,6 +316,88 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:get:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get for an unknown prompt name returns a JSON-RPC error.",
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Sampling (server → client)
+    # ═══════════════════════════════════════════════════════════════════════════
+    "sampling:create-message:round-trip": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
+        behavior=(
+            "A sampling/createMessage request from a server handler is answered by the client's sampling "
+            "callback, and the callback's result (role, content, model, stopReason) is returned to the handler."
+        ),
+    ),
+    "sampling:create-message:params": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
+        behavior=(
+            "The sampling parameters supplied by the server (messages, maxTokens, systemPrompt, "
+            "modelPreferences, temperature, stopSequences) reach the client callback intact."
+        ),
+    ),
+    "sampling:create-message:image-content": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#message-content",
+        behavior="Sampling messages can carry image content: base64 data with a mimeType.",
+    ),
+    "sampling:create-message:client-error": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#error-handling",
+        behavior="A sampling callback that returns an error is surfaced to the requesting handler as an MCPError.",
+    ),
+    "sampling:create-message:not-supported": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
+        behavior=(
+            "A sampling request to a client that did not declare the sampling capability fails with an "
+            "error rather than hanging or being silently dropped."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Elicitation (server → client)
+    # ═══════════════════════════════════════════════════════════════════════════
+    "elicitation:form:accept": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-elicitation",
+        behavior=(
+            "A form-mode elicitation answered with action 'accept' returns the user's content to the "
+            "requesting handler, validated against the requested schema."
+        ),
+    ),
+    "elicitation:form:decline": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
+        behavior="A form-mode elicitation answered with action 'decline' returns no content to the handler.",
+    ),
+    "elicitation:form:cancel": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
+        behavior="A form-mode elicitation answered with action 'cancel' returns no content to the handler.",
+    ),
+    "elicitation:form:not-supported": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#capabilities",
+        behavior=(
+            "An elicitation request to a client that did not declare the elicitation capability fails with "
+            "an error rather than hanging or being silently dropped."
+        ),
+    ),
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Roots (server → client)
+    # ═══════════════════════════════════════════════════════════════════════════
+    "roots:list:round-trip": Requirement(
+        source=f"{SPEC_BASE_URL}/client/roots#listing-roots",
+        behavior=(
+            "A roots/list request from a server handler is answered by the client's roots callback, and "
+            "the returned roots (uri, name) reach the handler."
+        ),
+    ),
+    "roots:list:empty": Requirement(
+        source=f"{SPEC_BASE_URL}/client/roots#listing-roots",
+        behavior="An empty roots list is a valid response and reaches the handler as such.",
+    ),
+    "roots:list:not-supported": Requirement(
+        source=f"{SPEC_BASE_URL}/client/roots#capabilities",
+        behavior=(
+            "A roots/list request to a client that did not declare the roots capability fails with an "
+            "error rather than hanging or being silently dropped."
+        ),
+    ),
+    "roots:list-changed": Requirement(
+        source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
+        behavior="A roots/list_changed notification sent by the client is delivered to the server's handler.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # MCPServer behavioural guarantees (not spec-mandated)
