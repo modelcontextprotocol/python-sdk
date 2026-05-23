@@ -12,6 +12,7 @@ from typing import Any, Generic, Literal, TypeVar, overload
 
 import anyio
 import pydantic_core
+from pydantic import AnyHttpUrl
 from pydantic.networks import AnyUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
@@ -987,8 +988,11 @@ class MCPServer(Generic[LifespanResultT]):
             if self.settings.auth and self.settings.auth.resource_server_url:
                 from mcp.server.auth.routes import build_resource_metadata_url
 
+                # RFC 9728: resource identifier must match the URL clients use to access
+                # the protected resource, including the transport path (e.g. /sse)
+                actual_resource_url = AnyHttpUrl(str(self.settings.auth.resource_server_url).rstrip("/") + sse_path)
                 # Build compliant metadata URL for WWW-Authenticate header
-                resource_metadata_url = build_resource_metadata_url(self.settings.auth.resource_server_url)
+                resource_metadata_url = build_resource_metadata_url(actual_resource_url)
 
             # Auth is enabled, wrap the endpoints with RequireAuthMiddleware
             routes.append(
@@ -1028,9 +1032,10 @@ class MCPServer(Generic[LifespanResultT]):
         if self.settings.auth and self.settings.auth.resource_server_url:  # pragma: no cover
             from mcp.server.auth.routes import create_protected_resource_routes
 
+            actual_resource_url = AnyHttpUrl(str(self.settings.auth.resource_server_url).rstrip("/") + sse_path)
             routes.extend(
                 create_protected_resource_routes(
-                    resource_url=self.settings.auth.resource_server_url,
+                    resource_url=actual_resource_url,
                     authorization_servers=[self.settings.auth.issuer_url],
                     scopes_supported=self.settings.auth.required_scopes,
                 )
