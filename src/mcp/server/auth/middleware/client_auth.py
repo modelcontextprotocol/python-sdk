@@ -54,6 +54,16 @@ class ClientAuthenticator:
         form_data = await request.form()
         client_id = form_data.get("client_id")
         if not client_id:
+            # RFC 6749 §2.3.1: client credentials MAY be sent via HTTP Basic auth
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Basic "):
+                try:
+                    decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+                    if ":" in decoded:
+                        client_id = unquote(decoded.split(":", 1)[0])
+                except (ValueError, UnicodeDecodeError, binascii.Error):
+                    pass
+        if not client_id:
             raise AuthenticationError("Missing client_id")
 
         client = await self.provider.get_client(str(client_id))

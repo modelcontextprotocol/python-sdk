@@ -95,9 +95,13 @@ class TokenHandler:
             )
 
         try:
-            form_data = await request.form()
-            # TODO(Marcelo): Can someone check if this `dict()` wrapper is necessary?
-            token_request = token_request_adapter.validate_python(dict(form_data))
+            form_data = dict(await request.form())
+            # client_id may have been supplied via HTTP Basic auth header instead of the
+            # request body (RFC 6749 §2.3.1). ClientAuthenticator already verified it,
+            # so we can safely populate it from client_info when absent from form data.
+            if "client_id" not in form_data:
+                form_data["client_id"] = client_info.client_id
+            token_request = token_request_adapter.validate_python(form_data)
         except ValidationError as validation_error:  # pragma: no cover
             return self.response(
                 TokenErrorResponse(
