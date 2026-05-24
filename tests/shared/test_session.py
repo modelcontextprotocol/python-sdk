@@ -477,7 +477,7 @@ async def test_callback_exception_propagation():
             tg.start_soon(mock_server)
             tg.start_soon(make_request, client_session)
 
-            with anyio.fail_after(2):
+            with anyio.fail_after(2):  # pragma: no branch
                 await ev_server_received_error.wait()
 
     assert len(server_error_holder) == 1
@@ -508,3 +508,22 @@ async def test_send_request_end_of_stream_without_propagated_error():
         ):
             tg.start_soon(mock_server, client_session)
             tg.start_soon(make_request, client_session)
+
+
+@pytest.mark.anyio
+async def test_receive_loop_handles_closed_response_stream():
+    """Cover receive loop cleanup when a response stream is already closed."""
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        _server_read, server_write = server_streams
+
+        async with ClientSession(read_stream=client_read, write_stream=client_write) as client_session:
+            response_stream, _ = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](1)
+            await response_stream.aclose()
+            client_session._response_streams[0] = response_stream
+
+            server_write.close()
+
+            with anyio.fail_after(2):  # pragma: no branch
+                while client_session._response_streams:
+                    await anyio.sleep(0)
