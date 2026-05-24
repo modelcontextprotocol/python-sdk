@@ -1,6 +1,6 @@
 import contextvars
-
 from contextvars import Token
+from typing import Any
 
 from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -23,7 +23,7 @@ def get_access_token() -> AccessToken | None:
     return auth_user.access_token if auth_user else None
 
 
-def _push_auth_context_from_request(request: Request | None) -> Token[AuthenticatedUser | None] | None:
+def push_auth_context_from_request(request: Request | None) -> Token[AuthenticatedUser | None] | None:
     """Set auth context for the current task from an incoming request.
 
     This is primarily used by server transports where request handlers may run
@@ -32,10 +32,7 @@ def _push_auth_context_from_request(request: Request | None) -> Token[Authentica
     if request is None:
         return None
     # Avoid Request.user, which asserts AuthenticationMiddleware is installed.
-    user = None
-    scope = getattr(request, "scope", None)
-    if isinstance(scope, dict):
-        user = scope.get("user")
+    user: Any | None = request.scope.get("user")
     if user is None:
         try:
             user = getattr(request, "user", None)
@@ -46,7 +43,7 @@ def _push_auth_context_from_request(request: Request | None) -> Token[Authentica
     return None
 
 
-def _pop_auth_context(token: Token[AuthenticatedUser | None] | None) -> None:
+def pop_auth_context(token: Token[AuthenticatedUser | None] | None) -> None:
     if token is None:
         return
     auth_context_var.reset(token)
