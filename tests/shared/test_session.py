@@ -518,9 +518,7 @@ async def test_receive_loop_handles_closed_response_stream():
         _server_read, server_write = server_streams
 
         async with ClientSession(read_stream=client_read, write_stream=client_write) as client_session:
-            response_stream, response_stream_reader = anyio.create_memory_object_stream[
-                JSONRPCResponse | JSONRPCError
-            ](
+            response_stream, response_stream_reader = anyio.create_memory_object_stream[JSONRPCResponse | JSONRPCError](
                 1
             )
             await response_stream.aclose()
