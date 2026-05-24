@@ -9,6 +9,7 @@ from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
 from mcp.shared.session import RequestResponder
 from mcp.types import (
+    INTERNAL_ERROR,
     PARSE_ERROR,
     CancelledNotification,
     CancelledNotificationParams,
@@ -416,3 +417,67 @@ async def test_null_id_error_does_not_affect_pending_request():
     # Pending request completed successfully
     assert len(result_holder) == 1
     assert isinstance(result_holder[0], EmptyResult)
+
+
+@pytest.mark.anyio
+async def test_callback_exception_propagation():
+    """Verify that exceptions raised in callbacks with __mcp_propagate__ = True
+    are propagated to the awaiter of send_request, and result in INTERNAL_ERROR to peer.
+    """
+    class CustomPropagatedException(Exception):
+        __mcp_propagate__ = True
+
+    ev_server_received_error = anyio.Event()
+    server_error_holder: list[JSONRPCError] = []
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def mock_server():
+            # Wait for client's ping request
+            msg = await server_read.receive()
+            assert isinstance(msg, SessionMessage)
+            assert isinstance(msg.message, JSONRPCRequest)
+
+            # Trigger list_roots callback on client by sending roots/list request
+            roots_request = JSONRPCRequest(
+                jsonrpc="2.0",
+                id=1,
+                method="roots/list",
+            )
+            await server_write.send(SessionMessage(message=roots_request))
+
+            # Receive the client's response (which should be an error due to propagated exception)
+            response_msg = await server_read.receive()
+            assert isinstance(response_msg, SessionMessage)
+            assert isinstance(response_msg.message, JSONRPCError)
+            server_error_holder.append(response_msg.message)
+            ev_server_received_error.set()
+
+        async def mock_list_roots(ctx):
+            raise CustomPropagatedException("Callback error that should propagate")
+
+        async def make_request(client_session: ClientSession):
+            # Send a ping request and assert that CustomPropagatedException propagates to it
+            with pytest.raises(CustomPropagatedException) as exc_info:
+                await client_session.send_ping()
+            assert "Callback error that should propagate" in str(exc_info.value)
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(
+                read_stream=client_read,
+                write_stream=client_write,
+                list_roots_callback=mock_list_roots,
+            ) as client_session,
+        ):
+            tg.start_soon(mock_server)
+            tg.start_soon(make_request, client_session)
+
+            with anyio.fail_after(2):
+                await ev_server_received_error.wait()
+
+    assert len(server_error_holder) == 1
+    assert server_error_holder[0].error.code == INTERNAL_ERROR
+
