@@ -4,6 +4,7 @@ import pytest
 from mcp import Client, types
 from mcp.client.session import ClientSession
 from mcp.server import Server, ServerRequestContext
+from mcp.shared._context import RequestContext
 from mcp.shared.exceptions import MCPError
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
@@ -424,6 +425,7 @@ async def test_callback_exception_propagation():
     """Verify that exceptions raised in callbacks with __mcp_propagate__ = True
     are propagated to the awaiter of send_request, and result in INTERNAL_ERROR to peer.
     """
+
     class CustomPropagatedException(Exception):
         __mcp_propagate__ = True
 
@@ -455,7 +457,7 @@ async def test_callback_exception_propagation():
             server_error_holder.append(response_msg.message)
             ev_server_received_error.set()
 
-        async def mock_list_roots(ctx):
+        async def mock_list_roots(context: RequestContext[ClientSession]):
             raise CustomPropagatedException("Callback error that should propagate")
 
         async def make_request(client_session: ClientSession):
@@ -480,4 +482,3 @@ async def test_callback_exception_propagation():
 
     assert len(server_error_holder) == 1
     assert server_error_holder[0].error.code == INTERNAL_ERROR
-
