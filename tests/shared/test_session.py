@@ -482,3 +482,29 @@ async def test_callback_exception_propagation():
 
     assert len(server_error_holder) == 1
     assert server_error_holder[0].error.code == INTERNAL_ERROR
+
+
+@pytest.mark.anyio
+async def test_send_request_end_of_stream_without_propagated_error():
+    """Ensure EndOfStream is surfaced when no propagated error is present."""
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, _server_write = server_streams
+
+        async def mock_server(client_session: ClientSession):
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+            assert isinstance(message.message, JSONRPCRequest)
+            response_stream = client_session._response_streams[message.message.id]
+            await response_stream.aclose()
+
+        async def make_request(client_session: ClientSession):
+            with pytest.raises(anyio.EndOfStream):
+                await client_session.send_ping()
+
+        async with (
+            anyio.create_task_group() as tg,
+            ClientSession(read_stream=client_read, write_stream=client_write) as client_session,
+        ):
+            tg.start_soon(mock_server, client_session)
+            tg.start_soon(make_request, client_session)
