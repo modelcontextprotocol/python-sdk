@@ -38,9 +38,7 @@ def push_auth_context_from_request(request: Request | None) -> Token[Authenticat
             user = getattr(request, "user", None)
         except AssertionError:
             user = None
-    if isinstance(user, AuthenticatedUser):
-        return auth_context_var.set(user)
-    return None
+    return auth_context_var.set(user if isinstance(user, AuthenticatedUser) else None)
 
 
 def pop_auth_context(token: Token[AuthenticatedUser | None] | None) -> None:
