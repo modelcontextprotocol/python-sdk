@@ -95,6 +95,22 @@ def build_protected_resource_metadata_discovery_urls(www_auth_url: str | None, s
     return urls
 
 
+def union_scopes(existing: str | None, incoming: str | None) -> str | None:
+    """Union two space-separated OAuth scope strings, preserving order."""
+    if existing is None:
+        return incoming
+    if incoming is None:
+        return existing
+
+    seen: set[str] = set()
+    merged: list[str] = []
+    for scope in existing.split() + incoming.split():
+        if scope not in seen:
+            seen.add(scope)
+            merged.append(scope)
+    return " ".join(merged)
+
+
 def get_client_metadata_scopes(
     www_authenticate_scope: str | None,
     protected_resource_metadata: ProtectedResourceMetadata | None,
