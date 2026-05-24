@@ -31,7 +31,16 @@ def _push_auth_context_from_request(request: Request | None) -> Token[Authentica
     """
     if request is None:
         return None
-    user = getattr(request, "user", None)
+    # Avoid Request.user, which asserts AuthenticationMiddleware is installed.
+    user = None
+    scope = getattr(request, "scope", None)
+    if isinstance(scope, dict):
+        user = scope.get("user")
+    if user is None:
+        try:
+            user = getattr(request, "user", None)
+        except AssertionError:
+            user = None
     if isinstance(user, AuthenticatedUser):
         return auth_context_var.set(user)
     return None
