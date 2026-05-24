@@ -1366,7 +1366,6 @@ class TestAuthEndpoints:
         token_response = response.json()
         assert "access_token" in token_response
 
-
     @pytest.mark.anyio
     async def test_basic_auth_without_client_id_in_body(
         self, test_client: httpx.AsyncClient, mock_oauth_provider: MockOAuthProvider, pkce_challenge: dict[str, str]
@@ -1453,6 +1452,34 @@ class TestAuthEndpoints:
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         token_response = response.json()
         assert "access_token" in token_response
+
+    @pytest.mark.anyio
+    async def test_basic_auth_fallback_invalid_base64_falls_through(self, test_client: httpx.AsyncClient):
+        """Basic auth fallback (no client_id in body): invalid base64 is silently ignored,
+        request continues without client_id and surfaces a normal 'invalid_request' error."""
+        # client_id missing from body AND the Basic header is malformed base64
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": "Basic !!!not-valid-base64!!!"},
+            data={"grant_type": "authorization_code", "code": "irrelevant"},
+        )
+        # The malformed base64 is swallowed; client_id remains missing → standard 401
+        assert response.status_code == 401
+        assert response.json()["error"] == "invalid_client"
+
+    @pytest.mark.anyio
+    async def test_basic_auth_fallback_no_colon_falls_through(self, test_client: httpx.AsyncClient):
+        """Basic auth fallback (no client_id in body): decoded credentials without a colon
+        are not treated as a valid client_id, and the request fails with 'invalid_client'."""
+        # b64("no_colon_here") decodes cleanly but contains no ':' separator
+        encoded = base64.b64encode(b"no_colon_here").decode()
+        response = await test_client.post(
+            "/token",
+            headers={"Authorization": f"Basic {encoded}"},
+            data={"grant_type": "authorization_code", "code": "irrelevant"},
+        )
+        assert response.status_code == 401
+        assert response.json()["error"] == "invalid_client"
 
 
 class TestAuthorizeEndpointErrors:

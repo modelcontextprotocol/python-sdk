@@ -99,7 +99,9 @@ class TokenHandler:
             # client_id may have been supplied via HTTP Basic auth header instead of the
             # request body (RFC 6749 §2.3.1). ClientAuthenticator already verified it,
             # so we can safely populate it from client_info when absent from form data.
-            if "client_id" not in form_data:
+            # The truthiness check narrows `str | None` to `str` for the type checker;
+            # ClientAuthenticator guarantees a non-empty client_id reached this point.
+            if "client_id" not in form_data and client_info.client_id:
                 form_data["client_id"] = client_info.client_id
             token_request = token_request_adapter.validate_python(form_data)
         except ValidationError as validation_error:  # pragma: no cover
