@@ -12,9 +12,10 @@ Run from the repository root:
 
 import asyncio
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
