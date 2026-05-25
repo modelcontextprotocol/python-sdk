@@ -14,9 +14,9 @@ import asyncio
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
-from mcp import ClientSession, StdioServerParameters
+from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ async def authorized_call_tool(
     session: ClientSession,
     tool_name: str,
     arguments: dict[str, Any],
-    policy=default_policy,
+    policy: Callable[[AuthRequest], AuthResult] = default_policy,
 ) -> Any:
     """Evaluate the authorization policy before calling a tool.
     Only executes the tool if the decision is ALLOW.
@@ -86,7 +86,11 @@ async def authorized_call_tool(
             tool_result = await session.call_tool(tool_name, arguments)
 
             # Safely extract text output if present
-            output = tool_result.content[0].text if getattr(tool_result, "content", None) else str(tool_result)
+            output = str(tool_result)
+            if hasattr(tool_result, "content") and tool_result.content:
+                first_content = tool_result.content[0]
+                if isinstance(first_content, types.TextContent):
+                    output = first_content.text
             print(f"  Result   : {output}")
             return tool_result
         except Exception as e:
