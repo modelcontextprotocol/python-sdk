@@ -387,13 +387,24 @@ class BaseSession(
                                 error_response = JSONRPCError(
                                     jsonrpc="2.0",
                                     id=message.message.id,
-                                    error=ErrorData(code=INTERNAL_ERROR, message="Handler raised", data=""),
+                                    error=ErrorData(
+                                        code=INTERNAL_ERROR,
+                                        message=f"Client callback raised: {type(e).__name__}: {e}",
+                                        data="",
+                                    ),
                                 )
                                 await self._write_stream.send(SessionMessage(message=error_response))
                                 self._in_flight.pop(message.message.id, None)
                                 for in_flight_id, stream in list(self._response_streams.items()):
                                     self._propagate_errors[in_flight_id] = e
-                                    await stream.aclose()
+                                    try:
+                                        await stream.aclose()
+                                    except Exception:
+                                        # Stream might already be closed
+                                        pass
+                                # Exit the receive loop: closing all response
+                                # streams above wakes each send_request waiter,
+                                # which will re-raise the propagated exception.
                                 return
 
                             # For request validation errors, send a proper JSON-RPC error
