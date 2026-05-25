@@ -686,6 +686,15 @@ class Server(Generic[LifespanResultT]):
         # but also make tracing exceptions much easier during testing and when using
         # in-process servers.
         raise_exceptions: bool = False,
+        # When True, the server is stateless and
+        # clients can perform initialization with any node. The client must still follow
+        # the initialization lifecycle, but can do so with any available node
+        # rather than requiring initialization for each connection.
+        stateless: bool = False,
+        # When True, treat read EOF as a half-close and allow in-flight handlers
+        # to drain their responses via the still-open write stream (e.g. stdio
+        # with bash-redirected stdin).
+        drain_on_read_close: bool = False,
     ) -> None:
         """Serve a single connection over the given streams until the read side closes.
 
@@ -696,15 +705,20 @@ class Server(Generic[LifespanResultT]):
         streamable-HTTP manager) call `serve_loop` directly instead.
         """
         async with self.lifespan(self) as lifespan_context:
-            await serve_dual_era_loop(
-                self,
-                read_stream,
-                write_stream,
-                lifespan_state=lifespan_context,
-                init_options=initialization_options,
-                raise_exceptions=raise_exceptions,
-                close_write_stream_on_read_close=False,
-            )
+            try:
+                await serve_dual_era_loop(
+                    self,
+                    read_stream,
+                    write_stream,
+                    lifespan_state=lifespan_context,
+                    init_options=initialization_options,
+                    raise_exceptions=raise_exceptions,
+                    session_id=None,
+                    close_write_stream_on_read_close=not drain_on_read_close,
+                )
+            finally:
+                if drain_on_read_close:
+                    await write_stream.aclose()
 
     def streamable_http_app(
         self,

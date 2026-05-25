@@ -547,6 +547,7 @@ async def serve_dual_era_loop(
     session_id: str | None = None,
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
+    close_write_stream_on_read_close: bool = True,
 ) -> None:
     """Drive `server` over a duplex stream pair, serving both protocol eras.
 
@@ -595,6 +596,7 @@ async def serve_dual_era_loop(
         # `server/discover` inline so the modern era lock commits before the
         # next pipelined message is read.
         inline_methods=frozenset({"initialize", "server/discover"}),
+        close_write_stream_on_read_close=close_write_stream_on_read_close,
     )
     loop_connection = Connection.for_loop(dispatcher, session_id=session_id)
     loop_runner = ServerRunner(server, loop_connection, lifespan_state, init_options=init_options)
