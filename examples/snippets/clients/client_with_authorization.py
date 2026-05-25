@@ -25,6 +25,7 @@ from mcp.client.stdio import stdio_client
 # Authorization layer
 # ---------------------------------------------------------------------------
 
+
 class Decision(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
@@ -87,9 +88,9 @@ async def authorized_call_tool(
     if result.decision == Decision.ALLOW:
         try:
             tool_result = await session.call_tool(tool_name, arguments)
-            
+
             # Safely extract text output if present
-            output = tool_result.content[0].text if getattr(tool_result, 'content', None) else str(tool_result)
+            output = tool_result.content[0].text if getattr(tool_result, "content", None) else str(tool_result)
             print(f"  Result   : {output}")
             return tool_result
         except Exception as e:
@@ -114,7 +115,7 @@ async def authorized_call_tool(
 # We use mcpserver_quickstart to have a reliable server to connect to
 server_params = StdioServerParameters(
     command="uv",
-    args=["--directory", "examples/snippets", "run", "server", "mcpserver_quickstart", "stdio"], 
+    args=["--directory", "examples/snippets", "run", "server", "mcpserver_quickstart", "stdio"],
     env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
 
