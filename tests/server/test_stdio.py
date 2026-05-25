@@ -10,14 +10,27 @@ import pytest
 from mcp_types import (
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
+    CallToolRequestParams,
+    CallToolResult,
+    ClientCapabilities,
+    Implementation,
+    InitializeRequestParams,
+    JSONRPCError,
     JSONRPCMessage,
+    JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
     jsonrpc_message_adapter,
 )
 from typing_extensions import Buffer
 
+from mcp.server import Server, ServerRequestContext
 from mcp.server.mcpserver import MCPServer
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
@@ -274,3 +287,79 @@ def test_mcpserver_run_stdio_serves_a_modern_connection(monkeypatch: pytest.Monk
     # request was served at the discovered version, not the handshake era.
     assert responses[1].result["tools"] == []
     assert responses[1].result["resultType"] == "complete"
+
+
+@pytest.mark.anyio
+async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
+    """When stdin reaches EOF (e.g., bash-redirected input), already-received
+    requests must still be able to emit their responses on stdout."""
+    stdin = io.StringIO()
+    stdout = io.StringIO()
+
+    tool_started_count = 0
+    both_tools_started = anyio.Event()
+    allow_tools_to_finish = anyio.Event()
+
+    async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="slow", description="test", input_schema={})])
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        nonlocal tool_started_count
+        tool_started_count += 1
+        if tool_started_count == 2:
+            both_tools_started.set()
+        await allow_tools_to_finish.wait()
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    server = Server("test", on_list_tools=handle_list_tools, on_call_tool=handle_call_tool)
+
+    init_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=0,
+        method="initialize",
+        params=InitializeRequestParams(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test", version="1.0"),
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+    initialized = JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+    call_1 = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="tools/call",
+        params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
+    )
+    call_2 = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=2,
+        method="tools/call",
+        params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
+    )
+
+    for message in (init_req, initialized, call_1, call_2):
+        stdin.write(message.model_dump_json(by_alias=True, exclude_none=True) + "\n")
+    stdin.seek(0)
+
+    async with stdio_server(stdin=anyio.AsyncFile(stdin), stdout=anyio.AsyncFile(stdout)) as (
+        read_stream,
+        write_stream,
+    ):
+        with anyio.fail_after(5):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(server.run, read_stream, write_stream, server.create_initialization_options())
+                await both_tools_started.wait()
+                allow_tools_to_finish.set()
+
+    stdout.seek(0)
+    ids: set[int | str] = set()
+    for line in stdout.readlines():
+        line = line.strip()
+        if not line:
+            continue
+        message = jsonrpc_message_adapter.validate_json(line)
+        if isinstance(message, JSONRPCResponse | JSONRPCError):
+            assert message.id is not None
+            ids.add(message.id)
+    assert 1 in ids
+    assert 2 in ids

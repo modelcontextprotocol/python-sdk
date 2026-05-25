@@ -13,6 +13,7 @@ from mcp_types import (
     InitializeRequestParams,
     JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     ListToolsResult,
     PaginatedRequestParams,
     TextContent,
@@ -100,29 +101,18 @@ async def test_server_remains_functional_after_cancel():
 
 
 @pytest.mark.anyio
-async def test_server_cancels_in_flight_handlers_on_transport_close():
-    """When the transport closes mid-request, server.run() must cancel in-flight
-    handlers rather than join on them.
-
-    Without the cancel, the task group waits for the handler, which then tries
-    to respond through a write stream that _receive_loop already closed,
-    raising ClosedResourceError and crashing server.run() with exit code 1.
-
-    This drives server.run() with raw memory streams because InMemoryTransport
-    wraps it in its own finally-cancel (_memory.py) which masks the bug.
-    """
+async def test_server_drains_in_flight_handlers_on_transport_read_eof():
+    """When the transport's read side hits EOF (e.g., stdio stdin closes), the
+    server must drain already-started handlers so their responses reach the
+    peer via the still-open write side."""
     handler_started = anyio.Event()
-    handler_cancelled = anyio.Event()
+    handler_allowed_to_finish = anyio.Event()
     server_run_returned = anyio.Event()
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         handler_started.set()
-        try:
-            await anyio.sleep_forever()
-        finally:
-            handler_cancelled.set()
-        # unreachable: sleep_forever only exits via cancellation
-        raise AssertionError  # pragma: no cover
+        await handler_allowed_to_finish.wait()
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
 
     server = Server("test", on_call_tool=handle_call_tool)
 
@@ -167,9 +157,13 @@ async def test_server_cancels_in_flight_handlers_on_transport_close():
             # handler gets CancelledError, server.run() returns.
             await to_server.aclose()
 
-            await server_run_returned.wait()
+            handler_allowed_to_finish.set()
 
-    assert handler_cancelled.is_set()
+            response = await from_server.receive()
+            assert isinstance(response.message, JSONRPCResponse)
+            assert response.message.id == 2
+
+            await server_run_returned.wait()
 
 
 @pytest.mark.anyio

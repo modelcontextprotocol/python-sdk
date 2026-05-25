@@ -703,6 +703,7 @@ class Server(Generic[LifespanResultT]):
                 lifespan_state=lifespan_context,
                 init_options=initialization_options,
                 raise_exceptions=raise_exceptions,
+                close_write_stream_on_read_close=False,
             )
 
     def streamable_http_app(

@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextvars
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Generic, Literal, cast
@@ -261,6 +262,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         peer_cancel_mode: PeerCancelMode = "interrupt",
         raise_handler_exceptions: bool = False,
         inline_methods: frozenset[str] = frozenset(),
+        close_write_stream_on_read_close: bool = True,
         on_stream_exception: Callable[[Exception], Awaitable[None]] | None = None,
     ) -> None:
         """Wire a dispatcher over a transport's `SessionMessage` stream pair.
@@ -273,6 +275,10 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
             inline_methods: Methods awaited in the read loop before the next
                 message is dequeued (e.g. `initialize`); an inline handler
                 that awaits the peer deadlocks the parked loop.
+            close_write_stream_on_read_close: Close the write stream when the
+                read stream closes. Full-duplex transports may set this to
+                false so in-flight handlers can finish writing responses after
+                input EOF.
             on_stream_exception: Observer for `Exception` items on the read
                 stream; without it they are debug-logged and dropped. Awaited
                 inline in the read loop, so a slow observer stalls dispatch.
@@ -287,6 +293,7 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         )
         self._peer_cancel_mode: PeerCancelMode = peer_cancel_mode
         self._raise_handler_exceptions = raise_handler_exceptions
+        self._close_write_stream_on_read_close = close_write_stream_on_read_close
         self._inline_methods = inline_methods
         self.on_stream_exception = on_stream_exception
         """Observer for ``Exception`` items on the read stream. Mutable so a session can
@@ -476,33 +483,36 @@ class JSONRPCDispatcher(Dispatcher[TransportT]):
         Single-shot: once the loop ends the dispatcher stays closed and cannot be restarted.
         """
         self._on_notify_intercept = on_notify_intercept
+        normal_eof = False
         try:
-            # LIFO exits: the write stream closes only after the task-group join, so teardown writes still land.
-            async with self._write_stream:
-                async with anyio.create_task_group() as tg:
-                    self._tg = tg
-                    self._running = True
-                    task_status.started()
-                    try:
-                        async with self._read_stream:
-                            try:
-                                async for item in self._read_stream:
-                                    # Duck-typed: only `ContextReceiveStream` carries the
-                                    # sender's per-message contextvars snapshot.
-                                    sender_ctx: contextvars.Context | None = getattr(
-                                        self._read_stream, "last_context", None
-                                    )
-                                    await self._dispatch(item, on_request, on_notify, sender_ctx)
-                            except anyio.ClosedResourceError:
-                                # Receive end closed under us (stateless SHTTP teardown); same as EOF.
-                                logger.debug("read stream closed by transport; treating as EOF")
-                        # EOF: wake blocked `send_raw_request` waiters with CONNECTION_CLOSED.
-                        self._running = False
-                        self._closed = True
-                        self._fan_out_closed()
-                    finally:
-                        # Cancel in-flight handlers; otherwise the task-group join
-                        # waits on handlers whose callers are already gone.
+            async with anyio.create_task_group() as tg:
+                self._tg = tg
+                self._running = True
+                task_status.started()
+                try:
+                    async with AsyncExitStack() as stack:
+                        await stack.enter_async_context(self._read_stream)
+                        if self._close_write_stream_on_read_close:
+                            await stack.enter_async_context(self._write_stream)
+                        try:
+                            async for item in self._read_stream:
+                                # Duck-typed: only `ContextReceiveStream` carries the
+                                # sender's per-message contextvars snapshot.
+                                sender_ctx: contextvars.Context | None = getattr(
+                                    self._read_stream, "last_context", None
+                                )
+                                await self._dispatch(item, on_request, on_notify, sender_ctx)
+                        except anyio.ClosedResourceError:
+                            # Receive end closed under us (stateless SHTTP teardown); same as EOF.
+                            logger.debug("read stream closed by transport; treating as EOF")
+                    # EOF: wake blocked `send_raw_request` waiters with CONNECTION_CLOSED.
+                    self._running = False
+                    self._fan_out_closed()
+                    normal_eof = True
+                finally:
+                    if not normal_eof:
+                        # Cancel on crash/cancel paths. On normal EOF, let
+                        # already received handlers drain their responses.
                         tg.cancel_scope.cancel()
         finally:
             # Covers cancel/crash paths that skip the inline fan-out; idempotent.
