@@ -120,7 +120,7 @@ async def test_server_drains_in_flight_handlers_on_transport_read_eof():
     server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
 
     async def run_server():
-        await server.run(server_read, server_write, server.create_initialization_options())
+        await server.run(server_read, server_write, server.create_initialization_options(), drain_on_read_close=True)
         server_run_returned.set()
 
     init_req = JSONRPCRequest(

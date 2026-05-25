@@ -300,7 +300,7 @@ async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
     allow_tools_to_finish = anyio.Event()
 
     async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
-        return ListToolsResult(tools=[Tool(name="slow", description="test", input_schema={})])
+        return ListToolsResult(tools=[Tool(name="slow", description="test", input_schema={"type": "object"})])
 
     async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         nonlocal tool_started_count
@@ -347,7 +347,16 @@ async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
     ):
         with anyio.fail_after(5):
             async with anyio.create_task_group() as tg:  # pragma: no branch
-                tg.start_soon(server.run, read_stream, write_stream, server.create_initialization_options())
+
+                async def run_server() -> None:
+                    await server.run(
+                        read_stream,
+                        write_stream,
+                        server.create_initialization_options(),
+                        drain_on_read_close=True,
+                    )
+
+                tg.start_soon(run_server)
                 await both_tools_started.wait()
                 allow_tools_to_finish.set()
 
