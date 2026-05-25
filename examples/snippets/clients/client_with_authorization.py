@@ -114,7 +114,7 @@ async def authorized_call_tool(
 # We use mcpserver_quickstart to have a reliable server to connect to
 server_params = StdioServerParameters(
     command="uv",
-    args=["run", "server", "mcpserver_quickstart", "stdio"], 
+    args=["--directory", "examples/snippets", "run", "server", "mcpserver_quickstart", "stdio"], 
     env={"UV_INDEX": os.environ.get("UV_INDEX", "")},
 )
 
