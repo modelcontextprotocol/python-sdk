@@ -1,5 +1,4 @@
-"""
-Example: MCP client with a pre-execution authorization callback.
+"""Example: MCP client with a pre-execution authorization callback.
 
 This example shows how to build a tool-execution loop that evaluates
 every tool call against an authorization policy before execution.
@@ -19,7 +18,6 @@ from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
 
 # ---------------------------------------------------------------------------
 # Authorization layer
@@ -45,8 +43,7 @@ class AuthResult:
 
 
 def default_policy(request: AuthRequest) -> AuthResult:
-    """
-    A simple policy function that decides whether a tool call should
+    """A simple policy function that decides whether a tool call should
     be allowed, denied, or held for approval.
 
     Replace or extend this function with your own logic — for example,
@@ -74,8 +71,7 @@ async def authorized_call_tool(
     arguments: dict[str, Any],
     policy=default_policy,
 ) -> Any:
-    """
-    Evaluate the authorization policy before calling a tool.
+    """Evaluate the authorization policy before calling a tool.
     Only executes the tool if the decision is ALLOW.
     """
     request = AuthRequest(tool_name=tool_name, arguments=arguments)
