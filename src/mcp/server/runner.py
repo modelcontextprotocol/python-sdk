@@ -414,6 +414,7 @@ async def serve_loop(
     session_id: str | None = None,
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
+    close_write_stream_on_read_close: bool = True,
 ) -> None:
     """Drive ``server`` in handshake-only loop mode over a stream pair until the channel closes.
 
@@ -432,6 +433,7 @@ async def serve_loop(
         # next request (spec: SHOULD NOT, not MUST NOT) sees the initialized
         # state instead of failing the init-gate.
         inline_methods=frozenset({"initialize"}),
+        close_write_stream_on_read_close=close_write_stream_on_read_close,
     )
     connection = Connection.for_loop(dispatcher, session_id=session_id)
     await serve_connection(
