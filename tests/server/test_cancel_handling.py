@@ -167,6 +167,123 @@ async def test_server_drains_in_flight_handlers_on_transport_read_eof():
 
 
 @pytest.mark.anyio
+async def test_server_reraises_handler_cancellation_when_server_is_cancelled():
+    """If the server task is cancelled (e.g. KeyboardInterrupt), in-flight
+    request handlers will get cancelled too. Cancellation must be re-raised so
+    the task group can unwind cleanly."""
+    handler_started = anyio.Event()
+    server_run_returned = anyio.Event()
+    cancel_scope = anyio.CancelScope()
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        handler_started.set()
+        await anyio.sleep_forever()
+        raise AssertionError  # pragma: no cover
+
+    server = Server("test", on_call_tool=handle_call_tool)
+
+    to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def run_server():
+        try:
+            with cancel_scope:
+                await server.run(server_read, server_write, server.create_initialization_options())
+        finally:
+            server_run_returned.set()
+
+    init_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="initialize",
+        params=InitializeRequestParams(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test", version="1.0"),
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+    initialized = JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+    call_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=2,
+        method="tools/call",
+        params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
+    )
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg, to_server, server_read, server_write, from_server:
+            tg.start_soon(run_server)
+
+            await to_server.send(SessionMessage(init_req))
+            await from_server.receive()  # init response
+            await to_server.send(SessionMessage(initialized))
+            await to_server.send(SessionMessage(call_req))
+
+            await handler_started.wait()
+            cancel_scope.cancel()
+            await server_run_returned.wait()
+
+
+@pytest.mark.anyio
+async def test_server_drops_response_when_write_stream_closes_mid_request():
+    """If the write side closes while a handler is in-flight, responding may
+    raise (ClosedResourceError/BrokenResourceError). The handler task should
+    exit without crashing the server."""
+    handler_started = anyio.Event()
+    allow_finish = anyio.Event()
+    server_run_returned = anyio.Event()
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        handler_started.set()
+        await allow_finish.wait()
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    server = Server("test", on_call_tool=handle_call_tool)
+
+    to_server, server_read = anyio.create_memory_object_stream[SessionMessage | Exception](10)
+    server_write, from_server = anyio.create_memory_object_stream[SessionMessage](10)
+
+    async def run_server():
+        await server.run(server_read, server_write, server.create_initialization_options())
+        server_run_returned.set()
+
+    init_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=1,
+        method="initialize",
+        params=InitializeRequestParams(
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            capabilities=ClientCapabilities(),
+            client_info=Implementation(name="test", version="1.0"),
+        ).model_dump(by_alias=True, mode="json", exclude_none=True),
+    )
+    initialized = JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+    call_req = JSONRPCRequest(
+        jsonrpc="2.0",
+        id=2,
+        method="tools/call",
+        params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
+    )
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as tg, to_server, server_read, server_write, from_server:
+            tg.start_soon(run_server)
+
+            await to_server.send(SessionMessage(init_req))
+            await from_server.receive()  # init response
+            await to_server.send(SessionMessage(initialized))
+            await to_server.send(SessionMessage(call_req))
+
+            await handler_started.wait()
+            await server_write.aclose()
+
+            allow_finish.set()
+            await to_server.aclose()
+
+            await server_run_returned.wait()
+
+
+@pytest.mark.anyio
 async def test_server_handles_transport_close_with_pending_server_to_client_requests():
     """When the transport closes while handlers are blocked on server→client
     requests (sampling, roots, elicitation), server.run() must still exit cleanly.
