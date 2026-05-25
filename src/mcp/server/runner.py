@@ -610,6 +610,7 @@ async def serve_dual_era_loop(
     session_id: str | None = None,
     init_options: InitializationOptions | None = None,
     raise_exceptions: bool = False,
+    close_write_stream_on_read_close: bool = True,
 ) -> None:
     """Drive `server` over a duplex stream pair, in the era the client opens with.
 
@@ -632,7 +633,12 @@ async def serve_dual_era_loop(
             )
             if opens_modern:
                 await _serve_modern_stream(
-                    server, replayed, write_stream, lifespan_state=lifespan_state, raise_exceptions=raise_exceptions
+                    server,
+                    replayed,
+                    write_stream,
+                    lifespan_state=lifespan_state,
+                    raise_exceptions=raise_exceptions,
+                    close_write_stream_on_read_close=close_write_stream_on_read_close,
                 )
             else:
                 await _serve_legacy_stream(
@@ -643,6 +649,7 @@ async def serve_dual_era_loop(
                     session_id=session_id,
                     init_options=init_options,
                     raise_exceptions=raise_exceptions,
+                    close_write_stream_on_read_close=close_write_stream_on_read_close,
                 )
     finally:
         await write_stream.aclose()
@@ -725,6 +732,7 @@ async def _serve_legacy_stream(
     session_id: str | None,
     init_options: InitializationOptions | None,
     raise_exceptions: bool,
+    close_write_stream_on_read_close: bool,
 ) -> None:
     """Serve a 2025 handshake connection; enveloped requests are refused."""
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
@@ -733,6 +741,7 @@ async def _serve_legacy_stream(
         raise_handler_exceptions=raise_exceptions,
         # `initialize` inline for the same pipelining reason as `serve_loop`.
         inline_methods=frozenset({"initialize"}),
+        close_write_stream_on_read_close=close_write_stream_on_read_close,
     )
     connection = Connection.for_loop(dispatcher, session_id=session_id)
     runner = ServerRunner(server, connection, lifespan_state, init_options=init_options)
@@ -761,10 +770,14 @@ async def _serve_modern_stream(
     *,
     lifespan_state: LifespanT,
     raise_exceptions: bool,
+    close_write_stream_on_read_close: bool,
 ) -> None:
     """Serve a 2026-07-28 connection: every request carries its own envelope."""
     dispatcher: JSONRPCDispatcher[TransportContext] = JSONRPCDispatcher(
-        read_stream, write_stream, raise_handler_exceptions=raise_exceptions
+        read_stream,
+        write_stream,
+        raise_handler_exceptions=raise_exceptions,
+        close_write_stream_on_read_close=close_write_stream_on_read_close,
     )
     outbound = NotifyOnlyOutbound(dispatcher)
 
