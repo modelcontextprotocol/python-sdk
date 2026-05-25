@@ -346,7 +346,7 @@ async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
         write_stream,
     ):
         with anyio.fail_after(5):
-            async with anyio.create_task_group() as tg:
+            async with anyio.create_task_group() as tg:  # pragma: no branch
                 tg.start_soon(server.run, read_stream, write_stream, server.create_initialization_options())
                 await both_tools_started.wait()
                 allow_tools_to_finish.set()
