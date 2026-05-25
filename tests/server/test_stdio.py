@@ -17,7 +17,6 @@ from mcp_types import (
     ClientCapabilities,
     Implementation,
     InitializeRequestParams,
-    JSONRPCError,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -324,6 +323,7 @@ async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
         ).model_dump(by_alias=True, mode="json", exclude_none=True),
     )
     initialized = JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized")
+    list_tools = JSONRPCRequest(jsonrpc="2.0", id=10, method="tools/list")
     call_1 = JSONRPCRequest(
         jsonrpc="2.0",
         id=1,
@@ -337,7 +337,7 @@ async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
         params=CallToolRequestParams(name="slow", arguments={}).model_dump(by_alias=True, mode="json"),
     )
 
-    for message in (init_req, initialized, call_1, call_2):
+    for message in (init_req, initialized, list_tools, call_1, call_2):
         stdin.write(message.model_dump_json(by_alias=True, exclude_none=True) + "\n")
     stdin.seek(0)
 
@@ -352,14 +352,12 @@ async def test_stdio_server_drains_in_flight_responses_on_stdin_eof():
                 allow_tools_to_finish.set()
 
     stdout.seek(0)
+    output_lines = [line.strip() for line in stdout.readlines()]
+    messages = [jsonrpc_message_adapter.validate_json(line) for line in output_lines]
     ids: set[int | str] = set()
-    for line in stdout.readlines():
-        line = line.strip()
-        if not line:
-            continue
-        message = jsonrpc_message_adapter.validate_json(line)
-        if isinstance(message, JSONRPCResponse | JSONRPCError):
-            assert message.id is not None
-            ids.add(message.id)
+    for message in messages:
+        assert isinstance(message, JSONRPCResponse)
+        ids.add(message.id)
+
     assert 1 in ids
     assert 2 in ids
