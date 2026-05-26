@@ -42,8 +42,8 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
-    subject: str | None = None  # RFC 7662/9068 `sub`: resource owner the token was issued for
-    claims: dict[str, Any] | None = None  # additional verified claims (e.g. `iss`, `act`)
+    subject: str | None = None  # RFC 7662/9068 `sub`: resource owner; unique only per issuer
+    claims: dict[str, Any] | None = None  # additional claims (e.g. `iss`, `act`)
 
 
 RegistrationErrorCode = Literal[
