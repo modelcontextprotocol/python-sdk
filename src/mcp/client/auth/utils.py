@@ -243,7 +243,7 @@ async def handle_registration_response(response: Response) -> OAuthClientInforma
         # self.context.client_info = client_info
         # await self.context.storage.set_client_info(client_info)
     except ValidationError as e:  # pragma: no cover
-        raise OAuthRegistrationError(f"Invalid registration response: {e}")
+        raise OAuthRegistrationError(f"Invalid registration response: {e}") from e
 
 
 def is_valid_client_metadata_url(url: str | None) -> bool:
@@ -336,4 +336,4 @@ async def handle_token_response_scopes(
         token_response = OAuthToken.model_validate_json(content)
         return token_response
     except ValidationError as e:  # pragma: no cover
-        raise OAuthTokenError(f"Invalid token response: {e}")
+        raise OAuthTokenError(f"Invalid token response: {e}") from e
