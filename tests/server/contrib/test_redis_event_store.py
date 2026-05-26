@@ -29,7 +29,10 @@ async def redis_client():
     """
     client = fakeredis.FakeRedis()
     yield client
-    await client.aclose()
+    if hasattr(client, "aclose"):
+        await client.aclose()
+    else:
+        await client.close()
 
 
 @pytest.fixture
