@@ -1,0 +1,651 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Argument": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PositionalArgument"
+        },
+        {
+          "$ref": "#/$defs/NamedArgument"
+        }
+      ],
+      "description": "A command-line argument supplied to a package's binary or runtime."
+    },
+    "Icon": {
+      "description": "An optionally-sized icon that can be displayed in a user interface.",
+      "properties": {
+        "mimeType": {
+          "description": "Optional MIME type override if the source MIME type is missing or generic.\nFor example: `\"image/png\"`, `\"image/jpeg\"`, or `\"image/svg+xml\"`.",
+          "type": "string"
+        },
+        "sizes": {
+          "description": "Optional array of strings that specify sizes at which the icon can be used.\nEach string should be in WxH format (e.g., `\"48x48\"`, `\"96x96\"`) or `\"any\"` for scalable formats like SVG.\n\nIf not provided, the client should assume that the icon can be used at any size.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "src": {
+          "description": "A standard URI pointing to an icon resource. May be an HTTP/HTTPS URL or a\n`data:` URI with Base64-encoded image data.\n\nConsumers SHOULD take steps to ensure URLs serving icons are from the\nsame domain as the client/server or a trusted domain.\n\nConsumers SHOULD take appropriate precautions when consuming SVGs as they can contain\nexecutable JavaScript.",
+          "format": "uri",
+          "type": "string"
+        },
+        "theme": {
+          "description": "Optional specifier for the theme this icon is designed for. `\"light\"` indicates\nthe icon is designed to be used with a light background, and `\"dark\"` indicates\nthe icon is designed to be used with a dark background.\n\nIf not provided, the client should assume the icon can be used with any theme.",
+          "enum": ["dark", "light"],
+          "type": "string"
+        }
+      },
+      "required": ["src"],
+      "type": "object"
+    },
+    "Input": {
+      "description": "A user-supplied or pre-set input value, used in {@link Package} argument\nand environment-variable definitions.",
+      "properties": {
+        "choices": {
+          "description": "Allowed values for the input. If provided, the user must select one.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "description": "Default value for the input. SHOULD be a valid value for the input.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable explanation of the input. Clients can use this to provide\ncontext to the user.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Specifies the input format. `\"filepath\"` should be interpreted as a file\non the user's filesystem. When the input is converted to a string,\nbooleans should be represented by `\"true\"`/`\"false\"`, and numbers by\ndecimal values.",
+          "enum": ["boolean", "filepath", "number", "string"],
+          "type": "string"
+        },
+        "isRequired": {
+          "description": "Whether the input must be supplied for the package to run.",
+          "type": "boolean"
+        },
+        "isSecret": {
+          "description": "Whether the input is a secret value (e.g., password, token). If true,\nclients should handle the value securely.",
+          "type": "boolean"
+        },
+        "placeholder": {
+          "description": "Placeholder displayed during configuration to provide examples or\nguidance about the expected form of the input.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Pre-set value for the input. If set, the value should not be configurable\nby end users. Identifiers wrapped in `{curly_braces}` will be replaced\nwith the corresponding entries from the input's `variables` map (if any).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "InputWithVariables": {
+      "description": "An {@link Input} whose `value` may reference variables for substitution.",
+      "properties": {
+        "choices": {
+          "description": "Allowed values for the input. If provided, the user must select one.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "description": "Default value for the input. SHOULD be a valid value for the input.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable explanation of the input. Clients can use this to provide\ncontext to the user.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Specifies the input format. `\"filepath\"` should be interpreted as a file\non the user's filesystem. When the input is converted to a string,\nbooleans should be represented by `\"true\"`/`\"false\"`, and numbers by\ndecimal values.",
+          "enum": ["boolean", "filepath", "number", "string"],
+          "type": "string"
+        },
+        "isRequired": {
+          "description": "Whether the input must be supplied for the package to run.",
+          "type": "boolean"
+        },
+        "isSecret": {
+          "description": "Whether the input is a secret value (e.g., password, token). If true,\nclients should handle the value securely.",
+          "type": "boolean"
+        },
+        "placeholder": {
+          "description": "Placeholder displayed during configuration to provide examples or\nguidance about the expected form of the input.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Pre-set value for the input. If set, the value should not be configurable\nby end users. Identifiers wrapped in `{curly_braces}` will be replaced\nwith the corresponding entries from the input's `variables` map (if any).",
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Input"
+          },
+          "description": "Variables referenced by `{curly_braces}` identifiers in `value`. The map\nkey is the variable name; the value defines the variable's properties.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "KeyValueInput": {
+      "description": "A named input — used for environment variables and HTTP headers.",
+      "properties": {
+        "choices": {
+          "description": "Allowed values for the input. If provided, the user must select one.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "description": "Default value for the input. SHOULD be a valid value for the input.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable explanation of the input. Clients can use this to provide\ncontext to the user.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Specifies the input format. `\"filepath\"` should be interpreted as a file\non the user's filesystem. When the input is converted to a string,\nbooleans should be represented by `\"true\"`/`\"false\"`, and numbers by\ndecimal values.",
+          "enum": ["boolean", "filepath", "number", "string"],
+          "type": "string"
+        },
+        "isRequired": {
+          "description": "Whether the input must be supplied for the package to run.",
+          "type": "boolean"
+        },
+        "isSecret": {
+          "description": "Whether the input is a secret value (e.g., password, token). If true,\nclients should handle the value securely.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Name of the header or environment variable.",
+          "type": "string"
+        },
+        "placeholder": {
+          "description": "Placeholder displayed during configuration to provide examples or\nguidance about the expected form of the input.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Pre-set value for the input. If set, the value should not be configurable\nby end users. Identifiers wrapped in `{curly_braces}` will be replaced\nwith the corresponding entries from the input's `variables` map (if any).",
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Input"
+          },
+          "description": "Variables referenced by `{curly_braces}` identifiers in `value`. The map\nkey is the variable name; the value defines the variable's properties.",
+          "type": "object"
+        }
+      },
+      "required": ["name"],
+      "type": "object"
+    },
+    "MetaObject": {
+      "description": "Represents the contents of a `_meta` field, which clients and servers use to attach additional metadata to their interactions.\n\nCertain key names are reserved by MCP for protocol-level metadata; implementations MUST NOT make assumptions about values at these keys. Additionally, specific schema definitions may reserve particular names for purpose-specific metadata, as declared in those definitions.\n\nValid keys have two segments:\n\n**Prefix:**\n- Optional — if specified, MUST be a series of _labels_ separated by dots (`.`), followed by a slash (`/`).\n- Labels MUST start with a letter and end with a letter or digit. Interior characters may be letters, digits, or hyphens (`-`).\n- Any prefix consisting of zero or more labels, followed by `modelcontextprotocol` or `mcp`, followed by any label, is **reserved** for MCP use. For example: `modelcontextprotocol.io/`, `mcp.dev/`, `api.modelcontextprotocol.org/`, and `tools.mcp.com/` are all reserved.\n\n**Name:**\n- Unless empty, MUST start and end with an alphanumeric character (`[a-z0-9A-Z]`).\n- Interior characters may be alphanumeric, hyphens (`-`), underscores (`_`), or dots (`.`).",
+      "type": "object"
+    },
+    "NamedArgument": {
+      "description": "A named command-line input — a `--flag={value}` parameter.",
+      "properties": {
+        "choices": {
+          "description": "Allowed values for the input. If provided, the user must select one.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "description": "Default value for the input. SHOULD be a valid value for the input.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable explanation of the input. Clients can use this to provide\ncontext to the user.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Specifies the input format. `\"filepath\"` should be interpreted as a file\non the user's filesystem. When the input is converted to a string,\nbooleans should be represented by `\"true\"`/`\"false\"`, and numbers by\ndecimal values.",
+          "enum": ["boolean", "filepath", "number", "string"],
+          "type": "string"
+        },
+        "isRepeated": {
+          "description": "Whether the argument can be repeated multiple times.",
+          "type": "boolean"
+        },
+        "isRequired": {
+          "description": "Whether the input must be supplied for the package to run.",
+          "type": "boolean"
+        },
+        "isSecret": {
+          "description": "Whether the input is a secret value (e.g., password, token). If true,\nclients should handle the value securely.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "The flag name, including any leading dashes (e.g., `\"--port\"`).",
+          "type": "string"
+        },
+        "placeholder": {
+          "description": "Placeholder displayed during configuration to provide examples or\nguidance about the expected form of the input.",
+          "type": "string"
+        },
+        "type": {
+          "const": "named",
+          "type": "string"
+        },
+        "value": {
+          "description": "Pre-set value for the input. If set, the value should not be configurable\nby end users. Identifiers wrapped in `{curly_braces}` will be replaced\nwith the corresponding entries from the input's `variables` map (if any).",
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Input"
+          },
+          "description": "Variables referenced by `{curly_braces}` identifiers in `value`. The map\nkey is the variable name; the value defines the variable's properties.",
+          "type": "object"
+        }
+      },
+      "required": ["name", "type"],
+      "type": "object"
+    },
+    "Package": {
+      "description": "Metadata for installing and running a packaged MCP server locally.",
+      "properties": {
+        "environmentVariables": {
+          "description": "Environment variables to be set when running the package.",
+          "items": {
+            "$ref": "#/$defs/KeyValueInput"
+          },
+          "type": "array"
+        },
+        "fileSha256": {
+          "description": "SHA-256 hash of the package file for integrity verification. Required for\nMCPB packages and optional for other package types. If present, MCP\nclients MUST validate the downloaded file matches the hash before running\npackages to ensure file integrity.",
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "identifier": {
+          "description": "Package identifier — either a package name (for registries)\nor a URL (for direct downloads).",
+          "type": "string"
+        },
+        "packageArguments": {
+          "description": "Arguments passed to the package's binary.",
+          "items": {
+            "$ref": "#/$defs/Argument"
+          },
+          "type": "array"
+        },
+        "registryBaseUrl": {
+          "description": "Base URL of the package registry.",
+          "format": "uri",
+          "type": "string"
+        },
+        "registryType": {
+          "description": "Registry type indicating how to download packages\n(e.g., `\"npm\"`, `\"pypi\"`, `\"oci\"`, `\"nuget\"`, `\"mcpb\"`).",
+          "type": "string"
+        },
+        "runtimeArguments": {
+          "description": "Arguments passed to the package's runtime command (such as `docker` or\n`npx`). The `runtimeHint` field should be provided when `runtimeArguments`\nare present.",
+          "items": {
+            "$ref": "#/$defs/Argument"
+          },
+          "type": "array"
+        },
+        "runtimeHint": {
+          "description": "A hint to help clients determine the appropriate runtime for the package\n(e.g., `\"npx\"`, `\"uvx\"`, `\"docker\"`, `\"dnx\"`). Should be provided when\n`runtimeArguments` are present.",
+          "type": "string"
+        },
+        "supportedProtocolVersions": {
+          "description": "MCP protocol versions actively supported by this package.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "transport": {
+          "$ref": "#/$defs/PackageTransport",
+          "description": "Transport configuration for invoking this package after installation."
+        },
+        "version": {
+          "description": "Package version.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": ["identifier", "registryType", "transport"],
+      "type": "object"
+    },
+    "PackageTransport": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StdioTransport"
+        },
+        {
+          "$ref": "#/$defs/StreamableHttpPackageTransport"
+        },
+        {
+          "$ref": "#/$defs/SsePackageTransport"
+        }
+      ],
+      "description": "Transport protocol configuration for a locally-runnable package."
+    },
+    "PositionalArgument": {
+      "description": "A positional command-line input — a value inserted verbatim into the\ncommand line.",
+      "properties": {
+        "choices": {
+          "description": "Allowed values for the input. If provided, the user must select one.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default": {
+          "description": "Default value for the input. SHOULD be a valid value for the input.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable explanation of the input. Clients can use this to provide\ncontext to the user.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Specifies the input format. `\"filepath\"` should be interpreted as a file\non the user's filesystem. When the input is converted to a string,\nbooleans should be represented by `\"true\"`/`\"false\"`, and numbers by\ndecimal values.",
+          "enum": ["boolean", "filepath", "number", "string"],
+          "type": "string"
+        },
+        "isRepeated": {
+          "description": "Whether the argument can be repeated multiple times in the command line.",
+          "type": "boolean"
+        },
+        "isRequired": {
+          "description": "Whether the input must be supplied for the package to run.",
+          "type": "boolean"
+        },
+        "isSecret": {
+          "description": "Whether the input is a secret value (e.g., password, token). If true,\nclients should handle the value securely.",
+          "type": "boolean"
+        },
+        "placeholder": {
+          "description": "Placeholder displayed during configuration to provide examples or\nguidance about the expected form of the input.",
+          "type": "string"
+        },
+        "type": {
+          "const": "positional",
+          "type": "string"
+        },
+        "value": {
+          "description": "Pre-set value for the input. If set, the value should not be configurable\nby end users. Identifiers wrapped in `{curly_braces}` will be replaced\nwith the corresponding entries from the input's `variables` map (if any).",
+          "type": "string"
+        },
+        "valueHint": {
+          "description": "Identifier for the positional argument. It is not part of the command\nline; it may be used by client configuration as a label identifying the\nargument, and it identifies the value in transport URL variable\nsubstitution.\n\nImplementations SHOULD ensure that at least one of `valueHint` or\n`value` is set so the positional argument resolves to a concrete value.",
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Input"
+          },
+          "description": "Variables referenced by `{curly_braces}` identifiers in `value`. The map\nkey is the variable name; the value defines the variable's properties.",
+          "type": "object"
+        }
+      },
+      "required": ["type"],
+      "type": "object"
+    },
+    "Remote": {
+      "description": "Metadata for connecting to a remote (HTTP-based) MCP server endpoint.",
+      "properties": {
+        "headers": {
+          "description": "HTTP headers required or accepted when connecting to this remote\nendpoint. Each header is described as a {@link KeyValueInput} so that\nclients can prompt users for required values, mark secrets, surface\ndefaults, and constrain to a list of choices.",
+          "items": {
+            "$ref": "#/$defs/KeyValueInput"
+          },
+          "type": "array"
+        },
+        "supportedProtocolVersions": {
+          "description": "MCP protocol versions actively supported by this remote endpoint. Allows\nclients to negotiate a compatible protocol version before initialization.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "description": "The transport type for this remote endpoint.",
+          "enum": ["sse", "streamable-http"],
+          "type": "string"
+        },
+        "url": {
+          "description": "URL template for the remote endpoint. Must start with `http://`,\n`https://`, or a `{template-variable}`. Variables in `{curly_braces}`\nare substituted from the {@link Remote.variables} map before the\nclient connects.",
+          "pattern": "^(https?://[^\\s]+|\\{[a-zA-Z_][a-zA-Z0-9_]*\\}[^\\s]*)$",
+          "type": "string"
+        },
+        "variables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Input"
+          },
+          "description": "Configuration variables that can be referenced as `{curly_braces}`\nplaceholders in `url` (and inside header values via\n{@link InputWithVariables.variables}). The map key is the variable\nname; the value defines the variable's properties (e.g., human-readable\ndescription, default, whether it is required or secret).",
+          "type": "object"
+        }
+      },
+      "required": ["type", "url"],
+      "type": "object"
+    },
+    "Repository": {
+      "description": "Repository metadata for the MCP server source code. Enables users and\nsecurity experts to inspect the code, improving transparency.",
+      "properties": {
+        "id": {
+          "description": "Repository identifier from the hosting service (e.g., GitHub repo ID).\nOwned and determined by the source forge. Should remain stable across\nrepository renames and may be used to detect repository resurrection\nattacks — if a repository is deleted and recreated, the ID should change.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Repository hosting service identifier (e.g., `\"github\"`). Used by registries\nto determine validation and API access methods.",
+          "type": "string"
+        },
+        "subfolder": {
+          "description": "Optional relative path from repository root to the server location within a\nmonorepo or nested package structure. Must be a clean relative path.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Repository URL for browsing source code. Should support both web browsing\nand `git clone` operations.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "required": ["source", "url"],
+      "type": "object"
+    },
+    "Server": {
+      "description": "A superset of {@link ServerCard} that additionally describes locally-runnable\npackages. This is the shape used by the MCP Registry's `server.json`.\n\n`Server` documents are typically published to a registry rather than served\nfrom a `.well-known` URI, since they may include instructions for installing\nand executing a server on a client's local machine.",
+      "properties": {
+        "$schema": {
+          "description": "The Server Card JSON Schema URI that this document conforms to. Required.\n\nMust be a `/v1/` URL under `static.modelcontextprotocol.io/schemas/`,\nnaming a Server Card / `server.json` schema (e.g.,\n`https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json`\nor `https://static.modelcontextprotocol.io/schemas/v1/server.schema.json`).\nSchema URLs are versioned by the `vN` segment rather than by date so that\nminor, additive revisions of the v1 shape don't bump every published\ndocument's `$schema` URL.",
+          "format": "uri",
+          "pattern": "^https://static\\.modelcontextprotocol\\.io/schemas/v1/[^/]+\\.schema\\.json$",
+          "type": "string"
+        },
+        "_meta": {
+          "$ref": "#/$defs/MetaObject",
+          "description": "Extension metadata using reverse-DNS namespacing for vendor-specific data.\n\nFollows the protocol's standard `_meta` definition."
+        },
+        "description": {
+          "description": "Clear human-readable explanation of server functionality. Should focus on\ncapabilities, not implementation details.",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "icons": {
+          "description": "Optional set of sized icons that the client can display in a user interface.\n\nClients that support rendering icons MUST support at least the following\nMIME types: `image/png` and `image/jpeg` (safe, universal compatibility).\nClients SHOULD also support: `image/svg+xml` (scalable but requires security\nprecautions) and `image/webp` (modern, efficient format).",
+          "items": {
+            "$ref": "#/$defs/Icon"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "Server name in reverse-DNS format. Must contain exactly one forward slash\nseparating namespace from server name.",
+          "maxLength": 200,
+          "minLength": 3,
+          "pattern": "^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$",
+          "type": "string"
+        },
+        "packages": {
+          "description": "Metadata helpful for running and connecting to local instances of this MCP server.",
+          "items": {
+            "$ref": "#/$defs/Package"
+          },
+          "type": "array"
+        },
+        "remotes": {
+          "description": "Metadata helpful for making HTTP-based connections to this MCP server.",
+          "items": {
+            "$ref": "#/$defs/Remote"
+          },
+          "type": "array"
+        },
+        "repository": {
+          "$ref": "#/$defs/Repository",
+          "description": "Optional repository metadata for the MCP server source code.\nRecommended for transparency and security inspection."
+        },
+        "title": {
+          "description": "Optional human-readable title or display name for the MCP server.\nMCP subregistries or clients MAY choose to use this for display purposes.",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "description": "Version string for this server. SHOULD follow semantic versioning\n(e.g., '1.0.2', '2.1.0-alpha'). Equivalent of `Implementation.version`\nin the MCP specification. Non-semantic versions are allowed but may not\nsort predictably. Version ranges are rejected (e.g., '^1.2.3', '~1.2.3',\n'>=1.2.3', '1.x', '1.*').",
+          "maxLength": 255,
+          "type": "string"
+        },
+        "websiteUrl": {
+          "description": "Optional URL to the server's homepage, documentation, or project website.\nProvides a central link for users to learn more about the server.\nParticularly useful when the server has custom installation instructions\nor setup requirements.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "required": ["$schema", "description", "name", "version"],
+      "type": "object"
+    },
+    "ServerCard": {
+      "description": "A static metadata document describing a remote MCP server, suitable for\npublishing at a `.well-known/mcp-server-card` URI for pre-connection discovery.\n\nServer Cards intentionally describe only what is needed to discover and\nconnect to a remote server: identity, transport, and protocol versions.\nThey do not enumerate primitives (tools, resources, prompts) — those remain\nsubject to runtime listing via the protocol's standard list operations.\n\nThe companion {@link Server} shape is a strict superset that adds local\npackage metadata for use cases like the MCP Registry's `server.json`.",
+      "properties": {
+        "$schema": {
+          "description": "The Server Card JSON Schema URI that this document conforms to. Required.\n\nMust be a `/v1/` URL under `static.modelcontextprotocol.io/schemas/`,\nnaming a Server Card / `server.json` schema (e.g.,\n`https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json`\nor `https://static.modelcontextprotocol.io/schemas/v1/server.schema.json`).\nSchema URLs are versioned by the `vN` segment rather than by date so that\nminor, additive revisions of the v1 shape don't bump every published\ndocument's `$schema` URL.",
+          "format": "uri",
+          "pattern": "^https://static\\.modelcontextprotocol\\.io/schemas/v1/[^/]+\\.schema\\.json$",
+          "type": "string"
+        },
+        "_meta": {
+          "$ref": "#/$defs/MetaObject",
+          "description": "Extension metadata using reverse-DNS namespacing for vendor-specific data.\n\nFollows the protocol's standard `_meta` definition."
+        },
+        "description": {
+          "description": "Clear human-readable explanation of server functionality. Should focus on\ncapabilities, not implementation details.",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "icons": {
+          "description": "Optional set of sized icons that the client can display in a user interface.\n\nClients that support rendering icons MUST support at least the following\nMIME types: `image/png` and `image/jpeg` (safe, universal compatibility).\nClients SHOULD also support: `image/svg+xml` (scalable but requires security\nprecautions) and `image/webp` (modern, efficient format).",
+          "items": {
+            "$ref": "#/$defs/Icon"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "Server name in reverse-DNS format. Must contain exactly one forward slash\nseparating namespace from server name.",
+          "maxLength": 200,
+          "minLength": 3,
+          "pattern": "^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$",
+          "type": "string"
+        },
+        "remotes": {
+          "description": "Metadata helpful for making HTTP-based connections to this MCP server.",
+          "items": {
+            "$ref": "#/$defs/Remote"
+          },
+          "type": "array"
+        },
+        "repository": {
+          "$ref": "#/$defs/Repository",
+          "description": "Optional repository metadata for the MCP server source code.\nRecommended for transparency and security inspection."
+        },
+        "title": {
+          "description": "Optional human-readable title or display name for the MCP server.\nMCP subregistries or clients MAY choose to use this for display purposes.",
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "description": "Version string for this server. SHOULD follow semantic versioning\n(e.g., '1.0.2', '2.1.0-alpha'). Equivalent of `Implementation.version`\nin the MCP specification. Non-semantic versions are allowed but may not\nsort predictably. Version ranges are rejected (e.g., '^1.2.3', '~1.2.3',\n'>=1.2.3', '1.x', '1.*').",
+          "maxLength": 255,
+          "type": "string"
+        },
+        "websiteUrl": {
+          "description": "Optional URL to the server's homepage, documentation, or project website.\nProvides a central link for users to learn more about the server.\nParticularly useful when the server has custom installation instructions\nor setup requirements.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "required": ["$schema", "description", "name", "version"],
+      "type": "object"
+    },
+    "SsePackageTransport": {
+      "description": "Server-sent events (SSE) transport for a locally-runnable package.",
+      "properties": {
+        "headers": {
+          "description": "HTTP headers to include when connecting to the package's local endpoint.",
+          "items": {
+            "$ref": "#/$defs/KeyValueInput"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "sse",
+          "type": "string"
+        },
+        "url": {
+          "description": "SSE endpoint URL template. See {@link StreamableHttpPackageTransport.url}\nfor variable-substitution semantics.",
+          "pattern": "^(https?://[^\\s]+|\\{[a-zA-Z_][a-zA-Z0-9_]*\\}[^\\s]*)$",
+          "type": "string"
+        }
+      },
+      "required": ["type", "url"],
+      "type": "object"
+    },
+    "StdioTransport": {
+      "description": "Stdio transport — the client launches the package as a subprocess and\ncommunicates over standard input and output.",
+      "properties": {
+        "type": {
+          "const": "stdio",
+          "type": "string"
+        }
+      },
+      "required": ["type"],
+      "type": "object"
+    },
+    "StreamableHttpPackageTransport": {
+      "description": "Streamable-HTTP transport for a locally-runnable package that exposes\nitself over HTTP after launch.",
+      "properties": {
+        "headers": {
+          "description": "HTTP headers to include when connecting to the package's local endpoint.",
+          "items": {
+            "$ref": "#/$defs/KeyValueInput"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "streamable-http",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL template for the streamable-http transport. Must start with\n`http://`, `https://`, or a `{template-variable}`. Variables in\n`{curly_braces}` reference argument value-hints, argument names, or\nenvironment variable names from the parent {@link Package}.",
+          "pattern": "^(https?://[^\\s]+|\\{[a-zA-Z_][a-zA-Z0-9_]*\\}[^\\s]*)$",
+          "type": "string"
+        }
+      },
+      "required": ["type", "url"],
+      "type": "object"
+    }
+  }
+}

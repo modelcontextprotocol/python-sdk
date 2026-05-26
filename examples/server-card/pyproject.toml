@@ -1,0 +1,53 @@
+[project]
+name = "mcp-server-card-example"
+version = "0.1.0"
+description = "Example Python implementation of MCP Server Cards (SEP-2127, experimental)"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Model Context Protocol a Series of LF Projects, LLC." }]
+keywords = ["mcp", "llm", "server-card", "discovery"]
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+    "click>=8.2.0",
+    "httpx>=0.27",
+    "jsonschema>=4.20.0",
+    "mcp",
+    "starlette>=0.27",
+    "uvicorn>=0.31.1",
+]
+
+[project.scripts]
+mcp-server-card = "mcp_server_card.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_server_card"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"mcp_server_card/schema.json" = "mcp_server_card/schema.json"
+
+[tool.pyright]
+include = ["mcp_server_card", "examples", "tests"]
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[dependency-groups]
+dev = ["pyright>=1.1.378", "pytest>=8.3.3", "ruff>=0.6.9"]
