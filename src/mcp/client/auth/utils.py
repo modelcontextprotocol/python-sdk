@@ -1,11 +1,11 @@
 import re
 from urllib.parse import urljoin, urlparse
 
-from httpx import Request, Response
 from pydantic import AnyUrl, ValidationError
 
 from mcp.client.auth import OAuthRegistrationError, OAuthTokenError
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
+from mcp.shared._httpx import httpx
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -16,7 +16,7 @@ from mcp.shared.auth import (
 from mcp.types import LATEST_PROTOCOL_VERSION
 
 
-def extract_field_from_www_auth(response: Response, field_name: str) -> str | None:
+def extract_field_from_www_auth(response: httpx.Response, field_name: str) -> str | None:
     """Extract field from WWW-Authenticate header.
 
     Returns:
@@ -37,7 +37,7 @@ def extract_field_from_www_auth(response: Response, field_name: str) -> str | No
     return None
 
 
-def extract_scope_from_www_auth(response: Response) -> str | None:
+def extract_scope_from_www_auth(response: httpx.Response) -> str | None:
     """Extract scope parameter from WWW-Authenticate header as per RFC 6750.
 
     Returns:
@@ -46,7 +46,7 @@ def extract_scope_from_www_auth(response: Response) -> str | None:
     return extract_field_from_www_auth(response, "scope")
 
 
-def extract_resource_metadata_from_www_auth(response: Response) -> str | None:
+def extract_resource_metadata_from_www_auth(response: httpx.Response) -> str | None:
     """Extract protected resource metadata URL from WWW-Authenticate header as per RFC 9728.
 
     Returns:
@@ -175,7 +175,7 @@ def build_oauth_authorization_server_metadata_discovery_urls(auth_server_url: st
 
 
 async def handle_protected_resource_response(
-    response: Response,
+    response: httpx.Response,
 ) -> ProtectedResourceMetadata | None:
     """Handle protected resource metadata discovery response.
 
@@ -198,7 +198,7 @@ async def handle_protected_resource_response(
         return None
 
 
-async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuthMetadata | None]:
+async def handle_auth_metadata_response(response: httpx.Response) -> tuple[bool, OAuthMetadata | None]:
     if response.status_code == 200:
         try:
             content = await response.aread()
@@ -211,13 +211,13 @@ async def handle_auth_metadata_response(response: Response) -> tuple[bool, OAuth
     return True, None
 
 
-def create_oauth_metadata_request(url: str) -> Request:
-    return Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
+def create_oauth_metadata_request(url: str) -> httpx.Request:
+    return httpx.Request("GET", url, headers={MCP_PROTOCOL_VERSION: LATEST_PROTOCOL_VERSION})
 
 
 def create_client_registration_request(
     auth_server_metadata: OAuthMetadata | None, client_metadata: OAuthClientMetadata, auth_base_url: str
-) -> Request:
+) -> httpx.Request:
     """Build a client registration request."""
 
     if auth_server_metadata and auth_server_metadata.registration_endpoint:
@@ -227,10 +227,10 @@ def create_client_registration_request(
 
     registration_data = client_metadata.model_dump(by_alias=True, mode="json", exclude_none=True)
 
-    return Request("POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"})
+    return httpx.Request("POST", registration_url, json=registration_data, headers={"Content-Type": "application/json"})
 
 
-async def handle_registration_response(response: Response) -> OAuthClientInformationFull:
+async def handle_registration_response(response: httpx.Response) -> OAuthClientInformationFull:
     """Handle registration response."""
     if response.status_code not in (200, 201):
         await response.aread()
@@ -316,7 +316,7 @@ def create_client_info_from_metadata_url(
 
 
 async def handle_token_response_scopes(
-    response: Response,
+    response: httpx.Response,
 ) -> OAuthToken:
     """Parse and validate a token response.
 

@@ -9,13 +9,13 @@ from typing import Any
 
 import anyio
 import anyio.to_thread
-import httpx
 import pydantic
 import pydantic_core
 from pydantic import Field, ValidationInfo, validate_call
 
 from mcp.server.mcpserver.resources.base import Resource
 from mcp.shared._callable_inspection import is_async_callable
+from mcp.shared._httpx import emit_httpx_deprecation_warning, httpx
 from mcp.types import Annotations, Icon
 
 
@@ -159,6 +159,7 @@ class HttpResource(Resource):
 
     async def read(self) -> str | bytes:
         """Read the HTTP content."""
+        emit_httpx_deprecation_warning()  # pragma: no cover
         async with httpx.AsyncClient() as client:  # pragma: no cover
             response = await client.get(self.url)
             response.raise_for_status()

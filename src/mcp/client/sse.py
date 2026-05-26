@@ -5,12 +5,12 @@ from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import anyio
-import httpx
 from anyio.abc import TaskStatus
 from httpx_sse import SSEError, aconnect_sse
 
 from mcp import types
 from mcp.shared._context_streams import create_context_streams
+from mcp.shared._httpx import httpx
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 

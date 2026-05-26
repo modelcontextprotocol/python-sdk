@@ -9,13 +9,13 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import anyio
-import httpx
 from anyio.abc import TaskGroup
 from httpx_sse import EventSource, ServerSentEvent, aconnect_sse
 from pydantic import ValidationError
 
 from mcp.client._transport import TransportStreams
 from mcp.shared._context_streams import ContextReceiveStream, ContextSendStream, create_context_streams
+from mcp.shared._httpx import httpx
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import (

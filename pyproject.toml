@@ -206,6 +206,11 @@ filterwarnings = [
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
+    # `mcp` prefers `httpx2`; HTTP surfaces warn when falling back to `httpx`. `httpx2` is
+    # not yet on PyPI, so every HTTP-touching test would trip the warning. The dedicated
+    # test in `tests/shared/test_httpx_shim.py` covers emission. Remove this entry once
+    # `httpx2` is the default and the fallback is dropped.
+    "ignore:Using `httpx` with `mcp` is deprecated:mcp.shared._httpx.MCPDeprecationWarning",
 ]
 
 [tool.markdown.lint]
