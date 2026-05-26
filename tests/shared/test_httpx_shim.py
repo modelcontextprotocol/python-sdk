@@ -70,8 +70,9 @@ async def test_create_mcp_http_client_silent_with_httpx2(
 def test_shim_picks_up_httpx2_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
     """Aliasing `httpx2` to the installed `httpx` module exercises the preferred import path.
 
-    Without this test, the `import httpx2 as httpx` branch is uncovered (since `httpx2` is not
-    yet on PyPI). Once `httpx2` is real, this test will continue to pass naturally.
+    `mcp`'s lockfile pins `httpx` (not `httpx2`), so the `import httpx2 as httpx` branch is
+    otherwise uncovered in CI. This test injects `httpx2` into `sys.modules` and reloads the
+    shim to cover that branch deterministically.
     """
     import importlib
     import sys

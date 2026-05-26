@@ -4,9 +4,10 @@ Mirrors the pattern from
 [Kludex/starlette@508023b](https://github.com/Kludex/starlette/commit/508023b488b649d97c091eb60da1d8ef3636ee06)
 and [pydantic/pydantic-ai#5664](https://github.com/pydantic/pydantic-ai/pull/5664).
 
-`httpx2` is not yet on PyPI, so every install today exercises the fallback path. The warning
-is emitted lazily on first use (not at module import) to avoid breaking pytest's filter
-parser during collection. The MCP v2 cut will drop the fallback and require `httpx2`.
+`mcp` declares `httpx` (not `httpx2`) as a dependency, so unless the user installs `httpx2`
+explicitly the fallback path is exercised. The warning is emitted lazily on first use (not at
+module import) to avoid breaking pytest's filter parser during collection. The MCP v2 cut will
+drop the fallback and bump the dependency to `httpx2`.
 """
 
 from __future__ import annotations
