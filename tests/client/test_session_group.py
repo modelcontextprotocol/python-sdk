@@ -1,4 +1,5 @@
 import contextlib
+import logging
 from unittest import mock
 
 import httpx
@@ -140,6 +141,50 @@ async def test_client_session_group_connect_to_server(mock_exit_stack: contextli
     mock_session.list_tools.assert_awaited_once()
     mock_session.list_resources.assert_awaited_once()
     mock_session.list_prompts.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_client_session_group_connect_with_session_respects_negotiated_capabilities(
+    caplog: pytest.LogCaptureFixture,
+):
+    from mcp import Client
+    from mcp.server import Server, ServerRequestContext
+
+    async def handle_list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name="ping",
+                    description="Ping",
+                    input_schema={"type": "object", "properties": {}},
+                )
+            ]
+        )
+
+    async def handle_call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> types.CallToolResult:
+        return types.CallToolResult(content=[types.TextContent(type="text", text="pong")])
+
+    server = Server(
+        "tools-only-server",
+        on_list_tools=handle_list_tools,
+        on_call_tool=handle_call_tool,
+    )
+
+    group = ClientSessionGroup()
+
+    with caplog.at_level(logging.WARNING):
+        async with Client(server) as client:
+            assert client.initialize_result.capabilities.prompts is None
+            assert client.initialize_result.capabilities.resources is None
+
+            client.session.list_prompts = mock.AsyncMock(side_effect=AssertionError("list_prompts() was called"))
+            client.session.list_resources = mock.AsyncMock(side_effect=AssertionError("list_resources() was called"))
+
+            await group.connect_with_session(client.initialize_result.server_info, client.session)
+
+    assert not caplog.records
 
 
 @pytest.mark.anyio
