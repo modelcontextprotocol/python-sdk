@@ -37,9 +37,9 @@ async def redis_client():
         yield client
     finally:
         try:
-            await client.aclose()
+            await client.aclose()  # pragma: lax no cover
         except AttributeError:
-            await client.close()
+            await client.close()  # pragma: lax no cover
 
 
 @pytest.fixture
