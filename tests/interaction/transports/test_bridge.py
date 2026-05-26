@@ -69,3 +69,24 @@ async def test_an_application_failure_before_the_response_starts_fails_the_reque
     async with httpx.AsyncClient(transport=StreamingASGITransport(broken_app), base_url="http://bridge") as http:
         with pytest.raises(RuntimeError, match="the demo application is broken"):
             await http.get("/broken")
+
+
+async def test_disabling_cancel_on_close_lets_the_application_finish_after_disconnect() -> None:
+    """With cancel_on_close=False, an application that runs cleanup after seeing http.disconnect
+    completes that cleanup before the transport finishes closing."""
+    cleanup_ran = anyio.Event()
+
+    async def lingering_app(scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+        await receive()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        assert (await receive())["type"] == "http.disconnect"
+        cleanup_ran.set()
+
+    transport = StreamingASGITransport(lingering_app, cancel_on_close=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://bridge") as http:
+        with anyio.fail_after(5):
+            async with http.stream("GET", "/linger") as response:
+                assert response.status_code == 200
+            assert not cleanup_ran.is_set()
+    assert cleanup_ran.is_set()

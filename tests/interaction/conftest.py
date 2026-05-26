@@ -2,11 +2,12 @@
 
 import pytest
 
-from tests.interaction._connect import Connect, connect_in_memory, connect_over_streamable_http
+from tests.interaction._connect import Connect, connect_in_memory, connect_over_sse, connect_over_streamable_http
 
 _FACTORIES: dict[str, Connect] = {
     "in-memory": connect_in_memory,
     "streamable-http": connect_over_streamable_http,
+    "sse": connect_over_sse,
 }
 
 

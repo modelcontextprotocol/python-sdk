@@ -1,0 +1,98 @@
+"""Behaviour specific to the legacy HTTP+SSE transport, exercised entirely in process.
+
+Transport-agnostic behaviour is covered by the `connect`-fixture matrix, which runs the rest of
+the suite over this transport as well; this file pins only what is observable on the SSE wiring
+itself: the GET-then-POST connection lifecycle, the endpoint event, and how the message endpoint
+rejects requests it cannot route to a session. Every test drives the server's real Starlette app
+through the suite's streaming ASGI bridge.
+"""
+
+import gc
+import warnings
+from uuid import UUID, uuid4
+
+import anyio
+import httpx
+import pytest
+from inline_snapshot import snapshot
+
+from mcp.client.client import Client
+from mcp.client.sse import sse_client
+from mcp.server import Server
+from mcp.types import EmptyResult
+from tests.interaction._connect import build_sse_app
+from tests.interaction._requirements import requirement
+from tests.interaction.transports._bridge import StreamingASGITransport
+
+pytestmark = pytest.mark.anyio
+
+_BASE_URL = "http://127.0.0.1:8000"
+
+
+@requirement("transport:sse")
+@requirement("transport:sse:endpoint-event")
+async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id() -> None:
+    """Connecting opens a GET stream whose first event names the POST endpoint and a fresh
+    session id; messages POSTed there are answered on that stream, and disconnecting releases the
+    server's session entry."""
+    app, sse = build_sse_app(Server("legacy"))
+    captured_session_id: list[str] = []
+
+    def httpx_client_factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=StreamingASGITransport(app, cancel_on_close=False),
+            base_url=_BASE_URL,
+            headers=headers,
+            timeout=timeout,
+            auth=auth,
+        )
+
+    transport = sse_client(
+        f"{_BASE_URL}/sse", httpx_client_factory=httpx_client_factory, on_session_created=captured_session_id.append
+    )
+    with anyio.fail_after(5):
+        async with Client(transport) as client:
+            assert len(captured_session_id) == 1
+            assert UUID(hex=captured_session_id[0]) in sse._read_stream_writers
+            assert await client.send_ping() == snapshot(EmptyResult())
+
+    assert sse._read_stream_writers == {}
+    # See connect_over_sse: collect the one stream sse_starlette never closes on disconnect.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", ResourceWarning)
+        gc.collect()
+
+
+@requirement("transport:sse:post:session-routing")
+async def test_post_without_a_session_id_is_rejected() -> None:
+    """A POST to the message endpoint with no session_id query parameter is answered 400."""
+    app, _ = build_sse_app(Server("legacy"))
+    async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=_BASE_URL) as http:
+        response = await http.post("/messages/", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
+    assert (response.status_code, response.text) == snapshot((400, "session_id is required"))
+
+
+@requirement("transport:sse:post:session-routing")
+async def test_post_with_a_malformed_session_id_is_rejected() -> None:
+    """A POST whose session_id query parameter is not a UUID is answered 400."""
+    app, _ = build_sse_app(Server("legacy"))
+    async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=_BASE_URL) as http:
+        response = await http.post(
+            "/messages/", params={"session_id": "not-a-uuid"}, json={"jsonrpc": "2.0", "method": "ping", "id": 1}
+        )
+    assert (response.status_code, response.text) == snapshot((400, "Invalid session ID"))
+
+
+@requirement("transport:sse:post:session-routing")
+async def test_post_for_an_unknown_session_is_rejected() -> None:
+    """A POST naming a well-formed session_id that no SSE stream owns is answered 404."""
+    app, _ = build_sse_app(Server("legacy"))
+    async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url=_BASE_URL) as http:
+        response = await http.post(
+            "/messages/", params={"session_id": uuid4().hex}, json={"jsonrpc": "2.0", "method": "ping", "id": 1}
+        )
+    assert (response.status_code, response.text) == snapshot((404, "Could not find session"))

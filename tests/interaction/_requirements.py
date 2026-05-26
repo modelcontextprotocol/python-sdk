@@ -1759,10 +1759,23 @@ REQUIREMENTS: dict[str, Requirement] = {
             "requests, with server messages delivered on the SSE stream."
         ),
         transports=("sse",),
-        deferred=(
-            "The legacy SSE transport is covered by tests/shared/test_sse.py; in-process coverage in this "
-            "suite arrives with the transport fixture work."
+    ),
+    "transport:sse:endpoint-event": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
+        behavior=(
+            "Opening the SSE stream delivers an `endpoint` event naming the message-POST URL and a fresh "
+            "session identifier; the server registers the session before the event is sent and releases it "
+            "when the stream disconnects."
         ),
+        transports=("sse",),
+    ),
+    "transport:sse:post:session-routing": Requirement(
+        source="sdk",
+        behavior=(
+            "A POST to the SSE message endpoint that names no session id, a malformed session id, or an "
+            "unknown session id is rejected (400/400/404) instead of being forwarded."
+        ),
+        transports=("sse",),
     ),
     "transport:stdio": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",

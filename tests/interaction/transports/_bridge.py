@@ -21,7 +21,8 @@ The behavioural contract, pinned by `test_bridge.py`:
 
 The transport owns an anyio task group for the application tasks; it is opened and closed by
 `httpx.AsyncClient`'s own context manager, so use the client as a context manager (the suite
-always does).
+always does). Closing the transport cancels every running application task by default; set
+`cancel_on_close=False` to wait for the application's own disconnect handling instead.
 """
 
 import math
@@ -56,12 +57,19 @@ class _StreamingResponseBody(httpx.AsyncByteStream):
 
 
 class StreamingASGITransport(httpx.AsyncBaseTransport):
-    """Drive an ASGI application in-process, streaming each response as it is produced."""
+    """Drive an ASGI application in-process, streaming each response as it is produced.
+
+    With `cancel_on_close` (the default), closing the transport cancels every application task
+    still running so harness teardown can never hang. Setting it to False makes the transport wait
+    for the application's own disconnect handling to complete instead, which is the path the legacy
+    SSE server transport relies on for resource cleanup.
+    """
 
     _task_group: anyio.abc.TaskGroup
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, cancel_on_close: bool = True) -> None:
         self._app = app
+        self._cancel_on_close = cancel_on_close
 
     async def __aenter__(self) -> "StreamingASGITransport":
         self._task_group = anyio.create_task_group()
@@ -74,9 +82,11 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
         exc_value: BaseException | None = None,
         traceback: TracebackType | None = None,
     ) -> None:
-        # Any application task still running at this point is serving a client that no longer
-        # exists; cancel rather than wait so harness teardown can never hang.
-        self._task_group.cancel_scope.cancel()
+        # httpx closes every streamed response before closing the transport, so by now each
+        # application task has been delivered `http.disconnect`. Either cancel immediately, or wait
+        # for the application's own disconnect handling to unwind.
+        if self._cancel_on_close:
+            self._task_group.cancel_scope.cancel()
         await self._task_group.__aexit__(exc_type, exc_value, traceback)
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:

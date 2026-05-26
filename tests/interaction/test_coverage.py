@@ -29,6 +29,7 @@ _HARNESS_SELF_TESTS = {
     "tests.interaction.transports.test_bridge.test_response_chunks_arrive_as_the_application_sends_them",
     "tests.interaction.transports.test_bridge.test_closing_the_response_delivers_a_disconnect_to_the_application",
     "tests.interaction.transports.test_bridge.test_an_application_failure_before_the_response_starts_fails_the_request",
+    "tests.interaction.transports.test_bridge.test_disabling_cancel_on_close_lets_the_application_finish_after_disconnect",
 }
 
 
