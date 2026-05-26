@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Literal, TypeAlias, overload
+from typing import Any, Literal, TypeAlias, cast, overload
 
 import anyio
 import httpx
@@ -371,7 +371,7 @@ class ClientSessionGroup:
     async def _aggregate_components(self, server_info: types.Implementation, session: mcp.ClientSession) -> None:
         """Aggregates prompts, resources, and tools from a given session."""
 
-        capabilities = session.initialize_result.capabilities if session.initialize_result else None
+        capabilities = cast(types.ServerCapabilities, session.server_capabilities)
 
         # Create a reverse index so we can find all prompts, resources, and
         # tools belonging to this session. Used for removing components from
@@ -386,7 +386,7 @@ class ClientSessionGroup:
         tool_to_session_temp: dict[str, mcp.ClientSession] = {}
 
         # Query the server for its prompts and aggregate to list.
-        if capabilities is None or capabilities.prompts is not None:
+        if capabilities.prompts is not None:
             try:
                 prompts = (await session.list_prompts()).prompts
                 for prompt in prompts:
@@ -397,7 +397,7 @@ class ClientSessionGroup:
                 logging.warning(f"Could not fetch prompts: {err}")
 
         # Query the server for its resources and aggregate to list.
-        if capabilities is None or capabilities.resources is not None:
+        if capabilities.resources is not None:
             try:
                 resources = (await session.list_resources()).resources
                 for resource in resources:
@@ -408,7 +408,7 @@ class ClientSessionGroup:
                 logging.warning(f"Could not fetch resources: {err}")
 
         # Query the server for its tools and aggregate to list.
-        if capabilities is None or capabilities.tools is not None:
+        if capabilities.tools is not None:
             try:
                 tools = (await session.list_tools()).tools
                 for tool in tools:

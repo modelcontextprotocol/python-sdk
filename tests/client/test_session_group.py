@@ -176,13 +176,46 @@ async def test_client_session_group_connect_with_session_respects_negotiated_cap
 
     with caplog.at_level(logging.WARNING):
         async with Client(server) as client:
-            assert client.initialize_result.capabilities.prompts is None
-            assert client.initialize_result.capabilities.resources is None
+            assert client.server_capabilities.prompts is None
+            assert client.server_capabilities.resources is None
 
             client.session.list_prompts = mock.AsyncMock(side_effect=AssertionError("list_prompts() was called"))
             client.session.list_resources = mock.AsyncMock(side_effect=AssertionError("list_resources() was called"))
 
-            await group.connect_with_session(client.initialize_result.server_info, client.session)
+            await group.connect_with_session(client.server_info, client.session)
+            await group.call_tool("ping")
+
+    assert not caplog.records
+
+
+@pytest.mark.anyio
+async def test_client_session_group_skips_unadvertised_tools_and_resources(
+    caplog: pytest.LogCaptureFixture,
+):
+    from mcp import Client
+    from mcp.server import Server, ServerRequestContext
+
+    async def handle_list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        return types.ListPromptsResult(prompts=[types.Prompt(name="hello", description="Hello", arguments=[])])
+
+    server = Server(
+        "prompts-only-server",
+        on_list_prompts=handle_list_prompts,
+    )
+
+    group = ClientSessionGroup()
+
+    with caplog.at_level(logging.WARNING):
+        async with Client(server) as client:
+            assert client.server_capabilities.tools is None
+            assert client.server_capabilities.resources is None
+
+            client.session.list_tools = mock.AsyncMock(side_effect=AssertionError("list_tools() was called"))
+            client.session.list_resources = mock.AsyncMock(side_effect=AssertionError("list_resources() was called"))
+
+            await group.connect_with_session(client.server_info, client.session)
 
     assert not caplog.records
 
