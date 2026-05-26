@@ -27,7 +27,9 @@ The whole suite is in-memory and event-driven; it runs in about a second.
   SDK's own deliberate output.
 - **No sleeps, no real I/O.** Concurrency is coordinated with `anyio.Event`; every wait that
   could hang is bounded by `anyio.fail_after(5)`. The streamable HTTP tests drive the Starlette
-  app in-process through `httpx.ASGITransport` — no sockets, threads, or subprocesses anywhere.
+  app in-process through the suite's streaming ASGI bridge (`transports/_bridge.py`), which
+  delivers each response chunk as the server produces it — full duplex, but still no sockets,
+  threads, or subprocesses anywhere.
 
 ## Layout
 

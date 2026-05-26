@@ -1,37 +1,42 @@
-"""Smoke tests for the interaction model over the streamable HTTP transport, entirely in process.
+"""Tests for the interaction model over the streamable HTTP transport, entirely in process.
 
-The Starlette app a real deployment would hand to uvicorn is driven through httpx's ASGI
-transport instead: the full HTTP framing layer runs (session ids, SSE and JSON response
-encoding, stateful and stateless session management) with no sockets, threads, or subprocesses,
-so these tests are as deterministic as the in-memory ones.
-
-The ASGI client buffers each response in full before the client sees any of it. Request,
-response, and notification flows are unaffected -- notifications are written to the request's
-SSE stream before the response and arrive in order -- but a server-initiated request nested
-inside a still-open call would deadlock, so that scenario is deferred to the real-socket
-transport tests (see the `transport:streamable-http:server-to-client` requirement).
+The Starlette app a real deployment would hand to uvicorn is driven through the suite's
+streaming ASGI bridge instead: the full HTTP framing layer runs (session ids, SSE and JSON
+response encoding, stateful and stateless session management) with no sockets, threads, or
+subprocesses, so these tests are as deterministic as the in-memory ones. Because the bridge
+streams each response as the server produces it, full-duplex behaviour works too: a
+server-initiated request nested inside a still-open call round-trips while that call's SSE
+response remains open.
 """
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import anyio
 import httpx
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel
 
+from mcp.client import ClientRequestContext
 from mcp.client.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import (
     CallToolResult,
+    ElicitRequestParams,
+    ElicitResult,
     LoggingMessageNotification,
     LoggingMessageNotificationParams,
+    ResourceUpdatedNotification,
+    ResourceUpdatedNotificationParams,
     TextContent,
 )
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
+from tests.interaction.transports._bridge import StreamingASGITransport
 
 pytestmark = pytest.mark.anyio
 
@@ -63,9 +68,11 @@ def _smoke_server() -> MCPServer:
 
     @mcp.tool()
     async def ask(ctx: Context) -> str:
-        """Attempt a server-initiated elicitation."""
-        await ctx.elicit("Proceed?", Confirmation)
-        raise NotImplementedError  # only called in stateless mode, where the elicit cannot succeed
+        """Elicit a confirmation from the client and report the outcome."""
+        answer = await ctx.elicit("Proceed?", Confirmation)
+        # In stateless mode the elicit raises before this point: there is no session to call back through.
+        assert isinstance(answer, AcceptedElicitation)
+        return f"confirmed={answer.data.confirmed}"
 
     @mcp.tool()
     async def announce(ctx: Context) -> str:
@@ -91,7 +98,7 @@ async def _connected(
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
     async with mcp.session_manager.run():
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as http:
+        async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url="http://127.0.0.1:8000") as http:
             transport = streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http)
             async with Client(transport) as client:
                 yield client
@@ -165,7 +172,7 @@ async def test_notifications_during_a_tool_call_arrive_before_the_response() -> 
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )
     async with server.session_manager.run():
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as http:
+        async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url="http://127.0.0.1:8000") as http:
             transport = streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http)
             async with Client(transport, logging_callback=collect_log) as client:
                 result = await client.call_tool("narrate", {}, progress_callback=collect_progress)
@@ -191,34 +198,76 @@ async def test_stateless_streamable_http_rejects_server_initiated_requests() -> 
 
 
 @requirement("transport:streamable-http:unrelated-messages")
-async def test_unrelated_server_messages_are_not_delivered_without_a_listening_stream() -> None:
-    """A server message with no related request goes to the standalone GET stream, not the call's stream.
+async def test_unrelated_server_messages_arrive_on_the_standalone_stream() -> None:
+    """A server message with no related request reaches the client through the standalone GET stream.
 
-    The client never opens the standalone stream, so the resource-updated notification is silently
-    dropped. The log notification sent by the same tool IS related to the call and does arrive,
-    proving the collector works and making the absence of the unrelated one meaningful. This is
-    the transport behaviour that makes `related_request_id` matter.
+    The log notification is related to the tool call and travels on that call's own SSE stream;
+    the resource-updated notification is not related to any request, so the only way it can reach
+    the client is the standalone stream the client opens after initialization. Delivery order
+    across the two streams is not guaranteed, so the unrelated message is awaited rather than
+    assumed to beat the tool result.
     """
     received: list[IncomingMessage] = []
+    resource_update_seen = anyio.Event()
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
+        if isinstance(message, ResourceUpdatedNotification):
+            resource_update_seen.set()
 
     server = _smoke_server()
     app = server.streamable_http_app(
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )
     async with server.session_manager.run():
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000") as http:
+        async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url="http://127.0.0.1:8000") as http:
             transport = streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http)
             async with Client(transport, message_handler=collect) as client:
                 result = await client.call_tool("announce", {})
+                with anyio.fail_after(5):
+                    await resource_update_seen.wait()
 
     assert result == snapshot(
         CallToolResult(content=[TextContent(text="announced")], structured_content={"result": "announced"})
     )
-    # Only the related log notification arrives; the resource-updated notification went to the
-    # standalone stream nobody is reading.
-    assert received == snapshot(
+    # The related log notification rides the call's stream; the unrelated resource-updated
+    # notification rides the standalone stream. Both arrive, nothing else does.
+    assert [message for message in received if isinstance(message, LoggingMessageNotification)] == snapshot(
         [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="about to announce"))]
     )
+    assert [message for message in received if isinstance(message, ResourceUpdatedNotification)] == snapshot(
+        [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]
+    )
+    assert len(received) == 2
+
+
+@requirement("transport:streamable-http:server-to-client")
+async def test_server_initiated_elicitation_round_trips_during_a_tool_call() -> None:
+    """An elicitation issued mid-call reaches the client and its answer reaches the handler over stateful HTTP.
+
+    The elicitation request travels on the still-open SSE response of the tool call that triggered
+    it, and the client's answer arrives as a separate POST -- the full-duplex exchange the
+    streamable HTTP transport exists to provide.
+    """
+    asked: list[ElicitRequestParams] = []
+
+    async def answer(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
+        asked.append(params)
+        return ElicitResult(action="accept", content={"confirmed": True})
+
+    server = _smoke_server()
+    app = server.streamable_http_app(
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    )
+    async with server.session_manager.run():
+        async with httpx.AsyncClient(transport=StreamingASGITransport(app), base_url="http://127.0.0.1:8000") as http:
+            transport = streamable_http_client("http://127.0.0.1:8000/mcp", http_client=http)
+            async with Client(transport, elicitation_callback=answer) as client:
+                # Bounded because a harness regression here historically meant deadlock, not failure.
+                with anyio.fail_after(5):
+                    result = await client.call_tool("ask", {})
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="confirmed=True")], structured_content={"result": "confirmed=True"})
+    )
+    assert [params.message for params in asked] == snapshot(["Proceed?"])

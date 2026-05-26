@@ -26,6 +26,9 @@ _CITED_PATH = re.compile(r"(?:tests|src)/[\w./-]*\w")
 # Anything listed here is exempt from the every-test-has-a-requirement check.
 _HARNESS_SELF_TESTS = {
     "tests.interaction.lowlevel.test_wire.test_recording_read_stream_ends_iteration_when_the_sender_closes",
+    "tests.interaction.transports.test_bridge.test_response_chunks_arrive_as_the_application_sends_them",
+    "tests.interaction.transports.test_bridge.test_closing_the_response_delivers_a_disconnect_to_the_application",
+    "tests.interaction.transports.test_bridge.test_an_application_failure_before_the_response_starts_fails_the_request",
 }
 
 

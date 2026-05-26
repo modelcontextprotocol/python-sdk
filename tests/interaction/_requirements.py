@@ -1722,7 +1722,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
         behavior=(
             "A server-to-client message that is not related to an in-flight request is routed to the "
-            "standalone GET stream; a client that never opened one does not receive it."
+            "standalone GET stream and delivered to the client listening on it, not to any request's "
+            "own stream."
         ),
         transports=("streamable-http",),
     ),
@@ -1732,11 +1733,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A server-initiated request nested inside an in-flight call round-trips over stateful streamable HTTP."
         ),
         transports=("streamable-http",),
-        deferred=(
-            "The in-process ASGI client buffers each response in full, which deadlocks on a "
-            "server-to-client request nested inside a still-open call. Covered over a real socket by "
-            "tests/shared/test_streamable_http.py."
-        ),
     ),
     "transport:streamable-http:resumability": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
