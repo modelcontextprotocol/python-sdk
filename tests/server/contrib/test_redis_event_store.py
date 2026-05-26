@@ -35,7 +35,7 @@ async def redis_client():
     client = fakeredis.FakeRedis()
     yield client
     if hasattr(client, "aclose"):
-        await client.aclose()
+        await getattr(client, "aclose")()
     else:
         await client.close()
 
@@ -244,6 +244,7 @@ async def test_replay_message_content_round_trips(store):
     assert len(events) == 1
     # The deserialized message must match the original
     replayed = events[0].message
+    assert isinstance(replayed, JSONRPCRequest)
     assert replayed.method == "resources/list"
     assert replayed.id == "99"
 
