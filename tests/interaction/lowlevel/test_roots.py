@@ -82,7 +82,8 @@ async def test_list_roots_empty() -> None:
 async def test_list_roots_without_callback_is_error() -> None:
     """A roots/list request to a client with no roots callback fails with an error the handler can observe.
 
-    The client's default callback answers with INVALID_REQUEST rather than leaving the server hanging.
+    The client's default callback answers with INVALID_REQUEST rather than leaving the server
+    hanging; the spec names -32601 for this case (see the divergence note on the requirement).
     """
 
     async def list_tools(

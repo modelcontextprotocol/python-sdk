@@ -240,11 +240,11 @@ REQUIREMENTS: dict[str, Requirement] = {
     # Request metadata
     # ═══════════════════════════════════════════════════════════════════════════
     "meta:request-to-handler": Requirement(
-        source=f"{SPEC_BASE_URL}/basic#meta",
+        source=f"{SPEC_BASE_URL}/basic#_meta",
         behavior="The _meta object the client attaches to a request is visible to the server handler.",
     ),
     "meta:result-to-client": Requirement(
-        source=f"{SPEC_BASE_URL}/basic#meta",
+        source=f"{SPEC_BASE_URL}/basic#_meta",
         behavior="The _meta object a handler attaches to its result is delivered to the client.",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -337,7 +337,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="completion/complete with a ref/resource returns suggested values for a URI template variable.",
     ),
     "completion:complete:context": Requirement(
-        source=f"{SPEC_BASE_URL}/server/utilities/completion#context",
+        source=f"{SPEC_BASE_URL}/server/utilities/completion#requesting-completions",
         behavior="Previously-resolved argument values supplied in context.arguments reach the completion handler.",
     ),
     "completion:complete:not-supported": Requirement(
@@ -351,7 +351,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     # Logging
     # ═══════════════════════════════════════════════════════════════════════════
     "logging:set-level": Requirement(
-        source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
         behavior="logging/setLevel delivers the requested level to the server's handler and returns an empty result.",
     ),
     "logging:message:notification": Requirement(
@@ -365,8 +365,22 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
         behavior="All eight RFC 5424 severity levels are deliverable as log message notifications.",
     ),
+    "logging:capability": Requirement(
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#capabilities",
+        behavior=(
+            "MCPServer tools emit log message notifications through the Context helpers while the server's "
+            "advertised capabilities omit logging."
+        ),
+        divergence=Divergence(
+            note=(
+                "The spec says servers that emit log message notifications MUST declare the logging "
+                "capability; MCPServer registers no setLevel handler, so capability derivation leaves "
+                "logging unset even though the Context helpers send the notifications."
+            ),
+        ),
+    ),
     "logging:set-level:filtering": Requirement(
-        source=f"{SPEC_BASE_URL}/server/utilities/logging#log-levels",
+        source=f"{SPEC_BASE_URL}/server/utilities/logging#setting-log-level",
         behavior=(
             "MCPServer registers no logging/setLevel handler (the request is rejected with method-not-found) "
             "and log messages are delivered at every severity regardless of any requested level."
@@ -477,7 +491,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     "sampling:create-message:image-content": Requirement(
-        source=f"{SPEC_BASE_URL}/client/sampling#message-content",
+        source=f"{SPEC_BASE_URL}/client/sampling#image-content",
         behavior="Sampling messages can carry image content: base64 data with a mimeType.",
     ),
     "sampling:create-message:tools:not-supported": Requirement(
@@ -506,18 +520,19 @@ REQUIREMENTS: dict[str, Requirement] = {
     "sampling:create-message:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/sampling#capabilities",
         behavior=(
-            "A sampling request to a client that did not declare the sampling capability fails with an "
-            "error rather than hanging or being silently dropped."
+            "A sampling request to a client that did not declare the sampling capability fails with the "
+            "client's default-callback error (-32600 Invalid request) rather than hanging or being "
+            "silently dropped; the spec names no error code for this case."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Elicitation (server → client)
     # ═══════════════════════════════════════════════════════════════════════════
     "elicitation:form:accept": Requirement(
-        source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-elicitation",
+        source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-elicitation-requests",
         behavior=(
             "A form-mode elicitation answered with action 'accept' returns the user's content to the "
-            "requesting handler, validated against the requested schema."
+            "requesting handler."
         ),
     ),
     "elicitation:form:decline": Requirement(
@@ -529,7 +544,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="A form-mode elicitation answered with action 'cancel' returns no content to the handler.",
     ),
     "elicitation:url:accept": Requirement(
-        source=f"{SPEC_BASE_URL}/client/elicitation#url-mode-elicitation",
+        source=f"{SPEC_BASE_URL}/client/elicitation#url-mode-elicitation-requests",
         behavior=(
             "A URL-mode elicitation delivers the message, URL, and elicitationId to the client; an accept "
             "response carries no content (accept means the user agreed to visit the URL, not that the "
@@ -545,7 +560,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="A URL-mode elicitation answered with cancel returns the action with no content.",
     ),
     "elicitation:complete-notification": Requirement(
-        source=f"{SPEC_BASE_URL}/client/elicitation#completion-notification",
+        source=f"{SPEC_BASE_URL}/client/elicitation#completion-notifications-for-url-mode-elicitation",
         behavior=(
             "An elicitation/complete notification sent by the server after an out-of-band elicitation "
             "finishes reaches the client carrying the elicitationId."
@@ -559,10 +574,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
     ),
     "elicitation:form:not-supported": Requirement(
-        source=f"{SPEC_BASE_URL}/client/elicitation#capabilities",
+        source=f"{SPEC_BASE_URL}/client/elicitation#error-handling",
         behavior=(
             "An elicitation request to a client that did not declare the elicitation capability fails with "
             "an error rather than hanging or being silently dropped."
+        ),
+        divergence=Divergence(
+            note=(
+                "The spec says a request for an elicitation mode the client has not declared MUST be "
+                "answered with -32602 Invalid params; the client's default callback answers with -32600 "
+                "Invalid request."
+            ),
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -580,10 +602,16 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior="An empty roots list is a valid response and reaches the handler as such.",
     ),
     "roots:list:not-supported": Requirement(
-        source=f"{SPEC_BASE_URL}/client/roots#capabilities",
+        source=f"{SPEC_BASE_URL}/client/roots#error-handling",
         behavior=(
             "A roots/list request to a client that did not declare the roots capability fails with an "
             "error rather than hanging or being silently dropped."
+        ),
+        divergence=Divergence(
+            note=(
+                "The spec says a client that does not support roots SHOULD answer with -32601 Method not "
+                "found; the client's default callback answers with -32600 Invalid request."
+            ),
         ),
     ),
     "roots:list-changed": Requirement(

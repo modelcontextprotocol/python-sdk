@@ -145,7 +145,8 @@ async def test_elicit_form_without_callback_is_error() -> None:
     """Eliciting from a client that configured no elicitation callback fails with an error.
 
     The client's default callback answers with an Invalid request error, which the server-side
-    elicit call raises as an MCPError; the tool reports the code and message it caught.
+    elicit call raises as an MCPError; the tool reports the code and message it caught. The spec
+    requires -32602 for an undeclared mode (see the divergence note on the requirement).
     """
 
     async def list_tools(

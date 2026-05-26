@@ -41,8 +41,7 @@ def _echo_server() -> Server:
 async def test_request_ids_are_unique_and_never_null() -> None:
     """Every request the client sends carries a distinct, non-null id.
 
-    The id sequence is pinned: sequential integers from zero, in send order, including the
-    schema-cache refresh the client performs after the first successful tool call.
+    The id sequence is pinned: sequential integers from zero, in send order.
     """
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 

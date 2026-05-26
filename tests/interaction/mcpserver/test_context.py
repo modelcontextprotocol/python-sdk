@@ -16,20 +16,24 @@ from mcp.types import (
     ElicitRequestParams,
     ElicitResult,
     ErrorData,
+    LoggingMessageNotification,
     LoggingMessageNotificationParams,
     TextContent,
 )
+from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("mcpserver:context:logging")
+@requirement("logging:capability")
 async def test_context_logging_helpers_send_log_notifications() -> None:
     """Each Context logging helper sends a log message notification at the matching severity.
 
     All four notifications reach the client's logging callback before the tool call returns; none
-    of them carry a logger name unless one is passed explicitly.
+    of them carry a logger name unless one is passed explicitly. The server emits these without
+    advertising the logging capability (see the divergence note on logging:capability).
     """
     received: list[LoggingMessageNotificationParams] = []
     mcp = MCPServer("chatty")
@@ -47,6 +51,7 @@ async def test_context_logging_helpers_send_log_notifications() -> None:
 
     async with Client(mcp, logging_callback=collect) as client:
         result = await client.call_tool("narrate", {})
+        advertised_logging = client.initialize_result.capabilities.logging
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="done")], structured_content={"result": "done"}))
     assert received == snapshot(
@@ -57,6 +62,8 @@ async def test_context_logging_helpers_send_log_notifications() -> None:
             LoggingMessageNotificationParams(level="error", data="e"),
         ]
     )
+    # The spec requires servers that emit log notifications to declare the logging capability.
+    assert advertised_logging is None
 
 
 @requirement("mcpserver:context:progress")
@@ -84,6 +91,37 @@ async def test_context_report_progress_sends_progress_notifications() -> None:
         CallToolResult(content=[TextContent(text="crunched")], structured_content={"result": "crunched"})
     )
     assert received == snapshot([(1.0, 3.0, None), (2.0, 3.0, "halfway there")])
+
+
+@requirement("progress:no-token")
+async def test_report_progress_without_a_progress_token_sends_nothing() -> None:
+    """When the caller supplied no progress callback, Context.report_progress is a silent no-op.
+
+    The tool also emits one log message as a sentinel: the message handler receives only that,
+    proving the notification pipeline works and no progress notification was sent for the
+    token-less request.
+    """
+    received: list[IncomingMessage] = []
+    mcp = MCPServer("quiet")
+
+    @mcp.tool()
+    async def mill(ctx: Context) -> str:
+        await ctx.report_progress(1, 3)
+        await ctx.info("milling done")
+        return "milled"
+
+    async def collect(message: IncomingMessage) -> None:
+        received.append(message)
+
+    async with Client(mcp, message_handler=collect) as client:
+        result = await client.call_tool("mill", {})
+
+    assert result == snapshot(
+        CallToolResult(content=[TextContent(text="milled")], structured_content={"result": "milled"})
+    )
+    assert received == snapshot(
+        [LoggingMessageNotification(params=LoggingMessageNotificationParams(level="info", data="milling done"))]
+    )
 
 
 @requirement("mcpserver:context:elicit")
