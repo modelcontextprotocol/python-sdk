@@ -47,7 +47,9 @@ class AccessToken(BaseModel):
     `sub` from a JWT (RFC 9068) or introspection response (RFC 7662). Token
     verifiers should populate this whenever an end-user is involved so request
     handlers and transports can distinguish users that share an OAuth client.
-    Conventionally unset for `client_credentials` tokens."""
+    For `client_credentials` grants there is no end-user; `sub` may then
+    identify the client itself (RFC 9068 §2.2) or be absent, depending on the
+    authorization server."""
     claims: dict[str, Any] | None = None
     """Additional verified claims (e.g. `iss`, `act`) for request handlers."""
 

@@ -211,7 +211,15 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
 
     @property
     def client_id(self) -> str | None:
-        """Get the client ID if available."""
+        """Get the client ID if available.
+
+        Note: this reads from the MCP request's `_meta` params, not from the
+        OAuth bearer token. It is unrelated to `subject` and `claims` below,
+        which come from the authenticated `AccessToken`. For the OAuth
+        `client_id`, use `get_access_token().client_id`.
+
+        TODO(maxisbey): see if this is needed otherwise remove
+        """
         return self.request_context.meta.get("client_id") if self.request_context.meta else None  # pragma: no cover
 
     @property
@@ -224,6 +232,18 @@ class Context(BaseModel, Generic[LifespanContextT, RequestT]):
         """
         token = get_access_token()
         return token.subject if token is not None else None
+
+    @property
+    def claims(self) -> dict[str, Any] | None:
+        """Additional verified claims from the bearer token, if any.
+
+        Returns `AccessToken.claims` for the current request so handlers can
+        read values like `iss` or `act` without importing `get_access_token`
+        and handling the raw token directly. `None` when unauthenticated or
+        when the token verifier did not populate claims.
+        """
+        token = get_access_token()
+        return token.claims if token is not None else None
 
     @property
     def request_id(self) -> str:

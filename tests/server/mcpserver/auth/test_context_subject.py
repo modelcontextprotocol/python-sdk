@@ -1,4 +1,4 @@
-"""Context.subject reads the resource owner from the request's access token."""
+"""Context.subject and Context.claims read from the request's access token."""
 
 from mcp.server.auth.middleware.auth_context import auth_context_var
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
@@ -40,3 +40,27 @@ def test_subject_tracks_current_auth_context():
         auth_context_var.reset(cv_token)
 
     assert ctx.subject is None
+
+
+def test_claims_is_none_when_unauthenticated():
+    assert Context().claims is None
+
+
+def test_claims_is_none_when_token_has_no_claims():
+    user = AuthenticatedUser(AccessToken(token="t", client_id="c", scopes=[]))
+    cv_token = auth_context_var.set(user)
+    try:
+        assert Context().claims is None
+    finally:
+        auth_context_var.reset(cv_token)
+
+
+def test_claims_reads_from_access_token():
+    user = AuthenticatedUser(
+        AccessToken(token="t", client_id="c", scopes=[], claims={"iss": "https://auth.example.com"})
+    )
+    cv_token = auth_context_var.set(user)
+    try:
+        assert Context().claims == {"iss": "https://auth.example.com"}
+    finally:
+        auth_context_var.reset(cv_token)
