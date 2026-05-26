@@ -12,6 +12,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
+@requirement("lifecycle:ping")
 @requirement("ping:client-to-server")
 async def test_client_ping_returns_empty_result() -> None:
     """A client ping is answered with an empty result, even by a server with no handlers."""
@@ -23,6 +24,7 @@ async def test_client_ping_returns_empty_result() -> None:
     assert result == snapshot(EmptyResult())
 
 
+@requirement("lifecycle:ping")
 @requirement("ping:server-to-client")
 async def test_server_ping_returns_empty_result() -> None:
     """A server-initiated ping sent while a request is in flight is answered by the client.

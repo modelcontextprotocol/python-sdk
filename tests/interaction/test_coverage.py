@@ -2,11 +2,13 @@
 
 The contract runs in both directions: every non-deferred entry in :data:`REQUIREMENTS` must be
 exercised by at least one test, and every test in the suite must carry at least one
-`@requirement(...)` mark referencing a manifest entry. Test modules are imported directly
+`@requirement(...)` mark referencing a manifest entry. Deferral reasons that point at coverage
+elsewhere in the repo must point at paths that exist. Test modules are imported directly
 (rather than relying on pytest collection) so the check holds even when only this file is run.
 """
 
 import importlib
+import re
 from pathlib import Path
 from types import ModuleType
 
@@ -15,6 +17,10 @@ import pytest
 from tests.interaction._requirements import REQUIREMENTS, Requirement, covered_by, requirement
 
 _SUITE_ROOT = Path(__file__).parent
+_REPO_ROOT = _SUITE_ROOT.parent.parent
+
+# Repo paths cited inside deferral reasons ("Covered by tests/... ").
+_CITED_PATH = re.compile(r"(?:tests|src)/[\w./-]*\w")
 
 # Tests that exercise the suite's own helpers rather than an interaction-model behaviour.
 # Anything listed here is exempt from the every-test-has-a-requirement check.
@@ -68,6 +74,18 @@ def test_every_test_exercises_a_requirement() -> None:
 
     stale_exemptions = sorted(_HARNESS_SELF_TESTS - all_tests)
     assert not stale_exemptions, f"Harness self-test exemptions that no longer exist: {stale_exemptions}"
+
+
+def test_deferral_reasons_cite_existing_paths() -> None:
+    """Every repo path named in a deferral reason exists, so coverage pointers cannot rot."""
+    missing = sorted(
+        f"{requirement_id}: {cited}"
+        for requirement_id, spec in REQUIREMENTS.items()
+        if spec.deferred is not None
+        for cited in _CITED_PATH.findall(spec.deferred)
+        if not (_REPO_ROOT / cited).exists()
+    )
+    assert not missing, f"Deferral reasons citing paths that do not exist: {missing}"
 
 
 def test_unknown_requirement_id_is_rejected() -> None:

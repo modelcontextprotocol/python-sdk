@@ -20,6 +20,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("protocol:cancel:in-flight")
+@requirement("protocol:cancel:handler-abort-propagates")
 async def test_cancellation_stops_in_flight_handler() -> None:
     """Cancelling an in-flight request interrupts its handler and fails the pending call.
 

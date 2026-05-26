@@ -46,6 +46,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
+@requirement("lifecycle:initialize:basic")
 @requirement("lifecycle:initialize:server-info")
 async def test_initialize_returns_server_info() -> None:
     """Every identity field the server declares is returned to the client in server_info."""

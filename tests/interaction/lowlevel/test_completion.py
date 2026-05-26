@@ -20,6 +20,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("completion:prompt-arg")
+@requirement("completion:result-shape")
 async def test_complete_prompt_argument() -> None:
     """Completing a prompt argument delivers the ref, argument name, and current value to the handler.
 

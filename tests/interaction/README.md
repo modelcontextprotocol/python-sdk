@@ -60,11 +60,15 @@ test body — each directory pins its flavour's true output exactly.
 - **`source`** is a deep link into the MCP specification for externally mandated behaviour,
   the literal string `"sdk"` for behaviour the SDK chose where the spec is silent, or
   `"issue:#n"` for a regression lock.
-- **`behavior`** describes what the suite *asserts* — which is always the SDK's current
-  behaviour, never an aspiration.
-- **`divergence`** records the gap when current behaviour differs from what `source` mandates,
-  with an issue link once one exists. The test still pins current behaviour.
-- **`deferred`** marks a behaviour that is deliberately not covered, with the reason.
+- **`behavior`** describes the *required* behaviour — what the specification (or the SDK's own
+  contract) says should happen. Tests always pin the SDK's current behaviour; where that falls
+  short of `behavior`, the gap is recorded as data rather than hidden in the test.
+- **`divergence`** records that gap for entries whose tests pin the divergent current behaviour.
+- **`deferred`** marks a behaviour that is tracked but not yet covered by a test in this suite.
+  The reason names the covering tests elsewhere in the repo, starts with "Not implemented in the
+  SDK" for genuine feature gaps, or starts with "Not yet covered here" for tests that are planned.
+- **`transports`** names the transports a behaviour applies to; omitted means transport-independent.
+- **`issue`** carries the tracking link for a recorded gap once one is filed.
 
 Tests link themselves to the manifest with a decorator:
 
