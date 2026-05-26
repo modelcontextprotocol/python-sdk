@@ -186,6 +186,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
             scopes=[self.settings.mcp_scope],
             code_challenge=code_challenge,
             resource=resource,  # RFC 8707
+            subject=username,
         )
         self.auth_codes[new_code] = auth_code
 
@@ -224,6 +225,7 @@ class SimpleOAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, Re
             scopes=authorization_code.scopes,
             expires_at=int(time.time()) + 3600,
             resource=authorization_code.resource,  # RFC 8707
+            subject=authorization_code.subject,
         )
 
         # Store user data mapping for this token
