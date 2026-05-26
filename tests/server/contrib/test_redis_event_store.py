@@ -33,7 +33,13 @@ async def redis_client():
     Each test gets a fresh client (function scope = default).
     """
     client = fakeredis.FakeRedis()
-    yield client
+    try:
+        yield client
+    finally:
+        try:
+            await client.aclose()
+        except AttributeError:
+            await client.close()
 
 
 @pytest.fixture
