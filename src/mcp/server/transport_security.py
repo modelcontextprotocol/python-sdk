@@ -1,6 +1,7 @@
 """DNS rebinding protection for MCP server transports."""
 
 import logging
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
 from starlette.requests import Request
@@ -22,11 +23,23 @@ class TransportSecuritySettings(BaseModel):
     allowed_hosts: list[str] = Field(default_factory=list)
     """List of allowed Host header values.
 
+    Supports exact matches, port wildcards, and subdomain wildcards:
+
+    - ``"example.com"`` — exact match
+    - ``"example.com:*"`` — any port on that host
+    - ``"*.example.com"`` — any subdomain (or the base domain itself)
+
     Only applies when `enable_dns_rebinding_protection` is `True`.
     """
 
     allowed_origins: list[str] = Field(default_factory=list)
     """List of allowed Origin header values.
+
+    Supports exact matches, port wildcards, and subdomain wildcards:
+
+    - ``"https://example.com"`` — exact match
+    - ``"https://example.com:*"`` — any port on that origin
+    - ``"https://*.example.com"`` — any subdomain (or the base domain itself) with HTTPS
 
     Only applies when `enable_dns_rebinding_protection` is `True`.
     """
@@ -40,45 +53,60 @@ class TransportSecurityMiddleware:
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-    def _validate_host(self, host: str | None) -> bool:  # pragma: no cover
+    def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
         if not host:
             logger.warning("Missing Host header in request")
             return False
 
-        # Check exact match first
         if host in self.settings.allowed_hosts:
             return True
 
-        # Check wildcard port patterns
+        # Strip port for subdomain wildcard matching
+        host_without_port = host.split(":")[0]
+
         for allowed in self.settings.allowed_hosts:
             if allowed.endswith(":*"):
-                # Extract base host from pattern
+                # Port wildcard: e.g., "example.com:*" matches "example.com:8080"
                 base_host = allowed[:-2]
-                # Check if the actual host starts with base host and has a port
                 if host.startswith(base_host + ":"):
+                    return True
+            elif allowed.startswith("*."):
+                # Subdomain wildcard: e.g., "*.example.com" matches "example.com"
+                # and "sub.example.com" (port is ignored)
+                suffix = allowed[2:]
+                if host_without_port == suffix or host_without_port.endswith("." + suffix):
                     return True
 
         logger.warning(f"Invalid Host header: {host}")
         return False
 
-    def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
+    def _validate_origin(self, origin: str | None) -> bool:
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
             return True
 
-        # Check exact match first
         if origin in self.settings.allowed_origins:
             return True
 
-        # Check wildcard port patterns
         for allowed in self.settings.allowed_origins:
             if allowed.endswith(":*"):
-                # Extract base origin from pattern
+                # Port wildcard: e.g., "https://example.com:*" matches "https://example.com:8080"
                 base_origin = allowed[:-2]
-                # Check if the actual origin starts with base origin and has a port
                 if origin.startswith(base_origin + ":"):
+                    return True
+            elif "://*." in allowed:
+                # Subdomain wildcard: e.g., "https://*.example.com" matches
+                # "https://example.com" and "https://sub.example.com"
+                parsed_allowed = urlparse(allowed)
+                parsed_origin = urlparse(origin)
+                if parsed_allowed.scheme != parsed_origin.scheme:
+                    continue
+                # hostname is "*.suffix" because "://*." is in the pattern
+                suffix = (parsed_allowed.hostname or "")[2:]
+                origin_hostname = parsed_origin.hostname or ""
+                if origin_hostname == suffix or origin_hostname.endswith("." + suffix):
                     return True
 
         logger.warning(f"Invalid Origin header: {origin}")
@@ -94,7 +122,7 @@ class TransportSecurityMiddleware:
         Returns None if validation passes, or an error Response if validation fails.
         """
         # Always validate Content-Type for POST requests
-        if is_post:  # pragma: no branch
+        if is_post:
             content_type = request.headers.get("content-type")
             if not self._validate_content_type(content_type):
                 return Response("Invalid Content-Type header", status_code=400)
@@ -103,14 +131,12 @@ class TransportSecurityMiddleware:
         if not self.settings.enable_dns_rebinding_protection:
             return None
 
-        # Validate Host header  # pragma: no cover
-        host = request.headers.get("host")  # pragma: no cover
-        if not self._validate_host(host):  # pragma: no cover
-            return Response("Invalid Host header", status_code=421)  # pragma: no cover
+        host = request.headers.get("host")
+        if not self._validate_host(host):
+            return Response("Invalid Host header", status_code=421)
 
-        # Validate Origin header  # pragma: no cover
-        origin = request.headers.get("origin")  # pragma: no cover
-        if not self._validate_origin(origin):  # pragma: no cover
-            return Response("Invalid Origin header", status_code=403)  # pragma: no cover
+        origin = request.headers.get("origin")
+        if not self._validate_origin(origin):
+            return Response("Invalid Origin header", status_code=403)
 
-        return None  # pragma: no cover
+        return None
