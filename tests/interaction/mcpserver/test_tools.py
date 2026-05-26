@@ -4,7 +4,6 @@ import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel
 
-from mcp.client.client import Client
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import (
@@ -13,6 +12,7 @@ from mcp.types import (
     LoggingMessageNotificationParams,
     TextContent,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
@@ -20,7 +20,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content() -> None:
+async def test_call_tool_returns_text_content(connect: Connect) -> None:
     """Arguments reach the tool function; its return value comes back as text content.
 
     MCPServer also derives an output schema from the return annotation and attaches the
@@ -32,14 +32,14 @@ async def test_call_tool_returns_text_content() -> None:
     def add(a: int, b: int) -> str:
         return str(a + b)
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"}))
 
 
 @requirement("mcpserver:tool:handler-throws")
-async def test_call_tool_function_exception_becomes_error_result() -> None:
+async def test_call_tool_function_exception_becomes_error_result(connect: Connect) -> None:
     """An exception raised by a tool function is returned as an is_error result, not a JSON-RPC error."""
     mcp = MCPServer("errors")
 
@@ -47,7 +47,7 @@ async def test_call_tool_function_exception_becomes_error_result() -> None:
     def explode() -> str:
         raise ValueError("boom")
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.call_tool("explode", {})
 
     assert result == snapshot(
@@ -56,7 +56,7 @@ async def test_call_tool_function_exception_becomes_error_result() -> None:
 
 
 @requirement("mcpserver:tool:handler-throws")
-async def test_call_tool_tool_error_becomes_error_result() -> None:
+async def test_call_tool_tool_error_becomes_error_result(connect: Connect) -> None:
     """A ToolError raised by a tool function is returned as an is_error result, not a JSON-RPC error."""
     mcp = MCPServer("errors")
 
@@ -64,7 +64,7 @@ async def test_call_tool_tool_error_becomes_error_result() -> None:
     def flux() -> str:
         raise ToolError("flux capacitor offline")
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.call_tool("flux", {})
 
     assert result == snapshot(
@@ -73,7 +73,7 @@ async def test_call_tool_tool_error_becomes_error_result() -> None:
 
 
 @requirement("mcpserver:tool:unknown-name")
-async def test_call_tool_unknown_name_returns_error_result() -> None:
+async def test_call_tool_unknown_name_returns_error_result(connect: Connect) -> None:
     """Calling a tool name that was never registered is reported as an is_error result.
 
     The spec classifies unknown tools as a protocol error; see the divergence note on the
@@ -85,7 +85,7 @@ async def test_call_tool_unknown_name_returns_error_result() -> None:
     def add() -> None:
         """A registered tool; the test calls a different name."""
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.call_tool("nope", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True))
@@ -93,7 +93,7 @@ async def test_call_tool_unknown_name_returns_error_result() -> None:
 
 @requirement("mcpserver:tool:output-schema:model")
 @requirement("tools:call:structured-content:text-mirror")
-async def test_call_tool_model_return_becomes_structured_content() -> None:
+async def test_call_tool_model_return_becomes_structured_content(connect: Connect) -> None:
     """A tool returning a pydantic model advertises the model's schema as the tool's output schema
     and returns the model's fields as structured content alongside a serialised text block.
     """
@@ -107,7 +107,7 @@ async def test_call_tool_model_return_becomes_structured_content() -> None:
     def get_weather() -> Weather:
         return Weather(temperature=22.5, conditions="sunny")
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         listed = await client.list_tools()
         result = await client.call_tool("get_weather", {})
 
@@ -140,7 +140,7 @@ async def test_call_tool_model_return_becomes_structured_content() -> None:
 
 
 @requirement("mcpserver:tool:output-schema:wrapped")
-async def test_call_tool_list_return_is_wrapped_in_result_key() -> None:
+async def test_call_tool_list_return_is_wrapped_in_result_key(connect: Connect) -> None:
     """A tool returning a list wraps the value under a "result" key in both the generated output
     schema and the structured content.
     """
@@ -150,7 +150,7 @@ async def test_call_tool_list_return_is_wrapped_in_result_key() -> None:
     def primes() -> list[int]:
         return [2, 3, 5]
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         listed = await client.list_tools()
         result = await client.call_tool("primes", {})
 
@@ -171,7 +171,7 @@ async def test_call_tool_list_return_is_wrapped_in_result_key() -> None:
 
 
 @requirement("mcpserver:tool:input-validation")
-async def test_call_tool_invalid_arguments_become_error_result() -> None:
+async def test_call_tool_invalid_arguments_become_error_result(connect: Connect) -> None:
     """Arguments that fail validation against the tool's signature are reported as an is_error
     result describing the failure, not as a protocol error.
     """
@@ -182,7 +182,7 @@ async def test_call_tool_invalid_arguments_become_error_result() -> None:
         """Validation rejects the arguments before the function is ever called."""
         raise NotImplementedError
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.call_tool("add", {"b": 3})
 
     # The description is raw pydantic output -- it embeds a pydantic-version-specific
@@ -194,7 +194,7 @@ async def test_call_tool_invalid_arguments_become_error_result() -> None:
 
 
 @requirement("mcpserver:register:post-connect")
-async def test_adding_and_removing_tools_does_not_notify_connected_clients() -> None:
+async def test_adding_and_removing_tools_does_not_notify_connected_clients(connect: Connect) -> None:
     """Mutating the tool set on a running server changes tools/list but sends no notification.
 
     add_tool and remove_tool only update the registry: a connected client that listed the tools
@@ -225,7 +225,7 @@ async def test_adding_and_removing_tools_does_not_notify_connected_clients() -> 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
 
-    async with Client(mcp, message_handler=collect) as client:
+    async with connect(mcp, message_handler=collect) as client:
         before = await client.list_tools()
         await client.call_tool("grow", {})
         after = await client.list_tools()

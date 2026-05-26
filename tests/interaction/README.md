@@ -37,16 +37,30 @@ The whole suite is in-memory and event-driven; it runs in about a second.
 tests/interaction/
   _requirements.py      the requirements manifest (see below)
   _helpers.py           shared type aliases + the wire-recording transport
+  _connect.py           the transport-parametrized connection factories
+  conftest.py           the connect fixture (the transport matrix)
   test_coverage.py      enforces the manifest ↔ test contract
   lowlevel/             one file per feature area, against the low-level Server
   mcpserver/            the same feature areas in MCPServer's natural idiom
-  transports/           a smoke subset over the streamable HTTP framing
+  transports/           behaviour specific to one transport (modes, streams, framing)
 ```
 
 The two server APIs produce genuinely different wire output for the same conceptual feature
 (`MCPServer` generates schemas, converts exceptions to `isError` results, attaches structured
 content), so they get parallel directories with mirrored file names rather than one parametrized
 test body — each directory pins its flavour's true output exactly.
+
+### The transport matrix
+
+Transport-agnostic tests take the `connect` fixture instead of constructing `Client(server)`
+directly, and therefore run once per transport: over the in-memory transport and over the
+server's real streamable HTTP app driven in process through the streaming bridge. A test connects
+the same way in either case — `async with connect(server, ...) as client:` — and asserts the same
+output, because the transport is not supposed to change observable behaviour. Tests that are tied
+to one transport do not use the fixture: the wire-recording tests (their seam is the in-memory
+stream pair), the bare-`ClientSession` lifecycle tests, the real-clock timeout tests (the timeout
+machinery is transport-independent and must not race transport latency), and everything under
+`transports/`, which pins behaviour only observable on that transport.
 
 ## The requirements manifest
 

@@ -10,7 +10,6 @@ from inline_snapshot import snapshot
 
 from mcp import MCPError, types
 from mcp.client import ClientRequestContext
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     CallToolResult,
@@ -24,6 +23,7 @@ from mcp.types import (
     TextContent,
     ToolResultContent,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("sampling:create:basic")
 @requirement("tools:call:sampling-roundtrip")
-async def test_create_message_round_trip() -> None:
+async def test_create_message_round_trip(connect: Connect) -> None:
     """A handler's sampling request is answered by the client callback, and the callback's result
     (role, content, model, stop reason) is returned to the handler.
     """
@@ -64,7 +64,7 @@ async def test_create_message_round_trip() -> None:
             stop_reason="endTurn",
         )
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="mock-llm-1/endTurn: Hello to you too.")]))
@@ -82,7 +82,7 @@ async def test_create_message_round_trip() -> None:
 @requirement("sampling:create:include-context")
 @requirement("sampling:create:model-preferences")
 @requirement("sampling:create:system-prompt")
-async def test_create_message_params_reach_callback() -> None:
+async def test_create_message_params_reach_callback(connect: Connect) -> None:
     """Every sampling parameter the handler supplies arrives at the client callback unchanged."""
     received: list[CreateMessageRequestParams] = []
 
@@ -118,7 +118,7 @@ async def test_create_message_params_reach_callback() -> None:
         received.append(params)
         return CreateMessageResult(role="assistant", content=TextContent(text="ok"), model="mock-llm-1")
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="ok")]))
@@ -144,7 +144,7 @@ async def test_create_message_params_reach_callback() -> None:
 
 
 @requirement("sampling:create-message:image-content")
-async def test_create_message_request_with_image_content_reaches_callback() -> None:
+async def test_create_message_request_with_image_content_reaches_callback(connect: Connect) -> None:
     """A sampling request message carrying image content arrives at the client callback intact.
 
     This is the server-to-client direction: the server includes an image in the conversation it
@@ -180,7 +180,7 @@ async def test_create_message_request_with_image_content_reaches_callback() -> N
             model="mock-vision-1",
         )
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("describe_image", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="described image/png (aW1n)")]))
@@ -196,7 +196,7 @@ async def test_create_message_request_with_image_content_reaches_callback() -> N
 
 
 @requirement("sampling:create-message:image-content")
-async def test_create_message_result_with_image_content_returns_to_handler() -> None:
+async def test_create_message_result_with_image_content_returns_to_handler(connect: Connect) -> None:
     """A sampling result whose content is an image is returned to the requesting handler intact.
 
     This is the client-to-server direction: the model's response is an image rather than text.
@@ -228,14 +228,14 @@ async def test_create_message_result_with_image_content_returns_to_handler() -> 
             model="mock-vision-1",
         )
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("draw", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="mock-vision-1: image/png Y2F0")]))
 
 
 @requirement("sampling:error:user-rejected")
-async def test_create_message_callback_error() -> None:
+async def test_create_message_callback_error(connect: Connect) -> None:
     """A sampling callback that answers with an error surfaces to the requesting handler as an MCPError.
 
     The error here is the spec's own example for a user rejecting a sampling request (code -1);
@@ -263,14 +263,14 @@ async def test_create_message_callback_error() -> None:
     async def sampling_callback(context: ClientRequestContext, params: CreateMessageRequestParams) -> ErrorData:
         return ErrorData(code=-1, message="User rejected sampling request")
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="-1: User rejected sampling request")]))
 
 
 @requirement("sampling:create-message:not-supported")
-async def test_create_message_without_callback_is_error() -> None:
+async def test_create_message_without_callback_is_error(connect: Connect) -> None:
     """A sampling request to a client with no sampling callback fails with the SDK's default error."""
 
     async def list_tools(
@@ -291,14 +291,14 @@ async def test_create_message_without_callback_is_error() -> None:
 
     server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: Sampling not supported")]))
 
 
 @requirement("sampling:tools:server-gated-by-capability")
-async def test_create_message_with_tools_is_rejected_for_unsupporting_client() -> None:
+async def test_create_message_with_tools_is_rejected_for_unsupporting_client(connect: Connect) -> None:
     """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
 
     The client supports plain sampling but cannot declare the tools sub-capability (Client does not
@@ -330,7 +330,7 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client() -
         """Declares the plain sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("ask_model", {})
 
     assert result == snapshot(
@@ -339,7 +339,7 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client() -
 
 
 @requirement("sampling:tool-result:no-mixed-content")
-async def test_create_message_with_unbalanced_tool_messages_is_rejected() -> None:
+async def test_create_message_with_unbalanced_tool_messages_is_rejected(connect: Connect) -> None:
     """A sampling request whose messages mix tool results with other content never leaves the server.
 
     The message-structure validation runs inside create_message before the request is sent, even
@@ -379,7 +379,7 @@ async def test_create_message_with_unbalanced_tool_messages_is_rejected() -> Non
         """Declares the sampling capability; never invoked because the request is rejected first."""
         raise NotImplementedError
 
-    async with Client(server, sampling_callback=sampling_callback) as client:
+    async with connect(server, sampling_callback=sampling_callback) as client:
         result = await client.call_tool("summarise_tools", {})
 
     assert result == snapshot(

@@ -4,7 +4,6 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError
-from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.types import (
     ErrorData,
@@ -15,13 +14,14 @@ from mcp.types import (
     ResourceTemplate,
     TextResourceContents,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("mcpserver:resource:static")
-async def test_read_static_resource() -> None:
+async def test_read_static_resource(connect: Connect) -> None:
     """A function registered for a fixed URI is served at that URI with its return value as text."""
     mcp = MCPServer("library")
 
@@ -30,7 +30,7 @@ async def test_read_static_resource() -> None:
         """The application configuration."""
         return "theme = dark"
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.read_resource("config://app")
 
     assert result == snapshot(
@@ -41,7 +41,7 @@ async def test_read_static_resource() -> None:
 
 
 @requirement("mcpserver:resource:static")
-async def test_list_static_and_templated_resources() -> None:
+async def test_list_static_and_templated_resources(connect: Connect) -> None:
     """Statically-registered resources appear in resources/list; templated ones only in templates/list.
 
     The name and description are derived from the function name and docstring; the MIME type
@@ -59,7 +59,7 @@ async def test_list_static_and_templated_resources() -> None:
         """A user's profile."""
         raise NotImplementedError  # registered for listing only; never read
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         resources = await client.list_resources()
         templates = await client.list_resource_templates()
 
@@ -91,7 +91,7 @@ async def test_list_static_and_templated_resources() -> None:
 
 @requirement("mcpserver:resource:template")
 @requirement("resources:read:template-vars")
-async def test_read_templated_resource() -> None:
+async def test_read_templated_resource(connect: Connect) -> None:
     """Reading a URI that matches a registered template invokes the function with the extracted parameters."""
     mcp = MCPServer("library")
 
@@ -100,7 +100,7 @@ async def test_read_templated_resource() -> None:
         """A user's profile."""
         return f"profile for {user_id}"
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.read_resource("users://42/profile")
 
     assert result == snapshot(
@@ -111,7 +111,7 @@ async def test_read_templated_resource() -> None:
 
 
 @requirement("mcpserver:resource:unknown-uri")
-async def test_read_unknown_uri_is_error() -> None:
+async def test_read_unknown_uri_is_error(connect: Connect) -> None:
     """Reading a URI that matches no registered resource fails with a JSON-RPC error.
 
     The spec reserves -32002 for resource-not-found; see the divergence note on the requirement.
@@ -123,7 +123,7 @@ async def test_read_unknown_uri_is_error() -> None:
         """A registered resource; the test reads a different URI."""
         raise NotImplementedError
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("config://missing")
 

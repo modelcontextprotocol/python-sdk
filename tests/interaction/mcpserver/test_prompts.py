@@ -4,7 +4,6 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError
-from mcp.client.client import Client
 from mcp.server.mcpserver import MCPServer
 from mcp.types import (
     ErrorData,
@@ -15,13 +14,14 @@ from mcp.types import (
     PromptMessage,
     TextContent,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("mcpserver:prompt:decorated")
-async def test_list_prompts_derives_arguments_from_signature() -> None:
+async def test_list_prompts_derives_arguments_from_signature(connect: Connect) -> None:
     """A decorated prompt is listed with arguments derived from the function signature.
 
     Parameters without a default are required; the description comes from the docstring.
@@ -33,7 +33,7 @@ async def test_list_prompts_derives_arguments_from_signature() -> None:
         """Review a piece of code."""
         raise NotImplementedError  # registered for listing only; never rendered
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.list_prompts()
 
     assert result == snapshot(
@@ -53,7 +53,7 @@ async def test_list_prompts_derives_arguments_from_signature() -> None:
 
 
 @requirement("mcpserver:prompt:decorated")
-async def test_get_prompt_renders_function_return() -> None:
+async def test_get_prompt_renders_function_return(connect: Connect) -> None:
     """The decorated function's string return value is rendered as a single user message."""
     mcp = MCPServer("prompter")
 
@@ -62,7 +62,7 @@ async def test_get_prompt_renders_function_return() -> None:
         """A personalised greeting."""
         return f"Say hello to {name}."
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.get_prompt("greet", {"name": "Ada"})
 
     assert result == snapshot(
@@ -74,7 +74,7 @@ async def test_get_prompt_renders_function_return() -> None:
 
 
 @requirement("mcpserver:prompt:unknown-name")
-async def test_get_unknown_prompt_is_error() -> None:
+async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
     """Getting a prompt name that was never registered fails with a JSON-RPC error."""
     mcp = MCPServer("prompter")
 
@@ -83,7 +83,7 @@ async def test_get_unknown_prompt_is_error() -> None:
         """A registered prompt; the test requests a different name."""
         raise NotImplementedError
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("nope")
 
@@ -91,7 +91,7 @@ async def test_get_unknown_prompt_is_error() -> None:
 
 
 @requirement("prompts:get:missing-required-args")
-async def test_get_prompt_with_a_missing_required_argument_is_an_error() -> None:
+async def test_get_prompt_with_a_missing_required_argument_is_an_error(connect: Connect) -> None:
     """Getting a prompt without one of its required arguments fails with a JSON-RPC error.
 
     The missing argument is detected before the prompt function is called, but the spec's -32602
@@ -105,7 +105,7 @@ async def test_get_prompt_with_a_missing_required_argument_is_an_error() -> None
         """A registered prompt; validation rejects the call before the function runs."""
         raise NotImplementedError
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("greet")
 

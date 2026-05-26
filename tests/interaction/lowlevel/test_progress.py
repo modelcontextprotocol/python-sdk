@@ -12,9 +12,9 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import CallToolResult, ProgressNotificationParams, TextContent
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -22,7 +22,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("protocol:progress:callback")
 @requirement("tools:call:progress")
-async def test_progress_during_tool_call_reaches_callback_in_order() -> None:
+async def test_progress_during_tool_call_reaches_callback_in_order(connect: Connect) -> None:
     """Progress notifications emitted by a tool handler reach the caller's progress callback in order."""
     received: list[tuple[float, float | None, str | None]] = []
 
@@ -46,7 +46,7 @@ async def test_progress_during_tool_call_reaches_callback_in_order() -> None:
 
     server = Server("downloader", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("download", {}, progress_callback=collect)
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="downloaded")]))
@@ -54,7 +54,7 @@ async def test_progress_during_tool_call_reaches_callback_in_order() -> None:
 
 
 @requirement("protocol:progress:token-injected")
-async def test_progress_token_visible_to_handler() -> None:
+async def test_progress_token_visible_to_handler(connect: Connect) -> None:
     """Supplying a progress callback attaches a progress token that the handler can read from the request meta."""
 
     async def list_tools(
@@ -73,7 +73,7 @@ async def test_progress_token_visible_to_handler() -> None:
         """A progress callback that is never invoked; the tool only inspects the token."""
         raise NotImplementedError
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("inspect", {}, progress_callback=ignore)
 
     # The token is the request id of the tools/call request itself (initialize is request 0).
@@ -81,7 +81,7 @@ async def test_progress_token_visible_to_handler() -> None:
 
 
 @requirement("protocol:progress:no-token")
-async def test_no_progress_callback_means_no_token() -> None:
+async def test_no_progress_callback_means_no_token(connect: Connect) -> None:
     """Without a progress callback the request carries no progress token.
 
     The low-level API has no way to report request-scoped progress without a token, so a handler
@@ -100,14 +100,14 @@ async def test_no_progress_callback_means_no_token() -> None:
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("inspect", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="None")]))
 
 
 @requirement("protocol:progress:client-to-server")
-async def test_client_progress_notification_reaches_server_handler() -> None:
+async def test_client_progress_notification_reaches_server_handler(connect: Connect) -> None:
     """A progress notification sent by the client is delivered to the server's progress handler."""
     received: list[ProgressNotificationParams] = []
     delivered = anyio.Event()
@@ -118,7 +118,7 @@ async def test_client_progress_notification_reaches_server_handler() -> None:
 
     server = Server("observer", on_progress=on_progress)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         await client.send_progress_notification("upload-1", 0.5, total=1.0, message="halfway")
         with anyio.fail_after(5):
             await delivered.wait()

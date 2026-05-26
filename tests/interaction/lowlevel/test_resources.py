@@ -6,7 +6,6 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     Annotations,
@@ -25,6 +24,7 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
@@ -32,7 +32,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("resources:list:basic")
-async def test_list_resources_returns_registered_resources() -> None:
+async def test_list_resources_returns_registered_resources(connect: Connect) -> None:
     """Listed resources reach the client with their URIs, names, and optional descriptive fields intact."""
 
     async def list_resources(
@@ -56,7 +56,7 @@ async def test_list_resources_returns_registered_resources() -> None:
 
     server = Server("library", on_list_resources=list_resources)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.list_resources()
 
     assert result == snapshot(
@@ -79,7 +79,7 @@ async def test_list_resources_returns_registered_resources() -> None:
 
 
 @requirement("resources:read:text")
-async def test_read_resource_text() -> None:
+async def test_read_resource_text(connect: Connect) -> None:
     """Reading a text resource returns its contents with the URI, MIME type, and text supplied by the handler."""
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
@@ -89,7 +89,7 @@ async def test_read_resource_text() -> None:
 
     server = Server("library", on_read_resource=read_resource)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.read_resource("file:///greeting.txt")
 
     assert result == snapshot(
@@ -100,7 +100,7 @@ async def test_read_resource_text() -> None:
 
 
 @requirement("resources:read:blob")
-async def test_read_resource_binary() -> None:
+async def test_read_resource_binary(connect: Connect) -> None:
     """Reading a binary resource returns its contents base64-encoded in the blob field."""
 
     async def read_resource(ctx: ServerRequestContext, params: types.ReadResourceRequestParams) -> ReadResourceResult:
@@ -116,7 +116,7 @@ async def test_read_resource_binary() -> None:
 
     server = Server("library", on_read_resource=read_resource)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.read_resource("file:///pixel.png")
 
     assert result == snapshot(
@@ -127,7 +127,7 @@ async def test_read_resource_binary() -> None:
 
 
 @requirement("resources:read:unknown-uri")
-async def test_read_resource_unknown_uri_is_protocol_error() -> None:
+async def test_read_resource_unknown_uri_is_protocol_error(connect: Connect) -> None:
     """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.
 
     The spec reserves -32002 for resource-not-found; the code is the handler's choice and reaches
@@ -139,7 +139,7 @@ async def test_read_resource_unknown_uri_is_protocol_error() -> None:
 
     server = Server("library", on_read_resource=read_resource)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.read_resource("file:///missing.txt")
 
@@ -147,7 +147,7 @@ async def test_read_resource_unknown_uri_is_protocol_error() -> None:
 
 
 @requirement("resources:templates:list")
-async def test_list_resource_templates_returns_registered_templates() -> None:
+async def test_list_resource_templates_returns_registered_templates(connect: Connect) -> None:
     """Listed resource templates reach the client with their URI templates and descriptive fields intact."""
 
     async def list_resource_templates(
@@ -169,7 +169,7 @@ async def test_list_resource_templates_returns_registered_templates() -> None:
 
     server = Server("library", on_list_resource_templates=list_resource_templates)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.list_resource_templates()
 
     assert result == snapshot(
@@ -190,7 +190,7 @@ async def test_list_resource_templates_returns_registered_templates() -> None:
 
 
 @requirement("resources:subscribe")
-async def test_subscribe_resource_delivers_uri_to_handler() -> None:
+async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
     """Subscribing to a resource delivers the URI to the server's subscribe handler and returns an empty result."""
 
     async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
@@ -199,14 +199,14 @@ async def test_subscribe_resource_delivers_uri_to_handler() -> None:
 
     server = Server("library", on_subscribe_resource=subscribe_resource)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.subscribe_resource("file:///watched.txt")
 
     assert result == snapshot(EmptyResult())
 
 
 @requirement("resources:unsubscribe")
-async def test_unsubscribe_resource_delivers_uri_to_handler() -> None:
+async def test_unsubscribe_resource_delivers_uri_to_handler(connect: Connect) -> None:
     """Unsubscribing from a resource delivers the URI to the server's unsubscribe handler."""
 
     async def unsubscribe_resource(ctx: ServerRequestContext, params: types.UnsubscribeRequestParams) -> EmptyResult:
@@ -215,14 +215,14 @@ async def test_unsubscribe_resource_delivers_uri_to_handler() -> None:
 
     server = Server("library", on_unsubscribe_resource=unsubscribe_resource)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.unsubscribe_resource("file:///watched.txt")
 
     assert result == snapshot(EmptyResult())
 
 
 @requirement("resources:updated-notification")
-async def test_resource_updated_notification_reaches_client() -> None:
+async def test_resource_updated_notification_reaches_client(connect: Connect) -> None:
     """A resources/updated notification sent during a tool call reaches the client with the resource URI.
 
     The collector records every message the handler receives, so the assertion also proves nothing
@@ -245,7 +245,7 @@ async def test_resource_updated_notification_reaches_client() -> None:
 
     server = Server("library", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server, message_handler=collect) as client:
+    async with connect(server, message_handler=collect) as client:
         await client.call_tool("touch", {})
 
     assert received == snapshot(

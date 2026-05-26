@@ -5,7 +5,6 @@ from inline_snapshot import snapshot
 
 from mcp import MCPError, UrlElicitationRequiredError, types
 from mcp.client import ClientRequestContext
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     CallToolResult,
@@ -17,6 +16,7 @@ from mcp.types import (
     ErrorData,
     TextContent,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
@@ -35,7 +35,7 @@ REQUESTED_SCHEMA: dict[str, object] = {
 @requirement("elicitation:form:action:accept")
 @requirement("elicitation:form:basic")
 @requirement("tools:call:elicitation-roundtrip")
-async def test_elicit_form_accepted_content_returns_to_handler() -> None:
+async def test_elicit_form_accepted_content_returns_to_handler(connect: Connect) -> None:
     """An accepted form elicitation returns the user's content to the requesting handler.
 
     The tool reports the action as text and the received content as structured content, proving
@@ -61,7 +61,7 @@ async def test_elicit_form_accepted_content_returns_to_handler() -> None:
         received.append(params)
         return ElicitResult(action="accept", content={"username": "ada", "newsletter": True})
 
-    async with Client(server, elicitation_callback=answer_form) as client:
+    async with connect(server, elicitation_callback=answer_form) as client:
         result = await client.call_tool("signup", {})
 
     assert received == snapshot(
@@ -89,7 +89,7 @@ async def test_elicit_form_accepted_content_returns_to_handler() -> None:
 
 
 @requirement("elicitation:form:action:decline")
-async def test_elicit_form_decline_returns_no_content() -> None:
+async def test_elicit_form_decline_returns_no_content(connect: Connect) -> None:
     """A declined form elicitation returns the decline action to the handler with no content."""
 
     async def list_tools(
@@ -109,14 +109,14 @@ async def test_elicit_form_decline_returns_no_content() -> None:
     async def answer_form(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="decline")
 
-    async with Client(server, elicitation_callback=answer_form) as client:
+    async with connect(server, elicitation_callback=answer_form) as client:
         result = await client.call_tool("confirm", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
 
 
 @requirement("elicitation:form:action:cancel")
-async def test_elicit_form_cancel_returns_no_content() -> None:
+async def test_elicit_form_cancel_returns_no_content(connect: Connect) -> None:
     """A cancelled form elicitation returns the cancel action to the handler with no content."""
 
     async def list_tools(
@@ -136,14 +136,14 @@ async def test_elicit_form_cancel_returns_no_content() -> None:
     async def answer_form(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="cancel")
 
-    async with Client(server, elicitation_callback=answer_form) as client:
+    async with connect(server, elicitation_callback=answer_form) as client:
         result = await client.call_tool("confirm", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
 
 
 @requirement("elicitation:form:not-supported")
-async def test_elicit_form_without_callback_is_error() -> None:
+async def test_elicit_form_without_callback_is_error(connect: Connect) -> None:
     """Eliciting from a client that configured no elicitation callback fails with an error.
 
     The client's default callback answers with an Invalid request error, which the server-side
@@ -168,7 +168,7 @@ async def test_elicit_form_without_callback_is_error() -> None:
 
     server = Server("asker", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("ask", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: Elicitation not supported")]))
@@ -176,7 +176,7 @@ async def test_elicit_form_without_callback_is_error() -> None:
 
 @requirement("elicitation:url:action:accept-no-content")
 @requirement("elicitation:url:basic")
-async def test_elicit_url_delivers_url_and_returns_accept_without_content() -> None:
+async def test_elicit_url_delivers_url_and_returns_accept_without_content(connect: Connect) -> None:
     """A URL elicitation delivers the message, URL, and elicitation id to the client; accepting it
     returns the action with no content.
 
@@ -205,7 +205,7 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content() -> N
         received.append(params)
         return ElicitResult(action="accept")
 
-    async with Client(server, elicitation_callback=answer_url) as client:
+    async with connect(server, elicitation_callback=answer_url) as client:
         result = await client.call_tool("authorize", {})
 
     assert received == snapshot(
@@ -222,7 +222,7 @@ async def test_elicit_url_delivers_url_and_returns_accept_without_content() -> N
 
 
 @requirement("elicitation:url:decline")
-async def test_elicit_url_decline_returns_no_content() -> None:
+async def test_elicit_url_decline_returns_no_content(connect: Connect) -> None:
     """A declined URL elicitation returns the decline action to the handler with no content."""
 
     async def list_tools(
@@ -244,14 +244,14 @@ async def test_elicit_url_decline_returns_no_content() -> None:
     async def answer_url(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="decline")
 
-    async with Client(server, elicitation_callback=answer_url) as client:
+    async with connect(server, elicitation_callback=answer_url) as client:
         result = await client.call_tool("authorize", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
 
 
 @requirement("elicitation:url:cancel")
-async def test_elicit_url_cancel_returns_no_content() -> None:
+async def test_elicit_url_cancel_returns_no_content(connect: Connect) -> None:
     """A cancelled URL elicitation returns the cancel action to the handler with no content."""
 
     async def list_tools(
@@ -273,14 +273,14 @@ async def test_elicit_url_cancel_returns_no_content() -> None:
     async def answer_url(context: ClientRequestContext, params: types.ElicitRequestParams) -> ElicitResult:
         return ElicitResult(action="cancel")
 
-    async with Client(server, elicitation_callback=answer_url) as client:
+    async with connect(server, elicitation_callback=answer_url) as client:
         result = await client.call_tool("authorize", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
 
 
 @requirement("elicitation:url:complete-notification")
-async def test_elicitation_complete_notification_carries_the_elicited_id_back_to_the_client() -> None:
+async def test_elicitation_complete_notification_carries_the_elicited_id_back_to_the_client(connect: Connect) -> None:
     """After a URL elicitation finishes, the server announces it with a notification carrying the same id.
 
     The lifecycle under test: the tool elicits a URL interaction with an elicitationId, the user
@@ -319,7 +319,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
         elicited_ids.append(params.elicitation_id)
         return ElicitResult(action="accept")
 
-    async with Client(server, message_handler=collect, elicitation_callback=answer_url) as client:
+    async with connect(server, message_handler=collect, elicitation_callback=answer_url) as client:
         await client.call_tool("link_account", {})
 
     # The completion notification refers to the same elicitation the client accepted.
@@ -330,7 +330,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
 
 
 @requirement("elicitation:url:required-error")
-async def test_url_elicitation_required_error_carries_pending_elicitations() -> None:
+async def test_url_elicitation_required_error_carries_pending_elicitations(connect: Connect) -> None:
     """A request that cannot proceed until a URL interaction completes is rejected with error -32042.
 
     This is the non-interactive alternative to elicit_url: instead of asking and waiting, the
@@ -353,7 +353,7 @@ async def test_url_elicitation_required_error_carries_pending_elicitations() -> 
 
     server = Server("authorizer", on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("read_files", {})
 

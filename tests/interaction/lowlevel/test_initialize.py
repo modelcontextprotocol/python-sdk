@@ -14,7 +14,6 @@ from inline_snapshot import snapshot
 from mcp import MCPError, types
 from mcp.client import ClientRequestContext, ClientSession
 from mcp.client._memory import InMemoryTransport
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
@@ -41,6 +40,7 @@ from mcp.types import (
     TextContent,
     ToolsCapability,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -48,7 +48,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("lifecycle:initialize:basic")
 @requirement("lifecycle:initialize:server-info")
-async def test_initialize_returns_server_info() -> None:
+async def test_initialize_returns_server_info(connect: Connect) -> None:
     """Every identity field the server declares is returned to the client in server_info."""
     server = Server(
         "greeter",
@@ -59,7 +59,7 @@ async def test_initialize_returns_server_info() -> None:
         icons=[Icon(src="https://example.com/icon.png", mime_type="image/png", sizes=["48x48"])],
     )
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         server_info = client.initialize_result.server_info
 
     assert server_info == snapshot(
@@ -75,12 +75,12 @@ async def test_initialize_returns_server_info() -> None:
 
 
 @requirement("lifecycle:initialize:instructions")
-async def test_initialize_returns_instructions() -> None:
+async def test_initialize_returns_instructions(connect: Connect) -> None:
     """Instructions are returned when the server declares them and omitted when it does not."""
-    async with Client(Server("guided", instructions="Call the add tool.")) as client:
+    async with connect(Server("guided", instructions="Call the add tool.")) as client:
         assert client.initialize_result.instructions == snapshot("Call the add tool.")
 
-    async with Client(Server("unguided")) as client:
+    async with connect(Server("unguided")) as client:
         assert client.initialize_result.instructions is None
 
 
@@ -89,7 +89,7 @@ async def test_initialize_returns_instructions() -> None:
 @requirement("resources:capability:declared")
 @requirement("prompts:capability:declared")
 @requirement("completion:capability:declared")
-async def test_initialize_capabilities_reflect_registered_handlers() -> None:
+async def test_initialize_capabilities_reflect_registered_handlers(connect: Connect) -> None:
     """Each feature area with a registered handler is advertised as a capability.
 
     The in-memory transport connects with default initialization options, so the
@@ -136,7 +136,7 @@ async def test_initialize_capabilities_reflect_registered_handlers() -> None:
         on_completion=completion,
     )
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         capabilities = client.initialize_result.capabilities
 
     assert capabilities == snapshot(
@@ -152,16 +152,16 @@ async def test_initialize_capabilities_reflect_registered_handlers() -> None:
 
 
 @requirement("lifecycle:initialize:capabilities:minimal")
-async def test_initialize_minimal_server_advertises_no_capabilities() -> None:
+async def test_initialize_minimal_server_advertises_no_capabilities(connect: Connect) -> None:
     """A server with no feature handlers advertises no feature capabilities."""
-    async with Client(Server("bare")) as client:
+    async with connect(Server("bare")) as client:
         capabilities = client.initialize_result.capabilities
 
     assert capabilities == snapshot(ServerCapabilities(experimental={}))
 
 
 @requirement("lifecycle:initialize:client-info")
-async def test_initialize_server_sees_client_info() -> None:
+async def test_initialize_server_sees_client_info(connect: Connect) -> None:
     """The client identity supplied to Client is visible to server handlers after initialization."""
 
     async def list_tools(
@@ -178,16 +178,14 @@ async def test_initialize_server_sees_client_info() -> None:
         return CallToolResult(content=[TextContent(text=f"{client_info.name} {client_info.version}")])
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
-    client = Client(server, client_info=Implementation(name="acme-agent", version="9.9.9"))
-
-    async with client:
+    async with connect(server, client_info=Implementation(name="acme-agent", version="9.9.9")) as client:
         result = await client.call_tool("whoami", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="acme-agent 9.9.9")]))
 
 
 @requirement("lifecycle:initialize:client-capabilities")
-async def test_initialize_server_sees_client_capabilities() -> None:
+async def test_initialize_server_sees_client_capabilities(connect: Connect) -> None:
     """The client capabilities visible to the server reflect which callbacks the client configured."""
 
     async def list_tools(
@@ -219,11 +217,11 @@ async def test_initialize_server_sees_client_capabilities() -> None:
 
     server = Server("introspector", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("abilities", {})
     assert result == snapshot(CallToolResult(content=[TextContent(text="none")]))
 
-    async with Client(server, list_roots_callback=list_roots) as client:
+    async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("abilities", {})
     assert result == snapshot(CallToolResult(content=[TextContent(text="roots(list_changed=True)")]))
 

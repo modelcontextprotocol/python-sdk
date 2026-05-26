@@ -13,9 +13,9 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import CallToolResult, EmptyResult, LoggingMessageNotificationParams, TextContent
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -33,7 +33,7 @@ ALL_LEVELS: tuple[types.LoggingLevel, ...] = (
 
 
 @requirement("logging:set-level")
-async def test_set_logging_level_reaches_handler() -> None:
+async def test_set_logging_level_reaches_handler(connect: Connect) -> None:
     """The level requested by the client is delivered to the server's handler verbatim."""
 
     async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
@@ -42,7 +42,7 @@ async def test_set_logging_level_reaches_handler() -> None:
 
     server = Server("logger", on_set_logging_level=set_logging_level)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.set_logging_level("warning")
 
     assert result == snapshot(EmptyResult())
@@ -50,7 +50,7 @@ async def test_set_logging_level_reaches_handler() -> None:
 
 @requirement("logging:message:fields")
 @requirement("tools:call:logging-mid-execution")
-async def test_log_messages_reach_logging_callback_in_order() -> None:
+async def test_log_messages_reach_logging_callback_in_order(connect: Connect) -> None:
     """Log messages sent during a tool call arrive at the logging callback, in order, before the call returns.
 
     The two messages pin the full notification shape: severity, optional logger name, and both
@@ -74,7 +74,7 @@ async def test_log_messages_reach_logging_callback_in_order() -> None:
 
     server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server, logging_callback=collect) as client:
+    async with connect(server, logging_callback=collect) as client:
         result = await client.call_tool("chatty", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="done")]))
@@ -87,7 +87,7 @@ async def test_log_messages_reach_logging_callback_in_order() -> None:
 
 
 @requirement("logging:message:all-levels")
-async def test_log_messages_at_every_severity_level() -> None:
+async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
     """Each of the eight RFC 5424 severity levels is deliverable as a log message notification."""
     received: list[LoggingMessageNotificationParams] = []
 
@@ -107,7 +107,7 @@ async def test_log_messages_at_every_severity_level() -> None:
 
     server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server, logging_callback=collect) as client:
+    async with connect(server, logging_callback=collect) as client:
         await client.call_tool("siren", {})
 
     assert [params.level for params in received] == list(ALL_LEVELS)

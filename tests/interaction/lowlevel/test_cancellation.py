@@ -11,9 +11,9 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import CallToolResult, ErrorData, TextContent
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("protocol:cancel:in-flight")
 @requirement("protocol:cancel:handler-abort-propagates")
-async def test_cancellation_stops_in_flight_handler() -> None:
+async def test_cancellation_stops_in_flight_handler(connect: Connect) -> None:
     """Cancelling an in-flight request interrupts its handler and fails the pending call.
 
     The server answers the cancelled request with an error response (the spec says it should
@@ -47,7 +47,7 @@ async def test_cancellation_stops_in_flight_handler() -> None:
 
     server = Server("blocker", on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:
 
@@ -70,7 +70,7 @@ async def test_cancellation_stops_in_flight_handler() -> None:
 
 
 @requirement("protocol:cancel:server-survives")
-async def test_session_serves_requests_after_cancellation() -> None:
+async def test_session_serves_requests_after_cancellation(connect: Connect) -> None:
     """A request cancelled mid-flight does not poison the session: the next request succeeds."""
     started = anyio.Event()
     request_ids: list[types.RequestId] = []
@@ -96,7 +96,7 @@ async def test_session_serves_requests_after_cancellation() -> None:
 
     server = Server("blocker", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:
 
@@ -116,7 +116,7 @@ async def test_session_serves_requests_after_cancellation() -> None:
 
 
 @requirement("protocol:cancel:unknown-id-ignored")
-async def test_cancellation_for_unknown_request_is_ignored() -> None:
+async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> None:
     """A cancellation referencing a request id that is not in flight is ignored without error."""
 
     async def list_tools(
@@ -130,7 +130,7 @@ async def test_cancellation_for_unknown_request_is_ignored() -> None:
 
     server = Server("calm", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         await client.session.send_notification(
             types.CancelledNotification(params=types.CancelledNotificationParams(request_id=9999))
         )

@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 from mcp import MCPError
 from mcp.client import ClientRequestContext
-from mcp.client.client import Client
 from mcp.server.elicitation import AcceptedElicitation
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import (
@@ -20,6 +19,7 @@ from mcp.types import (
     LoggingMessageNotificationParams,
     TextContent,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
@@ -28,7 +28,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("mcpserver:context:logging")
 @requirement("logging:capability:declared")
-async def test_context_logging_helpers_send_log_notifications() -> None:
+async def test_context_logging_helpers_send_log_notifications(connect: Connect) -> None:
     """Each Context logging helper sends a log message notification at the matching severity.
 
     All four notifications reach the client's logging callback before the tool call returns; none
@@ -49,7 +49,7 @@ async def test_context_logging_helpers_send_log_notifications() -> None:
     async def collect(params: LoggingMessageNotificationParams) -> None:
         received.append(params)
 
-    async with Client(mcp, logging_callback=collect) as client:
+    async with connect(mcp, logging_callback=collect) as client:
         result = await client.call_tool("narrate", {})
         advertised_logging = client.initialize_result.capabilities.logging
 
@@ -67,7 +67,7 @@ async def test_context_logging_helpers_send_log_notifications() -> None:
 
 
 @requirement("mcpserver:context:progress")
-async def test_context_report_progress_sends_progress_notifications() -> None:
+async def test_context_report_progress_sends_progress_notifications(connect: Connect) -> None:
     """Context.report_progress sends progress notifications correlated to the calling request.
 
     The caller's progress callback receives each report, in order, before the tool call returns.
@@ -84,7 +84,7 @@ async def test_context_report_progress_sends_progress_notifications() -> None:
     async def on_progress(progress: float, total: float | None, message: str | None) -> None:
         received.append((progress, total, message))
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.call_tool("crunch", {}, progress_callback=on_progress)
 
     assert result == snapshot(
@@ -94,7 +94,7 @@ async def test_context_report_progress_sends_progress_notifications() -> None:
 
 
 @requirement("protocol:progress:no-token")
-async def test_report_progress_without_a_progress_token_sends_nothing() -> None:
+async def test_report_progress_without_a_progress_token_sends_nothing(connect: Connect) -> None:
     """When the caller supplied no progress callback, Context.report_progress is a silent no-op.
 
     The tool also emits one log message as a sentinel: the message handler receives only that,
@@ -113,7 +113,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing() -> None:
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
 
-    async with Client(mcp, message_handler=collect) as client:
+    async with connect(mcp, message_handler=collect) as client:
         result = await client.call_tool("mill", {})
 
     assert result == snapshot(
@@ -126,7 +126,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing() -> None:
 
 @requirement("mcpserver:context:elicit")
 @requirement("tools:call:elicitation-roundtrip")
-async def test_context_elicit_returns_typed_result() -> None:
+async def test_context_elicit_returns_typed_result(connect: Connect) -> None:
     """Context.elicit sends a form elicitation built from a pydantic schema and returns a typed result.
 
     The client sees the JSON schema generated from the model; the accepted content is validated
@@ -149,7 +149,7 @@ async def test_context_elicit_returns_typed_result() -> None:
         received.append(params)
         return ElicitResult(action="accept", content={"destination": "Lisbon", "window_seat": True})
 
-    async with Client(mcp, elicitation_callback=answer_form) as client:
+    async with connect(mcp, elicitation_callback=answer_form) as client:
         result = await client.call_tool("book_flight", {})
 
     assert received == snapshot(
@@ -178,7 +178,7 @@ async def test_context_elicit_returns_typed_result() -> None:
 
 
 @requirement("mcpserver:context:read-resource")
-async def test_context_read_resource_reads_registered_resource() -> None:
+async def test_context_read_resource_reads_registered_resource(connect: Connect) -> None:
     """Context.read_resource lets a tool read a resource registered on the same server.
 
     The tool reports the MIME type and content it read, proving the resource function ran and its
@@ -196,7 +196,7 @@ async def test_context_read_resource_reads_registered_resource() -> None:
         contents = list(await ctx.read_resource("config://app"))
         return "\n".join(f"{item.mime_type}: {item.content!r}" for item in contents)
 
-    async with Client(mcp) as client:
+    async with connect(mcp) as client:
         result = await client.call_tool("show_config", {})
 
     assert result == snapshot(
@@ -208,7 +208,7 @@ async def test_context_read_resource_reads_registered_resource() -> None:
 
 
 @requirement("logging:message:filtered")
-async def test_set_logging_level_is_rejected_and_messages_are_never_filtered() -> None:
+async def test_set_logging_level_is_rejected_and_messages_are_never_filtered(connect: Connect) -> None:
     """MCPServer does not support logging/setLevel, so log messages are never filtered by severity.
 
     The request is rejected with METHOD_NOT_FOUND because MCPServer registers no handler for it,
@@ -228,7 +228,7 @@ async def test_set_logging_level_is_rejected_and_messages_are_never_filtered() -
     async def collect(params: LoggingMessageNotificationParams) -> None:
         received.append(params)
 
-    async with Client(mcp, logging_callback=collect) as client:
+    async with connect(mcp, logging_callback=collect) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.set_logging_level("error")
 

@@ -374,7 +374,7 @@ class StreamableHTTPServerTransport:
             await error_response(scope, receive, send)
             return
 
-        if self._terminated:  # pragma: no cover
+        if self._terminated:  # pragma: lax no cover
             # If the session has been terminated, return 404 Not Found
             response = self._create_error_response(
                 "Not Found: Session has been terminated",
@@ -635,7 +635,7 @@ class StreamableHTTPServerTransport:
                 finally:
                     await sse_stream_reader.aclose()
 
-        except Exception as err:  # pragma: no cover
+        except Exception as err:  # pragma: lax no cover
             logger.exception("Error handling POST request")
             response = self._create_error_response(
                 f"Error handling POST request: {err}",

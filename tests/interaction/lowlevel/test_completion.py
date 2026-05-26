@@ -4,7 +4,6 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     METHOD_NOT_FOUND,
@@ -14,6 +13,7 @@ from mcp.types import (
     PromptReference,
     ResourceTemplateReference,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.anyio
 
 @requirement("completion:prompt-arg")
 @requirement("completion:result-shape")
-async def test_complete_prompt_argument() -> None:
+async def test_complete_prompt_argument(connect: Connect) -> None:
     """Completing a prompt argument delivers the ref, argument name, and current value to the handler.
 
     The returned values are filtered by the argument's value, proving the value reached the handler.
@@ -37,7 +37,7 @@ async def test_complete_prompt_argument() -> None:
 
     server = Server("completer", on_completion=completion)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.complete(
             PromptReference(name="code_review"), argument={"name": "language", "value": "py"}
         )
@@ -48,7 +48,7 @@ async def test_complete_prompt_argument() -> None:
 
 
 @requirement("completion:resource-template-arg")
-async def test_complete_resource_template_variable() -> None:
+async def test_complete_resource_template_variable(connect: Connect) -> None:
     """Completing a URI template variable delivers the template URI and variable name to the handler."""
 
     async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> CompleteResult:
@@ -59,7 +59,7 @@ async def test_complete_resource_template_variable() -> None:
 
     server = Server("completer", on_completion=completion)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.complete(
             ResourceTemplateReference(uri="github://repos/{owner}/{repo}"),
             argument={"name": "owner", "value": "model"},
@@ -69,7 +69,7 @@ async def test_complete_resource_template_variable() -> None:
 
 
 @requirement("completion:context-arguments")
-async def test_complete_receives_context_arguments() -> None:
+async def test_complete_receives_context_arguments(connect: Connect) -> None:
     """Previously-resolved arguments passed as completion context reach the handler.
 
     The returned value is derived from the context, proving it arrived.
@@ -83,7 +83,7 @@ async def test_complete_receives_context_arguments() -> None:
 
     server = Server("completer", on_completion=completion)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.complete(
             ResourceTemplateReference(uri="github://repos/{owner}/{repo}"),
             argument={"name": "repo", "value": ""},
@@ -95,11 +95,11 @@ async def test_complete_receives_context_arguments() -> None:
 
 @requirement("completion:complete:not-supported")
 @requirement("protocol:error:method-not-found")
-async def test_complete_without_handler_is_method_not_found() -> None:
+async def test_complete_without_handler_is_method_not_found(connect: Connect) -> None:
     """A server with no completion handler advertises no completions capability and rejects the request."""
     server = Server("incomplete")
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         assert client.initialize_result.capabilities.completions is None
 
         with pytest.raises(MCPError) as exc_info:

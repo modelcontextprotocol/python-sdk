@@ -7,16 +7,16 @@ from pydantic import FileUrl
 
 from mcp import MCPError, types
 from mcp.client import ClientRequestContext
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("roots:list:basic")
-async def test_list_roots_round_trip() -> None:
+async def test_list_roots_round_trip(connect: Connect) -> None:
     """A roots/list request from a tool handler is answered by the client's roots callback.
 
     The tool reports the URIs and names it received, proving the client's roots reached the server.
@@ -43,7 +43,7 @@ async def test_list_roots_round_trip() -> None:
             ]
         )
 
-    async with Client(server, list_roots_callback=list_roots) as client:
+    async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("show_roots", {})
 
     assert result == snapshot(
@@ -54,7 +54,7 @@ async def test_list_roots_round_trip() -> None:
 
 
 @requirement("roots:list:empty")
-async def test_list_roots_empty() -> None:
+async def test_list_roots_empty(connect: Connect) -> None:
     """A client with no roots to offer answers roots/list with an empty list, not an error."""
 
     async def list_tools(
@@ -72,14 +72,14 @@ async def test_list_roots_empty() -> None:
     async def list_roots(context: ClientRequestContext) -> ListRootsResult:
         return ListRootsResult(roots=[])
 
-    async with Client(server, list_roots_callback=list_roots) as client:
+    async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("count_roots", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="0")]))
 
 
 @requirement("roots:list:not-supported")
-async def test_list_roots_without_callback_is_error() -> None:
+async def test_list_roots_without_callback_is_error(connect: Connect) -> None:
     """A roots/list request to a client with no roots callback fails with an error the handler can observe.
 
     The client's default callback answers with INVALID_REQUEST rather than leaving the server
@@ -101,14 +101,14 @@ async def test_list_roots_without_callback_is_error() -> None:
 
     server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("show_roots", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: List roots not supported")]))
 
 
 @requirement("roots:list:client-error")
-async def test_list_roots_callback_error_surfaces_to_the_handler() -> None:
+async def test_list_roots_callback_error_surfaces_to_the_handler(connect: Connect) -> None:
     """A roots callback that answers with an error fails the roots/list request with that exact error.
 
     The callback's code and message reach the requesting handler verbatim as an MCPError.
@@ -132,14 +132,14 @@ async def test_list_roots_callback_error_surfaces_to_the_handler() -> None:
     async def list_roots(context: ClientRequestContext) -> ErrorData:
         return ErrorData(code=INTERNAL_ERROR, message="roots provider crashed")
 
-    async with Client(server, list_roots_callback=list_roots) as client:
+    async with connect(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("show_roots", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32603: roots provider crashed")]))
 
 
 @requirement("roots:list-changed")
-async def test_roots_list_changed_reaches_server_handler() -> None:
+async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> None:
     """A roots/list_changed notification from the client is delivered to the server's handler.
 
     Unlike a request, a notification has no response to await: the handler sets an event and the
@@ -154,7 +154,7 @@ async def test_roots_list_changed_reaches_server_handler() -> None:
 
     server = Server("rooted", on_roots_list_changed=roots_list_changed)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         await client.send_roots_list_changed()
         with anyio.fail_after(5):
             await delivered.wait()

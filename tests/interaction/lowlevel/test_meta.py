@@ -8,16 +8,16 @@ which also proves the SDK injected nothing alongside it.
 import pytest
 
 from mcp import types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import CallToolResult, RequestParamsMeta, TextContent
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("meta:request-to-handler")
-async def test_request_meta_reaches_handler() -> None:
+async def test_request_meta_reaches_handler(connect: Connect) -> None:
     """The _meta object the client attaches to a request arrives at the tool handler unchanged."""
     request_meta: RequestParamsMeta = {"example.com/trace": "abc-123"}
     observed_metas: list[dict[str, object]] = []
@@ -35,14 +35,14 @@ async def test_request_meta_reaches_handler() -> None:
 
     server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         await client.call_tool("traced", {}, meta=request_meta)
 
     assert observed_metas == [dict(request_meta)]
 
 
 @requirement("meta:result-to-client")
-async def test_result_meta_reaches_client() -> None:
+async def test_result_meta_reaches_client(connect: Connect) -> None:
     """The _meta object a handler attaches to its result is delivered to the client unchanged."""
     result_meta = {"example.com/cost": 3}
 
@@ -57,7 +57,7 @@ async def test_result_meta_reaches_client() -> None:
 
     server = Server("observability", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("metered", {})
 
     assert result == CallToolResult(content=[TextContent(text="done")], _meta=result_meta)

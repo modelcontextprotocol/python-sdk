@@ -9,7 +9,6 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     ListPromptsResult,
@@ -21,13 +20,14 @@ from mcp.types import (
     ResourceTemplate,
     Tool,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:list:pagination")
-async def test_next_cursor_round_trips_through_the_client() -> None:
+async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> None:
     """The next_cursor a list handler returns reaches the client, and the cursor the client sends
     back on the following call reaches the handler verbatim.
     """
@@ -45,7 +45,7 @@ async def test_next_cursor_round_trips_through_the_client() -> None:
 
     server = Server("paginated", on_list_tools=list_tools)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         first_page = await client.list_tools()
         second_page = await client.list_tools(cursor="page-2")
 
@@ -58,7 +58,7 @@ async def test_next_cursor_round_trips_through_the_client() -> None:
 
 @requirement("pagination:exhaustion")
 @requirement("tools:list:pagination")
-async def test_paginating_until_next_cursor_is_absent_yields_every_page() -> None:
+async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect: Connect) -> None:
     """Following next_cursor until it is absent visits every page exactly once, in order."""
     pages: dict[str | None, tuple[str, str | None]] = {
         None: ("alpha", "page-2"),
@@ -76,7 +76,7 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page() -> Non
     collected: list[str] = []
     cursor: str | None = None
     requests_made = 0
-    async with Client(server) as client:
+    async with connect(server) as client:
         while True:
             result = await client.list_tools(cursor=cursor)
             requests_made += 1
@@ -91,7 +91,7 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page() -> Non
 
 
 @requirement("resources:list:pagination")
-async def test_resources_list_supports_cursor_pagination() -> None:
+async def test_resources_list_supports_cursor_pagination(connect: Connect) -> None:
     """resources/list round-trips the cursor like every other list operation."""
     seen_cursors: list[str | None] = []
 
@@ -106,7 +106,7 @@ async def test_resources_list_supports_cursor_pagination() -> None:
 
     server = Server("paginated", on_list_resources=list_resources)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         first_page = await client.list_resources()
         second_page = await client.list_resources(cursor="page-2")
 
@@ -118,7 +118,7 @@ async def test_resources_list_supports_cursor_pagination() -> None:
 
 
 @requirement("resources:templates:pagination")
-async def test_resource_templates_list_supports_cursor_pagination() -> None:
+async def test_resource_templates_list_supports_cursor_pagination(connect: Connect) -> None:
     """resources/templates/list round-trips the cursor like every other list operation."""
     seen_cursors: list[str | None] = []
 
@@ -138,7 +138,7 @@ async def test_resource_templates_list_supports_cursor_pagination() -> None:
 
     server = Server("paginated", on_list_resource_templates=list_resource_templates)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         first_page = await client.list_resource_templates()
         second_page = await client.list_resource_templates(cursor="page-2")
 
@@ -150,7 +150,7 @@ async def test_resource_templates_list_supports_cursor_pagination() -> None:
 
 
 @requirement("prompts:list:pagination")
-async def test_prompts_list_supports_cursor_pagination() -> None:
+async def test_prompts_list_supports_cursor_pagination(connect: Connect) -> None:
     """prompts/list round-trips the cursor like every other list operation."""
     seen_cursors: list[str | None] = []
 
@@ -163,7 +163,7 @@ async def test_prompts_list_supports_cursor_pagination() -> None:
 
     server = Server("paginated", on_list_prompts=list_prompts)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         first_page = await client.list_prompts()
         second_page = await client.list_prompts(cursor="page-2")
 

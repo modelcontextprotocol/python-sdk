@@ -4,7 +4,6 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     INVALID_PARAMS,
@@ -17,13 +16,14 @@ from mcp.types import (
     PromptMessage,
     TextContent,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("prompts:list:basic")
-async def test_list_prompts_returns_registered_prompts() -> None:
+async def test_list_prompts_returns_registered_prompts(connect: Connect) -> None:
     """The prompts returned by the handler reach the client with their argument declarations intact."""
 
     async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
@@ -44,7 +44,7 @@ async def test_list_prompts_returns_registered_prompts() -> None:
 
     server = Server("prompter", on_list_prompts=list_prompts)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.list_prompts()
 
     assert result == snapshot(
@@ -66,7 +66,7 @@ async def test_list_prompts_returns_registered_prompts() -> None:
 
 
 @requirement("prompts:get:with-args")
-async def test_get_prompt_substitutes_arguments() -> None:
+async def test_get_prompt_substitutes_arguments(connect: Connect) -> None:
     """Arguments supplied by the client reach the prompt handler; the templated message comes back."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
@@ -79,7 +79,7 @@ async def test_get_prompt_substitutes_arguments() -> None:
 
     server = Server("prompter", on_get_prompt=get_prompt)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.get_prompt("greet", {"name": "Ada"})
 
     assert result == snapshot(
@@ -91,7 +91,7 @@ async def test_get_prompt_substitutes_arguments() -> None:
 
 
 @requirement("prompts:get:multi-message")
-async def test_get_prompt_multiple_messages_preserve_roles_and_order() -> None:
+async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Connect) -> None:
     """A prompt returning a user/assistant conversation reaches the client with roles and order intact."""
 
     async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
@@ -106,7 +106,7 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order() -> None:
 
     server = Server("prompter", on_get_prompt=get_prompt)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.get_prompt("geography_quiz")
 
     assert result == snapshot(
@@ -121,7 +121,7 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order() -> None:
 
 
 @requirement("prompts:get:unknown-name")
-async def test_get_prompt_unknown_name_is_protocol_error() -> None:
+async def test_get_prompt_unknown_name_is_protocol_error(connect: Connect) -> None:
     """A handler that rejects an unrecognised prompt name with MCPError produces a JSON-RPC error.
 
     The error's code and message chosen by the handler reach the client verbatim.
@@ -132,7 +132,7 @@ async def test_get_prompt_unknown_name_is_protocol_error() -> None:
 
     server = Server("prompter", on_get_prompt=get_prompt)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.get_prompt("nope")
 

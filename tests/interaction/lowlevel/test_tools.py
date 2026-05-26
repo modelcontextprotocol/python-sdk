@@ -5,7 +5,6 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
-from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     INVALID_PARAMS,
@@ -22,13 +21,14 @@ from mcp.types import (
     Tool,
     ToolAnnotations,
 )
+from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
 
 
 @requirement("tools:call:content:text")
-async def test_call_tool_returns_text_content() -> None:
+async def test_call_tool_returns_text_content(connect: Connect) -> None:
     """Arguments reach the tool handler; its content comes back as the call result."""
 
     async def list_tools(
@@ -45,14 +45,14 @@ async def test_call_tool_returns_text_content() -> None:
 
     server = Server("adder", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("add", {"a": 2, "b": 3})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="5")]))
 
 
 @requirement("tools:call:is-error")
-async def test_call_tool_execution_error_is_returned_as_result() -> None:
+async def test_call_tool_execution_error_is_returned_as_result(connect: Connect) -> None:
     """A tool reporting its own failure with is_error=True reaches the client as a result, not an exception.
 
     Tool execution errors are part of the result so the caller (typically a model) can see
@@ -65,7 +65,7 @@ async def test_call_tool_execution_error_is_returned_as_result() -> None:
 
     server = Server("errors", on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("flux", {})
 
     assert result == snapshot(
@@ -74,7 +74,7 @@ async def test_call_tool_execution_error_is_returned_as_result() -> None:
 
 
 @requirement("tools:call:unknown-name")
-async def test_call_tool_unknown_tool_is_protocol_error() -> None:
+async def test_call_tool_unknown_tool_is_protocol_error(connect: Connect) -> None:
     """A handler that rejects an unrecognised tool name with MCPError produces a JSON-RPC error.
 
     The error's code, message, and data chosen by the handler reach the client verbatim.
@@ -85,7 +85,7 @@ async def test_call_tool_unknown_tool_is_protocol_error() -> None:
 
     server = Server("errors", on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("nope", {})
 
@@ -95,7 +95,7 @@ async def test_call_tool_unknown_tool_is_protocol_error() -> None:
 
 
 @requirement("protocol:error:internal-error")
-async def test_call_tool_uncaught_exception_becomes_error_response() -> None:
+async def test_call_tool_uncaught_exception_becomes_error_response(connect: Connect) -> None:
     """An uncaught exception in the tool handler surfaces to the client as a JSON-RPC error.
 
     The low-level server reports it with code 0 and the exception text as the message; see the
@@ -108,7 +108,7 @@ async def test_call_tool_uncaught_exception_becomes_error_response() -> None:
 
     server = Server("errors", on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with pytest.raises(MCPError) as exc_info:
             await client.call_tool("explode", {})
 
@@ -116,7 +116,7 @@ async def test_call_tool_uncaught_exception_becomes_error_response() -> None:
 
 
 @requirement("tools:list:basic")
-async def test_list_tools_returns_registered_tools() -> None:
+async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
     """The tools advertised by the server's list handler arrive at the client unchanged."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -137,7 +137,7 @@ async def test_list_tools_returns_registered_tools() -> None:
 
     server = Server("calculator", on_list_tools=list_tools)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.list_tools()
 
     assert result == snapshot(
@@ -159,7 +159,7 @@ async def test_list_tools_returns_registered_tools() -> None:
 
 
 @requirement("tools:list:metadata")
-async def test_list_tools_optional_fields_round_trip() -> None:
+async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
     """Every optional Tool field the server supplies reaches the client unchanged."""
 
     tool = Tool(
@@ -178,7 +178,7 @@ async def test_list_tools_optional_fields_round_trip() -> None:
 
     server = Server("annotated", on_list_tools=list_tools)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.list_tools()
 
     assert result == snapshot(
@@ -204,7 +204,7 @@ async def test_list_tools_optional_fields_round_trip() -> None:
 @requirement("tools:call:content:audio")
 @requirement("tools:call:content:resource-link")
 @requirement("tools:call:content:embedded-resource")
-async def test_call_tool_multiple_content_block_types() -> None:
+async def test_call_tool_multiple_content_block_types(connect: Connect) -> None:
     """A tool result can mix every content block type; all of them arrive in order.
 
     The payloads are tiny fixed base64 strings ("aW1n" is b"img", "YXVk" is b"aud") so the
@@ -230,7 +230,7 @@ async def test_call_tool_multiple_content_block_types() -> None:
 
     server = Server("renderer", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("render", {})
 
     assert result == snapshot(
@@ -249,7 +249,7 @@ async def test_call_tool_multiple_content_block_types() -> None:
 
 
 @requirement("tools:call:structured-content")
-async def test_call_tool_structured_content() -> None:
+async def test_call_tool_structured_content(connect: Connect) -> None:
     """A tool result carrying structured content alongside content delivers both to the client."""
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -261,14 +261,14 @@ async def test_call_tool_structured_content() -> None:
 
     server = Server("calculator", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         result = await client.call_tool("sum", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="the sum is 5")], structured_content={"sum": 5}))
 
 
 @requirement("tools:call:concurrent")
-async def test_concurrent_tool_calls_complete_independently() -> None:
+async def test_concurrent_tool_calls_complete_independently(connect: Connect) -> None:
     """Two tool calls in flight at once run concurrently and each caller gets its own answer.
 
     Both handlers are held on a shared event after signalling that they have started, and the test
@@ -295,7 +295,7 @@ async def test_concurrent_tool_calls_complete_independently() -> None:
 
     server = Server("echoer", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         with anyio.fail_after(5):
             async with anyio.create_task_group() as task_group:
 
@@ -320,7 +320,7 @@ async def test_concurrent_tool_calls_complete_independently() -> None:
 
 
 @requirement("client:output-schema:validate")
-async def test_call_tool_structured_content_violating_output_schema_is_rejected_by_the_client() -> None:
+async def test_call_tool_structured_content_violating_output_schema_is_rejected_by_the_client(connect: Connect) -> None:
     """A result whose structured content does not conform to the tool's declared output schema never
     reaches the caller: the client validates it against the schema cached from tools/list and raises.
     """
@@ -346,7 +346,7 @@ async def test_call_tool_structured_content_violating_output_schema_is_rejected_
 
     server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
 
-    async with Client(server) as client:
+    async with connect(server) as client:
         await client.list_tools()
         with pytest.raises(RuntimeError) as exc_info:
             await client.call_tool("forecast", {})
