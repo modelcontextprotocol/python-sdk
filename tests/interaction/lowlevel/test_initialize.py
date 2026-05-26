@@ -1,8 +1,10 @@
 """Initialization handshake against the low-level Server, driven through the public Client API.
 
-The last two tests drive a bare ClientSession over an InMemoryTransport instead: Client always
+The later tests drive a bare ClientSession over an InMemoryTransport instead: Client always
 performs the full handshake with the latest protocol version, so skipping initialization or
-requesting a different version can only be expressed one level down.
+requesting a different version can only be expressed one level down. The final test goes one step
+further and plays the server's side of the wire by hand, because no real Server can be made to
+answer initialize with an unsupported protocol version.
 """
 
 import anyio
@@ -14,6 +16,8 @@ from mcp.client import ClientRequestContext, ClientSession
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
+from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
 from mcp.types import (
     INVALID_PARAMS,
     CallToolResult,
@@ -26,6 +30,8 @@ from mcp.types import (
     InitializeRequest,
     InitializeRequestParams,
     InitializeResult,
+    JSONRPCRequest,
+    JSONRPCResponse,
     ListToolsRequest,
     ListToolsResult,
     LoggingCapability,
@@ -195,10 +201,11 @@ async def test_initialize_server_sees_client_capabilities() -> None:
             for name, value in (
                 ("sampling", capabilities.sampling),
                 ("elicitation", capabilities.elicitation),
-                ("roots", capabilities.roots),
             )
             if value is not None
         ]
+        if capabilities.roots is not None:
+            declared.append(f"roots(list_changed={capabilities.roots.list_changed})")
         return CallToolResult(content=[TextContent(text=",".join(declared) or "none")])
 
     async def list_roots(context: ClientRequestContext) -> types.ListRootsResult:
@@ -213,7 +220,7 @@ async def test_initialize_server_sees_client_capabilities() -> None:
 
     async with Client(server, list_roots_callback=list_roots) as client:
         result = await client.call_tool("abilities", {})
-    assert result == snapshot(CallToolResult(content=[TextContent(text="roots")]))
+    assert result == snapshot(CallToolResult(content=[TextContent(text="roots(list_changed=True)")]))
 
 
 @requirement("lifecycle:requests-before-initialized")
@@ -275,3 +282,48 @@ async def test_initialize_negotiates_protocol_version() -> None:
             with anyio.fail_after(5):
                 result = await session.send_request(initialize_request("1999-01-01"), InitializeResult)
     assert result.protocol_version == snapshot("2025-11-25")
+
+
+@requirement("lifecycle:initialize:protocol-version:client-rejects")
+async def test_unsupported_server_protocol_version_fails_initialization() -> None:
+    """An initialize response carrying a protocol version the client does not support fails initialization.
+
+    A real Server only ever answers with a version it supports, so this test alone plays the
+    server's side of the wire by hand: it reads the initialize request off the raw stream and
+    answers it with a hand-built result. Reserve this pattern for behaviour no real server can
+    be made to produce.
+    """
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def scripted_server() -> None:
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+            request = message.message
+            assert isinstance(request, JSONRPCRequest)
+            assert request.method == "initialize"
+            result = InitializeResult(
+                protocol_version="1991-08-06",
+                capabilities=ServerCapabilities(),
+                server_info=Implementation(name="relic", version="0.0.1"),
+            )
+            await server_write.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=request.id,
+                        # Serialized exactly as a real server serializes results onto the wire.
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(scripted_server)
+            async with ClientSession(client_read, client_write) as session:
+                with anyio.fail_after(5):
+                    with pytest.raises(RuntimeError) as exc_info:
+                        await session.initialize()
+
+            assert str(exc_info.value) == snapshot("Unsupported protocol version from the server: 1991-08-06")

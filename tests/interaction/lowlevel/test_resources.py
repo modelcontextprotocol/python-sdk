@@ -14,6 +14,7 @@ from mcp.types import (
     CallToolResult,
     EmptyResult,
     ErrorData,
+    Icon,
     ListResourcesResult,
     ListResourceTemplatesResult,
     ReadResourceResult,
@@ -48,6 +49,7 @@ async def test_list_resources_returns_registered_resources() -> None:
                     mime_type="text/markdown",
                     size=1024,
                     annotations=Annotations(audience=["user", "assistant"], priority=0.8),
+                    icons=[Icon(src="https://example.com/readme.png", mime_type="image/png", sizes=["48x48"])],
                 ),
             ]
         )
@@ -69,6 +71,7 @@ async def test_list_resources_returns_registered_resources() -> None:
                     mime_type="text/markdown",
                     size=1024,
                     annotations=Annotations(audience=["user", "assistant"], priority=0.8),
+                    icons=[Icon(src="https://example.com/readme.png", mime_type="image/png", sizes=["48x48"])],
                 ),
             ]
         )
@@ -159,6 +162,7 @@ async def test_list_resource_templates_returns_registered_templates() -> None:
                     title="Service logs",
                     description="One day of logs for one service.",
                     mime_type="text/plain",
+                    icons=[Icon(src="https://example.com/logs.png", mime_type="image/png", sizes=["48x48"])],
                 ),
             ]
         )
@@ -178,6 +182,7 @@ async def test_list_resource_templates_returns_registered_templates() -> None:
                     title="Service logs",
                     description="One day of logs for one service.",
                     mime_type="text/plain",
+                    icons=[Icon(src="https://example.com/logs.png", mime_type="image/png", sizes=["48x48"])],
                 ),
             ]
         )

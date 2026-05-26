@@ -22,6 +22,7 @@ from mcp.types import (
     ModelPreferences,
     SamplingMessage,
     TextContent,
+    ToolResultContent,
 )
 from tests.interaction._requirements import requirement
 
@@ -93,6 +94,7 @@ async def test_create_message_params_reach_callback() -> None:
             messages=[SamplingMessage(role="user", content=TextContent(text="Pick a model."))],
             max_tokens=50,
             system_prompt="You are terse.",
+            include_context="thisServer",
             temperature=0.7,
             stop_sequences=["\n\n", "END"],
             model_preferences=ModelPreferences(
@@ -129,6 +131,7 @@ async def test_create_message_params_reach_callback() -> None:
                     intelligence_priority=0.9,
                 ),
                 system_prompt="You are terse.",
+                include_context="thisServer",
                 temperature=0.7,
                 max_tokens=50,
                 stop_sequences=["\n\n", "END"],
@@ -329,4 +332,57 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client() -
 
     assert result == snapshot(
         CallToolResult(content=[TextContent(text="-32602: Client does not support sampling tools capability")])
+    )
+
+
+@requirement("sampling:create-message:tools:message-constraints")
+async def test_create_message_with_unbalanced_tool_messages_is_rejected() -> None:
+    """A sampling request whose messages mix tool results with other content never leaves the server.
+
+    The message-structure validation runs inside create_message before the request is sent, even
+    when no tools are passed, so the client callback is never invoked and the handler observes the
+    ValueError directly.
+    """
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="summarise_tools", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "summarise_tools"
+        try:
+            await ctx.session.create_message(
+                messages=[
+                    SamplingMessage(
+                        role="user",
+                        content=[
+                            ToolResultContent(tool_use_id="call-1", content=[TextContent(text="42")]),
+                            TextContent(text="Also, a comment alongside the result."),
+                        ],
+                    )
+                ],
+                max_tokens=100,
+            )
+        except ValueError as exc:
+            return CallToolResult(content=[TextContent(text=f"{type(exc).__name__}: {exc}")])
+        raise NotImplementedError  # the validator rejects the malformed messages before sending
+
+    server = Server("sampler", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def sampling_callback(
+        context: ClientRequestContext, params: CreateMessageRequestParams
+    ) -> CreateMessageResult:
+        """Declares the sampling capability; never invoked because the request is rejected first."""
+        raise NotImplementedError
+
+    async with Client(server, sampling_callback=sampling_callback) as client:
+        result = await client.call_tool("summarise_tools", {})
+
+    assert result == snapshot(
+        CallToolResult(
+            content=[
+                TextContent(text="ValueError: The last message must contain only tool_result content if any is present")
+            ]
+        )
     )

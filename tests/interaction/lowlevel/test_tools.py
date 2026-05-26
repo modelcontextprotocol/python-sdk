@@ -317,3 +317,39 @@ async def test_concurrent_tool_calls_complete_independently() -> None:
             "second": CallToolResult(content=[TextContent(text="second")]),
         }
     )
+
+
+@requirement("tools:call:output-schema-validation")
+async def test_call_tool_structured_content_violating_output_schema_is_rejected_by_the_client() -> None:
+    """A result whose structured content does not conform to the tool's declared output schema never
+    reaches the caller: the client validates it against the schema cached from tools/list and raises.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(
+            tools=[
+                Tool(
+                    name="forecast",
+                    input_schema={"type": "object"},
+                    output_schema={
+                        "type": "object",
+                        "properties": {"temperature": {"type": "number"}},
+                        "required": ["temperature"],
+                    },
+                )
+            ]
+        )
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "forecast"
+        return CallToolResult(content=[TextContent(text="warm")], structured_content={"temperature": "warm"})
+
+    server = Server("weather", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with Client(server) as client:
+        await client.list_tools()
+        with pytest.raises(RuntimeError) as exc_info:
+            await client.call_tool("forecast", {})
+
+    # The message embeds the jsonschema validation error, so only the SDK-authored prefix is pinned.
+    assert str(exc_info.value).startswith("Invalid structured content returned by tool forecast")

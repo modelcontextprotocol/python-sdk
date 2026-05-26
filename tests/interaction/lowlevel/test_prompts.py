@@ -10,6 +10,7 @@ from mcp.types import (
     INVALID_PARAMS,
     ErrorData,
     GetPromptResult,
+    Icon,
     ListPromptsResult,
     Prompt,
     PromptArgument,
@@ -35,6 +36,7 @@ async def test_list_prompts_returns_registered_prompts() -> None:
                         PromptArgument(name="code", description="The code to review.", required=True),
                         PromptArgument(name="style_guide", description="Optional style guide to apply."),
                     ],
+                    icons=[Icon(src="https://example.com/review.png", mime_type="image/png", sizes=["48x48"])],
                 ),
                 Prompt(name="daily_standup"),
             ]
@@ -55,6 +57,7 @@ async def test_list_prompts_returns_registered_prompts() -> None:
                         PromptArgument(name="code", description="The code to review.", required=True),
                         PromptArgument(name="style_guide", description="Optional style guide to apply."),
                     ],
+                    icons=[Icon(src="https://example.com/review.png", mime_type="image/png", sizes=["48x48"])],
                 ),
                 Prompt(name="daily_standup"),
             ]

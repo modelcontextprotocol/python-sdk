@@ -116,6 +116,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "requested version with its own latest supported version rather than an error."
         ),
     ),
+    "lifecycle:initialize:protocol-version:client-rejects": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/lifecycle#version-negotiation",
+        behavior=(
+            "A client that receives an initialize response carrying a protocol version it does not "
+            "support fails initialization with an error rather than proceeding with the session."
+        ),
+    ),
     "lifecycle:requests-before-initialized": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#initialization",
         behavior="A request sent before the initialization handshake completes is rejected with an error.",
@@ -152,6 +159,19 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
         behavior=(
             "A cancellation notification referencing an unknown or already-completed request is ignored without error."
+        ),
+    ),
+    "cancellation:server-to-client": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/utilities/cancellation#behavior-requirements",
+        behavior=(
+            "A server that abandons an in-flight server-initiated request (sampling, elicitation, roots) "
+            "cancels it, and the client stops processing the cancelled request."
+        ),
+        deferred=(
+            "Not expressible through the public API: abandoning a server-side send_request emits no "
+            "cancellation notification (the same sender-side gap recorded on timeouts:per-request), and "
+            "the client could not act on one anyway because client callbacks run inline in the receive "
+            "loop, so a cancellation would not even be read until the callback had already finished."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
@@ -325,6 +345,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "with the validation failure described in content), not a protocol error."
         ),
     ),
+    "tools:call:output-schema-validation": Requirement(
+        source=f"{SPEC_BASE_URL}/server/tools#tool-result",
+        behavior=(
+            "A tool result whose structuredContent does not conform to the tool's declared outputSchema "
+            "is rejected by the client: the call raises instead of returning the invalid result."
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Completion
     # ═══════════════════════════════════════════════════════════════════════════
@@ -473,6 +500,17 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
         behavior="prompts/get for an unknown prompt name returns a JSON-RPC error.",
     ),
+    "prompts:get:missing-arguments": Requirement(
+        source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
+        behavior="prompts/get with a required argument missing returns a JSON-RPC error.",
+        divergence=Divergence(
+            note=(
+                "The spec says missing required arguments are answered with -32602 Invalid params; "
+                "MCPServer's prompt renderer raises a plain ValueError before the prompt function runs, "
+                "which the low-level server converts to error code 0 with the exception text as the message."
+            ),
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Sampling (server → client)
     # ═══════════════════════════════════════════════════════════════════════════
@@ -487,7 +525,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/client/sampling#creating-messages",
         behavior=(
             "The sampling parameters supplied by the server (messages, maxTokens, systemPrompt, "
-            "modelPreferences, temperature, stopSequences) reach the client callback intact."
+            "modelPreferences, temperature, stopSequences, includeContext) reach the client callback intact."
         ),
     ),
     "sampling:create-message:image-content": Requirement(
@@ -499,6 +537,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A tool-enabled sampling request to a client that did not declare sampling.tools is rejected "
             "by the server before anything reaches the wire, with an Invalid params error."
+        ),
+    ),
+    "sampling:create-message:tools:message-constraints": Requirement(
+        source=f"{SPEC_BASE_URL}/client/sampling#message-content-constraints",
+        behavior=(
+            "A sampling request whose messages violate the tool_use/tool_result pairing rules is rejected "
+            "by the server-side validator before anything reaches the wire."
         ),
     ),
     "sampling:create-message:tools:round-trip": Requirement(
@@ -587,6 +632,17 @@ REQUIREMENTS: dict[str, Requirement] = {
             ),
         ),
     ),
+    "elicitation:url:not-supported": Requirement(
+        source=f"{SPEC_BASE_URL}/client/elicitation#capabilities",
+        behavior=(
+            "A URL-mode elicitation to a client that declared only form-mode support is rejected with an "
+            "Invalid params error."
+        ),
+        deferred=(
+            "Not expressible through the public API: a Client with an elicitation callback always declares "
+            "both the form and url sub-capabilities, so a form-only client cannot be constructed."
+        ),
+    ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Roots (server → client)
     # ═══════════════════════════════════════════════════════════════════════════
@@ -613,6 +669,10 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "found; the client's default callback answers with -32600 Invalid request."
             ),
         ),
+    ),
+    "roots:list:client-error": Requirement(
+        source=f"{SPEC_BASE_URL}/client/roots#error-handling",
+        behavior="A roots callback that answers with an error surfaces to the requesting handler as an MCPError.",
     ),
     "roots:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/client/roots#root-list-changes",
@@ -669,6 +729,22 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The in-process ASGI client buffers each response in full, which deadlocks on a "
             "server-to-client request nested inside a still-open call. Covered over a real socket by "
             "tests/shared/test_streamable_http.py."
+        ),
+    ),
+    "transport:streamable-http:resumability": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior="A client that reconnects with Last-Event-ID receives the events it missed.",
+        deferred=(
+            "Replay requires dropping and re-establishing the SSE connection, which the in-process ASGI "
+            "client cannot express. Covered over a real socket by tests/shared/test_streamable_http.py."
+        ),
+    ),
+    "transport:streamable-http:origin-validation": Requirement(
+        source=f"{SPEC_BASE_URL}/basic/transports#streamable-http",
+        behavior="Requests with a disallowed Origin or Host header are rejected before reaching the session.",
+        deferred=(
+            "The in-process fixture disables DNS-rebinding protection because no network attack surface "
+            "exists in-process. Covered by tests/server/test_streamable_http_security.py."
         ),
     ),
     "transport:stdio": Requirement(

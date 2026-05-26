@@ -9,7 +9,7 @@ from mcp import MCPError, types
 from mcp.client import ClientRequestContext
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, ListRootsResult, Root, TextContent
+from mcp.types import INTERNAL_ERROR, CallToolResult, ErrorData, ListRootsResult, Root, TextContent
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -105,6 +105,37 @@ async def test_list_roots_without_callback_is_error() -> None:
         result = await client.call_tool("show_roots", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: List roots not supported")]))
+
+
+@requirement("roots:list:client-error")
+async def test_list_roots_callback_error_surfaces_to_the_handler() -> None:
+    """A roots callback that answers with an error fails the roots/list request with that exact error.
+
+    The callback's code and message reach the requesting handler verbatim as an MCPError.
+    """
+
+    async def list_tools(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListToolsResult:
+        return types.ListToolsResult(tools=[types.Tool(name="show_roots", input_schema={"type": "object"})])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "show_roots"
+        try:
+            await ctx.session.list_roots()
+        except MCPError as exc:
+            return CallToolResult(content=[TextContent(text=f"{exc.error.code}: {exc.error.message}")])
+        raise NotImplementedError  # the callback always answers with an error
+
+    server = Server("rooted", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async def list_roots(context: ClientRequestContext) -> ErrorData:
+        return ErrorData(code=INTERNAL_ERROR, message="roots provider crashed")
+
+    async with Client(server, list_roots_callback=list_roots) as client:
+        result = await client.call_tool("show_roots", {})
+
+    assert result == snapshot(CallToolResult(content=[TextContent(text="-32603: roots provider crashed")]))
 
 
 @requirement("roots:list-changed")
