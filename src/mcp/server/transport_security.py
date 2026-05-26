@@ -40,40 +40,40 @@ class TransportSecurityMiddleware:
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-    def _validate_host(self, host: str | None) -> bool:  # pragma: no cover
+    def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
         if not host:
-            logger.warning("Missing Host header in request")
-            return False
+            logger.warning("Missing Host header in request")  # pragma: lax no cover
+            return False  # pragma: lax no cover
 
         # Check exact match first
         if host in self.settings.allowed_hosts:
-            return True
+            return True  # pragma: lax no cover
 
         # Check wildcard port patterns
         for allowed in self.settings.allowed_hosts:
-            if allowed.endswith(":*"):
+            if allowed.endswith(":*"):  # pragma: no branch
                 # Extract base host from pattern
                 base_host = allowed[:-2]
                 # Check if the actual host starts with base host and has a port
-                if host.startswith(base_host + ":"):
+                if host.startswith(base_host + ":"):  # pragma: no branch
                     return True
 
-        logger.warning(f"Invalid Host header: {host}")
-        return False
+        logger.warning(f"Invalid Host header: {host}")  # pragma: no cover
+        return False  # pragma: no cover
 
-    def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
+    def _validate_origin(self, origin: str | None) -> bool:
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
             return True
 
         # Check exact match first
-        if origin in self.settings.allowed_origins:
+        if origin in self.settings.allowed_origins:  # pragma: no cover
             return True
 
         # Check wildcard port patterns
-        for allowed in self.settings.allowed_origins:
+        for allowed in self.settings.allowed_origins:  # pragma: no cover
             if allowed.endswith(":*"):
                 # Extract base origin from pattern
                 base_origin = allowed[:-2]
@@ -81,8 +81,8 @@ class TransportSecurityMiddleware:
                 if origin.startswith(base_origin + ":"):
                     return True
 
-        logger.warning(f"Invalid Origin header: {origin}")
-        return False
+        logger.warning(f"Invalid Origin header: {origin}")  # pragma: no cover
+        return False  # pragma: no cover
 
     def _validate_content_type(self, content_type: str | None) -> bool:
         """Validate the Content-Type header for POST requests."""
@@ -103,14 +103,14 @@ class TransportSecurityMiddleware:
         if not self.settings.enable_dns_rebinding_protection:
             return None
 
-        # Validate Host header  # pragma: no cover
-        host = request.headers.get("host")  # pragma: no cover
-        if not self._validate_host(host):  # pragma: no cover
+        # Validate Host header
+        host = request.headers.get("host")
+        if not self._validate_host(host):
             return Response("Invalid Host header", status_code=421)  # pragma: no cover
 
-        # Validate Origin header  # pragma: no cover
-        origin = request.headers.get("origin")  # pragma: no cover
-        if not self._validate_origin(origin):  # pragma: no cover
+        # Validate Origin header
+        origin = request.headers.get("origin")
+        if not self._validate_origin(origin):
             return Response("Invalid Origin header", status_code=403)  # pragma: no cover
 
-        return None  # pragma: no cover
+        return None
