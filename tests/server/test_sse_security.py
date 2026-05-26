@@ -105,7 +105,7 @@ async def test_sse_security_invalid_host_header(server_port: int):
         async with httpx.AsyncClient() as client:
             response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
             assert response.status_code == 421
-            assert response.text == "Invalid Host header"
+            assert "Invalid Host header" in response.text
 
     finally:
         process.terminate()
@@ -128,7 +128,7 @@ async def test_sse_security_invalid_origin_header(server_port: int):
         async with httpx.AsyncClient() as client:
             response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
             assert response.status_code == 403
-            assert response.text == "Invalid Origin header"
+            assert "Invalid Origin header" in response.text
 
     finally:
         process.terminate()
@@ -215,7 +215,7 @@ async def test_sse_security_custom_allowed_hosts(server_port: int):
         async with httpx.AsyncClient() as client:
             response = await client.get(f"http://127.0.0.1:{server_port}/sse", headers=headers)
             assert response.status_code == 421
-            assert response.text == "Invalid Host header"
+            assert "Invalid Host header" in response.text
 
     finally:
         process.terminate()

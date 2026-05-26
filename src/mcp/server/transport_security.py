@@ -2,9 +2,10 @@
 
 import logging
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from starlette.requests import Request
 from starlette.responses import Response
+from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,17 @@ class TransportSecuritySettings(BaseModel):
     Only applies when `enable_dns_rebinding_protection` is `True`.
     """
 
+    @model_validator(mode="after")
+    def _warn_if_protection_enabled_with_empty_allowlist(self) -> Self:
+        if self.enable_dns_rebinding_protection and not self.allowed_hosts:
+            logger.warning(
+                "TransportSecuritySettings has DNS rebinding protection enabled but "
+                "allowed_hosts is empty — all requests will be rejected with HTTP 421. "
+                "Set allowed_hosts to your server's hostname(s), e.g. "
+                'TransportSecuritySettings(allowed_hosts=["your-host.example.com:*"])'
+            )
+        return self
+
 
 # TODO(Marcelo): This should be a proper ASGI middleware. I'm sad to see this.
 class TransportSecurityMiddleware:
@@ -40,7 +52,7 @@ class TransportSecurityMiddleware:
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
-    def _validate_host(self, host: str | None) -> bool:  # pragma: no cover
+    def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
         if not host:
             logger.warning("Missing Host header in request")
@@ -62,7 +74,7 @@ class TransportSecurityMiddleware:
         logger.warning(f"Invalid Host header: {host}")
         return False
 
-    def _validate_origin(self, origin: str | None) -> bool:  # pragma: no cover
+    def _validate_origin(self, origin: str | None) -> bool:
         """Validate the Origin header against allowed values."""
         # Origin can be absent for same-origin requests
         if not origin:
@@ -94,7 +106,7 @@ class TransportSecurityMiddleware:
         Returns None if validation passes, or an error Response if validation fails.
         """
         # Always validate Content-Type for POST requests
-        if is_post:  # pragma: no branch
+        if is_post:
             content_type = request.headers.get("content-type")
             if not self._validate_content_type(content_type):
                 return Response("Invalid Content-Type header", status_code=400)
@@ -103,14 +115,22 @@ class TransportSecurityMiddleware:
         if not self.settings.enable_dns_rebinding_protection:
             return None
 
-        # Validate Host header  # pragma: no cover
-        host = request.headers.get("host")  # pragma: no cover
-        if not self._validate_host(host):  # pragma: no cover
-            return Response("Invalid Host header", status_code=421)  # pragma: no cover
+        # Validate Host header
+        host = request.headers.get("host")
+        if not self._validate_host(host):
+            return Response(
+                f"Invalid Host header: {host!r}. "
+                "Configure TransportSecuritySettings(allowed_hosts=[...]) with your server's hostname.",
+                status_code=421,
+            )
 
-        # Validate Origin header  # pragma: no cover
-        origin = request.headers.get("origin")  # pragma: no cover
-        if not self._validate_origin(origin):  # pragma: no cover
-            return Response("Invalid Origin header", status_code=403)  # pragma: no cover
+        # Validate Origin header
+        origin = request.headers.get("origin")
+        if not self._validate_origin(origin):
+            return Response(
+                f"Invalid Origin header: {origin!r}. "
+                "Configure TransportSecuritySettings(allowed_origins=[...]) with your server's origin.",
+                status_code=403,
+            )
 
-        return None  # pragma: no cover
+        return None

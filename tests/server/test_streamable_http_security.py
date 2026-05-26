@@ -126,7 +126,7 @@ async def test_streamable_http_security_invalid_host_header(server_port: int):
                 headers=headers,
             )
             assert response.status_code == 421
-            assert response.text == "Invalid Host header"
+            assert "Invalid Host header" in response.text
 
     finally:
         process.terminate()
@@ -154,7 +154,7 @@ async def test_streamable_http_security_invalid_origin_header(server_port: int):
                 headers=headers,
             )
             assert response.status_code == 403
-            assert response.text == "Invalid Origin header"
+            assert "Invalid Origin header" in response.text
 
     finally:
         process.terminate()
@@ -269,7 +269,7 @@ async def test_streamable_http_security_get_request(server_port: int):
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(f"http://127.0.0.1:{server_port}/", headers=headers)
             assert response.status_code == 421
-            assert response.text == "Invalid Host header"
+            assert "Invalid Host header" in response.text
 
         # Test GET request with valid host header
         headers = {
