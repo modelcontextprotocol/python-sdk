@@ -36,7 +36,7 @@ from mcp.client.auth.utils import (
     should_use_client_metadata_url,
 )
 from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
-from mcp.shared._httpx import emit_httpx_deprecation_warning, httpx
+from mcp.shared._httpx import httpx
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -255,8 +255,6 @@ class OAuthClientProvider(httpx.Auth):
             ValueError: If client_metadata_url is provided but not a valid HTTPS URL
                 with a non-root pathname.
         """
-        emit_httpx_deprecation_warning()
-
         # Validate client_metadata_url if provided
         if client_metadata_url is not None and not is_valid_client_metadata_url(client_metadata_url):
             raise ValueError(

@@ -206,12 +206,14 @@ filterwarnings = [
     "ignore:websockets.server.WebSocketServerProtocol is deprecated:DeprecationWarning",
     # pywin32 internal deprecation warning
     "ignore:getargs.*The 'u' format is deprecated:DeprecationWarning",
-    # `mcp` prefers `httpx2`; HTTP surfaces warn when falling back to `httpx`. The lockfile
-    # pins `httpx` (not `httpx2`), so CI always exercises the fallback and every HTTP-touching
-    # test would trip the warning. The dedicated test in `tests/shared/test_httpx_shim.py`
-    # covers emission. Remove this entry once `httpx2` is the dependency and the fallback is
-    # dropped.
-    "ignore:Using `httpx` with `mcp` is deprecated:mcp.shared._httpx.MCPDeprecationWarning",
+    # `mcp` prefers `httpx2`; importing `mcp.shared._httpx` warns when falling back to
+    # `httpx`. The lockfile pins `httpx`, so CI always exercises the fallback. We match on
+    # the message string only — naming the category would force pytest to import
+    # `mcp.shared._warnings`, which cascades through `mcp/__init__.py` and triggers the
+    # very warning we're trying to filter (the same trap pydantic-ai documents). The
+    # dedicated test in `tests/shared/test_httpx_shim.py` covers emission. Remove this entry
+    # once `httpx2` is the dependency and the fallback is dropped.
+    "ignore:Using `httpx` with `mcp` is deprecated",
 ]
 
 [tool.markdown.lint]

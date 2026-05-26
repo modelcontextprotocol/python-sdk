@@ -2,7 +2,7 @@
 
 from typing import Any, Protocol
 
-from mcp.shared._httpx import emit_httpx_deprecation_warning, httpx
+from mcp.shared._httpx import httpx
 
 __all__ = ["create_mcp_http_client", "MCP_DEFAULT_TIMEOUT", "MCP_DEFAULT_SSE_READ_TIMEOUT"]
 
@@ -77,8 +77,6 @@ def create_mcp_http_client(
             response = await client.get("/protected-endpoint")
         ```
     """
-    emit_httpx_deprecation_warning()
-
     # Set MCP defaults
     kwargs: dict[str, Any] = {"follow_redirects": True}
 
