@@ -1779,12 +1779,11 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "transport:stdio": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",
-        behavior="The interaction round trip works over a stdio subprocess.",
-        transports=("stdio",),
-        deferred=(
-            "Not yet covered here: a single composed end-to-end stdio test is planned; process lifecycle "
-            "details are covered by tests/client/test_stdio.py."
+        behavior=(
+            "A Client connected to a real SDK Server over stdio initializes, calls a tool with arguments, "
+            "and receives notifications and results over the child process's stdin/stdout."
         ),
+        transports=("stdio",),
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Hosting: session lifecycle
@@ -2494,7 +2493,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/lifecycle#shutdown",
         behavior="Closing the client transport closes the child process's stdin and the server exits cleanly.",
         transports=("stdio",),
-        deferred="Not yet covered here; existing coverage in tests/client/test_stdio.py.",
     ),
     "transport:stdio:stream-purity": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#stdio",
