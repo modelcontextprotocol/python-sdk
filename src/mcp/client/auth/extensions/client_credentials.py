@@ -92,7 +92,7 @@ class ClientCredentialsOAuthProvider(OAuthClientProvider):
             "grant_type": "client_credentials",
         }
 
-        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
 
         # Use standard auth methods (client_secret_basic, client_secret_post, none)
         token_data, headers = self.context.prepare_token_auth(token_data, headers)
@@ -320,7 +320,7 @@ class PrivateKeyJWTOAuthProvider(OAuthClientProvider):
             "grant_type": "client_credentials",
         }
 
-        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+        headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
 
         # Add JWT client authentication (RFC 7523 Section 2.2)
         await self._add_client_authentication_jwt(token_data=token_data)
@@ -481,5 +481,8 @@ class RFC7523OAuthClientProvider(OAuthClientProvider):
 
         token_url = self._get_token_endpoint()
         return httpx.Request(
-            "POST", token_url, data=token_data, headers={"Content-Type": "application/x-www-form-urlencoded"}
+            "POST",
+            token_url,
+            data=token_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
         )
