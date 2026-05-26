@@ -164,6 +164,22 @@ async def test_replay_skips_priming_events(store):
 
 
 @pytest.mark.anyio
+async def test_replay_skips_expired_event_payloads(store, redis_client):
+    anchor = await store.store_event("stream-A", SAMPLE_MSG)
+    id2 = await store.store_event("stream-A", SAMPLE_MSG)
+    id3 = await store.store_event("stream-A", SAMPLE_MSG)
+
+    # Manually delete the event key for id2 from Redis, but keep it in the sorted set
+    await redis_client.delete(f"test:event:{id2}")
+
+    events, _ = await collect_events(store, anchor)
+
+    # Replay should skip id2 (since its payload was deleted/expired) and return only id3
+    assert len(events) == 1
+    assert events[0].event_id == id3
+
+
+@pytest.mark.anyio
 async def test_replay_events_are_in_ascending_order(store):
     anchor = await store.store_event("stream-A", SAMPLE_MSG)
     id2 = await store.store_event("stream-A", SAMPLE_MSG)
