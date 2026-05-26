@@ -29,12 +29,14 @@ def create_mcp_http_client(
 
     This function provides common defaults used throughout the MCP codebase:
     - follow_redirects=True (always enabled)
-    - Default timeout of 30 seconds if not specified
+    - Default timeout of 30 seconds for connect/write/pool and 300 seconds for read (to
+      accommodate long-lived SSE streams) if not specified
 
     Args:
         headers: Optional headers to include with all requests.
         timeout: Request timeout as httpx.Timeout object.
-            Defaults to 30 seconds if not specified.
+            Defaults to 30 seconds for connect/write/pool and 300 seconds for read if
+            not specified.
         auth: Optional authentication handler.
 
     Returns:
