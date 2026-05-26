@@ -9,8 +9,7 @@ explicitly the fallback path is exercised. The MCP v2 cut will drop the fallback
 dependency to `httpx2`.
 
 The warning is emitted at module-import time and fires at most once per process via Python's
-module cache. `MCPDeprecationWarning` lives in `mcp.shared._warnings` so pytest's
-`filterwarnings` parser can resolve the category symbol without importing this shim.
+module cache.
 """
 
 from __future__ import annotations
@@ -18,9 +17,9 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING
 
-from mcp.shared._warnings import MCPDeprecationWarning
+from mcp.shared.exceptions import MCPDeprecationWarning
 
-__all__ = ["MCPDeprecationWarning", "httpx"]
+__all__ = ["httpx"]
 
 
 if TYPE_CHECKING:

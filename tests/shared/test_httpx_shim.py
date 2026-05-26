@@ -13,7 +13,7 @@ import warnings
 
 import pytest
 
-from mcp.shared._warnings import MCPDeprecationWarning
+from mcp.shared.exceptions import MCPDeprecationWarning
 
 
 def _force_reimport_shim() -> None:
