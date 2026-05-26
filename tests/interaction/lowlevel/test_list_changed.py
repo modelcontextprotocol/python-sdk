@@ -25,7 +25,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("notifications:tools:list-changed")
+@requirement("tools:list-changed")
 async def test_tool_list_changed_notification() -> None:
     """A tools/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
@@ -51,7 +51,7 @@ async def test_tool_list_changed_notification() -> None:
     assert received == snapshot([ToolListChangedNotification()])
 
 
-@requirement("notifications:resources:list-changed")
+@requirement("resources:list-changed")
 async def test_resource_list_changed_notification() -> None:
     """A resources/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
@@ -77,7 +77,7 @@ async def test_resource_list_changed_notification() -> None:
     assert received == snapshot([ResourceListChangedNotification()])
 
 
-@requirement("notifications:prompts:list-changed")
+@requirement("prompts:list-changed")
 async def test_prompt_list_changed_notification() -> None:
     """A prompts/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []

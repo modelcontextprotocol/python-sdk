@@ -99,7 +99,7 @@ async def test_read_resource_text() -> None:
     )
 
 
-@requirement("resources:read:binary")
+@requirement("resources:read:blob")
 async def test_read_resource_binary() -> None:
     """Reading a binary resource returns its contents base64-encoded in the blob field."""
 
@@ -126,7 +126,7 @@ async def test_read_resource_binary() -> None:
     )
 
 
-@requirement("resources:read:not-found")
+@requirement("resources:read:unknown-uri")
 async def test_read_resource_unknown_uri_is_protocol_error() -> None:
     """A handler that rejects an unrecognised URI with MCPError produces a JSON-RPC error.
 

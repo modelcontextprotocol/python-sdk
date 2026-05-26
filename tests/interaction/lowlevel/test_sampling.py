@@ -29,7 +29,8 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("sampling:create-message:round-trip")
+@requirement("sampling:create:basic")
+@requirement("tools:call:sampling-roundtrip")
 async def test_create_message_round_trip() -> None:
     """A handler's sampling request is answered by the client callback, and the callback's result
     (role, content, model, stop reason) is returned to the handler.
@@ -78,7 +79,9 @@ async def test_create_message_round_trip() -> None:
     )
 
 
-@requirement("sampling:create-message:params")
+@requirement("sampling:create:include-context")
+@requirement("sampling:create:model-preferences")
+@requirement("sampling:create:system-prompt")
 async def test_create_message_params_reach_callback() -> None:
     """Every sampling parameter the handler supplies arrives at the client callback unchanged."""
     received: list[CreateMessageRequestParams] = []
@@ -231,7 +234,7 @@ async def test_create_message_result_with_image_content_returns_to_handler() -> 
     assert result == snapshot(CallToolResult(content=[TextContent(text="mock-vision-1: image/png Y2F0")]))
 
 
-@requirement("sampling:create-message:client-error")
+@requirement("sampling:error:user-rejected")
 async def test_create_message_callback_error() -> None:
     """A sampling callback that answers with an error surfaces to the requesting handler as an MCPError.
 
@@ -294,7 +297,7 @@ async def test_create_message_without_callback_is_error() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: Sampling not supported")]))
 
 
-@requirement("sampling:create-message:tools:not-supported")
+@requirement("sampling:tools:server-gated-by-capability")
 async def test_create_message_with_tools_is_rejected_for_unsupporting_client() -> None:
     """A tool-enabled sampling request to a client that has not declared sampling.tools never leaves the server.
 
@@ -335,7 +338,7 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client() -
     )
 
 
-@requirement("sampling:create-message:tools:message-constraints")
+@requirement("sampling:tool-result:no-mixed-content")
 async def test_create_message_with_unbalanced_tool_messages_is_rejected() -> None:
     """A sampling request whose messages mix tool results with other content never leaves the server.
 

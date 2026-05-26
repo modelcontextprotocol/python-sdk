@@ -158,7 +158,7 @@ async def test_list_tools_returns_registered_tools() -> None:
     )
 
 
-@requirement("tools:list:optional-fields")
+@requirement("tools:list:metadata")
 async def test_list_tools_optional_fields_round_trip() -> None:
     """Every optional Tool field the server supplies reaches the client unchanged."""
 
@@ -199,7 +199,7 @@ async def test_list_tools_optional_fields_round_trip() -> None:
     )
 
 
-@requirement("tools:call:content:multiple")
+@requirement("tools:call:content:mixed")
 @requirement("tools:call:content:image")
 @requirement("tools:call:content:audio")
 @requirement("tools:call:content:resource-link")
@@ -319,7 +319,7 @@ async def test_concurrent_tool_calls_complete_independently() -> None:
     )
 
 
-@requirement("tools:call:output-schema-validation")
+@requirement("client:output-schema:validate")
 async def test_call_tool_structured_content_violating_output_schema_is_rejected_by_the_client() -> None:
     """A result whose structured content does not conform to the tool's declared output schema never
     reaches the caller: the client validates it against the schema cached from tools/list and raises.

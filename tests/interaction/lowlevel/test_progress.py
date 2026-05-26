@@ -20,7 +20,8 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("progress:server-to-client")
+@requirement("protocol:progress:callback")
+@requirement("tools:call:progress")
 async def test_progress_during_tool_call_reaches_callback_in_order() -> None:
     """Progress notifications emitted by a tool handler reach the caller's progress callback in order."""
     received: list[tuple[float, float | None, str | None]] = []
@@ -52,7 +53,7 @@ async def test_progress_during_tool_call_reaches_callback_in_order() -> None:
     assert received == snapshot([(1.0, 3.0, "first chunk"), (2.0, 3.0, "second chunk"), (3.0, 3.0, "done")])
 
 
-@requirement("progress:token-propagation")
+@requirement("protocol:progress:token-injected")
 async def test_progress_token_visible_to_handler() -> None:
     """Supplying a progress callback attaches a progress token that the handler can read from the request meta."""
 
@@ -79,7 +80,7 @@ async def test_progress_token_visible_to_handler() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="1")]))
 
 
-@requirement("progress:no-token")
+@requirement("protocol:progress:no-token")
 async def test_no_progress_callback_means_no_token() -> None:
     """Without a progress callback the request carries no progress token.
 
@@ -105,7 +106,7 @@ async def test_no_progress_callback_means_no_token() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="None")]))
 
 
-@requirement("progress:client-to-server")
+@requirement("protocol:progress:client-to-server")
 async def test_client_progress_notification_reaches_server_handler() -> None:
     """A progress notification sent by the client is delivered to the server's progress handler."""
     received: list[ProgressNotificationParams] = []

@@ -27,7 +27,7 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("mcpserver:context:logging")
-@requirement("logging:capability")
+@requirement("logging:capability:declared")
 async def test_context_logging_helpers_send_log_notifications() -> None:
     """Each Context logging helper sends a log message notification at the matching severity.
 
@@ -93,7 +93,7 @@ async def test_context_report_progress_sends_progress_notifications() -> None:
     assert received == snapshot([(1.0, 3.0, None), (2.0, 3.0, "halfway there")])
 
 
-@requirement("progress:no-token")
+@requirement("protocol:progress:no-token")
 async def test_report_progress_without_a_progress_token_sends_nothing() -> None:
     """When the caller supplied no progress callback, Context.report_progress is a silent no-op.
 
@@ -125,6 +125,7 @@ async def test_report_progress_without_a_progress_token_sends_nothing() -> None:
 
 
 @requirement("mcpserver:context:elicit")
+@requirement("tools:call:elicitation-roundtrip")
 async def test_context_elicit_returns_typed_result() -> None:
     """Context.elicit sends a form elicitation built from a pydantic schema and returns a typed result.
 
@@ -206,7 +207,7 @@ async def test_context_read_resource_reads_registered_resource() -> None:
     )
 
 
-@requirement("logging:set-level:filtering")
+@requirement("logging:message:filtered")
 async def test_set_logging_level_is_rejected_and_messages_are_never_filtered() -> None:
     """MCPServer does not support logging/setLevel, so log messages are never filtered by severity.
 

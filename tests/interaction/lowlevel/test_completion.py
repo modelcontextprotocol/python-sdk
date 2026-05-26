@@ -19,7 +19,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("completion:complete:prompt-ref")
+@requirement("completion:prompt-arg")
 async def test_complete_prompt_argument() -> None:
     """Completing a prompt argument delivers the ref, argument name, and current value to the handler.
 
@@ -46,7 +46,7 @@ async def test_complete_prompt_argument() -> None:
     )
 
 
-@requirement("completion:complete:resource-ref")
+@requirement("completion:resource-template-arg")
 async def test_complete_resource_template_variable() -> None:
     """Completing a URI template variable delivers the template URI and variable name to the handler."""
 
@@ -67,7 +67,7 @@ async def test_complete_resource_template_variable() -> None:
     assert result == snapshot(CompleteResult(completion=Completion(values=["modelcontextprotocol"])))
 
 
-@requirement("completion:complete:context")
+@requirement("completion:context-arguments")
 async def test_complete_receives_context_arguments() -> None:
     """Previously-resolved arguments passed as completion context reach the handler.
 
@@ -93,6 +93,7 @@ async def test_complete_receives_context_arguments() -> None:
 
 
 @requirement("completion:complete:not-supported")
+@requirement("protocol:error:method-not-found")
 async def test_complete_without_handler_is_method_not_found() -> None:
     """A server with no completion handler advertises no completions capability and rejects the request."""
     server = Server("incomplete")

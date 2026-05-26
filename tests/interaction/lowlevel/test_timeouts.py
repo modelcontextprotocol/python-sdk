@@ -19,7 +19,8 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("timeouts:per-request")
+@requirement("protocol:timeout:basic")
+@requirement("protocol:timeout:sends-cancellation")
 async def test_request_timeout_fails_the_pending_call() -> None:
     """A request whose response does not arrive within its read timeout fails with a timeout error.
 
@@ -53,7 +54,7 @@ async def test_request_timeout_fails_the_pending_call() -> None:
     )
 
 
-@requirement("timeouts:session-survives")
+@requirement("protocol:timeout:session-survives")
 async def test_session_serves_requests_after_timeout() -> None:
     """A timed-out request does not poison the session: the next request succeeds."""
 
@@ -84,7 +85,7 @@ async def test_session_serves_requests_after_timeout() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="still alive")]))
 
 
-@requirement("timeouts:session-default")
+@requirement("protocol:timeout:session-default")
 async def test_session_level_timeout_applies_to_every_request() -> None:
     """A read timeout configured on the client applies to requests that do not set their own."""
 

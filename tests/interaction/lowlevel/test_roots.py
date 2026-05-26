@@ -15,7 +15,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("roots:list:round-trip")
+@requirement("roots:list:basic")
 async def test_list_roots_round_trip() -> None:
     """A roots/list request from a tool handler is answered by the client's roots callback.
 

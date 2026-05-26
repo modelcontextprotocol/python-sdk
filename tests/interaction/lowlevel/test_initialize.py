@@ -84,6 +84,10 @@ async def test_initialize_returns_instructions() -> None:
 
 
 @requirement("lifecycle:initialize:capabilities:from-handlers")
+@requirement("tools:capability:declared")
+@requirement("resources:capability:declared")
+@requirement("prompts:capability:declared")
+@requirement("completion:capability:declared")
 async def test_initialize_capabilities_reflect_registered_handlers() -> None:
     """Each feature area with a registered handler is advertised as a capability.
 
@@ -253,7 +257,8 @@ async def test_request_before_initialization_is_rejected() -> None:
     assert pong == snapshot(EmptyResult())
 
 
-@requirement("lifecycle:initialize:protocol-version")
+@requirement("lifecycle:version:match")
+@requirement("lifecycle:version:server-fallback-latest")
 async def test_initialize_negotiates_protocol_version() -> None:
     """The server echoes a supported requested version and answers an unsupported one with its latest.
 
@@ -284,7 +289,7 @@ async def test_initialize_negotiates_protocol_version() -> None:
     assert result.protocol_version == snapshot("2025-11-25")
 
 
-@requirement("lifecycle:initialize:protocol-version:client-rejects")
+@requirement("lifecycle:version:reject-unsupported")
 async def test_unsupported_server_protocol_version_fails_initialization() -> None:
     """An initialize response carrying a protocol version the client does not support fails initialization.
 

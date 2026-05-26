@@ -26,7 +26,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("pagination:cursor-round-trip")
+@requirement("tools:list:pagination")
 async def test_next_cursor_round_trips_through_the_client() -> None:
     """The next_cursor a list handler returns reaches the client, and the cursor the client sends
     back on the following call reaches the handler verbatim.
@@ -57,6 +57,7 @@ async def test_next_cursor_round_trips_through_the_client() -> None:
 
 
 @requirement("pagination:exhaustion")
+@requirement("tools:list:pagination")
 async def test_paginating_until_next_cursor_is_absent_yields_every_page() -> None:
     """Following next_cursor until it is absent visits every page exactly once, in order."""
     pages: dict[str | None, tuple[str, str | None]] = {
@@ -89,7 +90,7 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page() -> Non
     assert requests_made == len(pages)
 
 
-@requirement("pagination:resources")
+@requirement("resources:list:pagination")
 async def test_resources_list_supports_cursor_pagination() -> None:
     """resources/list round-trips the cursor like every other list operation."""
     seen_cursors: list[str | None] = []
@@ -116,7 +117,7 @@ async def test_resources_list_supports_cursor_pagination() -> None:
     assert second_page.next_cursor is None
 
 
-@requirement("pagination:resource-templates")
+@requirement("resources:templates:pagination")
 async def test_resource_templates_list_supports_cursor_pagination() -> None:
     """resources/templates/list round-trips the cursor like every other list operation."""
     seen_cursors: list[str | None] = []
@@ -148,7 +149,7 @@ async def test_resource_templates_list_supports_cursor_pagination() -> None:
     assert second_page.next_cursor is None
 
 
-@requirement("pagination:prompts")
+@requirement("prompts:list:pagination")
 async def test_prompts_list_supports_cursor_pagination() -> None:
     """prompts/list round-trips the cursor like every other list operation."""
     seen_cursors: list[str | None] = []

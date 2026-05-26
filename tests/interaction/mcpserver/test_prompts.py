@@ -20,7 +20,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("mcpserver:prompts:decorated")
+@requirement("mcpserver:prompt:decorated")
 async def test_list_prompts_derives_arguments_from_signature() -> None:
     """A decorated prompt is listed with arguments derived from the function signature.
 
@@ -52,7 +52,7 @@ async def test_list_prompts_derives_arguments_from_signature() -> None:
     )
 
 
-@requirement("mcpserver:prompts:decorated")
+@requirement("mcpserver:prompt:decorated")
 async def test_get_prompt_renders_function_return() -> None:
     """The decorated function's string return value is rendered as a single user message."""
     mcp = MCPServer("prompter")
@@ -73,7 +73,7 @@ async def test_get_prompt_renders_function_return() -> None:
     )
 
 
-@requirement("mcpserver:prompts:unknown-name")
+@requirement("mcpserver:prompt:unknown-name")
 async def test_get_unknown_prompt_is_error() -> None:
     """Getting a prompt name that was never registered fails with a JSON-RPC error."""
     mcp = MCPServer("prompter")
@@ -90,7 +90,7 @@ async def test_get_unknown_prompt_is_error() -> None:
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="Unknown prompt: nope"))
 
 
-@requirement("prompts:get:missing-arguments")
+@requirement("prompts:get:missing-required-args")
 async def test_get_prompt_with_a_missing_required_argument_is_an_error() -> None:
     """Getting a prompt without one of its required arguments fails with a JSON-RPC error.
 

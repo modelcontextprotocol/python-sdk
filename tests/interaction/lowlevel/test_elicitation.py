@@ -32,7 +32,9 @@ REQUESTED_SCHEMA: dict[str, object] = {
 }
 
 
-@requirement("elicitation:form:accept")
+@requirement("elicitation:form:action:accept")
+@requirement("elicitation:form:basic")
+@requirement("tools:call:elicitation-roundtrip")
 async def test_elicit_form_accepted_content_returns_to_handler() -> None:
     """An accepted form elicitation returns the user's content to the requesting handler.
 
@@ -86,7 +88,7 @@ async def test_elicit_form_accepted_content_returns_to_handler() -> None:
     )
 
 
-@requirement("elicitation:form:decline")
+@requirement("elicitation:form:action:decline")
 async def test_elicit_form_decline_returns_no_content() -> None:
     """A declined form elicitation returns the decline action to the handler with no content."""
 
@@ -113,7 +115,7 @@ async def test_elicit_form_decline_returns_no_content() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="decline content=None")]))
 
 
-@requirement("elicitation:form:cancel")
+@requirement("elicitation:form:action:cancel")
 async def test_elicit_form_cancel_returns_no_content() -> None:
     """A cancelled form elicitation returns the cancel action to the handler with no content."""
 
@@ -172,7 +174,8 @@ async def test_elicit_form_without_callback_is_error() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="-32600: Elicitation not supported")]))
 
 
-@requirement("elicitation:url:accept")
+@requirement("elicitation:url:action:accept-no-content")
+@requirement("elicitation:url:basic")
 async def test_elicit_url_delivers_url_and_returns_accept_without_content() -> None:
     """A URL elicitation delivers the message, URL, and elicitation id to the client; accepting it
     returns the action with no content.
@@ -276,7 +279,7 @@ async def test_elicit_url_cancel_returns_no_content() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="cancel content=None")]))
 
 
-@requirement("elicitation:complete-notification")
+@requirement("elicitation:url:complete-notification")
 async def test_elicitation_complete_notification_carries_the_elicited_id_back_to_the_client() -> None:
     """After a URL elicitation finishes, the server announces it with a notification carrying the same id.
 

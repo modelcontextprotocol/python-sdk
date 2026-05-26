@@ -48,7 +48,8 @@ async def test_set_logging_level_reaches_handler() -> None:
     assert result == snapshot(EmptyResult())
 
 
-@requirement("logging:message:notification")
+@requirement("logging:message:fields")
+@requirement("tools:call:logging-mid-execution")
 async def test_log_messages_reach_logging_callback_in_order() -> None:
     """Log messages sent during a tool call arrive at the logging callback, in order, before the call returns.
 

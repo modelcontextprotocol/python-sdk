@@ -38,7 +38,7 @@ async def test_call_tool_returns_text_content() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="5")], structured_content={"result": "5"}))
 
 
-@requirement("mcpserver:tools:handler-exception")
+@requirement("mcpserver:tool:handler-throws")
 async def test_call_tool_function_exception_becomes_error_result() -> None:
     """An exception raised by a tool function is returned as an is_error result, not a JSON-RPC error."""
     mcp = MCPServer("errors")
@@ -55,7 +55,7 @@ async def test_call_tool_function_exception_becomes_error_result() -> None:
     )
 
 
-@requirement("mcpserver:tools:handler-exception")
+@requirement("mcpserver:tool:handler-throws")
 async def test_call_tool_tool_error_becomes_error_result() -> None:
     """A ToolError raised by a tool function is returned as an is_error result, not a JSON-RPC error."""
     mcp = MCPServer("errors")
@@ -72,7 +72,7 @@ async def test_call_tool_tool_error_becomes_error_result() -> None:
     )
 
 
-@requirement("mcpserver:tools:unknown-name")
+@requirement("mcpserver:tool:unknown-name")
 async def test_call_tool_unknown_name_returns_error_result() -> None:
     """Calling a tool name that was never registered is reported as an is_error result.
 
@@ -91,7 +91,8 @@ async def test_call_tool_unknown_name_returns_error_result() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="Unknown tool: nope")], is_error=True))
 
 
-@requirement("mcpserver:tools:output-schema:model")
+@requirement("mcpserver:tool:output-schema:model")
+@requirement("tools:call:structured-content:text-mirror")
 async def test_call_tool_model_return_becomes_structured_content() -> None:
     """A tool returning a pydantic model advertises the model's schema as the tool's output schema
     and returns the model's fields as structured content alongside a serialised text block.
@@ -138,7 +139,7 @@ async def test_call_tool_model_return_becomes_structured_content() -> None:
     )
 
 
-@requirement("mcpserver:tools:output-schema:wrapped")
+@requirement("mcpserver:tool:output-schema:wrapped")
 async def test_call_tool_list_return_is_wrapped_in_result_key() -> None:
     """A tool returning a list wraps the value under a "result" key in both the generated output
     schema and the structured content.
@@ -169,7 +170,7 @@ async def test_call_tool_list_return_is_wrapped_in_result_key() -> None:
     )
 
 
-@requirement("tools:call:invalid-arguments")
+@requirement("mcpserver:tool:input-validation")
 async def test_call_tool_invalid_arguments_become_error_result() -> None:
     """Arguments that fail validation against the tool's signature are reported as an is_error
     result describing the failure, not as a protocol error.
@@ -192,7 +193,7 @@ async def test_call_tool_invalid_arguments_become_error_result() -> None:
     assert result.content[0].text.startswith("Error executing tool add: 1 validation error")
 
 
-@requirement("mcpserver:tools:list-changed-on-mutation")
+@requirement("mcpserver:register:post-connect")
 async def test_adding_and_removing_tools_does_not_notify_connected_clients() -> None:
     """Mutating the tool set on a running server changes tools/list but sends no notification.
 

@@ -65,7 +65,7 @@ async def test_list_prompts_returns_registered_prompts() -> None:
     )
 
 
-@requirement("prompts:get:arguments")
+@requirement("prompts:get:with-args")
 async def test_get_prompt_substitutes_arguments() -> None:
     """Arguments supplied by the client reach the prompt handler; the templated message comes back."""
 

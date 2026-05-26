@@ -20,7 +20,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("mcpserver:resources:static")
+@requirement("mcpserver:resource:static")
 async def test_read_static_resource() -> None:
     """A function registered for a fixed URI is served at that URI with its return value as text."""
     mcp = MCPServer("library")
@@ -40,7 +40,7 @@ async def test_read_static_resource() -> None:
     )
 
 
-@requirement("mcpserver:resources:static")
+@requirement("mcpserver:resource:static")
 async def test_list_static_and_templated_resources() -> None:
     """Statically-registered resources appear in resources/list; templated ones only in templates/list.
 
@@ -89,7 +89,8 @@ async def test_list_static_and_templated_resources() -> None:
     )
 
 
-@requirement("mcpserver:resources:template")
+@requirement("mcpserver:resource:template")
+@requirement("resources:read:template-vars")
 async def test_read_templated_resource() -> None:
     """Reading a URI that matches a registered template invokes the function with the extracted parameters."""
     mcp = MCPServer("library")
@@ -109,7 +110,7 @@ async def test_read_templated_resource() -> None:
     )
 
 
-@requirement("mcpserver:resources:unknown-uri")
+@requirement("mcpserver:resource:unknown-uri")
 async def test_read_unknown_uri_is_error() -> None:
     """Reading a URI that matches no registered resource fails with a JSON-RPC error.
 

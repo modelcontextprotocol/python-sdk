@@ -19,7 +19,7 @@ from tests.interaction._requirements import requirement
 pytestmark = pytest.mark.anyio
 
 
-@requirement("cancellation:in-flight")
+@requirement("protocol:cancel:in-flight")
 async def test_cancellation_stops_in_flight_handler() -> None:
     """Cancelling an in-flight request interrupts its handler and fails the pending call.
 
@@ -68,7 +68,7 @@ async def test_cancellation_stops_in_flight_handler() -> None:
     assert errors == snapshot([ErrorData(code=0, message="Request cancelled")])
 
 
-@requirement("cancellation:server-survives")
+@requirement("protocol:cancel:server-survives")
 async def test_session_serves_requests_after_cancellation() -> None:
     """A request cancelled mid-flight does not poison the session: the next request succeeds."""
     started = anyio.Event()
@@ -114,7 +114,7 @@ async def test_session_serves_requests_after_cancellation() -> None:
     assert result == snapshot(CallToolResult(content=[TextContent(text="still alive")]))
 
 
-@requirement("cancellation:unknown-request")
+@requirement("protocol:cancel:unknown-id-ignored")
 async def test_cancellation_for_unknown_request_is_ignored() -> None:
     """A cancellation referencing a request id that is not in flight is ignored without error."""
 
