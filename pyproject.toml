@@ -47,7 +47,7 @@ dependencies = [
 rich = ["rich>=13.9.4"]
 cli = ["typer>=0.16.0", "python-dotenv>=1.0.0"]
 ws = ["websockets>=15.0.1"]
-redis = ["redis[asyncio]>=4.2.0"]
+redis = ["redis>=4.2.0"]
 
 [project.scripts]
 mcp = "mcp.cli:app [cli]"
