@@ -49,9 +49,7 @@ def test_emit_only_warns_once_per_process(monkeypatch: pytest.MonkeyPatch, reset
     assert len(matching) == 1
 
 
-async def test_create_mcp_http_client_emits_warning(
-    monkeypatch: pytest.MonkeyPatch, reset_warning_flag: None
-) -> None:
+async def test_create_mcp_http_client_emits_warning(monkeypatch: pytest.MonkeyPatch, reset_warning_flag: None) -> None:
     monkeypatch.setattr(httpx_shim, "_HTTPX_IS_DEPRECATED", True)
     with pytest.warns(MCPDeprecationWarning, match=r"install `httpx2` instead"):
         async with create_mcp_http_client():
