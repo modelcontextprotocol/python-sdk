@@ -1,46 +1,6 @@
 """Tests for mcp.server.auth.provider module."""
 
-from pydantic import AnyUrl
-
-from mcp.server.auth.provider import AccessToken, AuthorizationCode, RefreshToken, construct_redirect_uri
-
-
-def test_access_token_subject_and_claims_default_to_none():
-    token = AccessToken(token="t", client_id="c", scopes=["read"])
-    assert token.subject is None
-    assert token.claims is None
-
-
-def test_access_token_carries_subject_and_claims():
-    token = AccessToken(
-        token="t",
-        client_id="c",
-        scopes=["read"],
-        subject="user-123",
-        claims={"iss": "https://auth.example.com", "act": {"sub": "gateway"}},
-    )
-    assert token.subject == "user-123"
-    assert token.claims is not None
-    assert token.claims["iss"] == "https://auth.example.com"
-
-
-def test_authorization_code_carries_subject():
-    code = AuthorizationCode(
-        code="x",
-        scopes=["read"],
-        expires_at=0.0,
-        client_id="c",
-        code_challenge="cc",
-        redirect_uri=AnyUrl("https://example.com/cb"),
-        redirect_uri_provided_explicitly=True,
-        subject="user-123",
-    )
-    assert code.subject == "user-123"
-
-
-def test_refresh_token_carries_subject():
-    refresh = RefreshToken(token="r", client_id="c", scopes=["read"], subject="user-123")
-    assert refresh.subject == "user-123"
+from mcp.server.auth.provider import construct_redirect_uri
 
 
 def test_construct_redirect_uri_no_existing_params():

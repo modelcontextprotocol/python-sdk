@@ -42,16 +42,8 @@ class AccessToken(BaseModel):
     scopes: list[str]
     expires_at: int | None = None
     resource: str | None = None  # RFC 8707 resource indicator
-    subject: str | None = None
-    """The resource owner this token was issued on behalf of — typically the
-    `sub` from a JWT (RFC 9068) or introspection response (RFC 7662). Token
-    verifiers should populate this whenever an end-user is involved so request
-    handlers and transports can distinguish users that share an OAuth client.
-    For `client_credentials` grants there is no end-user; `sub` may then
-    identify the client itself (RFC 9068 §2.2) or be absent, depending on the
-    authorization server."""
-    claims: dict[str, Any] | None = None
-    """Additional verified claims (e.g. `iss`, `act`) for request handlers."""
+    subject: str | None = None  # RFC 7662/9068 `sub`: resource owner the token was issued for
+    claims: dict[str, Any] | None = None  # additional verified claims (e.g. `iss`, `act`)
 
 
 RegistrationErrorCode = Literal[
