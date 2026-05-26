@@ -191,9 +191,11 @@ class BaseSession(
         write_stream: WriteStream[SessionMessage],
         # If none, reading will never time out
         read_timeout_seconds: float | None = None,
+        close_write_stream_on_read_end: bool = True,
     ) -> None:
         self._read_stream = read_stream
         self._write_stream = write_stream
+        self._close_write_stream_on_read_end = close_write_stream_on_read_end
         self._response_streams = {}
         self._request_id = 0
         self._session_read_timeout_seconds = read_timeout_seconds
@@ -234,7 +236,11 @@ class BaseSession(
         # would be very surprising behavior), so make sure to cancel the tasks
         # in the task group.
         self._task_group.cancel_scope.cancel()
-        return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        try:
+            return await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
+        finally:
+            if not self._close_write_stream_on_read_end:
+                await self._write_stream.aclose()
 
     async def send_request(
         self,
@@ -349,7 +355,10 @@ class BaseSession(
         raise NotImplementedError
 
     async def _receive_loop(self) -> None:
-        async with self._read_stream, self._write_stream:
+        async with AsyncExitStack() as stack:
+            await stack.enter_async_context(self._read_stream)
+            if self._close_write_stream_on_read_end:
+                await stack.enter_async_context(self._write_stream)
             try:
 
                 async def _handle_session_message(message: SessionMessage) -> None:

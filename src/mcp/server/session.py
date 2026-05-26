@@ -84,8 +84,13 @@ class ServerSession(
         write_stream: WriteStream[SessionMessage],
         init_options: InitializationOptions,
         stateless: bool = False,
+        close_write_stream_on_read_end: bool = True,
     ) -> None:
-        super().__init__(read_stream, write_stream)
+        super().__init__(
+            read_stream,
+            write_stream,
+            close_write_stream_on_read_end=close_write_stream_on_read_end,
+        )
         self._stateless = stateless
         self._initialization_state = (
             InitializationState.Initialized if stateless else InitializationState.NotInitialized

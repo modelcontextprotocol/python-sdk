@@ -39,7 +39,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from importlib.metadata import version as importlib_version
 from typing import Any, Generic, cast
@@ -85,7 +85,7 @@ class NotificationOptions:
 
 
 @asynccontextmanager
-async def lifespan(_: Server[LifespanResultT]) -> AsyncIterator[dict[str, Any]]:
+async def lifespan(_: Server[LifespanResultT]) -> AsyncGenerator[dict[str, Any]]:
     """Default lifespan context manager that does nothing.
 
     Returns:
@@ -371,6 +371,10 @@ class Server(Generic[LifespanResultT]):
         # the initialization lifecycle, but can do so with any available node
         # rather than requiring initialization for each connection.
         stateless: bool = False,
+        # When True, stdin/file-style EOF is treated as "no more inbound messages";
+        # accepted request handlers are allowed to finish and flush their responses.
+        drain_in_flight_on_read_eof: bool = False,
+        drain_in_flight_on_read_eof_timeout_seconds: float = 5.0,
     ):
         async with AsyncExitStack() as stack:
             lifespan_context = await stack.enter_async_context(self.lifespan(self))
@@ -380,6 +384,7 @@ class Server(Generic[LifespanResultT]):
                     write_stream,
                     initialization_options,
                     stateless=stateless,
+                    close_write_stream_on_read_end=not drain_in_flight_on_read_eof,
                 )
             )
 
@@ -408,11 +413,14 @@ class Server(Generic[LifespanResultT]):
                             raise_exceptions,
                         )
                 finally:
-                    # Transport closed: cancel in-flight handlers. Without this the
-                    # TG join waits for them, and when they eventually try to
-                    # respond they hit a closed write stream (the session's
-                    # _receive_loop closed it when the read stream ended).
-                    tg.cancel_scope.cancel()
+                    if not drain_in_flight_on_read_eof:
+                        # Transport closed: cancel in-flight handlers. Without this the
+                        # TG join waits for them, and when they eventually try to
+                        # respond they hit a closed write stream (the session's
+                        # _receive_loop closed it when the read stream ended).
+                        tg.cancel_scope.cancel()
+                    else:
+                        tg.cancel_scope.deadline = anyio.current_time() + drain_in_flight_on_read_eof_timeout_seconds
 
     async def _handle_message(
         self,

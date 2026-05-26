@@ -6,7 +6,7 @@ import base64
 import inspect
 import json
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Generic, Literal, TypeVar, overload
 
@@ -74,6 +74,8 @@ from mcp.types import Tool as MCPTool
 
 logger = get_logger(__name__)
 
+STDIO_EOF_DRAIN_TIMEOUT_SECONDS = 5.0
+
 _CallableT = TypeVar("_CallableT", bound=Callable[..., Any])
 
 
@@ -119,7 +121,7 @@ def lifespan_wrapper(
     lifespan: Callable[[MCPServer[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]],
 ) -> Callable[[Server[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]]:
     @asynccontextmanager
-    async def wrap(_: Server[LifespanResultT]) -> AsyncIterator[LifespanResultT]:
+    async def wrap(_: Server[LifespanResultT]) -> AsyncGenerator[LifespanResultT]:
         async with lifespan(app) as context:
             yield context
 
@@ -852,6 +854,8 @@ class MCPServer(Generic[LifespanResultT]):
                 read_stream,
                 write_stream,
                 self._lowlevel_server.create_initialization_options(),
+                drain_in_flight_on_read_eof=True,
+                drain_in_flight_on_read_eof_timeout_seconds=STDIO_EOF_DRAIN_TIMEOUT_SECONDS,
             )
 
     async def run_sse_async(  # pragma: no cover
