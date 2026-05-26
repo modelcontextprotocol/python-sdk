@@ -38,7 +38,7 @@ async def redis_client():
     finally:
         try:
             await client.aclose()  # pragma: lax no cover
-        except AttributeError:
+        except AttributeError:  # pragma: lax no cover
             await client.close()  # pragma: lax no cover
 
 
