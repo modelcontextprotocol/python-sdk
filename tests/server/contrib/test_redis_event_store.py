@@ -1,3 +1,8 @@
+# pyright: reportUnknownParameterType=false
+# pyright: reportMissingParameterType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownMemberType=false
 """Tests for RedisEventStore.
 
 Uses fakeredis — no external Redis server required.
