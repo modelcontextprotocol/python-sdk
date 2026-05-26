@@ -34,7 +34,6 @@ async def redis_client():
     """
     client = fakeredis.FakeRedis()
     yield client
-    await client.close()
 
 
 @pytest.fixture
