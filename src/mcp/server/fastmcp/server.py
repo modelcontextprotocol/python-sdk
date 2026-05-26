@@ -1282,9 +1282,14 @@ class Context(BaseModel, Generic[ServerSessionT, LifespanContextT, RequestT]):
             related_request_id=self.request_id,
         )
 
+    # TODO(maxisbey): see if this is needed otherwise remove
     @property
     def client_id(self) -> str | None:
-        """Get the client ID if available."""
+        """Get the client ID if available.
+
+        Note: this reads from the MCP request's `_meta` params, not the OAuth
+        bearer token. For that, use `get_access_token().client_id`.
+        """
         return (
             getattr(self.request_context.meta, "client_id", None) if self.request_context.meta else None
         )  # pragma: no cover
