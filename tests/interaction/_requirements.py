@@ -854,9 +854,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/resources#subscriptions",
         behavior="After resources/unsubscribe the server stops sending updated notifications for that URI.",
         deferred=(
-            "The SDK keeps no subscription state -- emitting updated notifications is entirely handler "
-            "code -- so there is no SDK behaviour to pin beyond the unsubscribe request reaching the "
-            "handler (covered by resources:unsubscribe)."
+            "Not implemented in the SDK: the server keeps no subscription state, so whether updated "
+            "notifications stop after unsubscribe is entirely handler code; there is no SDK behaviour to "
+            "pin beyond the unsubscribe request reaching the handler (covered by resources:unsubscribe)."
         ),
     ),
     "resources:updated-notification": Requirement(
@@ -2327,9 +2327,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         deferred=(
-            "Not yet covered here: the standalone GET stream emits no priming event or retry hint, so "
-            "the client's reconnection path always sleeps the hard-coded 1 s default; a deterministic "
-            "in-process test would inject real-time delay or require an SDK change. The POST-stream "
+            "Not implemented in the SDK: the server's standalone GET stream emits no priming event or "
+            "retry hint, so the client's reconnection path always sleeps the hard-coded 1 s default; a "
+            "deterministic in-process test would require accepting that real-time wait. The POST-stream "
             "reconnection path is covered by client-transport:http:reconnect-post-priming."
         ),
     ),
@@ -2647,10 +2647,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("stdio",),
         deferred=(
-            "Not yet covered here: a server that ignores stdin close takes the full "
-            "PROCESS_TERMINATION_TIMEOUT (2.0 s) grace period plus up to a further 2.0 s for "
-            "SIGTERM/SIGKILL escalation; a robust test of that path is real-time-bound and the constant "
-            "is module-level (no public override). Covered by tests/client/test_stdio.py."
+            "A server that ignores stdin close takes the full PROCESS_TERMINATION_TIMEOUT (2.0 s) grace "
+            "period plus up to a further 2.0 s for SIGTERM/SIGKILL escalation; testing that path is "
+            "real-time-bound (the constant is module-level with no public override) and so is deliberately "
+            "excluded from this suite. Covered by tests/client/test_stdio.py."
         ),
     ),
     "transport:stdio:stderr-passthrough": Requirement(
@@ -2704,10 +2704,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         deferred=(
-            "No public per-session post-initialization hook exists on either server flavour "
-            "(Server.lifespan runs at server startup, not per session; ServerSession handles the "
-            "initialized notification internally with no callback). Driving 'before any client "
-            "request' deterministically would also require knowing the standalone GET stream is "
+            "Not implemented in the SDK: no public per-session post-initialization hook exists on either "
+            "server flavour (Server.lifespan runs at server startup, not per session; ServerSession "
+            "handles the initialized notification internally with no callback). Driving 'before any "
+            "client request' deterministically would also require knowing the standalone GET stream is "
             "established, which has no synchronization signal."
         ),
     ),
