@@ -7,8 +7,6 @@ server's real Starlette app through the in-process streaming bridge, so the full
 (session ids, SSE encoding, session management) runs with no sockets, threads, or subprocesses.
 """
 
-import gc
-import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any, Protocol
@@ -347,26 +345,14 @@ async def connect_over_sse(
         )
 
     transport = sse_client(f"{BASE_URL}/sse", httpx_client_factory=httpx_client_factory)
-    try:
-        async with Client(
-            transport,
-            read_timeout_seconds=read_timeout_seconds,
-            sampling_callback=sampling_callback,
-            list_roots_callback=list_roots_callback,
-            logging_callback=logging_callback,
-            message_handler=message_handler,
-            client_info=client_info,
-            elicitation_callback=elicitation_callback,
-        ) as client:
-            yield client
-    finally:
-        # SseServerTransport.connect_sse never closes its sse_stream_reader (handed to
-        # sse_starlette.EventSourceResponse, which does not aclose() its content on cancel).
-        # After teardown that reader is held only by a reference cycle through the connect_sse
-        # frame and its task objects; collecting twice runs the cycle's finalizers and then
-        # frees the reader while ResourceWarning is suppressed, instead of at an arbitrary
-        # later GC under pytest's error filter. One pass suffices on 3.11+; 3.10 needs both.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", ResourceWarning)
-            gc.collect()
-            gc.collect()
+    async with Client(
+        transport,
+        read_timeout_seconds=read_timeout_seconds,
+        sampling_callback=sampling_callback,
+        list_roots_callback=list_roots_callback,
+        logging_callback=logging_callback,
+        message_handler=message_handler,
+        client_info=client_info,
+        elicitation_callback=elicitation_callback,
+    ) as client:
+        yield client

@@ -151,11 +151,16 @@ class StreamingASGITransport(httpx.AsyncBaseTransport):
                 await chunk_writer.aclose()
 
         self._task_group.start_soon(run_application)
-        await response_started.wait()
-        if application_error is not None:
-            # No response will be built, so close the reader the response body would have owned.
+        try:
+            await response_started.wait()
+            if application_error is not None:
+                raise application_error
+        except BaseException:
+            # No response will be built, so close the reader the response body would have owned
+            # and tell the application its peer has gone away.
+            client_disconnected.set()
             await chunk_reader.aclose()
-            raise application_error
+            raise
         return httpx.Response(
             status_code=response_status,
             headers=response_headers,

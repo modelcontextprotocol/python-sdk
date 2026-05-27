@@ -179,6 +179,7 @@ class SseServerTransport:
                 await EventSourceResponse(content=sse_stream_reader, data_sender_callable=sse_writer)(
                     scope, receive, send
                 )
+                await sse_stream_reader.aclose()
                 await read_stream_writer.aclose()
                 await write_stream_reader.aclose()
                 self._read_stream_writers.pop(session_id, None)

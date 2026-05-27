@@ -115,17 +115,16 @@ async def test_delete_terminates_the_session_and_subsequent_requests_return_404(
             json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             headers=base_headers(session_id=session_id),
         )
-
-    assert (post.status_code, post.json()) == snapshot(
-        (
-            404,
-            {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32600, "message": "Not Found: Session has been terminated"},
-            },
+        assert (post.status_code, post.json()) == snapshot(
+            (
+                404,
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32600, "message": "Not Found: Session has been terminated"},
+                },
+            )
         )
-    )
 
 
 @requirement("hosting:session:isolation")

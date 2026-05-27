@@ -7,8 +7,6 @@ rejects requests it cannot route to a session. Every test drives the server's re
 through the suite's streaming ASGI bridge.
 """
 
-import gc
-import warnings
 from uuid import UUID, uuid4
 
 import anyio
@@ -59,10 +57,6 @@ async def test_endpoint_event_names_the_message_endpoint_with_a_fresh_session_id
             assert await client.send_ping() == snapshot(EmptyResult())
 
     assert sse._read_stream_writers == {}
-    # See connect_over_sse: collect the one stream sse_starlette never closes on disconnect.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", ResourceWarning)
-        gc.collect()
 
 
 @requirement("transport:sse:post:session-routing")
