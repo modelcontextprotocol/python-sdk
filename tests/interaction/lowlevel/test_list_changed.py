@@ -1,11 +1,14 @@
 """List-changed notifications from the low-level Server, driven through the public Client API.
 
-The notifications are emitted from inside a tool call, so the ordering guarantee described in
-test_logging.py applies: they reach the client's message handler before the tool call returns,
-and the tests assert on a plain collected list with no synchronisation. The collector records
-every message the handler receives, so the assertions also prove nothing else was delivered.
+``send_*_list_changed`` does not take a ``related_request_id``, so over streamable HTTP the
+notification routes to the standalone GET stream and is not guaranteed to arrive before the tool
+result on its POST stream. Tests therefore wait on an event the collector sets, the same pattern
+as ``transports/test_streamable_http.py::test_unrelated_server_messages_arrive_on_the_standalone_stream``.
+The collector still records every message it receives, so the snapshot also proves nothing else
+was delivered.
 """
 
+import anyio
 import pytest
 from inline_snapshot import snapshot
 
@@ -29,9 +32,11 @@ pytestmark = pytest.mark.anyio
 async def test_tool_list_changed_notification(connect: Connect) -> None:
     """A tools/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
+    seen = anyio.Event()
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
+        seen.set()
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -47,6 +52,8 @@ async def test_tool_list_changed_notification(connect: Connect) -> None:
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("install", {})
+        with anyio.fail_after(5):
+            await seen.wait()
 
     assert received == snapshot([ToolListChangedNotification()])
 
@@ -55,9 +62,11 @@ async def test_tool_list_changed_notification(connect: Connect) -> None:
 async def test_resource_list_changed_notification(connect: Connect) -> None:
     """A resources/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
+    seen = anyio.Event()
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
+        seen.set()
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -73,6 +82,8 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("mount", {})
+        with anyio.fail_after(5):
+            await seen.wait()
 
     assert received == snapshot([ResourceListChangedNotification()])
 
@@ -81,9 +92,11 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
 async def test_prompt_list_changed_notification(connect: Connect) -> None:
     """A prompts/list_changed notification sent during a tool call reaches the client's message handler."""
     received: list[IncomingMessage] = []
+    seen = anyio.Event()
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
+        seen.set()
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -99,5 +112,7 @@ async def test_prompt_list_changed_notification(connect: Connect) -> None:
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("learn", {})
+        with anyio.fail_after(5):
+            await seen.wait()
 
     assert received == snapshot([PromptListChangedNotification()])

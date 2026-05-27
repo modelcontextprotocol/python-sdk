@@ -1,5 +1,6 @@
 """Tool interactions against MCPServer, driven through the public Client API."""
 
+import logging
 from typing import Annotated, Literal
 
 import pytest
@@ -306,6 +307,40 @@ async def test_registering_a_duplicate_tool_name_warns_and_keeps_the_first(conne
     assert result == snapshot(
         CallToolResult(content=[TextContent(text="first")], structured_content={"result": "first"})
     )
+
+
+@requirement("mcpserver:tool:naming-validation")
+async def test_registering_a_tool_with_a_spec_invalid_name_warns_but_does_not_reject(
+    connect: Connect, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A tool name that violates the SEP-986 rules logs a warning at registration but is still registered.
+
+    The intended behaviour is rejection at registration time; MCPServer instead logs the
+    naming-rule violation and proceeds (see the divergence note on the requirement). The warning
+    spans several SDK-authored log records, so only the stable prefix and inclusion of the
+    offending name are asserted.
+    """
+    mcp = MCPServer("naming")
+
+    with caplog.at_level(logging.WARNING, logger="mcp.shared.tool_name_validation"):
+
+        @mcp.tool(name="bad name!")
+        def bad() -> str:
+            return "ok"
+
+    assert any(
+        rec.levelno == logging.WARNING
+        and rec.message.startswith("Tool name validation warning")
+        and "bad name!" in rec.message
+        for rec in caplog.records
+    )
+
+    async with connect(mcp) as client:
+        listed = await client.list_tools()
+        result = await client.call_tool("bad name!", {})
+
+    assert [tool.name for tool in listed.tools] == ["bad name!"]
+    assert result == snapshot(CallToolResult(content=[TextContent(text="ok")], structured_content={"result": "ok"}))
 
 
 @requirement("mcpserver:tool:url-elicitation-error")

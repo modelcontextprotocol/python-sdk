@@ -209,7 +209,16 @@ assert after the call, with no synchronisation. The exceptions:
 CI requires 100% line and branch coverage, including `tests/`, and `strict-no-cover` fails the
 build if a line marked `# pragma: no cover` is ever executed. When a new test starts covering a
 pragma'd line in `src/`, delete the pragma in the same change. Do not add new `# type: ignore` or
-`# noqa` comments; restructure instead. The one sanctioned pragma is `# pragma: no branch` on a
-`with`/`async with` line whose only fault is coverage.py mis-tracing the exit arc of a nested
-async context — restructure first, and reserve the pragma for shapes that cannot collapse (a sync
-`with` adjacent to an `async with`).
+`# noqa` comments; restructure instead. The one sanctioned pragma in this suite's test code is
+`# pragma: no branch` on a `with`/`async with` line whose only fault is coverage.py mis-tracing
+the exit arc of a nested async context — restructure first, and reserve the pragma for shapes
+that cannot collapse (a sync `with` adjacent to an `async with`).
+
+A handful of `# pragma: lax no cover` markers in `src/` cover teardown exception handlers whose
+execution is timing-dependent under the in-process HTTP bridge — the POST-stream and
+stateless-session `except Exception` handlers in `server/streamable_http*.py`, the `_terminated`
+check in `message_router`, and the response-stream double-close guard in
+`BaseSession._receive_loop`. `strict-no-cover` does not check `lax` lines; do not promote them to
+strict `no cover` without first making the teardown ordering deterministic. The suite also relies
+on a one-line `src/mcp/server/sse.py` fix (`sse_stream_reader.aclose()`) that closes a stream the
+SSE leg would otherwise leak.

@@ -2,11 +2,11 @@
 
 Notification ordering: the in-memory transport delivers every server-to-client message on one
 ordered stream, and the client's receive loop dispatches each incoming message to completion
-before reading the next one. Together these guarantee that every notification the server sends
-before its response reaches the client callback before the originating request returns, so tests
-collect notifications into a plain list and assert after the request completes -- no events, no
-waiting. This does not generalise to transports that split messages across streams (the
-streamable HTTP standalone GET stream); tests over those transports must synchronise explicitly.
+before reading the next one. Over streamable HTTP that ordered single-stream guarantee holds
+only for messages that carry a ``related_request_id`` (they ride the originating request's POST
+stream); without it the message routes to the standalone GET stream and may arrive after the
+response. These tests pass ``related_request_id`` so they can collect into a plain list and
+assert after the request completes on every transport leg -- no events, no waiting.
 """
 
 import pytest
@@ -68,8 +68,12 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "chatty"
-        await ctx.session.send_log_message(level="info", data="starting up", logger="app.lifecycle")
-        await ctx.session.send_log_message(level="error", data={"code": 502, "retryable": True})
+        await ctx.session.send_log_message(
+            level="info", data="starting up", logger="app.lifecycle", related_request_id=ctx.request_id
+        )
+        await ctx.session.send_log_message(
+            level="error", data={"code": 502, "retryable": True}, related_request_id=ctx.request_id
+        )
         return CallToolResult(content=[TextContent(text="done")])
 
     server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -102,7 +106,9 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "siren"
         for level in ALL_LEVELS:
-            await ctx.session.send_log_message(level=level, data=f"a {level} message")
+            await ctx.session.send_log_message(
+                level=level, data=f"a {level} message", related_request_id=ctx.request_id
+            )
         return CallToolResult(content=[TextContent(text="logged")])
 
     server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)

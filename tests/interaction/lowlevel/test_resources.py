@@ -2,6 +2,7 @@
 
 import base64
 
+import anyio
 import pytest
 from inline_snapshot import snapshot
 
@@ -38,6 +39,9 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
     """Listed resources reach the client with their URIs, names, and optional descriptive fields intact.
 
     The fully-populated entry includes annotations, so the snapshot also proves they round-trip.
+    The SDK's Annotations model omits the schema's lastModified field (see the divergence on
+    resources:annotations); the input is built via model_validate with lastModified set so the
+    snapshot pins the drop and will fail once the SDK adds the field.
     """
 
     async def list_resources(
@@ -53,7 +57,9 @@ async def test_list_resources_returns_registered_resources(connect: Connect) -> 
                     description="The project's front page.",
                     mime_type="text/markdown",
                     size=1024,
-                    annotations=Annotations(audience=["user", "assistant"], priority=0.8),
+                    annotations=Annotations.model_validate(
+                        {"audience": ["user", "assistant"], "priority": 0.8, "lastModified": "2025-01-01T00:00:00Z"}
+                    ),
                     icons=[Icon(src="https://example.com/readme.png", mime_type="image/png", sizes=["48x48"])],
                 ),
             ]
@@ -253,13 +259,17 @@ async def test_unsubscribe_resource_delivers_uri_to_handler(connect: Connect) ->
 async def test_resource_updated_notification_reaches_client(connect: Connect) -> None:
     """A resources/updated notification sent during a tool call reaches the client with the resource URI.
 
-    The collector records every message the handler receives, so the assertion also proves nothing
-    else was delivered.
+    ``send_resource_updated`` does not take a ``related_request_id``, so over streamable HTTP the
+    notification routes to the standalone GET stream and is not guaranteed to arrive before the
+    tool result; the test waits on an event the collector sets. The collector records every
+    message the handler receives, so the assertion also proves nothing else was delivered.
     """
     received: list[IncomingMessage] = []
+    seen = anyio.Event()
 
     async def collect(message: IncomingMessage) -> None:
         received.append(message)
+        seen.set()
 
     async def list_tools(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -275,6 +285,8 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("touch", {})
+        with anyio.fail_after(5):
+            await seen.wait()
 
     assert received == snapshot(
         [ResourceUpdatedNotification(params=ResourceUpdatedNotificationParams(uri="file:///watched.txt"))]

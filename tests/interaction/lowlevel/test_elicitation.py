@@ -304,8 +304,9 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
     The lifecycle under test: the tool elicits a URL interaction with an elicitationId, the user
     agrees to visit the URL, the out-of-band interaction finishes, and the server emits
     elicitation/complete so the client can correlate the completion with the elicitation it
-    accepted earlier. Both messages arrive before the tool call returns, so a plain collected
-    list needs no synchronisation.
+    accepted earlier. The completion notification carries ``related_request_id`` so over
+    streamable HTTP it rides the tool call's own stream and reaches the client before the call
+    returns; the same ordering already holds on in-memory and SSE transports.
     """
     elicitation_id = "auth-001"
     elicited_ids: list[str] = []
@@ -327,7 +328,7 @@ async def test_elicitation_complete_notification_carries_the_elicited_id_back_to
             "Authorize access to your files.", "https://example.com/oauth/authorize", elicitation_id
         )
         assert answer.action == "accept"
-        await ctx.session.send_elicit_complete(elicitation_id)
+        await ctx.session.send_elicit_complete(elicitation_id, related_request_id=ctx.request_id)
         return CallToolResult(content=[TextContent(text="linked")])
 
     server = Server("authorizer", on_list_tools=list_tools, on_call_tool=call_tool)
@@ -559,7 +560,7 @@ async def test_elicitation_complete_for_an_unknown_id_is_received_without_error(
 
     async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
         assert params.name == "noop"
-        await ctx.session.send_elicit_complete("never-elicited")
+        await ctx.session.send_elicit_complete("never-elicited", related_request_id=ctx.request_id)
         return CallToolResult(content=[TextContent(text="ok")])
 
     server = Server("notifier", on_list_tools=list_tools, on_call_tool=call_tool)

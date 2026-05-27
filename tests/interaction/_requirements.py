@@ -90,7 +90,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The client does not check its own declared capabilities before sending notifications or "
-                "serving callbacks; nothing prevents a caller from violating the spec's SHOULD."
+                "serving callbacks; nothing prevents a caller from violating the spec's MUST."
             ),
         ),
         deferred=(
@@ -106,7 +106,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The client sends any request regardless of the server's advertised capabilities and "
-                "surfaces whatever the server answers; the spec's SHOULD is not enforced."
+                "surfaces whatever the server answers; the spec's MUST is not enforced."
             ),
         ),
         deferred=(
@@ -693,9 +693,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "mcpserver:tool:naming-validation": Requirement(
         source="sdk",
         behavior="Tool names that violate the spec's naming rules are rejected at registration time.",
-        deferred=(
-            "Not implemented in the SDK: MCPServer accepts any string as a tool name; there is no "
-            "spec-naming-rules check at registration time."
+        divergence=Divergence(
+            note=(
+                "MCPServer runs the SEP-986 naming check at registration (validate_and_warn_tool_name at "
+                "tools/base.py) and logs a warning for non-conforming names, but does not reject them; the "
+                "bool result is discarded and registration proceeds."
+            ),
         ),
     ),
     "mcpserver:tool:output-schema:model": Requirement(
@@ -769,9 +772,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     # ═══════════════════════════════════════════════════════════════════════════
     "resources:annotations": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#annotations",
-        behavior=(
-            "Resource annotations (audience, priority) supplied by the server round-trip to the client "
-            "in the list result."
+        behavior="Resource annotations supplied by the server round-trip to the client in the list result.",
+        divergence=Divergence(
+            note=(
+                "The SDK Annotations model is missing the schema's lastModified field; MCPModel uses the "
+                "pydantic default extra='ignore', so the value is silently dropped on parse."
+            ),
         ),
     ),
     "resources:capability:declared": Requirement(
@@ -2413,9 +2419,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The SDK parses authorization-server metadata without comparing issuer to the discovery "
-                "URL; a mismatched issuer is accepted and the flow proceeds. The SDK also does not "
-                "validate that the document's authorization_endpoint, token_endpoint, and "
-                "registration_endpoint use http(s) schemes."
+                "URL; a mismatched issuer is accepted and the flow proceeds."
             ),
         ),
     ),
