@@ -2818,3 +2818,70 @@ async def test_double_check_inside_refresh_lock_skips_second_refresh(
             await flow.asend(httpx.Response(200, request=yielded))
     finally:
         monkeypatch.setattr(oauth_provider.context.__class__, "is_token_valid", original_is_valid)
+
+
+@pytest.mark.anyio
+async def test_phase1_skips_refresh_when_token_valid(oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken):
+    """Phase 1 branch where ``is_token_valid()`` is True so ``needs_refresh`` stays
+    False and Phase 2 is skipped entirely (covers oauth2.py 536->540).
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() + 3600  # valid
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    # No refresh yield: Phase 1 sees valid token, skips Phase 2 (536->540 False branch).
+    yielded = await flow.__anext__()
+    assert yielded.method == "POST"
+    assert yielded.headers.get("Authorization") == "Bearer test_access_token"
+    with contextlib.suppress(StopAsyncIteration):
+        await flow.asend(httpx.Response(200, request=yielded))
+
+
+@pytest.mark.anyio
+async def test_refresh_success_proceeds_to_phase3_without_resetting_initialized(
+    oauth_provider: OAuthClientProvider, valid_tokens: OAuthToken
+):
+    """After a successful refresh, ``_handle_refresh_response`` returns True so the
+    ``_initialized = False`` reset is skipped and Phase 3 proceeds with the fresh
+    token (covers oauth2.py 553->558 branch where the False arm is taken).
+    """
+    oauth_provider.context.current_tokens = valid_tokens
+    oauth_provider.context.token_expiry_time = time.time() - 100  # expired
+    oauth_provider.context.client_info = OAuthClientInformationFull(
+        client_id="test_client_id",
+        client_secret="test_client_secret",
+        redirect_uris=[AnyUrl("http://localhost:3030/callback")],
+    )
+    oauth_provider._initialized = True
+
+    request = httpx.Request("POST", "https://api.example.com/v1/mcp")
+    flow = oauth_provider.async_auth_flow(request)
+    # Phase 2 yields the refresh request.
+    refresh_request = await flow.__anext__()
+    assert "grant_type=refresh_token" in refresh_request.read().decode()
+
+    # 200 OK with a parseable token body → _handle_refresh_response returns True.
+    refresh_response = httpx.Response(
+        200,
+        content=(
+            b'{"access_token": "fresh_access_token", "token_type": "Bearer", '
+            b'"expires_in": 3600, "refresh_token": "fresh_refresh_token"}'
+        ),
+        request=refresh_request,
+    )
+    actual_request = await flow.asend(refresh_response)
+    # Phase 3 yields the *original* request with the fresh Authorization header.
+    assert actual_request.method == "POST"
+    assert actual_request.headers.get("Authorization") == "Bearer fresh_access_token"
+    # _initialized must NOT have been reset (the True branch of _handle_refresh_response).
+    assert oauth_provider._initialized is True
+
+    with contextlib.suppress(StopAsyncIteration):
+        await flow.asend(httpx.Response(200, request=actual_request))

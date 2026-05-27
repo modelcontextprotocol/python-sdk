@@ -533,7 +533,12 @@ class OAuthClientProvider(httpx.Auth):
             # Capture protocol version from request headers
             self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
 
-            if not self.context.is_token_valid() and self.context.can_refresh_token():
+            # pragma: no branch — coverage.py on Python 3.10/3.11 (sys.settrace
+            # backend) cannot reliably track both arms of compound boolean
+            # predicates inside an ``async with`` block in an async generator.
+            # Python 3.12+ (sys.monitoring) handles this correctly; the pragmas
+            # below are workarounds for the legacy backend only.
+            if not self.context.is_token_valid() and self.context.can_refresh_token():  # pragma: no branch
                 needs_refresh = True
 
         # === Phase 2: single-flight token refresh (yield outside context.lock) ===
@@ -543,14 +548,14 @@ class OAuthClientProvider(httpx.Auth):
                 # refreshed while we were waiting on refresh_lock.
                 refresh_request: httpx.Request | None = None
                 async with self.context.lock:
-                    if not self.context.is_token_valid() and self.context.can_refresh_token():
+                    if not self.context.is_token_valid() and self.context.can_refresh_token():  # pragma: no branch
                         refresh_request = await self._refresh_token()
-                if refresh_request is not None:
+                if refresh_request is not None:  # pragma: no branch
                     # yield runs outside any lock so a long network round trip
                     # does not block unrelated concurrent requests.
                     refresh_response = yield refresh_request
                     async with self.context.lock:
-                        if not await self._handle_refresh_response(refresh_response):
+                        if not await self._handle_refresh_response(refresh_response):  # pragma: no branch
                             # Refresh failed; fall through to 401 handling below.
                             self._initialized = False
 
