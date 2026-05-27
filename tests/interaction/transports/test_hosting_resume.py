@@ -17,8 +17,14 @@ import pytest
 from httpx_sse import EventSource, ServerSentEvent
 from inline_snapshot import snapshot
 
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.shared.message import ClientMessageMetadata
 from mcp.types import (
+    LATEST_PROTOCOL_VERSION,
+    CallToolRequest,
+    CallToolRequestParams,
     CallToolResult,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -28,6 +34,7 @@ from mcp.types import (
     jsonrpc_message_adapter,
 )
 from tests.interaction._connect import (
+    BASE_URL,
     base_headers,
     connect_over_streamable_http,
     initialize_via_http,
@@ -229,13 +236,12 @@ async def test_dropping_the_connection_mid_request_does_not_cancel_the_handler()
             await finished.wait()
 
 
-# This test intentionally carries every resumability requirement: the close-then-resume
-# scenario is indivisible, so splitting it would mean six near-identical bodies.
+# This test intentionally carries every automatic-reconnection requirement: the
+# close-then-resume scenario is indivisible, so splitting it would mean five near-identical bodies.
 @requirement("hosting:resume:close-stream")
 @requirement("transport:streamable-http:resumability")
 @requirement("client-transport:http:reconnect-post-priming")
 @requirement("client-transport:http:reconnect-retry-value")
-@requirement("client-transport:http:resume-stream-api")
 @requirement("flow:resume:tool-call-resumption-token")
 async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() -> None:
     """A server-closed request stream is reconnected by the client and the call completes.
@@ -288,3 +294,78 @@ async def test_a_call_whose_stream_the_server_closes_is_resumed_by_the_client() 
         [CallToolResult(content=[TextContent(text="resumed")], structured_content={"result": "resumed"})]
     )
     assert received == snapshot(["before close", "after close"])
+
+
+@requirement("client-transport:http:resume-stream-api")
+async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_connection() -> None:
+    """A resumption token captured via on_resumption_token_update on one connection lets a fresh
+    connection retrieve the messages it missed by passing resumption_token to send_request.
+
+    This is the explicit ClientMessageMetadata API, distinct from the automatic reconnection the
+    previous test covers: the transport dispatches a resumption_token request as a GET with
+    Last-Event-ID instead of POSTing the body, and remaps the replayed response onto the new
+    request's id. Client.call_tool does not expose ClientMessageMetadata, so the test drives a
+    bare ClientSession via session.send_request -- the sanctioned drop-down for behaviour Client
+    cannot express. The second connection carries the original session id but does not initialize
+    (the server-side session already is), modelling a caller that resumes after a process restart.
+    """
+    captured: list[str] = []
+    received: list[object] = []
+    first_seen = anyio.Event()
+    token_seen = anyio.Event()
+    release = anyio.Event()
+    store = SequencedEventStore()
+
+    mcp = MCPServer("resumable")
+
+    @mcp.tool()
+    async def hold(ctx: Context) -> str:
+        """Emit one notification, wait for the test, emit another, return."""
+        await ctx.info("first")
+        await release.wait()
+        await ctx.info("second")
+        return "done"
+
+    async def on_token(token: str) -> None:
+        captured.append(token)
+        if len(captured) >= 2:
+            token_seen.set()
+
+    async def collect(params: LoggingMessageNotificationParams) -> None:
+        received.append(params.data)
+        first_seen.set()
+
+    call = CallToolRequest(params=CallToolRequestParams(name="hold", arguments={}))
+    capture = ClientMessageMetadata(on_resumption_token_update=on_token)
+
+    async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, manager):
+        with anyio.fail_after(5):  # pragma: no branch
+            async with (
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http, terminate_on_close=False) as (r1, w1),
+                ClientSession(r1, w1, logging_callback=collect) as first,
+                anyio.create_task_group() as tg,
+            ):
+                await first.initialize()
+                tg.start_soon(first.send_request, call, CallToolResult, None, capture)
+                await first_seen.wait()
+                await token_seen.wait()
+                tg.cancel_scope.cancel()
+            assert captured == snapshot(["3", "4"])
+            assert received == snapshot(["first"])
+            # The session id is only observable via the manager (the client transport does not expose it).
+            (session_id,) = manager._server_instances
+
+            release.set()
+            # init priming + init response + call priming + "first" + "second" + result = 6 stored events.
+            await store.wait_until_stored(6)
+            http.headers["mcp-session-id"] = session_id
+            http.headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
+            async with (
+                streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (r2, w2),
+                ClientSession(r2, w2, logging_callback=collect) as second,
+            ):
+                result = await second.send_request(
+                    call, CallToolResult, metadata=ClientMessageMetadata(resumption_token=captured[-1])
+                )
+    assert result == snapshot(CallToolResult(content=[TextContent(text="done")], structured_content={"result": "done"}))
+    assert received == snapshot(["first", "second"])

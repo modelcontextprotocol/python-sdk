@@ -179,6 +179,30 @@ async def test_protocol_version_header_is_validated() -> None:
     assert defaulted.status_code == 202
 
 
+@requirement("hosting:http:json-response-mode")
+async def test_json_response_mode_answers_with_application_json_not_sse() -> None:
+    """With JSON response mode enabled, request POSTs are answered with a single application/json body.
+
+    Asserted at the wire level because the SDK client parses either representation, so a
+    Client-driven round trip cannot distinguish a JSON response from an SSE one.
+    """
+    async with mounted_app(_server(), json_response=True) as (http, _):
+        initialized = await http.post("/mcp", json=initialize_body(), headers=base_headers())
+        session_id = initialized.headers["mcp-session-id"]
+        ping = await http.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "ping"},
+            headers=base_headers(session_id=session_id),
+        )
+
+    assert initialized.status_code == 200
+    assert initialized.headers["content-type"].split(";", 1)[0] == "application/json"
+    assert JSONRPCResponse.model_validate(initialized.json()).id == 1
+    assert ping.status_code == 200
+    assert ping.headers["content-type"].split(";", 1)[0] == "application/json"
+    assert JSONRPCResponse.model_validate(ping.json()).id == 2
+
+
 @requirement("hosting:http:notifications-202")
 async def test_notification_post_returns_202_with_no_body() -> None:
     """A POST containing only a notification (no request ID) returns 202 Accepted with no body."""

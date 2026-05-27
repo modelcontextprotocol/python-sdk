@@ -150,6 +150,7 @@ async def mounted_app(
     server: Server | MCPServer,
     *,
     stateless_http: bool = False,
+    json_response: bool = False,
     event_store: EventStore | None = None,
     retry_interval: int | None = None,
     transport_security: TransportSecuritySettings | None = NO_DNS_REBINDING_PROTECTION,
@@ -174,6 +175,7 @@ async def mounted_app(
     lowlevel = server._lowlevel_server if isinstance(server, MCPServer) else server
     app = lowlevel.streamable_http_app(
         stateless_http=stateless_http,
+        json_response=json_response,
         event_store=event_store,
         retry_interval=retry_interval,
         transport_security=transport_security,

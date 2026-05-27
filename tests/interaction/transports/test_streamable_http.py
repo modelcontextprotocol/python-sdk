@@ -63,7 +63,6 @@ def _smoke_server() -> MCPServer:
 
 
 @requirement("transport:streamable-http:json-response")
-@requirement("hosting:http:json-response-mode")
 @requirement("client-transport:http:json-response-parsed")
 async def test_tool_call_over_streamable_http_with_json_responses() -> None:
     """The round trip works when the server answers with a single JSON body instead of an SSE stream."""

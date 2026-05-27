@@ -1042,7 +1042,7 @@ class StreamableHTTPServerTransport:
                 yield read_stream, write_stream
             finally:
                 for stream_id in list(self._request_streams.keys()):
-                    await self._clean_up_memory_streams(stream_id)  # pragma: no cover
+                    await self._clean_up_memory_streams(stream_id)
                 self._request_streams.clear()
 
                 # Clean up the read and write streams
