@@ -5,8 +5,7 @@ instance dicts so tests can inspect them; tokens are minted from `secrets.token_
 values are unique without being predictable. The behaviour mirrors what the SDK's authorization
 handlers expect: `authorize` immediately mints a code and returns the redirect, `exchange_*`
 issue and rotate tokens, and `load_*` are simple lookups. Only the parts the auth interaction
-suite drives are implemented; methods the tests do not yet reach raise `NotImplementedError`
-and are filled in by the chunk that first exercises them.
+suite drives are implemented; methods the suite does not exercise raise `NotImplementedError`.
 """
 
 import secrets
@@ -183,5 +182,5 @@ class InMemoryAuthorizationServerProvider(
         )
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
-        """Implemented when the bearer/lifecycle tests first exercise revocation."""
+        """Not exercised by this suite; revocation is out of scope for the interaction tests."""
         raise NotImplementedError

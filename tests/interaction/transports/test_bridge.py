@@ -86,8 +86,8 @@ async def test_disabling_cancel_on_close_lets_the_application_finish_after_disco
         cleanup_ran.set()
 
     transport = StreamingASGITransport(lingering_app, cancel_on_close=False)
-    async with httpx.AsyncClient(transport=transport, base_url="http://bridge") as http:
-        with anyio.fail_after(5):
+    with anyio.fail_after(5):
+        async with httpx.AsyncClient(transport=transport, base_url="http://bridge") as http:
             async with http.stream("GET", "/linger") as response:
                 assert response.status_code == 200
             assert not cleanup_ran.is_set()

@@ -424,10 +424,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "protocol:progress:no-token": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
-        behavior=(
-            "Without a progress callback no token is attached, and a handler that reports progress anyway "
-            "sends nothing."
-        ),
+        behavior="Without a progress callback the request carries no progress token.",
     ),
     "protocol:progress:client-to-server": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
@@ -1079,7 +1076,7 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/server/utilities/logging#log-message-notifications",
         behavior=(
             "A log message sent by a server handler is delivered to the client's logging callback with its "
-            "severity level, logger name, and data, in the order the server sent them."
+            "severity level, logger name, and data."
         ),
     ),
     "logging:message:filtered": Requirement(
@@ -1219,7 +1216,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/client/sampling#tool-use-and-result-balance",
         behavior=(
             "Every assistant tool_use block in a sampling request must be matched by a tool_result with "
-            "the same id in the following user message; an unmatched tool_use is rejected with Invalid params."
+            "the same id in the following user message; an unmatched tool_use is rejected with a ValueError "
+            "before the request is sent."
         ),
     ),
     "sampling:tools:server-gated-by-capability": Requirement(
@@ -1331,8 +1329,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         divergence=Divergence(
             note=(
-                "Nothing restricts or validates the requested-schema shape on the sending side; a server "
-                "can send nested or non-primitive schemas and the SDK forwards them unchanged."
+                "ServerSession.elicit_form forwards an arbitrary dict[str, Any] schema unchanged; no shape "
+                "validation at the low-level session layer (the high-level Context.elicit / "
+                "elicit_with_validation helper enforces primitive-only fields before generating the schema)."
             ),
         ),
     ),
@@ -1343,7 +1342,11 @@ REQUIREMENTS: dict[str, Requirement] = {
             "the response before sending and the server validates the content it receives."
         ),
         divergence=Divergence(
-            note="Accepted elicitation content passes through unvalidated on both sides.",
+            note=(
+                "The client never validates outbound content; ServerSession.elicit_form returns received "
+                "content unvalidated (the high-level Context.elicit / elicit_with_validation helper "
+                "validates server-side, but the low-level session API does not)."
+            ),
         ),
     ),
     "elicitation:url:action:accept-no-content": Requirement(
@@ -1788,18 +1791,15 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "transport:sse:endpoint-event": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#backwards-compatibility",
-        behavior=(
-            "Opening the SSE stream delivers an `endpoint` event naming the message-POST URL and a fresh "
-            "session identifier; the server registers the session before the event is sent and releases it "
-            "when the stream disconnects."
-        ),
+        behavior="Opening the SSE stream delivers an `endpoint` event naming the message-POST URL as the first event.",
         transports=("sse",),
     ),
     "transport:sse:post:session-routing": Requirement(
         source="sdk",
         behavior=(
-            "A POST to the SSE message endpoint that names no session id, a malformed session id, or an "
-            "unknown session id is rejected (400/400/404) instead of being forwarded."
+            "The endpoint URL carries a fresh session identifier; the server registers the session before "
+            "the endpoint event is sent and releases it when the stream disconnects, and a POST that names "
+            "no session id, a malformed session id, or an unknown session id is rejected (400/400/404)."
         ),
         transports=("sse",),
     ),
@@ -1830,7 +1830,7 @@ REQUIREMENTS: dict[str, Requirement] = {
     ),
     "hosting:session:delete": Requirement(
         source=f"{SPEC_BASE_URL}/basic/transports#session-management",
-        behavior="DELETE with a valid Mcp-Session-Id terminates the session and removes its transport.",
+        behavior="DELETE with a valid Mcp-Session-Id terminates the session.",
         transports=("streamable-http",),
     ),
     "hosting:session:id-charset": Requirement(
@@ -2333,10 +2333,10 @@ REQUIREMENTS: dict[str, Requirement] = {
         ),
         transports=("streamable-http",),
         deferred=(
-            "Not implemented in the SDK: the server's standalone GET stream emits no priming event or "
-            "retry hint, so the client's reconnection path always sleeps the hard-coded 1 s default; a "
-            "deterministic in-process test would require accepting that real-time wait. The POST-stream "
-            "reconnection path is covered by client-transport:http:reconnect-post-priming."
+            "The server's standalone GET stream emits no priming event or retry hint, so the client's "
+            "reconnection path always sleeps the hard-coded 1 s default; a deterministic in-process test "
+            "would require accepting that real-time wait. The POST-stream reconnection path is covered "
+            "by client-transport:http:reconnect-post-priming."
         ),
     ),
     "client-transport:http:reconnect-post-priming": Requirement(
@@ -2586,7 +2586,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/authorization#scope-selection-strategy",
         behavior=(
             "The client selects the requested scope from WWW-Authenticate when present, then from the "
-            "protected-resource metadata, and otherwise omits scope."
+            "protected-resource metadata, then (as an SDK addition beyond the spec's chain) from the "
+            "AS metadata's scopes_supported, and otherwise omits scope."
         ),
         transports=("streamable-http",),
     ),

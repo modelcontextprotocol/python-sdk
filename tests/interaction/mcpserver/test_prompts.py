@@ -75,7 +75,11 @@ async def test_get_prompt_renders_function_return(connect: Connect) -> None:
 
 @requirement("mcpserver:prompt:unknown-name")
 async def test_get_unknown_prompt_is_error(connect: Connect) -> None:
-    """Getting a prompt name that was never registered fails with a JSON-RPC error."""
+    """Getting a prompt name that was never registered fails with a JSON-RPC error.
+
+    The spec reserves -32602 for this case; the SDK reports code 0 (see the divergence note on
+    the requirement).
+    """
     mcp = MCPServer("prompter")
 
     @mcp.prompt()

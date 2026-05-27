@@ -32,6 +32,7 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
     """The next_cursor a list handler returns reaches the client, and the cursor the client sends
     back on the following call reaches the handler verbatim.
     """
+    cursor = "page-2"
     seen_cursors: list[str | None] = []
 
     async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
@@ -40,7 +41,7 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
         if params.cursor is None:
             return ListToolsResult(
                 tools=[Tool(name="alpha", input_schema={"type": "object"})],
-                next_cursor="page-2",
+                next_cursor=cursor,
             )
         return ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})])
 
@@ -48,13 +49,12 @@ async def test_next_cursor_round_trips_through_the_client(connect: Connect) -> N
 
     async with connect(server) as client:
         first_page = await client.list_tools()
-        second_page = await client.list_tools(cursor="page-2")
+        second_page = await client.list_tools(cursor=first_page.next_cursor)
 
-    assert first_page == snapshot(
-        ListToolsResult(tools=[Tool(name="alpha", input_schema={"type": "object"})], next_cursor="page-2")
-    )
+    assert first_page.next_cursor == cursor
+    assert seen_cursors == [None, cursor]
+    assert [tool.name for tool in first_page.tools] == ["alpha"]
     assert second_page == snapshot(ListToolsResult(tools=[Tool(name="beta", input_schema={"type": "object"})]))
-    assert seen_cursors == snapshot([None, "page-2"])
 
 
 @requirement("pagination:exhaustion")
@@ -158,6 +158,7 @@ async def test_an_unrecognized_pagination_cursor_is_rejected_with_invalid_params
 @requirement("resources:list:pagination")
 async def test_resources_list_supports_cursor_pagination(connect: Connect) -> None:
     """resources/list round-trips the cursor like every other list operation."""
+    cursor = "page-2"
     seen_cursors: list[str | None] = []
 
     async def list_resources(
@@ -166,18 +167,18 @@ async def test_resources_list_supports_cursor_pagination(connect: Connect) -> No
         assert params is not None
         seen_cursors.append(params.cursor)
         if params.cursor is None:
-            return ListResourcesResult(resources=[Resource(uri="memo://1", name="first")], next_cursor="page-2")
+            return ListResourcesResult(resources=[Resource(uri="memo://1", name="first")], next_cursor=cursor)
         return ListResourcesResult(resources=[Resource(uri="memo://2", name="second")])
 
     server = Server("paginated", on_list_resources=list_resources)
 
     async with connect(server) as client:
         first_page = await client.list_resources()
-        second_page = await client.list_resources(cursor="page-2")
+        second_page = await client.list_resources(cursor=first_page.next_cursor)
 
-    assert seen_cursors == snapshot([None, "page-2"])
+    assert first_page.next_cursor == cursor
+    assert seen_cursors == [None, cursor]
     assert [resource.name for resource in first_page.resources] == ["first"]
-    assert first_page.next_cursor == "page-2"
     assert [resource.name for resource in second_page.resources] == ["second"]
     assert second_page.next_cursor is None
 
@@ -185,6 +186,7 @@ async def test_resources_list_supports_cursor_pagination(connect: Connect) -> No
 @requirement("resources:templates:pagination")
 async def test_resource_templates_list_supports_cursor_pagination(connect: Connect) -> None:
     """resources/templates/list round-trips the cursor like every other list operation."""
+    cursor = "page-2"
     seen_cursors: list[str | None] = []
 
     async def list_resource_templates(
@@ -195,7 +197,7 @@ async def test_resource_templates_list_supports_cursor_pagination(connect: Conne
         if params.cursor is None:
             return ListResourceTemplatesResult(
                 resource_templates=[ResourceTemplate(name="first", uri_template="users://{id}")],
-                next_cursor="page-2",
+                next_cursor=cursor,
             )
         return ListResourceTemplatesResult(
             resource_templates=[ResourceTemplate(name="second", uri_template="teams://{id}")]
@@ -205,11 +207,11 @@ async def test_resource_templates_list_supports_cursor_pagination(connect: Conne
 
     async with connect(server) as client:
         first_page = await client.list_resource_templates()
-        second_page = await client.list_resource_templates(cursor="page-2")
+        second_page = await client.list_resource_templates(cursor=first_page.next_cursor)
 
-    assert seen_cursors == snapshot([None, "page-2"])
+    assert first_page.next_cursor == cursor
+    assert seen_cursors == [None, cursor]
     assert [template.name for template in first_page.resource_templates] == ["first"]
-    assert first_page.next_cursor == "page-2"
     assert [template.name for template in second_page.resource_templates] == ["second"]
     assert second_page.next_cursor is None
 
@@ -217,23 +219,24 @@ async def test_resource_templates_list_supports_cursor_pagination(connect: Conne
 @requirement("prompts:list:pagination")
 async def test_prompts_list_supports_cursor_pagination(connect: Connect) -> None:
     """prompts/list round-trips the cursor like every other list operation."""
+    cursor = "page-2"
     seen_cursors: list[str | None] = []
 
     async def list_prompts(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListPromptsResult:
         assert params is not None
         seen_cursors.append(params.cursor)
         if params.cursor is None:
-            return ListPromptsResult(prompts=[Prompt(name="first")], next_cursor="page-2")
+            return ListPromptsResult(prompts=[Prompt(name="first")], next_cursor=cursor)
         return ListPromptsResult(prompts=[Prompt(name="second")])
 
     server = Server("paginated", on_list_prompts=list_prompts)
 
     async with connect(server) as client:
         first_page = await client.list_prompts()
-        second_page = await client.list_prompts(cursor="page-2")
+        second_page = await client.list_prompts(cursor=first_page.next_cursor)
 
-    assert seen_cursors == snapshot([None, "page-2"])
+    assert first_page.next_cursor == cursor
+    assert seen_cursors == [None, cursor]
     assert [prompt.name for prompt in first_page.prompts] == ["first"]
-    assert first_page.next_cursor == "page-2"
     assert [prompt.name for prompt in second_page.prompts] == ["second"]
     assert second_page.next_cursor is None

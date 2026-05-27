@@ -350,8 +350,8 @@ async def test_create_message_with_tools_is_rejected_for_unsupporting_client(con
 
 
 @requirement("sampling:tool-result:no-mixed-content")
-async def test_create_message_with_unbalanced_tool_messages_is_rejected(connect: Connect) -> None:
-    """A sampling request whose messages mix tool results with other content never leaves the server.
+async def test_create_message_with_mixed_tool_result_content_is_rejected(connect: Connect) -> None:
+    """A sampling request whose user message mixes tool_result with other content never leaves the server.
 
     The message-structure validation runs inside create_message before the request is sent, even
     when no tools are passed, so the client callback is never invoked and the handler observes the
