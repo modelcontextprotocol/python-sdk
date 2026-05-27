@@ -1,7 +1,7 @@
 """Tests for OAuth 2.0 shared code."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import AnyHttpUrl, AnyUrl, ValidationError
 
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthMetadata
 
@@ -128,6 +128,18 @@ def test_information_full_inherits_coercion():
     assert info.tos_uri is None
     assert info.policy_uri is None
     assert info.jwks_uri is None
+
+
+def test_redirect_uri_url_subtypes_validate_by_canonical_url():
+    info = OAuthClientInformationFull(
+        client_id="abc123",
+        redirect_uris=[AnyHttpUrl("https://example.com/callback")],
+    )
+    incoming = AnyUrl("https://example.com/callback")
+
+    assert info.validate_redirect_uri(incoming) == incoming
+    assert info.redirect_uris == [incoming]
+    assert info.model_dump(mode="json")["redirect_uris"] == ["https://example.com/callback"]
 
 
 def test_invalid_non_empty_url_still_rejected():
