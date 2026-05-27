@@ -51,6 +51,8 @@ class TransportSecurityMiddleware:
     def __init__(self, settings: TransportSecuritySettings | None = None):
         # If not specified, disable DNS rebinding protection by default for backwards compatibility
         self.settings = settings or TransportSecuritySettings(enable_dns_rebinding_protection=False)
+        self._warned_hosts: set[str | None] = set()
+        self._warned_origins: set[str] = set()
 
     def _validate_host(self, host: str | None) -> bool:
         """Validate the Host header against allowed values."""
@@ -71,7 +73,9 @@ class TransportSecurityMiddleware:
                 if host.startswith(base_host + ":"):
                     return True
 
-        logger.warning(f"Invalid Host header: {host}")
+        if host not in self._warned_hosts:
+            self._warned_hosts.add(host)
+            logger.warning(f"Invalid Host header: {host}")
         return False
 
     def _validate_origin(self, origin: str | None) -> bool:
@@ -93,7 +97,9 @@ class TransportSecurityMiddleware:
                 if origin.startswith(base_origin + ":"):
                     return True
 
-        logger.warning(f"Invalid Origin header: {origin}")
+        if origin not in self._warned_origins:
+            self._warned_origins.add(origin)
+            logger.warning(f"Invalid Origin header: {origin}")
         return False
 
     def _validate_content_type(self, content_type: str | None) -> bool:

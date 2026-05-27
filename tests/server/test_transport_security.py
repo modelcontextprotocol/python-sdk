@@ -83,6 +83,17 @@ def test_validate_host_port_wildcard_no_port() -> None:
     assert m._validate_host("localhost") is False
 
 
+def test_validate_host_logs_once_per_unique_host(caplog: pytest.LogCaptureFixture) -> None:
+    m = TransportSecurityMiddleware(TransportSecuritySettings(allowed_hosts=["example.com"]))
+    with caplog.at_level(logging.WARNING, logger="mcp.server.transport_security"):
+        m._validate_host("evil.com")
+        m._validate_host("evil.com")
+        m._validate_host("evil.com")
+        m._validate_host("other.com")
+    host_records = [r for r in caplog.records if "Invalid Host header" in r.message]
+    assert len(host_records) == 2  # one for evil.com, one for other.com
+
+
 # ---------------------------------------------------------------------------
 # TransportSecurityMiddleware._validate_origin
 # ---------------------------------------------------------------------------
@@ -111,6 +122,16 @@ def test_validate_origin_port_wildcard_match() -> None:
 def test_validate_origin_port_wildcard_different_base() -> None:
     m = TransportSecurityMiddleware(TransportSecuritySettings(allowed_origins=["http://localhost:*"]))
     assert m._validate_origin("http://other:3000") is False
+
+
+def test_validate_origin_logs_once_per_unique_origin(caplog: pytest.LogCaptureFixture) -> None:
+    m = TransportSecurityMiddleware(TransportSecuritySettings(allowed_origins=["http://example.com"]))
+    with caplog.at_level(logging.WARNING, logger="mcp.server.transport_security"):
+        m._validate_origin("http://evil.com")
+        m._validate_origin("http://evil.com")
+        m._validate_origin("http://other.com")
+    origin_records = [r for r in caplog.records if "Invalid Origin header" in r.message]
+    assert len(origin_records) == 2  # one for evil.com, one for other.com
 
 
 # ---------------------------------------------------------------------------
