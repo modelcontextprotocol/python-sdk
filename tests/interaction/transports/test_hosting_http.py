@@ -19,12 +19,16 @@ from mcp.types import (
     PARSE_ERROR,
     CallToolRequestParams,
     CallToolResult,
+    EmptyResult,
     JSONRPCError,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ListResourcesResult,
     ListToolsResult,
     PaginatedRequestParams,
+    SetLevelRequestParams,
+    SubscribeRequestParams,
     TextContent,
 )
 from tests.interaction._connect import (
@@ -52,7 +56,26 @@ def _server() -> Server:
         await ctx.session.send_resource_updated("file:///watched.txt")
         return CallToolResult(content=[TextContent(text="done")])
 
-    return Server("hosted", on_list_tools=list_tools, on_call_tool=call_tool)
+    async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+        """Registered so the logging capability is advertised; the client never sets a level."""
+        raise NotImplementedError
+
+    async def list_resources(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListResourcesResult:
+        """Registered so the resources capability is advertised; the client never lists resources."""
+        raise NotImplementedError
+
+    async def subscribe_resource(ctx: ServerRequestContext, params: SubscribeRequestParams) -> EmptyResult:
+        """Registered so the resources subscribe sub-capability is advertised; the client never subscribes."""
+        raise NotImplementedError
+
+    return Server(
+        "hosted",
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+        on_set_logging_level=set_logging_level,
+        on_list_resources=list_resources,
+        on_subscribe_resource=subscribe_resource,
+    )
 
 
 @requirement("hosting:http:method-405")

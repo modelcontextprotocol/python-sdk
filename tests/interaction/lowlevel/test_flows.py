@@ -23,6 +23,7 @@ from mcp.types import (
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    EmptyResult,
     ListToolsResult,
     ReadResourceResult,
     ResourceLink,
@@ -167,7 +168,16 @@ async def test_a_tool_rejected_with_url_elicitation_required_succeeds_on_retry_a
             )
         return CallToolResult(content=[TextContent(text="contents")])
 
-    server = Server("gatekeeper", on_list_tools=_list_tools("read_files"), on_call_tool=call_tool)
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+        """Registered so the logging capability is advertised; the client never sets a level."""
+        raise NotImplementedError
+
+    server = Server(
+        "gatekeeper",
+        on_list_tools=_list_tools("read_files"),
+        on_call_tool=call_tool,
+        on_set_logging_level=set_logging_level,
+    )
 
     async def collect(message: IncomingMessage) -> None:
         if isinstance(message, ElicitCompleteNotification):

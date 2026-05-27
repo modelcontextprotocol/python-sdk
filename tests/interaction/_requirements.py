@@ -586,8 +586,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "tools:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#list-changed-notification",
         behavior=(
-            "When the tool set changes, a server that declared the tools listChanged capability sends "
-            "notifications/tools/list_changed and it reaches the client's handler."
+            "When the tool set changes, the server sends notifications/tools/list_changed and it reaches "
+            "the client's handler."
         ),
     ),
     "tools:list:basic": Requirement(
@@ -787,8 +787,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "resources:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#list-changed-notification",
         behavior=(
-            "When the resource set changes, a server that declared the resources listChanged capability "
-            "sends notifications/resources/list_changed and it reaches the client's handler."
+            "When the resource set changes, the server sends notifications/resources/list_changed and it "
+            "reaches the client's handler."
         ),
     ),
     "resources:list:basic": Requirement(
@@ -959,8 +959,8 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#list-changed-notification",
         behavior=(
-            "When the prompt set changes, a server that declared the prompts listChanged capability sends "
-            "notifications/prompts/list_changed and it reaches the client's handler."
+            "When the prompt set changes, the server sends notifications/prompts/list_changed and it "
+            "reaches the client's handler."
         ),
     ),
     "prompts:list:basic": Requirement(

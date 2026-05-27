@@ -281,7 +281,23 @@ async def test_resource_updated_notification_reaches_client(connect: Connect) ->
         await ctx.session.send_resource_updated("file:///watched.txt")
         return CallToolResult(content=[TextContent(text="touched")])
 
-    server = Server("library", on_list_tools=list_tools, on_call_tool=call_tool)
+    async def list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        """Registered so the resources capability is advertised; the client never lists resources."""
+        raise NotImplementedError
+
+    async def subscribe_resource(ctx: ServerRequestContext, params: types.SubscribeRequestParams) -> EmptyResult:
+        """Registered so the resources subscribe sub-capability is advertised; the client never subscribes."""
+        raise NotImplementedError
+
+    server = Server(
+        "library",
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+        on_list_resources=list_resources,
+        on_subscribe_resource=subscribe_resource,
+    )
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("touch", {})

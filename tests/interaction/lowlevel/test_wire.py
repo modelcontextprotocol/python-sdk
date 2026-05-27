@@ -15,7 +15,7 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
-from mcp.client import ClientSession
+from mcp.client import ClientRequestContext, ClientSession
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
@@ -33,6 +33,7 @@ from mcp.types import (
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
+    ListRootsResult,
     TextContent,
 )
 from tests.interaction._helpers import RecordingTransport, _RecordingReadStream
@@ -87,9 +88,14 @@ async def test_notifications_are_never_answered() -> None:
     the messages received from the server must be exactly one response per request, each carrying
     the id of the request it answers, and nothing else.
     """
+
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+        """Registered so the client declares the roots capability; the server never asks for roots."""
+        raise NotImplementedError
+
     recording = RecordingTransport(InMemoryTransport(_echo_server()))
 
-    async with Client(recording) as client:
+    async with Client(recording, list_roots_callback=list_roots) as client:
         await client.send_roots_list_changed()
         await client.send_ping()
 

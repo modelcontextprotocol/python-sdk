@@ -154,7 +154,11 @@ async def test_roots_list_changed_reaches_server_handler(connect: Connect) -> No
 
     server = Server("rooted", on_roots_list_changed=roots_list_changed)
 
-    async with connect(server) as client:
+    async def list_roots(context: ClientRequestContext) -> ListRootsResult:
+        """Registered so the client declares the roots capability; the server never asks for roots."""
+        raise NotImplementedError
+
+    async with connect(server, list_roots_callback=list_roots) as client:
         await client.send_roots_list_changed()
         with anyio.fail_after(5):
             await delivered.wait()

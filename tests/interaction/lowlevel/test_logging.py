@@ -76,7 +76,11 @@ async def test_log_messages_reach_logging_callback_in_order(connect: Connect) ->
         )
         return CallToolResult(content=[TextContent(text="done")])
 
-    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+        """Registered so the logging capability is advertised; the client never sets a level."""
+        raise NotImplementedError
+
+    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
 
     async with connect(server, logging_callback=collect) as client:
         result = await client.call_tool("chatty", {})
@@ -111,7 +115,11 @@ async def test_log_messages_at_every_severity_level(connect: Connect) -> None:
             )
         return CallToolResult(content=[TextContent(text="logged")])
 
-    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool)
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+        """Registered so the logging capability is advertised; the client never sets a level."""
+        raise NotImplementedError
+
+    server = Server("logger", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
 
     async with connect(server, logging_callback=collect) as client:
         await client.call_tool("siren", {})

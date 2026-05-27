@@ -6,6 +6,12 @@ result on its POST stream. Tests therefore wait on an event the collector sets, 
 as ``transports/test_streamable_http.py::test_unrelated_server_messages_arrive_on_the_standalone_stream``.
 The collector still records every message it receives, so the snapshot also proves nothing else
 was delivered.
+
+The servers register the parent capability (resources/prompts) so that part of the spec's
+precondition holds, but the ``listChanged`` sub-capability stays ``False``: ``NotificationOptions``
+is not threaded through any of the suite's connection paths. The tests therefore rely on the
+recorded ``lifecycle:capability:server-not-advertised`` divergence and will need updating
+alongside the fix that introduces capability gating.
 """
 
 import anyio
@@ -78,7 +84,13 @@ async def test_resource_list_changed_notification(connect: Connect) -> None:
         await ctx.session.send_resource_list_changed()
         return CallToolResult(content=[TextContent(text="mounted")])
 
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool)
+    async def list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListResourcesResult:
+        """Registered so the resources capability is advertised; the client never lists resources."""
+        raise NotImplementedError
+
+    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool, on_list_resources=list_resources)
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("mount", {})
@@ -108,7 +120,13 @@ async def test_prompt_list_changed_notification(connect: Connect) -> None:
         await ctx.session.send_prompt_list_changed()
         return CallToolResult(content=[TextContent(text="learned")])
 
-    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool)
+    async def list_prompts(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> types.ListPromptsResult:
+        """Registered so the prompts capability is advertised; the client never lists prompts."""
+        raise NotImplementedError
+
+    server = Server("registry", on_list_tools=list_tools, on_call_tool=call_tool, on_list_prompts=list_prompts)
 
     async with connect(server, message_handler=collect) as client:
         await client.call_tool("learn", {})

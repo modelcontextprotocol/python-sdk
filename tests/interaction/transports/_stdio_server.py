@@ -15,8 +15,10 @@ from mcp.server.stdio import stdio_server
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
+    EmptyResult,
     ListToolsResult,
     PaginatedRequestParams,
+    SetLevelRequestParams,
     TextContent,
     Tool,
 )
@@ -41,7 +43,12 @@ async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) ->
     return CallToolResult(content=[TextContent(text=text)])
 
 
-server = Server("stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool)
+async def set_logging_level(ctx: ServerRequestContext, params: SetLevelRequestParams) -> EmptyResult:
+    """Registered so the logging capability is advertised; the client never sets a level."""
+    raise NotImplementedError
+
+
+server = Server("stdio-echo", on_list_tools=list_tools, on_call_tool=call_tool, on_set_logging_level=set_logging_level)
 
 
 async def main() -> None:
