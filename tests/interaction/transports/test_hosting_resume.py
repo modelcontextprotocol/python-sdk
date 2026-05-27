@@ -358,7 +358,7 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
                 tg.cancel_scope.cancel()
 
         with anyio.fail_after(5):  # pragma: no branch
-            release.set()
+            release.set()  # pragma: lax no cover  — python/cpython#106749: 3.11 drops this line event
             # init priming + init response + call priming + "first" + "second" + result = 6 stored events.
             await store.wait_until_stored(6)
             async with (  # pragma: no branch

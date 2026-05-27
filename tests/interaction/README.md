@@ -209,10 +209,14 @@ assert after the call, with no synchronisation. The exceptions:
 CI requires 100% line and branch coverage, including `tests/`, and `strict-no-cover` fails the
 build if a line marked `# pragma: no cover` is ever executed. When a new test starts covering a
 pragma'd line in `src/`, delete the pragma in the same change. Do not add new `# type: ignore` or
-`# noqa` comments; restructure instead. The one sanctioned pragma in this suite's test code is
-`# pragma: no branch` on a `with`/`async with` line whose only fault is coverage.py mis-tracing
-the exit arc of a nested async context — restructure first, and reserve the pragma for shapes
-that cannot collapse (a sync `with` adjacent to an `async with`).
+`# noqa` comments; restructure instead. Two pragmas are sanctioned in this suite's test code, both
+for known-upstream tracer bugs and only after restructuring has been tried: `# pragma: no branch`
+on a `with`/`async with` line whose only fault is coverage.py mis-tracing the exit arc of a nested
+async context (reserve it for shapes that cannot collapse — a sync `with` adjacent to an
+`async with`); and `# pragma: lax no cover` on a single statement that 3.11's tracer drops because
+the preceding `async with` unwinds via `coro.throw()` (python/cpython#106749, wontfix on 3.11) —
+this hits any test that must run statements after a `ClientSession`/`streamable_http_client` exits
+but still inside an outer `async with`, and no restructure can avoid it.
 
 A handful of `# pragma: lax no cover` markers in `src/` cover teardown exception handlers whose
 execution is timing-dependent under the in-process HTTP bridge — the POST-stream and
