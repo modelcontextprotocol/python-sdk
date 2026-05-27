@@ -10,7 +10,8 @@ running the suite before and after.
 uv run --frozen pytest tests/interaction/
 ```
 
-The whole suite is in-memory and event-driven; it runs in about a second.
+The whole suite is in-process and event-driven — including the streamable HTTP, SSE, and OAuth
+flows — with a single subprocess test for stdio.
 
 ## Ground rules
 
@@ -26,10 +27,10 @@ The whole suite is in-memory and event-driven; it runs in about a second.
   the constants in `mcp.types`; error *message strings* are pinned only where they are the
   SDK's own deliberate output.
 - **No sleeps, no real I/O.** Concurrency is coordinated with `anyio.Event`; every wait that
-  could hang is bounded by `anyio.fail_after(5)`. The streamable HTTP tests drive the Starlette
+  could hang is bounded by `anyio.fail_after(5)`. The HTTP and OAuth tests drive the Starlette
   app in-process through the suite's streaming ASGI bridge (`transports/_bridge.py`), which
   delivers each response chunk as the server produces it — full duplex, but still no sockets,
-  threads, or subprocesses anywhere.
+  threads, or subprocesses anywhere outside the one stdio test.
 
 ## Layout
 
@@ -42,7 +43,8 @@ tests/interaction/
   test_coverage.py      enforces the manifest ↔ test contract
   lowlevel/             one file per feature area, against the low-level Server
   mcpserver/            the same feature areas in MCPServer's natural idiom
-  transports/           behaviour specific to one transport (modes, streams, framing)
+  transports/           behaviour specific to one transport (sessions, resumability, framing)
+  auth/                 OAuth flows against an in-process authorization server
 ```
 
 The two server APIs produce genuinely different wire output for the same conceptual feature
@@ -53,14 +55,15 @@ test body — each directory pins its flavour's true output exactly.
 ### The transport matrix
 
 Transport-agnostic tests take the `connect` fixture instead of constructing `Client(server)`
-directly, and therefore run once per transport: over the in-memory transport and over the
-server's real streamable HTTP app driven in process through the streaming bridge. A test connects
-the same way in either case — `async with connect(server, ...) as client:` — and asserts the same
-output, because the transport is not supposed to change observable behaviour. Tests that are tied
-to one transport do not use the fixture: the wire-recording tests (their seam is the in-memory
-stream pair), the bare-`ClientSession` lifecycle tests, the real-clock timeout tests (the timeout
-machinery is transport-independent and must not race transport latency), and everything under
-`transports/`, which pins behaviour only observable on that transport.
+directly, and therefore run once per transport: over the in-memory transport, over the server's
+real streamable HTTP app driven in-process through the streaming bridge, and over the legacy SSE
+transport the same way. A test connects with `async with connect(server, ...) as client:` and
+asserts the same output on every leg, because the transport is not supposed to change observable
+behaviour. Tests that are tied to one transport do not use the fixture: the wire-recording tests
+(their seam is the in-memory stream pair), the bare-`ClientSession` lifecycle tests, the
+real-clock timeout tests (the timeout machinery is transport-independent and must not race
+transport latency), and everything under `transports/`, which pins behaviour only observable on
+that transport.
 
 A transport conformance test in `transports/` speaks raw `httpx` against the mounted ASGI app
 **only** when its assertion is about HTTP semantics that `Client` cannot observe — status codes,
@@ -86,9 +89,10 @@ clients can share one session manager.
   contract) says should happen. Tests always pin the SDK's current behaviour; where that falls
   short of `behavior`, the gap is recorded as data rather than hidden in the test.
 - **`divergence`** records that gap for entries whose tests pin the divergent current behaviour.
-- **`deferred`** marks a behaviour that is tracked but not yet covered by a test in this suite.
-  The reason names the covering tests elsewhere in the repo, starts with "Not implemented in the
-  SDK" for genuine feature gaps, or starts with "Not yet covered here" for tests that are planned.
+- **`deferred`** marks a behaviour that is tracked but has no test in this suite, with a precise
+  reason: the SDK does not implement it, the negative cannot be observed, the assertion is
+  schema-level rather than interaction-level, the feature is experimental (tasks), or the test
+  would require real-time waits the suite refuses.
 - **`transports`** names the transports a behaviour applies to; omitted means transport-independent.
 - **`issue`** carries the tracking link for a recorded gap once one is filed.
 
@@ -168,6 +172,15 @@ async def test_call_tool_returns_text_content() -> None:
   act → assert. The test reads in the order the conversation happens.
 - A registered handler or tool that a test never invokes gets a `raise NotImplementedError` body
   so it cannot silently become load-bearing.
+- A test that needs a peer no real `Server` or `Client` can play (a server that answers initialize
+  with an unsupported version, a client that sends malformed params) plays that side of the wire by
+  hand over `create_client_server_memory_streams()`. This scripted-peer pattern is the suite's only
+  way to drive behaviour the typed API cannot produce, and the docstring of every such test says so.
+
+Stack a second `@requirement` decorator only when a test's natural assertions incidentally prove
+another behaviour — one capabilities snapshot proving four `*:capability:declared` entries, one
+input-schema identity check proving each preserved keyword. Do not build a test around covering
+many requirements at once; if the assertions would be separate, write separate tests.
 
 ### Choosing an assertion
 
