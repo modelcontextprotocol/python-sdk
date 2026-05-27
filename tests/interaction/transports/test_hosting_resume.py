@@ -340,34 +340,27 @@ async def test_a_captured_resumption_token_replays_missed_messages_on_a_new_conn
 
     async with mounted_app(mcp, event_store=store, retry_interval=0) as (http, manager):
         with anyio.fail_after(5):  # pragma: no branch
-            async with (
+            async with (  # pragma: no branch
                 streamable_http_client(f"{BASE_URL}/mcp", http_client=http, terminate_on_close=False) as (r1, w1),
                 ClientSession(r1, w1, logging_callback=collect) as first,
                 anyio.create_task_group() as tg,
             ):
                 await first.initialize()
-                # The call is abandoned via its own scope so the task group exits cleanly: cancelling
-                # the whole group propagates Cancelled through this frame, which 3.11's tracer mishandles.
-                call_scope = anyio.CancelScope()
-
-                async def issue_call() -> None:
-                    with call_scope:
-                        await first.send_request(call, CallToolResult, metadata=capture)
-
-                tg.start_soon(issue_call)
+                tg.start_soon(first.send_request, call, CallToolResult, None, capture)
                 await first_seen.wait()
                 await token_seen.wait()
-                call_scope.cancel()
-            assert captured == snapshot(["3", "4"])
-            assert received == snapshot(["first"])
-            # The session id is only observable via the manager (the client transport does not expose it).
-            (session_id,) = manager._server_instances
+                assert captured == snapshot(["3", "4"])
+                assert received == snapshot(["first"])
+                # The session id is only observable via the manager (the client transport does not expose it).
+                (session_id,) = manager._server_instances
+                http.headers["mcp-session-id"] = session_id
+                http.headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
+                tg.cancel_scope.cancel()
 
+        with anyio.fail_after(5):  # pragma: no branch
             release.set()
             # init priming + init response + call priming + "first" + "second" + result = 6 stored events.
             await store.wait_until_stored(6)
-            http.headers["mcp-session-id"] = session_id
-            http.headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
             async with (  # pragma: no branch
                 streamable_http_client(f"{BASE_URL}/mcp", http_client=http) as (r2, w2),
                 ClientSession(r2, w2, logging_callback=collect) as second,
