@@ -7,14 +7,18 @@ from mcp import MCPError, types
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
     INVALID_PARAMS,
+    AudioContent,
+    EmbeddedResource,
     ErrorData,
     GetPromptResult,
     Icon,
+    ImageContent,
     ListPromptsResult,
     Prompt,
     PromptArgument,
     PromptMessage,
     TextContent,
+    TextResourceContents,
 )
 from tests.interaction._connect import Connect
 from tests.interaction._requirements import requirement
@@ -115,6 +119,72 @@ async def test_get_prompt_multiple_messages_preserve_roles_and_order(connect: Co
                 PromptMessage(role="user", content=TextContent(text="What is the capital of France?")),
                 PromptMessage(role="assistant", content=TextContent(text="The capital of France is Paris.")),
                 PromptMessage(role="user", content=TextContent(text="And of Italy?")),
+            ]
+        )
+    )
+
+
+@requirement("prompts:get:no-args")
+async def test_get_prompt_without_arguments_returns_the_messages(connect: Connect) -> None:
+    """A prompt fetched with no arguments delivers None as the handler's arguments and returns its messages."""
+
+    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
+        assert params.name == "static"
+        assert params.arguments is None
+        return GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="Say hello."))])
+
+    server = Server("prompter", on_get_prompt=get_prompt)
+
+    async with connect(server) as client:
+        result = await client.get_prompt("static")
+
+    assert result == snapshot(
+        GetPromptResult(messages=[PromptMessage(role="user", content=TextContent(text="Say hello."))])
+    )
+
+
+@requirement("prompts:get:content:image")
+@requirement("prompts:get:content:audio")
+@requirement("prompts:get:content:embedded-resource")
+async def test_get_prompt_with_non_text_content_round_trips(connect: Connect) -> None:
+    """Prompt messages can carry image, audio, and embedded-resource content; all reach the client.
+
+    A single full-result snapshot proves all three content types round-trip: each block in the result
+    is one of the three behaviours under test. Tiny fixed base64 payloads ("aW1n" is b"img", "YXVk"
+    is b"aud") so the snapshot pins the exact bytes.
+    """
+
+    async def get_prompt(ctx: ServerRequestContext, params: types.GetPromptRequestParams) -> GetPromptResult:
+        assert params.name == "media"
+        return GetPromptResult(
+            messages=[
+                PromptMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png")),
+                PromptMessage(role="assistant", content=AudioContent(data="YXVk", mime_type="audio/wav")),
+                PromptMessage(
+                    role="user",
+                    content=EmbeddedResource(
+                        resource=TextResourceContents(uri="resource://notes/1", mime_type="text/plain", text="attached")
+                    ),
+                ),
+            ]
+        )
+
+    server = Server("prompter", on_get_prompt=get_prompt)
+
+    async with connect(server) as client:
+        result = await client.get_prompt("media", {})
+
+    assert result == snapshot(
+        GetPromptResult(
+            messages=[
+                PromptMessage(role="user", content=ImageContent(data="aW1n", mime_type="image/png")),
+                PromptMessage(role="assistant", content=AudioContent(data="YXVk", mime_type="audio/wav")),
+                PromptMessage(
+                    role="user",
+                    content=EmbeddedResource(
+                        resource=TextResourceContents(uri="resource://notes/1", mime_type="text/plain", text="attached")
+                    ),
+                ),
             ]
         )
     )

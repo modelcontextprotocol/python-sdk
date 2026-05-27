@@ -8,6 +8,7 @@ from inline_snapshot import snapshot
 from mcp import MCPError, types
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
+    METHOD_NOT_FOUND,
     Annotations,
     BlobResourceContents,
     CallToolResult,
@@ -32,8 +33,12 @@ pytestmark = pytest.mark.anyio
 
 
 @requirement("resources:list:basic")
+@requirement("resources:annotations")
 async def test_list_resources_returns_registered_resources(connect: Connect) -> None:
-    """Listed resources reach the client with their URIs, names, and optional descriptive fields intact."""
+    """Listed resources reach the client with their URIs, names, and optional descriptive fields intact.
+
+    The fully-populated entry includes annotations, so the snapshot also proves they round-trip.
+    """
 
     async def list_resources(
         ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
@@ -203,6 +208,29 @@ async def test_subscribe_resource_delivers_uri_to_handler(connect: Connect) -> N
         result = await client.subscribe_resource("file:///watched.txt")
 
     assert result == snapshot(EmptyResult())
+
+
+@requirement("resources:subscribe:capability-required")
+async def test_subscribe_without_a_subscribe_handler_is_method_not_found(connect: Connect) -> None:
+    """Subscribing to a server that registered no subscribe handler is rejected with METHOD_NOT_FOUND.
+
+    The rejection comes from no handler being registered, not from any capability check; see the
+    divergence on lifecycle:capability:server-not-advertised.
+    """
+
+    async def list_resources(
+        ctx: ServerRequestContext, params: types.PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        """Registered only so the resources capability is advertised; never called."""
+        raise NotImplementedError
+
+    server = Server("library", on_list_resources=list_resources)
+
+    async with connect(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.subscribe_resource("file:///watched.txt")
+
+    assert exc_info.value.error == snapshot(ErrorData(code=METHOD_NOT_FOUND, message="Method not found"))
 
 
 @requirement("resources:unsubscribe")

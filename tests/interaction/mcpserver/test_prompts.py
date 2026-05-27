@@ -155,3 +155,37 @@ async def test_get_prompt_with_an_optional_argument_omitted_uses_the_default(con
             messages=[PromptMessage(role="user", content=TextContent(text="Review x = 1 per pep8."))],
         )
     )
+
+
+@requirement("mcpserver:prompt:duplicate-name")
+async def test_registering_a_duplicate_prompt_name_warns_and_keeps_the_first(connect: Connect) -> None:
+    """Registering a second prompt with an already-used name keeps the first registration.
+
+    The intended behaviour is rejection at registration time; MCPServer instead logs a warning
+    and discards the second registration (see the divergence note on the requirement). The
+    second function is registered via the decorator with an explicit name so the test does not
+    redefine the same function name in this scope.
+    """
+    mcp = MCPServer("prompter")
+
+    @mcp.prompt()
+    def greet() -> str:
+        """The first registration; this is the one that wins."""
+        return "first"
+
+    @mcp.prompt(name="greet")
+    def greet_second() -> str:
+        """Registered with a duplicate name; the registration is discarded so this never runs."""
+        raise NotImplementedError
+
+    async with connect(mcp) as client:
+        listed = await client.list_prompts()
+        result = await client.get_prompt("greet")
+
+    assert [prompt.name for prompt in listed.prompts] == ["greet"]
+    assert result == snapshot(
+        GetPromptResult(
+            description="The first registration; this is the one that wins.",
+            messages=[PromptMessage(role="user", content=TextContent(text="first"))],
+        )
+    )

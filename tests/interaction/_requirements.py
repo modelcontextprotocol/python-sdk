@@ -333,8 +333,8 @@ REQUIREMENTS: dict[str, Requirement] = {
             "direction and are believed to still be in flight."
         ),
         deferred=(
-            "Not yet covered here: there is no public client-side cancel API to drive (see "
-            "protocol:cancel:abort-signal), so the sender-side targeting rule has nothing to pin yet."
+            "Not implemented in the SDK: there is no public client-side cancel API to drive (see "
+            "protocol:cancel:abort-signal), so the sender-side targeting rule has nothing to pin."
         ),
     ),
     "protocol:error:connection-closed": Requirement(
@@ -573,34 +573,18 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A tool registered with a JSON Schema 2020-12 inputSchema (nested objects, $defs references) "
             "is discoverable and callable."
         ),
-        deferred=(
-            "Not yet covered here; existing coverage in tests/test_types.py at the type level; an "
-            "interaction-level passthrough test is planned with the gap batch."
-        ),
     ),
     "tools:input-schema:preserve-additional-properties": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#tool",
         behavior="tools/list preserves inputSchema additionalProperties as registered.",
-        deferred=(
-            "Not yet covered here; existing coverage in tests/test_types.py at the type level; an "
-            "interaction-level passthrough test is planned with the gap batch."
-        ),
     ),
     "tools:input-schema:preserve-defs": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#tool",
         behavior="tools/list preserves inputSchema $defs as registered.",
-        deferred=(
-            "Not yet covered here; existing coverage in tests/test_types.py at the type level; an "
-            "interaction-level passthrough test is planned with the gap batch."
-        ),
     ),
     "tools:input-schema:preserve-schema-dialect": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#tool",
         behavior="tools/list preserves the inputSchema $schema dialect URI as registered.",
-        deferred=(
-            "Not yet covered here; existing coverage in tests/test_types.py at the type level; an "
-            "interaction-level passthrough test is planned with the gap batch."
-        ),
     ),
     "tools:list-changed": Requirement(
         source=f"{SPEC_BASE_URL}/server/tools#list-changed-notification",
@@ -791,10 +775,9 @@ REQUIREMENTS: dict[str, Requirement] = {
     "resources:annotations": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#annotations",
         behavior=(
-            "Resource annotations (audience, priority, lastModified) supplied by the server round-trip to "
-            "the client in list and read results."
+            "Resource annotations (audience, priority) supplied by the server round-trip to the client "
+            "in the list result."
         ),
-        deferred="Not yet covered here: planned gap test (annotations passthrough on list and read results).",
     ),
     "resources:capability:declared": Requirement(
         source=f"{SPEC_BASE_URL}/server/resources#capabilities",
@@ -845,10 +828,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         source="sdk",
         behavior=(
             "resources/subscribe to a server that did not advertise the subscribe capability is rejected with an error."
-        ),
-        deferred=(
-            "Not yet covered here: planned gap test (subscribe rejected with METHOD_NOT_FOUND when no "
-            "subscribe handler is registered)."
         ),
     ),
     "resources:subscribe:updated": Requirement(
@@ -901,12 +880,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "MCPServer logs a warning and keeps the first registration instead of rejecting; same "
-                "warn-and-ignore behaviour as duplicate tool names (mcpserver:tool:duplicate-name)."
+                "warn-and-ignore behaviour as duplicate tool names (mcpserver:tool:duplicate-name). "
+                "Templates differ: a duplicate uri_template silently replaces the first with no warning."
             ),
-        ),
-        deferred=(
-            "Not yet covered here: mechanical sibling of mcpserver:tool:duplicate-name (same "
-            "warn-and-ignore behaviour); planned as a small follow-on to that test."
         ),
     ),
     "mcpserver:resource:read-throws-surfaced": Requirement(
@@ -947,17 +923,14 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:get:content:audio": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#audio-content",
         behavior="Prompt messages may contain audio content with base64 data and a mimeType.",
-        deferred="Not yet covered here: planned gap test (audio content in prompt messages).",
     ),
     "prompts:get:content:embedded-resource": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#embedded-resources",
         behavior="Prompt messages may contain embedded resource content.",
-        deferred="Not yet covered here: planned gap test (embedded resources in prompt messages).",
     ),
     "prompts:get:content:image": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#image-content",
         behavior="Prompt messages may contain image content.",
-        deferred="Not yet covered here: planned gap test (image content in prompt messages).",
     ),
     "prompts:get:missing-required-args": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
@@ -976,7 +949,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "prompts:get:no-args": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#getting-a-prompt",
         behavior="prompts/get with no arguments returns the prompt's messages.",
-        deferred="Not yet covered here: planned gap test (argument-free prompt fetched without arguments).",
     ),
     "prompts:get:unknown-name": Requirement(
         source=f"{SPEC_BASE_URL}/server/prompts#error-handling",
@@ -1024,10 +996,6 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "warn-and-ignore behaviour as duplicate tool names (mcpserver:tool:duplicate-name)."
             ),
         ),
-        deferred=(
-            "Not yet covered here: mechanical sibling of mcpserver:tool:duplicate-name (same "
-            "warn-and-ignore behaviour); planned as a small follow-on to that test."
-        ),
     ),
     "mcpserver:prompt:optional-args": Requirement(
         source="sdk",
@@ -1067,7 +1035,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "completion/complete with a ref naming an unknown prompt or non-matching resource URI returns "
             "JSON-RPC error -32602 (Invalid params)."
         ),
-        deferred="Not yet covered here: planned gap test (completion against an unknown ref).",
     ),
     "completion:prompt-arg": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/completion#reference-types",
@@ -1132,7 +1099,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "logging:set-level:invalid-level": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/logging#error-handling",
         behavior="logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).",
-        deferred="Not yet covered here: planned gap test (invalid level value on setLevel).",
     ),
     # ═══════════════════════════════════════════════════════════════════════════
     # Sampling (server → client)
@@ -1294,12 +1260,8 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note=(
                 "The server does not check the client's declared elicitation modes before sending "
-                "elicitation/create; the spec's SHOULD is not enforced."
+                "elicitation/create; the spec's MUST NOT is not enforced."
             ),
-        ),
-        deferred=(
-            "Not implemented in the SDK: the server does not check the client's declared elicitation "
-            "modes before sending elicitation/create."
         ),
     ),
     "elicitation:form:action:accept": Requirement(
@@ -1338,7 +1300,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "elicitation:form:mode-omitted-default": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#elicitation-requests",
         behavior="An elicitation request with no mode field is treated as form mode by the client.",
-        deferred="Not yet covered here: planned gap test (mode-less elicitation request handled as form mode).",
     ),
     "elicitation:form:not-supported": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#error-handling",
@@ -1356,12 +1317,10 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Requested-schema enum fields (including titled and multi-select variants) reach the client "
             "callback as sent."
         ),
-        deferred="Not yet covered here: planned gap test (enum variants in the requested schema).",
     ),
     "elicitation:form:schema:primitives": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
         behavior="Requested-schema fields may be string (with format), number or integer, or boolean.",
-        deferred="Not yet covered here: planned gap test (full primitive-type coverage in the requested schema).",
     ),
     "elicitation:form:schema:restricted-subset": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#requested-schema",
@@ -1375,10 +1334,6 @@ REQUIREMENTS: dict[str, Requirement] = {
                 "can send nested or non-primitive schemas and the SDK forwards them unchanged."
             ),
         ),
-        deferred=(
-            "Not implemented in the SDK: nothing restricts or validates the requested-schema shape on the "
-            "sending side; hand-built lowlevel elicitation requests pass through unchecked."
-        ),
     ),
     "elicitation:form:response-validation": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#form-mode-security",
@@ -1389,7 +1344,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         divergence=Divergence(
             note="Accepted elicitation content passes through unvalidated on both sides.",
         ),
-        deferred=("Not implemented in the SDK: accepted elicitation content passes through unvalidated on both sides."),
     ),
     "elicitation:url:action:accept-no-content": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
@@ -1423,7 +1377,6 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The client ignores an elicitation/complete notification referencing an unknown or "
             "already-completed elicitationId without error."
         ),
-        deferred="Not yet covered here: planned gap test (unknown elicitationId in a complete notification).",
     ),
     "elicitation:url:decline": Requirement(
         source=f"{SPEC_BASE_URL}/client/elicitation#response-actions",
@@ -1566,17 +1519,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "pagination:invalid-cursor": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/pagination#error-handling",
         behavior="A list request with an invalid cursor returns JSON-RPC error -32602 (Invalid params).",
-        deferred="Not yet covered here: planned gap test (invalid pagination cursor rejected).",
     ),
     "pagination:client:cursor-handling": Requirement(
         source=f"{SPEC_BASE_URL}/server/utilities/pagination#implementation-guidelines",
         behavior=(
             "The client treats cursors as opaque tokens — it does not parse, modify, or persist them — "
             "and does not assume a fixed page size."
-        ),
-        deferred=(
-            "Not yet covered here: planned gap test (the client passes a server-issued cursor back "
-            "byte-for-byte and follows pages of varying sizes)."
         ),
     ),
     # ═══════════════════════════════════════════════════════════════════════════

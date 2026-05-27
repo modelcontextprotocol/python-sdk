@@ -149,3 +149,35 @@ async def test_resource_function_that_raises_is_surfaced_as_a_jsonrpc_error(conn
             await client.read_resource("res://boom")
 
     assert exc_info.value.error == snapshot(ErrorData(code=0, message="Error reading resource res://boom"))
+
+
+@requirement("mcpserver:resource:duplicate-name")
+async def test_registering_a_duplicate_resource_uri_warns_and_keeps_the_first(connect: Connect) -> None:
+    """Registering a second static resource at an already-used URI keeps the first registration.
+
+    The intended behaviour is rejection at registration time; MCPServer instead logs a warning
+    and discards the second registration (see the divergence note on the requirement). The two
+    registrations use different function names so the test does not redefine a name in this scope;
+    the resource decorator keys on the URI, not the function name.
+    """
+    mcp = MCPServer("library")
+
+    @mcp.resource("config://app")
+    def config_first() -> str:
+        """The first registration; this is the one that wins."""
+        return "first"
+
+    @mcp.resource("config://app")
+    def config_second() -> str:
+        """Registered at a duplicate URI; the registration is discarded so this never runs."""
+        raise NotImplementedError
+
+    async with connect(mcp) as client:
+        listed = await client.list_resources()
+        result = await client.read_resource("config://app")
+
+    assert [resource.uri for resource in listed.resources] == ["config://app"]
+    assert listed.resources[0].name == "config_first"
+    assert result == snapshot(
+        ReadResourceResult(contents=[TextResourceContents(uri="config://app", mime_type="text/plain", text="first")])
+    )

@@ -5,9 +5,9 @@ The tests wrap the in-memory transport in a RecordingTransport, which tees every
 the transport seam into a list without touching the session, so the assertions hold for whatever
 the session implementation sends rather than for what its API returns.
 
-The final two tests drive the wire by hand instead: one closes the server-to-client stream while a
-request is in flight to pin the connection-closed teardown, and one sends a deliberately malformed
-JSON-RPC request that the typed client API cannot produce.
+The later tests drive the wire by hand instead: one closes the server-to-client stream while a
+request is in flight to pin the connection-closed teardown, and the last two send deliberately
+malformed JSON-RPC requests that the typed client API cannot produce.
 """
 
 import anyio
@@ -27,6 +27,7 @@ from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    EmptyResult,
     ErrorData,
     JSONRPCError,
     JSONRPCNotification,
@@ -239,3 +240,64 @@ async def test_malformed_request_params_are_answered_with_invalid_params() -> No
             server_task_group.cancel_scope.cancel()
 
     assert errors == snapshot([ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")])
+
+
+@requirement("logging:set-level:invalid-level")
+async def test_set_level_with_an_unrecognized_value_is_answered_with_invalid_params() -> None:
+    """logging/setLevel with a value outside the spec's level enum is answered with -32602 Invalid params.
+
+    The typed client API cannot construct a setLevel request with an unrecognized level (pyright and
+    the client-side model both reject it), so the test plays the client's side of the wire by hand
+    against a real Server. Reserve this pattern for behaviour the typed API cannot produce.
+    """
+
+    async def set_logging_level(ctx: ServerRequestContext, params: types.SetLevelRequestParams) -> EmptyResult:
+        """Registered so the logging capability is advertised; never called -- params validation fails first."""
+        raise NotImplementedError
+
+    server = Server("logger", on_set_logging_level=set_logging_level)
+    errors: list[ErrorData] = []
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as server_task_group:
+            server_task_group.start_soon(server.run, server_read, server_write, server.create_initialization_options())
+
+            with anyio.fail_after(5):
+                await client_write.send(
+                    SessionMessage(
+                        JSONRPCRequest(
+                            jsonrpc="2.0",
+                            id=0,
+                            method="initialize",
+                            params={
+                                "protocolVersion": "2025-11-25",
+                                "capabilities": {},
+                                "clientInfo": {"name": "raw", "version": "0.0.1"},
+                            },
+                        )
+                    )
+                )
+                init_response = await client_read.receive()
+                assert isinstance(init_response, SessionMessage)
+                assert isinstance(init_response.message, JSONRPCResponse)
+                await client_write.send(
+                    SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"))
+                )
+
+                await client_write.send(
+                    SessionMessage(
+                        JSONRPCRequest(jsonrpc="2.0", id=1, method="logging/setLevel", params={"level": "loud"})
+                    )
+                )
+                error_response = await client_read.receive()
+                assert isinstance(error_response, SessionMessage)
+                assert isinstance(error_response.message, JSONRPCError)
+                errors.append(error_response.message.error)
+
+            server_task_group.cancel_scope.cancel()
+
+    assert len(errors) == 1
+    assert errors[0].code == INVALID_PARAMS

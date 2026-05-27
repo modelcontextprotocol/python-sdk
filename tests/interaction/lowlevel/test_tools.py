@@ -158,6 +158,52 @@ async def test_list_tools_returns_registered_tools(connect: Connect) -> None:
     )
 
 
+@requirement("tools:input-schema:json-schema-2020-12")
+@requirement("tools:input-schema:preserve-additional-properties")
+@requirement("tools:input-schema:preserve-defs")
+@requirement("tools:input-schema:preserve-schema-dialect")
+async def test_tools_list_preserves_arbitrary_input_schema_keywords(connect: Connect) -> None:
+    """A rich JSON Schema 2020-12 inputSchema reaches the client unchanged and the tool is callable.
+
+    The single identity assertion below proves all four pass-through behaviours at once: the same
+    dict literal that was registered is the dict that arrives, so $schema, $defs, the nested object
+    property, and additionalProperties are each preserved by virtue of the whole schema being
+    preserved. The follow-up call proves the rich-schema tool is callable end to end.
+    """
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "$defs": {"positive": {"type": "integer", "exclusiveMinimum": 0}},
+        "properties": {
+            "count": {"$ref": "#/$defs/positive"},
+            "options": {
+                "type": "object",
+                "properties": {"verbose": {"type": "boolean"}},
+                "additionalProperties": False,
+            },
+        },
+        "required": ["count"],
+        "additionalProperties": False,
+    }
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        return ListToolsResult(tools=[Tool(name="typed", input_schema=schema)])
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "typed"
+        assert params.arguments == {"count": 3, "options": {"verbose": True}}
+        return CallToolResult(content=[TextContent(text="ok")])
+
+    server = Server("typed", on_list_tools=list_tools, on_call_tool=call_tool)
+
+    async with connect(server) as client:
+        listed = await client.list_tools()
+        called = await client.call_tool("typed", {"count": 3, "options": {"verbose": True}})
+
+    assert listed.tools[0].input_schema == schema
+    assert called == snapshot(CallToolResult(content=[TextContent(text="ok")]))
+
+
 @requirement("tools:list:metadata")
 async def test_list_tools_optional_fields_round_trip(connect: Connect) -> None:
     """Every optional Tool field the server supplies reaches the client unchanged."""

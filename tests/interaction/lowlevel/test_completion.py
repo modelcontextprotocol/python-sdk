@@ -6,6 +6,7 @@ from inline_snapshot import snapshot
 from mcp import MCPError, types
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
+    INVALID_PARAMS,
     METHOD_NOT_FOUND,
     CompleteResult,
     Completion,
@@ -91,6 +92,28 @@ async def test_complete_receives_context_arguments(connect: Connect) -> None:
         )
 
     assert result == snapshot(CompleteResult(completion=Completion(values=["modelcontextprotocol/python-sdk"])))
+
+
+@requirement("completion:error:invalid-ref")
+async def test_completion_against_an_unknown_ref_is_rejected_with_invalid_params(connect: Connect) -> None:
+    """completion/complete with a ref naming an unknown prompt is answered with -32602 Invalid params.
+
+    The lowlevel server does not validate refs itself (it has no prompt/template registry to check
+    against); rejecting an unknown ref is the handler's job, and this test pins the spec-recommended
+    way to do it.
+    """
+
+    async def completion(ctx: ServerRequestContext, params: types.CompleteRequestParams) -> CompleteResult:
+        assert isinstance(params.ref, PromptReference)
+        raise MCPError(code=INVALID_PARAMS, message=f"Unknown prompt: {params.ref.name!r}")
+
+    server = Server("completer", on_completion=completion)
+
+    async with connect(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.complete(PromptReference(name="ghost"), argument={"name": "x", "value": ""})
+
+    assert exc_info.value.error.code == INVALID_PARAMS
 
 
 @requirement("completion:complete:not-supported")

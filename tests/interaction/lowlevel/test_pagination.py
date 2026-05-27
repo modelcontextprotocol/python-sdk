@@ -8,9 +8,10 @@ pagination scheme.
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import types
+from mcp import MCPError, types
 from mcp.server import Server, ServerRequestContext
 from mcp.types import (
+    INVALID_PARAMS,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -88,6 +89,70 @@ async def test_paginating_until_next_cursor_is_absent_yields_every_page(connect:
 
     assert collected == snapshot(["alpha", "beta", "gamma"])
     assert requests_made == len(pages)
+
+
+@requirement("pagination:client:cursor-handling")
+async def test_the_client_follows_opaque_cursors_through_pages_of_varying_sizes(connect: Connect) -> None:
+    """The client passes a server-issued cursor back byte-for-byte and follows pages of varying sizes.
+
+    The cursors are deliberately base64-looking strings (with padding and URL-unsafe characters) to
+    show the client treats them as opaque tokens; the page sizes [3, 1, 2] show the loop relies only
+    on next_cursor, not on a fixed page size.
+    """
+    cursor_to_page_2 = "YWxwaGE+YnJhdm8/Y2hhcmxpZQ=="
+    cursor_to_page_3 = "ZGVsdGE="
+    pages: dict[str | None, tuple[list[str], str | None]] = {
+        None: (["alpha", "beta", "gamma"], cursor_to_page_2),
+        cursor_to_page_2: (["delta"], cursor_to_page_3),
+        cursor_to_page_3: (["epsilon", "zeta"], None),
+    }
+    received_cursors: list[str | None] = []
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        assert params is not None
+        received_cursors.append(params.cursor)
+        names, next_cursor = pages[params.cursor]
+        return ListToolsResult(
+            tools=[Tool(name=name, input_schema={"type": "object"}) for name in names], next_cursor=next_cursor
+        )
+
+    server = Server("paginated", on_list_tools=list_tools)
+
+    page_sizes: list[int] = []
+    cursor: str | None = None
+    async with connect(server) as client:
+        while True:
+            result = await client.list_tools(cursor=cursor)
+            page_sizes.append(len(result.tools))
+            if result.next_cursor is None:
+                break
+            cursor = result.next_cursor
+
+    # Identity, not a snapshot: what arrived at the handler is exactly what the handler issued.
+    assert received_cursors == [None, cursor_to_page_2, cursor_to_page_3]
+    assert page_sizes == [3, 1, 2]
+
+
+@requirement("pagination:invalid-cursor")
+async def test_an_unrecognized_pagination_cursor_is_rejected_with_invalid_params(connect: Connect) -> None:
+    """A list request with a cursor the server did not issue is answered with -32602 Invalid params.
+
+    The lowlevel server does not validate cursors itself (they are opaque to it); rejecting an
+    unrecognized cursor is the handler's job, and this test pins the spec-recommended way to do it.
+    """
+
+    async def list_tools(ctx: ServerRequestContext, params: types.PaginatedRequestParams | None) -> ListToolsResult:
+        assert params is not None
+        assert params.cursor == "never-issued"
+        raise MCPError(code=INVALID_PARAMS, message=f"Unknown cursor: {params.cursor!r}")
+
+    server = Server("paginated", on_list_tools=list_tools)
+
+    async with connect(server) as client:
+        with pytest.raises(MCPError) as exc_info:
+            await client.list_tools(cursor="never-issued")
+
+    assert exc_info.value.error.code == INVALID_PARAMS
 
 
 @requirement("resources:list:pagination")
