@@ -15,7 +15,9 @@ The `behavior` sentence describes the REQUIRED behaviour -- what the specificati
 own contract) says should happen. Tests always pin the SDK's current behaviour. Where current
 behaviour falls short of `behavior`, the gap is recorded as data: `divergence` on entries whose
 tests pin the divergent behaviour, or `deferred` on entries that are tracked but not yet covered
-by a test in this suite. `issue` carries the tracking link for a recorded gap once one is filed.
+by a test in this suite. An entry may carry both: `divergence` records the spec-compliance gap
+(issue-able) and `deferred` records why no test exists; `divergence` alone implies a test pins
+the divergent behaviour. `issue` carries the tracking link for a recorded gap once one is filed.
 
 `deferred` reasons take one of three shapes: where the behaviour is exercised elsewhere in this
 repo the reason names the covering test path; where the SDK does not implement the behaviour at
@@ -85,6 +87,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "The client rejects sending notifications or registering handlers for capabilities it did not declare."
         ),
+        divergence=Divergence(
+            note=(
+                "The client does not check its own declared capabilities before sending notifications or "
+                "serving callbacks; nothing prevents a caller from violating the spec's SHOULD."
+            ),
+        ),
         deferred=(
             "Not implemented in the SDK: the client does not check its own declared capabilities before "
             "sending notifications or serving callbacks."
@@ -94,6 +102,12 @@ REQUIREMENTS: dict[str, Requirement] = {
         source=f"{SPEC_BASE_URL}/basic/lifecycle#operation",
         behavior=(
             "The client rejects calls to methods (e.g. resources/list) for capabilities the server did not advertise."
+        ),
+        divergence=Divergence(
+            note=(
+                "The client sends any request regardless of the server's advertised capabilities and "
+                "surfaces whatever the server answers; the spec's SHOULD is not enforced."
+            ),
         ),
         deferred=(
             "Not implemented in the SDK: the client sends any request regardless of the server's "
@@ -168,9 +182,19 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Before initialization completes, the client sends no requests other than pings, and the "
             "server sends no requests other than pings and logging."
         ),
+        divergence=Divergence(
+            note=(
+                "The server's send methods (create_message / elicit_form / list_roots) do not check "
+                "initialization state before sending; on the client side, Client always completes the "
+                "handshake before any caller code runs."
+            ),
+        ),
         deferred=(
-            "Not yet covered here: the sender-side restraint (especially the server half — no sampling, "
-            "elicitation, or roots requests before the initialized notification) has no test yet."
+            "Not implemented in the SDK: neither side enforces sender-side restraint. The server's send "
+            "methods (create_message / elicit_form / list_roots) do not check initialization state before "
+            "sending, and there is no natural hook to issue a server-to-client request between the "
+            "initialize response and the initialized notification through the public API; on the client "
+            "side, Client always completes the handshake before any caller code runs."
         ),
     ),
     "lifecycle:version:downgrade": Requirement(
@@ -178,12 +202,6 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "When the server returns an older supported protocol version, the client downgrades to it "
             "and the connection succeeds at that version."
-        ),
-        transports=("streamable-http",),
-        deferred=(
-            "Not yet covered here: observing the negotiated version requires the MCP-Protocol-Version "
-            "request header, which only exists on the HTTP transport; planned with the transport "
-            "conformance work."
         ),
     ),
     "lifecycle:version:match": Requirement(
@@ -268,9 +286,13 @@ REQUIREMENTS: dict[str, Requirement] = {
             "A response that arrives after the sender issued notifications/cancelled is ignored; the "
             "request stays failed and no error is raised."
         ),
-        deferred=(
-            "Not yet covered here: needs the scripted-peer wire pattern to deliver a response after a "
-            "cancellation; today the receive loop logs an unknown-request-id error for such responses."
+        divergence=Divergence(
+            note=(
+                "A response whose id matches no in-flight request is delivered to the message handler "
+                "as a RuntimeError rather than being silently ignored. The post-cancellation case is the "
+                "same code path; tested in its unknown-id form because that is deterministic without the "
+                "client-side cancellation API the SDK does not yet provide."
+            ),
         ),
     ),
     "protocol:cancel:server-survives": Requirement(
@@ -282,6 +304,13 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "A server that abandons an in-flight server-initiated request (sampling, elicitation, roots) "
             "cancels it, and the client stops processing the cancelled request."
+        ),
+        divergence=Divergence(
+            note=(
+                "Abandoning a server-side send_request emits no cancellation notification, and the client "
+                "could not act on one anyway: client callbacks run inline in the receive loop, so a "
+                "cancellation is not even read until the callback has finished."
+            ),
         ),
         deferred=(
             "Not implemented in the SDK: abandoning a server-side send_request emits no cancellation "
@@ -311,10 +340,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:error:connection-closed": Requirement(
         source="sdk",
         behavior="Closing the transport fails all in-flight requests with a connection-closed error.",
-        deferred=(
-            "Not yet covered here: planned gap test (close the transport while a request is in flight and "
-            "pin the error the caller receives)."
-        ),
     ),
     "protocol:error:internal-error": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
@@ -332,10 +357,6 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:error:invalid-params": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
         behavior="A request with malformed params is answered with JSON-RPC error -32602 Invalid params.",
-        deferred=(
-            "Not yet covered here: the typed client API cannot send malformed params; needs a request "
-            "driven one level below it (planned gap test)."
-        ),
     ),
     "protocol:error:method-not-found": Requirement(
         source=f"{SPEC_BASE_URL}/basic#responses",
@@ -371,27 +392,34 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:progress:token-unique": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
         behavior=("Concurrent in-flight requests that each supply a progress callback carry distinct progress tokens."),
-        deferred=(
-            "Not yet covered here: planned gap test (two concurrent requests with progress callbacks, "
-            "asserting their tokens differ and each callback only sees its own notifications)."
-        ),
     ),
     "protocol:progress:monotonic": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#progress-flow",
         behavior=(
             "The progress value increases with each notification for a given token, even when the total is unknown."
         ),
-        deferred=(
-            "Not implemented in the SDK: progress values are not validated anywhere; a handler can emit "
-            "non-increasing values and they are forwarded as-is."
+        divergence=Divergence(
+            note=(
+                "The spec MUST is not enforced: progress values are not validated on either side, so a "
+                "handler that emits non-increasing values has them forwarded to the callback unchanged."
+            ),
         ),
     ),
     "protocol:progress:stops-after-completion": Requirement(
         source=f"{SPEC_BASE_URL}/basic/utilities/progress#behavior-requirements",
         behavior="Progress notifications for a token stop once the associated request completes.",
-        deferred=(
-            "Not yet covered here: needs a test that a handler reporting progress after its request "
-            "completed produces no further notifications for the caller."
+        divergence=Divergence(
+            note=(
+                "send_progress_notification does not check whether the token's request has already "
+                "completed; the late notification is sent and reaches the client."
+            ),
+        ),
+    ),
+    "protocol:progress:late-dropped-by-client": Requirement(
+        source="sdk",
+        behavior=(
+            "A progress notification that arrives after its request has completed is not delivered to the "
+            "original progress callback."
         ),
     ),
     "protocol:progress:no-token": Requirement(
@@ -415,6 +443,12 @@ REQUIREMENTS: dict[str, Requirement] = {
     "protocol:timeout:max-total": Requirement(
         source=f"{SPEC_BASE_URL}/basic/lifecycle#timeouts",
         behavior="A maximum total timeout is enforced even when progress notifications keep arriving.",
+        divergence=Divergence(
+            note=(
+                "There is no maximum-total-timeout option; only the per-request read timeout exists, so the "
+                "spec's SHOULD that an overall maximum is always enforced cannot be satisfied."
+            ),
+        ),
         deferred=(
             "Not implemented in the SDK: there is no maximum-total-timeout option; only the per-request "
             "read timeout exists."
@@ -1097,6 +1131,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The server does not use includeContext values thisServer or allServers unless the client "
             "declared the sampling.context capability."
         ),
+        divergence=Divergence(
+            note=(
+                "include_context is forwarded regardless of the client's declared sampling.context "
+                "capability; the server-side validator only checks tools/tool_choice."
+            ),
+        ),
         deferred=(
             "Not implemented in the SDK: include_context is forwarded regardless of the client's declared "
             "sampling.context capability (unlike tools, which are gated by the server-side validator)."
@@ -1223,6 +1263,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "The server refuses to send an elicitation request with a mode the connected client did not "
             "declare in its capabilities."
         ),
+        divergence=Divergence(
+            note=(
+                "The server does not check the client's declared elicitation modes before sending "
+                "elicitation/create; the spec's SHOULD is not enforced."
+            ),
+        ),
         deferred=(
             "Not implemented in the SDK: the server does not check the client's declared elicitation "
             "modes before sending elicitation/create."
@@ -1295,6 +1341,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "Form-mode requested schemas are flat objects with primitive-typed properties only; nested "
             "structures and arrays of objects are not used."
         ),
+        divergence=Divergence(
+            note=(
+                "Nothing restricts or validates the requested-schema shape on the sending side; a server "
+                "can send nested or non-primitive schemas and the SDK forwards them unchanged."
+            ),
+        ),
         deferred=(
             "Not implemented in the SDK: nothing restricts or validates the requested-schema shape on the "
             "sending side; hand-built lowlevel elicitation requests pass through unchecked."
@@ -1305,6 +1357,9 @@ REQUIREMENTS: dict[str, Requirement] = {
         behavior=(
             "Accepted form-mode content is validated against the requested schema: the client validates "
             "the response before sending and the server validates the content it receives."
+        ),
+        divergence=Divergence(
+            note="Accepted elicitation content passes through unvalidated on both sides.",
         ),
         deferred=("Not implemented in the SDK: accepted elicitation content passes through unvalidated on both sides."),
     ),
@@ -2147,6 +2202,12 @@ REQUIREMENTS: dict[str, Requirement] = {
             "with a fresh InitializeRequest and no session ID attached."
         ),
         transports=("streamable-http",),
+        divergence=Divergence(
+            note=(
+                "The client surfaces the 404 as an error to the caller instead of re-initializing a new "
+                "session; the spec's MUST is not satisfied."
+            ),
+        ),
         deferred=(
             "Not implemented in the SDK: the client surfaces the 404 as an error to the caller instead of "
             "re-initializing a new session."

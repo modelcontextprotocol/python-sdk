@@ -331,3 +331,46 @@ async def test_unsupported_server_protocol_version_fails_initialization() -> Non
                         await session.initialize()
 
             assert str(exc_info.value) == snapshot("Unsupported protocol version from the server: 1991-08-06")
+
+
+@requirement("lifecycle:version:downgrade")
+async def test_an_older_supported_protocol_version_from_the_server_is_accepted() -> None:
+    """An initialize response carrying an older supported protocol version completes the handshake at that version.
+
+    A real Server answers with the version the client requested (or its own latest), so this test
+    plays the server's side of the wire by hand to return a fixed older version regardless of what
+    was requested. Reserve this pattern for behaviour no real server can be made to produce.
+    """
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def scripted_server() -> None:
+            message = await server_read.receive()
+            assert isinstance(message, SessionMessage)
+            request = message.message
+            assert isinstance(request, JSONRPCRequest)
+            assert request.method == "initialize"
+            result = InitializeResult(
+                protocol_version="2025-06-18",
+                capabilities=ServerCapabilities(),
+                server_info=Implementation(name="conservative", version="0.0.1"),
+            )
+            await server_write.send(
+                SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=request.id,
+                        # Serialized exactly as a real server serializes results onto the wire.
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+            )
+
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(scripted_server)
+            async with ClientSession(client_read, client_write) as session:
+                with anyio.fail_after(5):
+                    initialize_result = await session.initialize()
+
+            assert initialize_result.protocol_version == snapshot("2025-06-18")

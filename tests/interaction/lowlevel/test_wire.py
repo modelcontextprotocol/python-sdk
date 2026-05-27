@@ -4,18 +4,36 @@ These behaviours are invisible to API callers -- they are properties of the raw 
 The tests wrap the in-memory transport in a RecordingTransport, which tees every message crossing
 the transport seam into a list without touching the session, so the assertions hold for whatever
 the session implementation sends rather than for what its API returns.
+
+The final two tests drive the wire by hand instead: one closes the server-to-client stream while a
+request is in flight to pin the connection-closed teardown, and one sends a deliberately malformed
+JSON-RPC request that the typed client API cannot produce.
 """
 
 import anyio
 import pytest
 from inline_snapshot import snapshot
 
-from mcp import types
+from mcp import MCPError, types
+from mcp.client import ClientSession
 from mcp.client._memory import InMemoryTransport
 from mcp.client.client import Client
 from mcp.server import Server, ServerRequestContext
+from mcp.shared.memory import create_client_server_memory_streams
 from mcp.shared.message import SessionMessage
-from mcp.types import CallToolResult, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, TextContent
+from mcp.types import (
+    CONNECTION_CLOSED,
+    INVALID_PARAMS,
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ErrorData,
+    JSONRPCError,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    TextContent,
+)
 from tests.interaction._helpers import RecordingTransport, _RecordingReadStream
 from tests.interaction._requirements import requirement
 
@@ -119,3 +137,105 @@ async def test_exactly_one_initialized_notification_is_sent_after_the_handshake(
     ]
     assert sent_methods.count("notifications/initialized") == 1
     assert sent_methods == snapshot(["initialize", "notifications/initialized", "tools/list"])
+
+
+@requirement("protocol:error:connection-closed")
+async def test_closing_the_transport_fails_in_flight_requests_with_connection_closed() -> None:
+    """When the server-to-client stream closes, every in-flight client request fails with CONNECTION_CLOSED.
+
+    Driven over a bare ClientSession against a real Server so the test holds the transport stream
+    pair directly: once the request is in flight (the server handler signals it has started) the
+    test closes the server's write stream, which ends the client's receive loop and triggers the
+    teardown that fails the pending request.
+    """
+    handler_started = anyio.Event()
+
+    async def call_tool(ctx: ServerRequestContext, params: types.CallToolRequestParams) -> CallToolResult:
+        assert params.name == "block"
+        handler_started.set()
+        await anyio.Event().wait()  # blocks until cancelled; nothing ever sets this event
+        raise NotImplementedError  # unreachable: the wait above never completes normally
+
+    server = Server("blocker", on_call_tool=call_tool)
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+        errors: list[ErrorData] = []
+
+        async with anyio.create_task_group() as server_task_group:
+            server_task_group.start_soon(server.run, server_read, server_write, server.create_initialization_options())
+
+            async with ClientSession(client_read, client_write) as session:
+                with anyio.fail_after(5):
+                    await session.initialize()
+
+                    async def call_and_capture_error() -> None:
+                        with pytest.raises(MCPError) as exc_info:
+                            await session.send_request(
+                                CallToolRequest(params=CallToolRequestParams(name="block")), CallToolResult
+                            )
+                        errors.append(exc_info.value.error)
+
+                    async with anyio.create_task_group() as task_group:
+                        task_group.start_soon(call_and_capture_error)
+                        await handler_started.wait()
+                        await server_write.aclose()
+
+            server_task_group.cancel_scope.cancel()
+
+    assert errors == snapshot([ErrorData(code=CONNECTION_CLOSED, message="Connection closed")])
+
+
+@requirement("protocol:error:invalid-params")
+async def test_malformed_request_params_are_answered_with_invalid_params() -> None:
+    """A request whose params fail validation is answered with -32602 Invalid params.
+
+    The typed client API cannot construct a request with the wrong parameter types, so the test
+    plays the client's side of the wire by hand against a real Server: it completes the
+    initialization handshake at the JSON-RPC layer and then sends a tools/call whose `name` is an
+    integer. Reserve this pattern for behaviour the typed API cannot produce.
+    """
+    server = Server("strict")
+    errors: list[ErrorData] = []
+
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async with anyio.create_task_group() as server_task_group:
+            server_task_group.start_soon(server.run, server_read, server_write, server.create_initialization_options())
+
+            with anyio.fail_after(5):
+                await client_write.send(
+                    SessionMessage(
+                        JSONRPCRequest(
+                            jsonrpc="2.0",
+                            id=0,
+                            method="initialize",
+                            params={
+                                "protocolVersion": "2025-11-25",
+                                "capabilities": {},
+                                "clientInfo": {"name": "raw", "version": "0.0.1"},
+                            },
+                        )
+                    )
+                )
+                init_response = await client_read.receive()
+                assert isinstance(init_response, SessionMessage)
+                assert isinstance(init_response.message, JSONRPCResponse)
+                await client_write.send(
+                    SessionMessage(JSONRPCNotification(jsonrpc="2.0", method="notifications/initialized"))
+                )
+
+                await client_write.send(
+                    SessionMessage(JSONRPCRequest(jsonrpc="2.0", id=1, method="tools/call", params={"name": 42}))
+                )
+                error_response = await client_read.receive()
+                assert isinstance(error_response, SessionMessage)
+                assert isinstance(error_response.message, JSONRPCError)
+                errors.append(error_response.message.error)
+
+            server_task_group.cancel_scope.cancel()
+
+    assert errors == snapshot([ErrorData(code=INVALID_PARAMS, message="Invalid request parameters", data="")])

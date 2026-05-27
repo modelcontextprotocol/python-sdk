@@ -113,6 +113,11 @@ entry without a test cannot be silently aspirational.
    spec-correct output, and deletes the `Divergence`.
 3. An empty divergence list means the SDK is spec-conformant on every behaviour the suite covers.
 
+A requirement may carry both `divergence` and `deferred`: the divergence records that the SDK falls
+short of the spec, and the deferral records why no test pins it (typically because the divergent
+behaviour cannot be driven through the public API). Divergence alone implies a test pins the
+divergent behaviour; divergence plus deferred means the gap is known but unpinned.
+
 This is also the triage key for any rewrite: a test that fails on the new code path either has a
 divergence note (the rewrite accidentally fixed a known gap — decide whether to keep the fix) or
 it does not (the rewrite broke something that was correct — fix the rewrite).

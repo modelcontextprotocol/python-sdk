@@ -11,9 +11,25 @@ import pytest
 from inline_snapshot import snapshot
 
 from mcp import MCPError, types
+from mcp.client import ClientSession
 from mcp.server import Server, ServerRequestContext
-from mcp.types import CallToolResult, ErrorData, TextContent
+from mcp.shared.memory import create_client_server_memory_streams
+from mcp.shared.message import SessionMessage
+from mcp.types import (
+    CallToolResult,
+    EmptyResult,
+    ErrorData,
+    Implementation,
+    InitializeResult,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    PingRequest,
+    ServerCapabilities,
+    TextContent,
+)
 from tests.interaction._connect import Connect
+from tests.interaction._helpers import IncomingMessage
 from tests.interaction._requirements import requirement
 
 pytestmark = pytest.mark.anyio
@@ -137,3 +153,80 @@ async def test_cancellation_for_unknown_request_is_ignored(connect: Connect) -> 
         result = await client.call_tool("echo", {})
 
     assert result == snapshot(CallToolResult(content=[TextContent(text="unbothered")]))
+
+
+@requirement("protocol:cancel:late-response-ignored")
+async def test_a_response_for_an_unknown_request_id_surfaces_to_the_message_handler() -> None:
+    """A response whose id matches no in-flight request is surfaced to the message handler as a RuntimeError.
+
+    The spec says a sender SHOULD ignore a response that arrives after it issued a cancellation;
+    that is the same client-side code path as any response with an unknown id, and that form is
+    deterministic to test without depending on the cancellation API the SDK does not yet provide.
+    See the divergence note on the requirement.
+
+    A real Server cannot be made to answer with a fabricated id, so the test plays the server's
+    side of the wire by hand. Reserve this pattern for behaviour no real server can produce. The
+    other tests in this file run over the transport matrix; this one is in-memory only because the
+    scripted-peer mechanism is the in-memory stream pair, not because the behaviour is
+    transport-specific.
+    """
+    async with create_client_server_memory_streams() as (client_streams, server_streams):
+        client_read, client_write = client_streams
+        server_read, server_write = server_streams
+
+        async def scripted_server() -> None:
+            def respond(request_id: types.RequestId, result: types.Result) -> SessionMessage:
+                return SessionMessage(
+                    JSONRPCResponse(
+                        jsonrpc="2.0",
+                        id=request_id,
+                        # Serialized exactly as a real server serializes results onto the wire.
+                        result=result.model_dump(by_alias=True, mode="json", exclude_none=True),
+                    )
+                )
+
+            init = await server_read.receive()
+            assert isinstance(init, SessionMessage)
+            assert isinstance(init.message, JSONRPCRequest)
+            assert init.message.method == "initialize"
+            await server_write.send(
+                respond(
+                    init.message.id,
+                    InitializeResult(
+                        protocol_version="2025-11-25",
+                        capabilities=ServerCapabilities(),
+                        server_info=Implementation(name="scripted", version="0.0.1"),
+                    ),
+                )
+            )
+
+            initialized = await server_read.receive()
+            assert isinstance(initialized, SessionMessage)
+            assert isinstance(initialized.message, JSONRPCNotification)
+            assert initialized.message.method == "notifications/initialized"
+
+            ping = await server_read.receive()
+            assert isinstance(ping, SessionMessage)
+            assert isinstance(ping.message, JSONRPCRequest)
+            assert ping.message.method == "ping"
+            # First answer with a fabricated id that matches nothing in flight, then the real id.
+            await server_write.send(respond(9999, EmptyResult()))
+            await server_write.send(respond(ping.message.id, EmptyResult()))
+
+        incoming: list[IncomingMessage] = []
+
+        async def message_handler(message: IncomingMessage) -> None:
+            incoming.append(message)
+
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(scripted_server)
+            async with ClientSession(client_read, client_write, message_handler=message_handler) as session:
+                with anyio.fail_after(5):
+                    await session.initialize()
+                    pong = await session.send_request(PingRequest(), EmptyResult)
+
+            assert pong == snapshot(EmptyResult())
+            assert len(incoming) == 1
+            assert isinstance(incoming[0], RuntimeError)
+            # The full message embeds the response object's repr; only the prefix is stable.
+            assert str(incoming[0]).startswith("Received response with an unknown request ID:")
